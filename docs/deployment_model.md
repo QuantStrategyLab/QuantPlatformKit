@@ -1,175 +1,172 @@
 # Deployment Model
 
-## 结论
+## Conclusion
 
-- `QuantPlatformKit` 是共享平台代码仓库，**不单独部署**。
-- `InteractiveBrokersQuant`、`CharlesSchwabQuant`、`LongBridgeQuant`、`BinanceQuant` 这些仓库才是实际运行单元。
-- 策略仓库应该固定依赖某个 Git tag，不要直接依赖 `main`。
+- `QuantPlatformKit` is a shared platform code repository and is **not deployed as a runtime service**.
+- `InteractiveBrokersQuant`, `CharlesSchwabQuant`, `LongBridgeQuant`, and `BinanceQuant` remain the real deployment units.
+- Strategy repositories should depend on a fixed Git tag instead of `main`.
 
-## 仓库职责
+## Repository responsibilities
 
-### 平台仓库
+### Platform repository
 
 - `QuantPlatformKit`
-  - 统一领域模型
-  - broker 适配层
-  - 通知和少量通用工具
+  - shared domain models
+  - narrow ports for market data, portfolio snapshots, execution, notifications, and state
+  - broker adapters
+  - small reusable utilities
 
-### 策略仓库
+### Strategy repositories
 
 - `InteractiveBrokersQuant`
 - `CharlesSchwabQuant`
 - `LongBridgeQuant`
 - `BinanceQuant`
 
-这些仓库负责：
+These repositories should own:
 
-- 策略规则
-- 执行编排
-- 运行入口
-- 各自部署配置
+- strategy rules
+- orchestration
+- runtime entrypoints
+- deployment configuration
 
-### 基础设施仓库
+### Infrastructure repositories
 
 - `IBKRGatewayManager`
 - `SchwabTokenAutoRefresher`
 
-它们不属于策略执行仓库，也不属于平台包。
+They are neither strategy repositories nor part of the shared platform package.
 
-## 依赖方式
+## Dependency model
 
-策略仓库应该固定依赖某个 tag，例如：
+Strategy repositories should pin a fixed tag, for example:
 
 ```text
 quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.4.0
 ```
 
-不要用：
+Avoid:
 
 ```text
 quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@main
 ```
 
-原因：
+Reasons:
 
-- 构建可重复
-- 回滚简单
-- Cloud Run / VPS 的部署单元不需要感知两个源码仓库
+- reproducible builds
+- simple rollback
+- Cloud Run and VPS deployment units do not need to understand two source repositories
 
-## 发布顺序
+## Release order
 
-每次平台层改动建议按这个顺序走：
+Recommended order for platform-layer changes:
 
-1. 在 `QuantPlatformKit` 完成改动并跑测试
-2. 推送到 `main`
-3. 打新 tag
-4. 在策略仓库里升级依赖到新 tag
-5. 再让策略仓库触发自己的构建或部署
+1. finish the change in `QuantPlatformKit`
+2. run tests
+3. push to `main`
+4. create a new tag
+5. update the strategy repositories to the new tag
+6. let each strategy repository trigger its own build or deployment
 
-## 部署单位
+## Deployment units
 
 ### Cloud Run
 
-Cloud Run 继续只部署策略仓库，不部署 `QuantPlatformKit`。
+Cloud Run should continue to deploy strategy repositories only.
 
-推荐服务名：
+Recommended service names:
 
-| 仓库 | 推荐服务名 |
+| Repository | Recommended service name |
 |---|---|
 | `InteractiveBrokersQuant` | `interactive-brokers-quant` |
 | `CharlesSchwabQuant` | `charles-schwab-quant` |
 | `LongBridgeQuant` | `longbridge-quant-hk` / `longbridge-quant-sg` |
 
-如果后面同一平台下再增加第二套相近策略，可以用：
+If you later add a second closely related strategy under the same platform, names such as these are fine:
 
 - `interactive-brokers-quant-rotation`
 - `interactive-brokers-quant-income`
 
-但前提是它们共享大部分代码路径。不要一开始就把完全不同的策略塞进同一个服务里靠参数切换。
+Do not start by putting unrelated strategies behind one service and switching them with a parameter.
 
 ### VPS / self-hosted runner
 
-`BinanceQuant` 继续走现有 self-hosted runner + 外部调度。
+`BinanceQuant` should continue to use the existing self-hosted runner and external scheduler.
 
-推荐运行单元名：
+Recommended runtime unit name:
 
 - `binance-quant`
 
-## 参数化边界
+## Parameterization boundary
 
-可以参数化的：
+Reasonable parameters:
 
 - `IB_GATEWAY_MODE`
 - `ACCOUNT_PREFIX`
 - `SERVICE_NAME`
 - `NOTIFY_LANG`
-- 同策略族里的 `SERVICE_VARIANT` / `STRATEGY_PROFILE`
+- `SERVICE_VARIANT` / `STRATEGY_PROFILE` for closely related strategy variants
 
-不建议参数化的：
+Avoid parameterizing:
 
-- 完全不同的策略体系
-- 完全不同的持仓模型
-- 完全不同的调度周期
+- completely different strategy systems
+- completely different portfolio models
+- completely different scheduling patterns
 
-更推荐：
+Prefer:
 
-- 同仓库
-- 不同服务
-- 不同 env
+- same repository
+- different services
+- different environment variables
 
-而不是一个服务里塞很多 `if STRATEGY == ...`。
+instead of one service full of `if STRATEGY == ...`.
 
-## Google Cloud Trigger / Cloud Build 处理规则
+## Google Cloud trigger / Cloud Build rules
 
-如果以后改了 GitHub 仓库名或 owner，Cloud Build / Cloud Run 的 GitHub 来源一般需要重新选。
+If you later rename a repository or move it under a different owner, Cloud Build and Cloud Run GitHub sources usually need to be rebound.
 
-建议步骤：
+Recommended steps:
 
-1. 先记下原来的：
-   - trigger 名
-   - region
-   - branch
-   - target service
-2. 到 GCP 控制台删除旧的 GitHub 来源绑定，或者直接重建 trigger
-3. 重新选择新的仓库路径
-4. 检查 branch 还是不是 `main`
-5. 检查目标 `service` 和 `region` 有没有变
-6. 手动跑一次构建
-7. 确认新 trigger 正常后，再删旧 trigger
+1. record the current trigger name, region, branch, and target service
+2. remove the old GitHub source binding or rebuild the trigger
+3. select the new repository path
+4. confirm the branch is still `main`
+5. confirm the target `service` and `region`
+6. run one manual build
+7. remove the old trigger only after the new one works
 
-### LongBridge 双服务
+### LongBridge dual-service setup
 
-`LongBridgeQuant` 的 HK / SG 继续保持：
+`LongBridgeQuant` should continue to keep:
 
-- 同一个策略仓库
-- 两个 Cloud Run 服务
-- 两个 trigger
-- 两个 GitHub Environment
+- one strategy repository
+- two Cloud Run services
+- two triggers
+- two GitHub Environments
 
-区分方式始终是：
+The split should always be defined by:
 
 - `CLOUD_RUN_SERVICE`
 - `CLOUD_RUN_REGION`
 
-## 改仓库名时的建议
+## Repository rename advice
 
-如果只是为了让组织结构更清楚，先改：
+If the goal is only to make the organization structure clearer, update these first:
 
-- GitHub 简介
+- GitHub description
 - topics
 - README
 
-仓库名可以放后面统一处理。  
-原因是仓库名改动会影响：
+Repository renames can be left for later because they affect:
 
-- Cloud Build trigger
-- Cloud Run GitHub source deploy
-- 本地 git remote
-- 文档里的 clone 地址
+- Cloud Build triggers
+- Cloud Run GitHub source deploys
+- local git remotes
+- clone URLs in docs
 
-## 一句话规则
+## One-line rule
 
-- 平台代码进 `QuantPlatformKit`
-- 策略仓库继续作为部署单元
-- GCP / VPS 只部署策略仓库
-- 版本靠固定 tag 管理
+- platform code lives in `QuantPlatformKit`
+- strategy repositories remain deployment units
+- GCP and VPS deploy strategy repositories only
+- versions are managed with fixed tags
