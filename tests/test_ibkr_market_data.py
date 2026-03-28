@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date
+import unittest
+
+from quant_platform_kit.ibkr.market_data import fetch_historical_price_series, fetch_quote_snapshots
+
+
+@dataclass
+class FakeContract:
+    symbol: str
+    exchange: str
+    currency: str
+
+
+@dataclass
+class FakeBar:
+    date: date
+    close: float
+
+
+class FakeTicker:
+    def __init__(self, market_price: float, close: float, bid: float | None = None, ask: float | None = None):
+        self._market_price = market_price
+        self.close = close
+        self.bid = bid
+        self.ask = ask
+
+    def marketPrice(self) -> float:
+        return self._market_price
+
+
+class FakeIB:
+    def __init__(self):
+        self.qualified: list[FakeContract] = []
+        self.cancelled: list[FakeContract] = []
+
+    def qualifyContracts(self, contract):
+        self.qualified.append(contract)
+
+    def reqHistoricalData(self, contract, **kwargs):
+        self.last_history_contract = contract
+        self.last_history_kwargs = kwargs
+        return [
+            FakeBar(date=date(2026, 3, 27), close=100.5),
+            FakeBar(date=date(2026, 3, 28), close=101.0),
+        ]
+
+    def reqMktData(self, contract, *_args):
+        self.last_market_data_contract = contract
+        return FakeTicker(102.5, close=101.8, bid=102.4, ask=102.6)
+
+    def cancelMktData(self, contract):
+        self.cancelled.append(contract)
+
+
+class IbkrMarketDataTests(unittest.TestCase):
+    def test_fetch_historical_price_series_builds_price_points(self) -> None:
+        ib = FakeIB()
+        series = fetch_historical_price_series(
+            ib,
+            "SPY",
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(series.symbol, "SPY")
+        self.assertEqual(series.points[-1].close, 101.0)
+        self.assertEqual(ib.last_history_contract.symbol, "SPY")
+        self.assertEqual(ib.last_history_kwargs["durationStr"], "2 Y")
+
+    def test_fetch_quote_snapshots_returns_last_price(self) -> None:
+        ib = FakeIB()
+        snapshots = fetch_quote_snapshots(
+            ib,
+            {"SPY"},
+            wait_seconds=0,
+            stock_factory=FakeContract,
+        )
+
+        self.assertIn("SPY", snapshots)
+        self.assertEqual(snapshots["SPY"].last_price, 102.5)
+        self.assertEqual(len(ib.cancelled), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

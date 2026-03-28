@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import unittest
+
+from quant_platform_kit.common.models import OrderIntent
+from quant_platform_kit.ibkr.execution import submit_order_intent
+
+
+@dataclass
+class FakeContract:
+    symbol: str
+    exchange: str
+    currency: str
+
+
+class FakeMarketOrder:
+    def __init__(self, side, quantity):
+        self.side = side
+        self.quantity = quantity
+        self.tif = None
+
+
+class FakeLimitOrder:
+    def __init__(self, side, quantity, limit_price):
+        self.side = side
+        self.quantity = quantity
+        self.limit_price = limit_price
+        self.tif = None
+
+
+class FakeTrade:
+    def __init__(self, status="Submitted", filled=0, avg_fill_price=0, order_id=123):
+        self.orderStatus = type(
+            "OrderStatus",
+            (),
+            {"status": status, "filled": filled, "avgFillPrice": avg_fill_price},
+        )()
+        self.order = type("Order", (), {"orderId": order_id})()
+
+
+class FakeIB:
+    def __init__(self):
+        self.orders = []
+
+    def qualifyContracts(self, contract):
+        self.qualified_contract = contract
+
+    def placeOrder(self, contract, order):
+        self.orders.append((contract, order))
+        return FakeTrade(status="Submitted", filled=0, avg_fill_price=0, order_id=321)
+
+
+class IbkrExecutionTests(unittest.TestCase):
+    def test_submit_market_order_intent_returns_execution_report(self) -> None:
+        ib = FakeIB()
+        report = submit_order_intent(
+            ib,
+            OrderIntent(symbol="SPY", side="sell", quantity=5),
+            wait_seconds=0,
+            stock_factory=FakeContract,
+            market_order_factory=FakeMarketOrder,
+        )
+
+        self.assertEqual(report.symbol, "SPY")
+        self.assertEqual(report.status, "Submitted")
+        self.assertEqual(report.broker_order_id, "321")
+        self.assertEqual(ib.orders[0][1].side, "SELL")
+
+    def test_submit_limit_order_sets_time_in_force(self) -> None:
+        ib = FakeIB()
+        report = submit_order_intent(
+            ib,
+            OrderIntent(
+                symbol="SPY",
+                side="buy",
+                quantity=5,
+                order_type="limit",
+                limit_price=100.5,
+                time_in_force="DAY",
+            ),
+            wait_seconds=0,
+            stock_factory=FakeContract,
+            limit_order_factory=FakeLimitOrder,
+        )
+
+        self.assertEqual(report.raw_payload["time_in_force"], "DAY")
+        self.assertEqual(ib.orders[0][1].tif, "DAY")
+
+
+if __name__ == "__main__":
+    unittest.main()
