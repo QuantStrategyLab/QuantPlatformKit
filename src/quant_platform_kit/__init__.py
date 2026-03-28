@@ -1,5 +1,7 @@
 """QuantPlatformKit public package surface."""
 
+__version__ = "0.3.1"
+
 from .common.models import (
     ExecutionReport,
     OrderIntent,
@@ -12,6 +14,7 @@ from .common.models import (
 )
 
 __all__ = [
+    "__version__",
     "ExecutionReport",
     "OrderIntent",
     "PortfolioSnapshot",
