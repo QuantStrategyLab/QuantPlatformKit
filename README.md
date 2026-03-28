@@ -32,6 +32,11 @@ src/quant_platform_kit/
     market_data.py
     portfolio.py
     execution.py
+  schwab/
+    auth.py
+    market_data.py
+    portfolio.py
+    execution.py
   notifications/
     telegram.py
 tests/
