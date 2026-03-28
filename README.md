@@ -2,6 +2,8 @@
 
 Shared broker adapters, domain models, execution ports, and notification utilities for QuantStrategyLab strategies.
 
+[中文说明](./README.zh-CN.md)
+
 ## Scope
 
 This repository is the shared platform layer for QuantStrategyLab strategy services.
