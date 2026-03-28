@@ -27,6 +27,11 @@ src/quant_platform_kit/
   common/
     models.py
     ports.py
+  ibkr/
+    connection.py
+    market_data.py
+    portfolio.py
+    execution.py
   notifications/
     telegram.py
 tests/
