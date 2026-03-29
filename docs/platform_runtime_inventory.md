@@ -1,0 +1,178 @@
+# Platform Runtime Inventory
+
+_Verified snapshot: 2026-03-30_
+
+This document records the **current live runtime inventory** across platform repositories and deployment projects. It is meant to answer one question quickly:
+
+> which repository, project, service, scheduler, runtime identity, and secret set is actually in use right now?
+
+This is a **current-state runbook**, not a target-state design doc. For target architecture and migration rules, see [`deployment_model.md`](./deployment_model.md).
+
+## Shared rules
+
+- `QuantPlatformKit` remains a shared dependency and is **not deployed** by itself.
+- GitHub Variables remain the control plane for:
+  - service names
+  - regions
+  - strategy selectors such as `STRATEGY_PROFILE`
+  - secret selector variables such as `*_SECRET_NAME`
+- Secret Manager is the runtime source of truth for sensitive values that Cloud Run services actually consume.
+- GitHub Secrets are still valid for CI/CD bootstrap values such as `GCP_SA_KEY`, and can remain as temporary fallbacks where runtime migration is not fully finished.
+
+## Current inventory
+
+| Platform | Repo | Strategy domain | Current profile | Runtime model | Project / backend | Current runtime unit |
+|---|---|---:|---|---|---|---|
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-global-etf-rotation` |
+| Schwab | `QuantStrategyLab/CharlesSchwabQuant` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charlesschwabquant` |
+| LongBridge | `QuantStrategyLab/LongBridgeQuant` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridgehkquant`, `longbridgesgquant` |
+| Binance | `QuantStrategyLab/BinanceQuant` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
+
+## Platform details
+
+### IBKR
+
+- **Repository**
+  - `QuantStrategyLab/InteractiveBrokersPlatform`
+- **Cloud Run project**
+  - `interactivebrokersquant`
+- **Service**
+  - `interactive-brokers-quant-global-etf-rotation`
+- **Runtime service account**
+  - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
+- **Current ready revision**
+  - `interactive-brokers-quant-global-etf-rotation-00010-xz8`
+- **Scheduler**
+  - `interactive-brokers-quant-global-etf-rotation-scheduler`
+  - region: `us-central1`
+- **Core runtime selectors**
+  - `STRATEGY_PROFILE=global_etf_rotation`
+  - `ACCOUNT_GROUP=default`
+  - `IB_ACCOUNT_GROUP_CONFIG_SECRET_NAME=ibkr-account-groups`
+- **Runtime secrets**
+  - `ibkr-account-groups`
+  - `interactive-brokers-telegram-token`
+- **Current notes**
+  - Transitional envs `IB_GATEWAY_ZONE` and `IB_GATEWAY_IP_MODE` have already been removed from the service because the selected account-group payload now carries those values.
+
+### Charles Schwab
+
+- **Repository**
+  - `QuantStrategyLab/CharlesSchwabQuant`
+- **Cloud Run project**
+  - `charlesschwabquant`
+- **Service**
+  - `charlesschwabquant`
+- **Runtime service account**
+  - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
+- **Current ready revision**
+  - `charlesschwabquant-00104-hjc`
+- **Scheduler**
+  - `charles-schwab-quant-scheduler`
+  - region: `us-central1`
+- **Core runtime selectors**
+  - `STRATEGY_PROFILE=hybrid_growth_income`
+- **Runtime secrets**
+  - `schwab_token`
+  - `charles-schwab-api-key`
+  - `charles-schwab-app-secret`
+  - `charles-schwab-telegram-token`
+- **Current notes**
+  - Runtime-sensitive envs have already been moved off plain Cloud Run env vars and into Secret Manager refs.
+  - The token refresher lives outside this repo:
+    - `QuantStrategyLab/SchwabTokenAutoRefresher`
+
+### LongBridge
+
+- **Repository**
+  - `QuantStrategyLab/LongBridgeQuant`
+- **Cloud Run project**
+  - `longbridgequant`
+- **Services**
+  - HK: `longbridgehkquant`
+  - SG: `longbridgesgquant`
+- **Runtime service account**
+  - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
+- **Current ready revisions**
+  - HK: `longbridgehkquant-00043-k27`
+  - SG: `longbridgesgquant-00040-wgj`
+- **Schedulers**
+  - `longbridgehk-quant-scheduler` in `asia-east2`
+  - `longbridgesg-quant-scheduler` in `asia-southeast1`
+- **Core runtime selectors**
+  - `STRATEGY_PROFILE=semiconductor_rotation_income`
+  - `ACCOUNT_REGION=HK|SG`
+  - `LONGPORT_SECRET_NAME=longport_token_hk|longport_token_sg`
+- **Runtime secrets**
+  - shared app secrets:
+    - `longbridge-telegram-token`
+    - `longport-app-key`
+    - `longport-app-secret`
+  - region token secrets:
+    - `longport_token_hk`
+    - `longport_token_sg`
+- **Current notes**
+  - HK and SG keep two independent Cloud Run services, two triggers, and two GitHub Environments.
+  - App key / secret and Telegram token are now Secret Manager refs shared inside the LongBridge project.
+
+### Binance
+
+- **Repository**
+  - `QuantStrategyLab/BinanceQuant`
+- **Primary runtime model**
+  - Oracle Cloud
+  - self-hosted GitHub Actions runner
+  - `workflow_dispatch`
+- **GCP project**
+  - `binancequant`
+- **What GCP is used for**
+  - Firestore
+  - GCP service-account credentials consumed by the workflow / runtime
+- **Current runtime selector**
+  - `STRATEGY_PROFILE=crypto_leader_rotation`
+- **Known Firestore backend**
+  - database: `(default)`
+  - mode: `FIRESTORE_NATIVE`
+  - location: `nam5`
+- **Current notes**
+  - Binance is intentionally **not** modeled like the Cloud Run platforms.
+  - Any future cleanup here should keep Oracle runtime concerns separate from GCP backend concerns.
+
+## GitHub responsibility split
+
+### Keep in GitHub Variables
+
+- `CLOUD_RUN_REGION`
+- `CLOUD_RUN_SERVICE`
+- `STRATEGY_PROFILE`
+- `ACCOUNT_GROUP`
+- `ACCOUNT_REGION`
+- `LONGPORT_SECRET_NAME`
+- `*_SECRET_NAME`
+- shared low-risk settings such as:
+  - `GLOBAL_TELEGRAM_CHAT_ID`
+  - `NOTIFY_LANG`
+
+### Keep in GitHub Secrets
+
+- `GCP_SA_KEY`
+- temporary bootstrap fallbacks if a runtime migration is still in progress
+
+### Keep in Secret Manager
+
+- broker API keys / app secrets
+- runtime Telegram tokens
+- token refresh payloads
+- account-group payloads
+
+## What is still intentionally not finished
+
+- Schwab and LongBridge repository names are still old-style and not yet renamed to explicit `*Platform` names.
+- Scheduler OIDC identity is still tied to the default compute service account in the Cloud Run projects.
+- Real cross-platform strategy implementation sharing has **not** started yet. Only the shared strategy contract and platform-compatibility skeleton are in place.
+
+## Recommended next steps after this inventory
+
+1. keep this file current whenever a runtime service, secret name, or runtime service account changes
+2. decide whether Schwab / LongBridge repository and service naming should be unified next
+3. only after naming and runtime config are stable, start the real strategy-implementation split by domain
