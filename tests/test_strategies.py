@@ -5,8 +5,10 @@ import unittest
 from quant_platform_kit.common.strategies import (
     CRYPTO_DOMAIN,
     US_EQUITY_DOMAIN,
+    StrategyComponentDefinition,
     StrategyDefinition,
     get_supported_profiles_for_platform,
+    load_strategy_component_module,
     resolve_strategy_definition,
 )
 
@@ -18,11 +20,23 @@ class StrategyContractsTests(unittest.TestCase):
                 profile="global_etf_rotation",
                 domain=US_EQUITY_DOMAIN,
                 supported_platforms=frozenset({"ibkr", "schwab", "longbridge"}),
+                components=(
+                    StrategyComponentDefinition(
+                        name="signal_logic",
+                        module_path="math",
+                    ),
+                ),
             ),
             "crypto_leader_rotation": StrategyDefinition(
                 profile="crypto_leader_rotation",
                 domain=CRYPTO_DOMAIN,
                 supported_platforms=frozenset({"binance"}),
+                components=(
+                    StrategyComponentDefinition(
+                        name="core",
+                        module_path="math",
+                    ),
+                ),
             ),
         }
         self.platform_supported_domains = {
@@ -68,4 +82,23 @@ class StrategyContractsTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_definitions=self.strategy_definitions,
                 platform_supported_domains=self.platform_supported_domains,
+            )
+
+    def test_load_strategy_component_module_imports_named_component(self) -> None:
+        definition = self.strategy_definitions["global_etf_rotation"]
+
+        module = load_strategy_component_module(
+            definition,
+            component_name="signal_logic",
+        )
+
+        self.assertEqual(module.__name__, "math")
+
+    def test_load_strategy_component_module_rejects_unknown_component(self) -> None:
+        definition = self.strategy_definitions["global_etf_rotation"]
+
+        with self.assertRaisesRegex(ValueError, "available components: signal_logic"):
+            load_strategy_component_module(
+                definition,
+                component_name="allocation",
             )
