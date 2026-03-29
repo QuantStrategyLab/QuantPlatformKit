@@ -3,22 +3,24 @@
 ## Summary
 
 - `QuantPlatformKit` remains the shared platform package and is **not deployed as a runtime service**.
-- The current strategy repositories (`IBKRQuant`, `CharlesSchwabQuant`, `LongBridgeQuant`, `BinanceQuant`) are the **transitional deployment units**.
+- The current runtime repositories (`InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `BinanceQuant`) are the **transitional deployment units**.
 - The **target state** is one deployment repository per broker platform, with strategy behavior selected by configuration such as `STRATEGY_PROFILE`.
 - Strategy or platform repositories should always depend on a fixed `QuantPlatformKit` Git tag instead of `main`.
 
 For the live runtime inventory across repositories, projects, services, schedulers, runtime identities, and current secret names, see [`platform_runtime_inventory.md`](./platform_runtime_inventory.md).
 
+For a cleaner split between shared package code, platform runtime repositories, and future strategy repositories, see [`platform_repo_boundaries.md`](./platform_repo_boundaries.md).
+
 ## Current state vs target state
 
 ### Current transitional state
 
-- `IBKRQuant`
-- `CharlesSchwabQuant`
-- `LongBridgeQuant`
+- `InteractiveBrokersPlatform`
+- `CharlesSchwabPlatform`
+- `LongBridgePlatform`
 - `BinanceQuant`
 
-These repositories still own:
+These runtime repositories still own:
 
 - strategy rules
 - orchestration
@@ -43,7 +45,7 @@ That means:
 - one **LongBridge platform repo**
 - one **Binance platform repo**
 
-The exact GitHub repository names can be finalized later during the rename step.
+The remaining local workspace folder names can be cleaned up later, but the runtime/deployment boundaries should already follow the platform split.
 
 ## Repository responsibilities
 
@@ -64,6 +66,7 @@ Each platform runtime repository should eventually own:
 - runtime entrypoints
 - deployment configuration
 - account or region selection
+- platform-specific strategy implementations until they are intentionally extracted
 
 ### Infrastructure repositories
 
@@ -71,6 +74,21 @@ Each platform runtime repository should eventually own:
 - `SchwabTokenAutoRefresher`
 
 They are neither strategy repositories nor part of the shared platform package.
+
+### Future strategy repositories
+
+When strategy extraction becomes worth doing, those repositories should own:
+
+- reusable strategy math
+- domain-specific parameters
+- platform-independent allocation / signal logic where possible
+
+They should **not** own:
+
+- Cloud Run entrypoints
+- broker authentication
+- scheduler definitions
+- platform runtime secrets
 
 ## Dependency model
 
@@ -182,10 +200,10 @@ The split should always be defined by runtime configuration:
 - `CLOUD_RUN_SERVICE`
 - `CLOUD_RUN_REGION`
 
-Recommended service naming examples:
+Current naming examples:
 
-- `longbridge-platform-hk`
-- `longbridge-platform-sg`
+- `longbridge-quant-semiconductor-rotation-income-hk`
+- `longbridge-quant-semiconductor-rotation-income-sg`
 
 ### Charles Schwab
 
@@ -193,7 +211,7 @@ Charles Schwab can stay simpler:
 
 - one platform repository
 - one or more services only when strategy profiles truly differ
-- `STRATEGY_PROFILE` can be introduced when needed
+- `STRATEGY_PROFILE` is already part of the current runtime shape
 
 ### Binance
 

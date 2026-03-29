@@ -24,8 +24,8 @@ This is a **current-state runbook**, not a target-state design doc. For target a
 | Platform | Repo | Strategy domain | Current profile | Runtime model | Project / backend | Current runtime unit |
 |---|---|---:|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-global-etf-rotation` |
-| Schwab | `QuantStrategyLab/CharlesSchwabQuant` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charlesschwabquant` |
-| LongBridge | `QuantStrategyLab/LongBridgeQuant` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridgehkquant`, `longbridgesgquant` |
+| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-hybrid-growth-income` |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridge-quant-semiconductor-rotation-income-hk`, `longbridge-quant-semiconductor-rotation-income-sg` |
 | Binance | `QuantStrategyLab/BinanceQuant` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## Platform details
@@ -58,17 +58,17 @@ This is a **current-state runbook**, not a target-state design doc. For target a
 ### Charles Schwab
 
 - **Repository**
-  - `QuantStrategyLab/CharlesSchwabQuant`
+  - `QuantStrategyLab/CharlesSchwabPlatform`
 - **Cloud Run project**
   - `charlesschwabquant`
 - **Service**
-  - `charlesschwabquant`
+  - `charles-schwab-quant-hybrid-growth-income`
 - **Runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **Current ready revision**
-  - `charlesschwabquant-00104-hjc`
+  - `charles-schwab-quant-hybrid-growth-income-00002-m2w`
 - **Scheduler**
-  - `charles-schwab-quant-scheduler`
+  - `charles-schwab-quant-hybrid-growth-income-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=hybrid_growth_income`
@@ -85,20 +85,20 @@ This is a **current-state runbook**, not a target-state design doc. For target a
 ### LongBridge
 
 - **Repository**
-  - `QuantStrategyLab/LongBridgeQuant`
+  - `QuantStrategyLab/LongBridgePlatform`
 - **Cloud Run project**
   - `longbridgequant`
 - **Services**
-  - HK: `longbridgehkquant`
-  - SG: `longbridgesgquant`
+  - HK: `longbridge-quant-semiconductor-rotation-income-hk`
+  - SG: `longbridge-quant-semiconductor-rotation-income-sg`
 - **Runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **Current ready revisions**
-  - HK: `longbridgehkquant-00043-k27`
-  - SG: `longbridgesgquant-00040-wgj`
+  - HK: `longbridge-quant-semiconductor-rotation-income-hk-00003-n4t`
+  - SG: `longbridge-quant-semiconductor-rotation-income-sg-00003-mwz`
 - **Schedulers**
-  - `longbridgehk-quant-scheduler` in `asia-east2`
-  - `longbridgesg-quant-scheduler` in `asia-southeast1`
+  - `longbridge-quant-semiconductor-rotation-income-hk-scheduler` in `asia-east2`
+  - `longbridge-quant-semiconductor-rotation-income-sg-scheduler` in `asia-southeast1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=semiconductor_rotation_income`
   - `ACCOUNT_REGION=HK|SG`
@@ -114,6 +114,7 @@ This is a **current-state runbook**, not a target-state design doc. For target a
 - **Current notes**
   - HK and SG keep two independent Cloud Run services, two triggers, and two GitHub Environments.
   - App key / secret and Telegram token are now Secret Manager refs shared inside the LongBridge project.
+  - `SERVICE_NAME` is now aligned to runtime-facing names such as `longbridge-quant-hk` / `longbridge-quant-sg`, while `CLOUD_RUN_SERVICE` points to the full service names above.
 
 ### Binance
 
@@ -167,12 +168,15 @@ This is a **current-state runbook**, not a target-state design doc. For target a
 
 ## What is still intentionally not finished
 
-- Schwab and LongBridge repository names are still old-style and not yet renamed to explicit `*Platform` names.
+- Local workspace folder names are still old-style in this machine, even though the GitHub repositories have already been renamed:
+  - `/Users/lisiyi/Projects/IBKRQuant`
+  - `/Users/lisiyi/Projects/CharlesSchwabQuant`
+  - `/Users/lisiyi/Projects/LongBridgeQuant`
 - Scheduler OIDC identity is still tied to the default compute service account in the Cloud Run projects.
 - Real cross-platform strategy implementation sharing has **not** started yet. Only the shared strategy contract and platform-compatibility skeleton are in place.
 
 ## Recommended next steps after this inventory
 
 1. keep this file current whenever a runtime service, secret name, or runtime service account changes
-2. decide whether Schwab / LongBridge repository and service naming should be unified next
+2. keep repository names, service names, scheduler names, and docs aligned whenever one side changes
 3. only after naming and runtime config are stable, start the real strategy-implementation split by domain

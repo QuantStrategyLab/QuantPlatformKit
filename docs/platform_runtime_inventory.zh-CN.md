@@ -26,8 +26,8 @@ _校验快照日期：2026-03-30_
 | 平台 | 仓库 | 策略大类 | 当前策略值 | 运行模型 | 项目 / 后端 | 当前运行单元 |
 |---|---|---:|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-global-etf-rotation` |
-| Schwab | `QuantStrategyLab/CharlesSchwabQuant` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charlesschwabquant` |
-| LongBridge | `QuantStrategyLab/LongBridgeQuant` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridgehkquant`、`longbridgesgquant` |
+| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-hybrid-growth-income` |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridge-quant-semiconductor-rotation-income-hk`、`longbridge-quant-semiconductor-rotation-income-sg` |
 | Binance | `QuantStrategyLab/BinanceQuant` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` 只承担 Firestore / GCP 凭据 | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## 各平台明细
@@ -60,17 +60,17 @@ _校验快照日期：2026-03-30_
 ### Charles Schwab
 
 - **仓库**
-  - `QuantStrategyLab/CharlesSchwabQuant`
+  - `QuantStrategyLab/CharlesSchwabPlatform`
 - **Cloud Run 项目**
   - `charlesschwabquant`
 - **服务**
-  - `charlesschwabquant`
+  - `charles-schwab-quant-hybrid-growth-income`
 - **runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **当前 ready revision**
-  - `charlesschwabquant-00104-hjc`
+  - `charles-schwab-quant-hybrid-growth-income-00002-m2w`
 - **Scheduler**
-  - `charles-schwab-quant-scheduler`
+  - `charles-schwab-quant-hybrid-growth-income-scheduler`
   - region：`us-central1`
 - **核心运行选择器**
   - `STRATEGY_PROFILE=hybrid_growth_income`
@@ -87,20 +87,20 @@ _校验快照日期：2026-03-30_
 ### LongBridge
 
 - **仓库**
-  - `QuantStrategyLab/LongBridgeQuant`
+  - `QuantStrategyLab/LongBridgePlatform`
 - **Cloud Run 项目**
   - `longbridgequant`
 - **服务**
-  - HK：`longbridgehkquant`
-  - SG：`longbridgesgquant`
+  - HK：`longbridge-quant-semiconductor-rotation-income-hk`
+  - SG：`longbridge-quant-semiconductor-rotation-income-sg`
 - **runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **当前 ready revision**
-  - HK：`longbridgehkquant-00043-k27`
-  - SG：`longbridgesgquant-00040-wgj`
+  - HK：`longbridge-quant-semiconductor-rotation-income-hk-00003-n4t`
+  - SG：`longbridge-quant-semiconductor-rotation-income-sg-00003-mwz`
 - **Scheduler**
-  - `longbridgehk-quant-scheduler`（`asia-east2`）
-  - `longbridgesg-quant-scheduler`（`asia-southeast1`）
+  - `longbridge-quant-semiconductor-rotation-income-hk-scheduler`（`asia-east2`）
+  - `longbridge-quant-semiconductor-rotation-income-sg-scheduler`（`asia-southeast1`）
 - **核心运行选择器**
   - `STRATEGY_PROFILE=semiconductor_rotation_income`
   - `ACCOUNT_REGION=HK|SG`
@@ -116,6 +116,7 @@ _校验快照日期：2026-03-30_
 - **当前说明**
   - HK / SG 继续保持两个 Cloud Run 服务、两个 trigger、两个 GitHub Environment。
   - App key / secret 和 Telegram token 现在都已经改成 LongBridge 项目内部共享的 Secret Manager 引用。
+  - `SERVICE_NAME` 也已经改成更贴近运行面的名字，比如 `longbridge-quant-hk` / `longbridge-quant-sg`，`CLOUD_RUN_SERVICE` 则指向上面的完整 service 名。
 
 ### Binance
 
@@ -169,12 +170,15 @@ _校验快照日期：2026-03-30_
 
 ## 当前刻意还没做完的事
 
-- Schwab 和 LongBridge 的仓库名还没有统一改成 `*Platform` 风格。
+- 这台机器上的本地目录名还没跟 GitHub repo 名同步，仍然是：
+  - `/Users/lisiyi/Projects/IBKRQuant`
+  - `/Users/lisiyi/Projects/CharlesSchwabQuant`
+  - `/Users/lisiyi/Projects/LongBridgeQuant`
 - Cloud Run 项目里的 scheduler OIDC 身份还在用默认 compute service account。
 - 真正的跨平台策略实现共享还没开始；现在只有共享策略契约和平台兼容骨架。
 
 ## 这份清单之后的建议
 
 1. 以后只要 runtime 服务名、secret 名、runtime service account 变了，就同步更新这份文档
-2. 接下来可以决定要不要统一 Schwab / LongBridge 的 repo 名和 service 名
+2. 以后只要 repo 名、service 名、scheduler 名任意一边变了，就把文档一起同步
 3. 等命名和运行配置稳定后，再开始真正按策略大类拆实现
