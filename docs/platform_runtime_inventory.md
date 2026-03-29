@@ -8,6 +8,8 @@ This document records the **public runtime wiring inventory** across platform re
 
 This is a **wiring runbook**, not a target-state design doc. For target architecture and migration rules, see [`deployment_model.md`](./deployment_model.md).
 
+For the platform / strategy-domain / configurable-profile matrix, see [`platform_strategy_matrix.md`](./platform_strategy_matrix.md).
+
 ## Shared rules
 
 - `QuantPlatformKit` remains a shared dependency and is **not deployed** by itself.

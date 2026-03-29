@@ -8,6 +8,8 @@ _校验快照日期：2026-03-30_
 
 这是一份**现状运行手册**，不是目标架构设计稿。目标模型和迁移规则请看 [`deployment_model.zh-CN.md`](./deployment_model.zh-CN.md)。
 
+如果要看当前的平台 / 策略大类 / 可配置 profile 对照表，请看 [`platform_strategy_matrix.zh-CN.md`](./platform_strategy_matrix.zh-CN.md)。
+
 ## 共同规则
 
 - `QuantPlatformKit` 继续只是共享依赖，**不单独部署**。

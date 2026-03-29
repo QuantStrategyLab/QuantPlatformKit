@@ -10,6 +10,8 @@
 
 如果要看 `QuantPlatformKit`、平台运行仓库、未来策略仓库三者的职责边界，见 [`platform_repo_boundaries.zh-CN.md`](./platform_repo_boundaries.zh-CN.md)。
 
+如果要看当前的平台 / 策略大类 / 可配置 profile 对照表，请看 [`platform_strategy_matrix.zh-CN.md`](./platform_strategy_matrix.zh-CN.md)。
+
 ## 仓库职责
 
 ### 平台仓库
