@@ -28,7 +28,7 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
 | Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-hybrid-growth-income-service` |
 | LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
-| Binance | `QuantStrategyLab/BinanceQuant` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
+| Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## Platform details
 
@@ -121,7 +121,7 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 ### Binance
 
 - **Repository**
-  - `QuantStrategyLab/BinanceQuant`
+  - `QuantStrategyLab/BinancePlatform`
 - **Primary runtime model**
   - Oracle Cloud
   - self-hosted GitHub Actions runner

@@ -45,7 +45,7 @@ Examples today:
 - `InteractiveBrokersPlatform`
 - `CharlesSchwabPlatform`
 - `LongBridgePlatform`
-- `BinanceQuant`
+- `BinancePlatform`
 
 These repositories are the actual deployment units.
 

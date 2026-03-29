@@ -54,7 +54,7 @@ _核对时间：2026-03-30_
 
 当前属于这个大类的平台有：
 
-- `BinanceQuant`
+- `BinancePlatform`
 
 当前 `crypto` 域里支持的 profile：
 

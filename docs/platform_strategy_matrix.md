@@ -26,7 +26,7 @@ For repository responsibility boundaries, see [`platform_repo_boundaries.md`](./
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
 | Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
 | LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
-| Binance | `QuantStrategyLab/BinanceQuant` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
+| Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
 
 ## What this means right now
 
@@ -54,7 +54,7 @@ Configurable profile scopes in `us_equity`:
 
 Platforms currently in this domain:
 
-- `BinanceQuant`
+- `BinancePlatform`
 
 Configurable profile scope in `crypto`:
 

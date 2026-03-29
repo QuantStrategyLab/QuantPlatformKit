@@ -3,7 +3,7 @@
 ## 结论
 
 - `QuantPlatformKit` 是共享平台代码仓库，**不单独部署**。
-- `InteractiveBrokersPlatform`、`CharlesSchwabPlatform`、`LongBridgePlatform`、`BinanceQuant` 这些仓库才是实际运行单元。
+- `InteractiveBrokersPlatform`、`CharlesSchwabPlatform`、`LongBridgePlatform`、`BinancePlatform` 这些仓库才是实际运行单元。
 - 策略仓库应该固定依赖某个 Git tag，不要直接依赖 `main`。
 
 如果要看公开 runtime 接线清单，包括仓库、项目、服务、scheduler、runtime identity、secret 名称，见 [`platform_runtime_inventory.zh-CN.md`](./platform_runtime_inventory.zh-CN.md)。
@@ -27,7 +27,7 @@
 - `InteractiveBrokersPlatform`
 - `CharlesSchwabPlatform`
 - `LongBridgePlatform`
-- `BinanceQuant`
+- `BinancePlatform`
 
 这些仓库现在负责：
 
@@ -112,7 +112,7 @@ Cloud Run 继续只部署运行仓库，不部署 `QuantPlatformKit`。
 
 ### VPS / self-hosted runner
 
-`BinanceQuant` 继续走现有 self-hosted runner + 外部调度。
+`BinancePlatform` 继续走现有 self-hosted runner + 外部调度。
 
 推荐运行单元名：
 

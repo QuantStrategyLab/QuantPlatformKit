@@ -3,7 +3,7 @@
 ## Summary
 
 - `QuantPlatformKit` remains the shared platform package and is **not deployed as a runtime service**.
-- The current runtime repositories (`InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `BinanceQuant`) are the **transitional deployment units**.
+- The current runtime repositories (`InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `BinancePlatform`) are the **transitional deployment units**.
 - The **target state** is one deployment repository per broker platform, with strategy behavior selected by configuration such as `STRATEGY_PROFILE`.
 - Strategy or platform repositories should always depend on a fixed `QuantPlatformKit` Git tag instead of `main`.
 
@@ -20,7 +20,7 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - `InteractiveBrokersPlatform`
 - `CharlesSchwabPlatform`
 - `LongBridgePlatform`
-- `BinanceQuant`
+- `BinancePlatform`
 
 These runtime repositories still own:
 
