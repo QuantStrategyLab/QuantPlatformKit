@@ -12,6 +12,8 @@
 
 > 哪些东西该放在哪一层，哪些东西不该放？
 
+如果要看当前的平台 / 策略大类 / live profile 对照表，请看 [`platform_strategy_matrix.zh-CN.md`](./platform_strategy_matrix.zh-CN.md)。
+
 ## 1. `QuantPlatformKit`
 
 `QuantPlatformKit` 是共享依赖包。

@@ -11,6 +11,8 @@ For the live runtime inventory across repositories, projects, services, schedule
 
 For a cleaner split between shared package code, platform runtime repositories, and future strategy repositories, see [`platform_repo_boundaries.md`](./platform_repo_boundaries.md).
 
+For the current platform / strategy-domain / live-profile matrix, see [`platform_strategy_matrix.md`](./platform_strategy_matrix.md).
+
 ## Current state vs target state
 
 ### Current transitional state
@@ -45,7 +47,7 @@ That means:
 - one **LongBridge platform repo**
 - one **Binance platform repo**
 
-The remaining local workspace folder names can be cleaned up later, but the runtime/deployment boundaries should already follow the platform split.
+The runtime and deployment boundaries should already follow the platform split.
 
 ## Repository responsibilities
 

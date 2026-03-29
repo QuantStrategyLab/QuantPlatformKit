@@ -12,6 +12,8 @@ The codebase is in a transitional state, so this document is meant to answer a s
 
 > what belongs in each layer, and what should stay out?
 
+For the current platform / strategy-domain / live-profile matrix, see [`platform_strategy_matrix.md`](./platform_strategy_matrix.md).
+
 ## 1. `QuantPlatformKit`
 
 `QuantPlatformKit` is the shared dependency.
