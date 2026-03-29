@@ -25,7 +25,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 
 | Platform | Repo | Strategy domain | Current profile | Runtime model | Project / backend | Current runtime unit |
 |---|---|---:|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-global-etf-rotation` |
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-global-etf-rotation-service` |
 | Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-hybrid-growth-income` |
 | LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridge-quant-semiconductor-rotation-income-hk`, `longbridge-quant-semiconductor-rotation-income-sg` |
 | Binance | `QuantStrategyLab/BinanceQuant` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
@@ -39,13 +39,13 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 - **Cloud Run project**
   - `interactivebrokersquant`
 - **Service**
-  - `interactive-brokers-quant-global-etf-rotation`
+  - `interactive-brokers-quant-global-etf-rotation-service`
 - **Runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **Current ready revision**
-  - `interactive-brokers-quant-global-etf-rotation-00010-xz8`
+  - `interactive-brokers-quant-global-etf-rotation-service-00001-wg8`
 - **Scheduler**
-  - `interactive-brokers-quant-global-etf-rotation-scheduler`
+  - `interactive-brokers-quant-global-etf-rotation-service-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=global_etf_rotation`

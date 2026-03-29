@@ -27,7 +27,7 @@ _校验快照日期：2026-03-30_
 
 | 平台 | 仓库 | 策略大类 | 当前策略值 | 运行模型 | 项目 / 后端 | 当前运行单元 |
 |---|---|---:|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-global-etf-rotation` |
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-global-etf-rotation-service` |
 | Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-hybrid-growth-income` |
 | LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridge-quant-semiconductor-rotation-income-hk`、`longbridge-quant-semiconductor-rotation-income-sg` |
 | Binance | `QuantStrategyLab/BinanceQuant` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` 只承担 Firestore / GCP 凭据 | GitHub Actions `workflow_dispatch` + self-hosted runner |
@@ -41,13 +41,13 @@ _校验快照日期：2026-03-30_
 - **Cloud Run 项目**
   - `interactivebrokersquant`
 - **服务**
-  - `interactive-brokers-quant-global-etf-rotation`
+  - `interactive-brokers-quant-global-etf-rotation-service`
 - **runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **当前 ready revision**
-  - `interactive-brokers-quant-global-etf-rotation-00010-xz8`
+  - `interactive-brokers-quant-global-etf-rotation-service-00001-wg8`
 - **Scheduler**
-  - `interactive-brokers-quant-global-etf-rotation-scheduler`
+  - `interactive-brokers-quant-global-etf-rotation-service-scheduler`
   - region：`us-central1`
 - **核心运行选择器**
   - `STRATEGY_PROFILE=global_etf_rotation`

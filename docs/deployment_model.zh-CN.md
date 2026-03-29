@@ -99,7 +99,7 @@ Cloud Run 继续只部署运行仓库，不部署 `QuantPlatformKit`。
 
 | 仓库 | 推荐服务名 |
 |---|---|
-| `InteractiveBrokersPlatform` | `interactive-brokers-quant-global-etf-rotation` |
+| `InteractiveBrokersPlatform` | `interactive-brokers-quant-global-etf-rotation-service` |
 | `CharlesSchwabPlatform` | `charles-schwab-quant-hybrid-growth-income` |
 | `LongBridgePlatform` | `longbridge-quant-semiconductor-rotation-income-hk` / `longbridge-quant-semiconductor-rotation-income-sg` |
 
