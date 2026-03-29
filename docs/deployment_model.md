@@ -7,6 +7,8 @@
 - The **target state** is one deployment repository per broker platform, with strategy behavior selected by configuration such as `STRATEGY_PROFILE`.
 - Strategy or platform repositories should always depend on a fixed `QuantPlatformKit` Git tag instead of `main`.
 
+For the live runtime inventory across repositories, projects, services, schedulers, runtime identities, and current secret names, see [`platform_runtime_inventory.md`](./platform_runtime_inventory.md).
+
 ## Current state vs target state
 
 ### Current transitional state
