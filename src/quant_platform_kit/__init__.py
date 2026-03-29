@@ -1,6 +1,6 @@
 """QuantPlatformKit public package surface."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from .common.models import (
     ExecutionReport,
@@ -12,9 +12,17 @@ from .common.models import (
     QuoteSnapshot,
     StrategyDecision,
 )
+from .common.strategies import (
+    CRYPTO_DOMAIN,
+    US_EQUITY_DOMAIN,
+    StrategyDefinition,
+    get_supported_profiles_for_platform,
+    resolve_strategy_definition,
+)
 
 __all__ = [
     "__version__",
+    "CRYPTO_DOMAIN",
     "ExecutionReport",
     "OrderIntent",
     "PortfolioSnapshot",
@@ -22,5 +30,9 @@ __all__ = [
     "PricePoint",
     "PriceSeries",
     "QuoteSnapshot",
+    "StrategyDefinition",
     "StrategyDecision",
+    "US_EQUITY_DOMAIN",
+    "get_supported_profiles_for_platform",
+    "resolve_strategy_definition",
 ]

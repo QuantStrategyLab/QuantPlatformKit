@@ -29,6 +29,7 @@ src/quant_platform_kit/
   common/
     models.py
     ports.py
+    strategies.py
   ibkr/
     connection.py
     market_data.py
@@ -67,7 +68,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 `QuantPlatformKit` is a shared dependency, not a runtime service. Strategy repos should pin a fixed Git tag such as:
 
 ```text
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.4.0
+quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.5.0
 ```
 
 Cloud Run and self-hosted runner deployments should continue to deploy the strategy repositories only. See [docs/deployment_model.md](./docs/deployment_model.md) for:
