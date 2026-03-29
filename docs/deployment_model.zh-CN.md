@@ -3,10 +3,12 @@
 ## 结论
 
 - `QuantPlatformKit` 是共享平台代码仓库，**不单独部署**。
-- `InteractiveBrokersQuant`、`CharlesSchwabQuant`、`LongBridgeQuant`、`BinanceQuant` 这些仓库才是实际运行单元。
+- `InteractiveBrokersPlatform`、`CharlesSchwabPlatform`、`LongBridgePlatform`、`BinanceQuant` 这些仓库才是实际运行单元。
 - 策略仓库应该固定依赖某个 Git tag，不要直接依赖 `main`。
 
 如果要看公开 runtime 接线清单，包括仓库、项目、服务、scheduler、runtime identity、secret 名称，见 [`platform_runtime_inventory.zh-CN.md`](./platform_runtime_inventory.zh-CN.md)。
+
+如果要看 `QuantPlatformKit`、平台运行仓库、未来策略仓库三者的职责边界，见 [`platform_repo_boundaries.zh-CN.md`](./platform_repo_boundaries.zh-CN.md)。
 
 ## 仓库职责
 
@@ -16,20 +18,37 @@
   - 统一领域模型
   - broker 适配层
   - 通知和少量通用工具
+  - 公共策略契约（策略大类、profile、平台兼容关系）
 
-### 策略仓库
+### 运行仓库
 
-- `InteractiveBrokersQuant`
-- `CharlesSchwabQuant`
-- `LongBridgeQuant`
+- `InteractiveBrokersPlatform`
+- `CharlesSchwabPlatform`
+- `LongBridgePlatform`
 - `BinanceQuant`
 
-这些仓库负责：
+这些仓库现在负责：
 
 - 策略规则
 - 执行编排
 - 运行入口
 - 各自部署配置
+- 运行时身份和环境变量读取
+
+### 未来策略仓库
+
+如果后面决定把策略实现真正拆出去，策略仓库应只负责：
+
+- 可复用的策略计算
+- 域内参数
+- 尽量平台无关的 allocation / signal 逻辑
+
+不应该负责：
+
+- Cloud Run 入口
+- broker 登录
+- scheduler
+- 平台运行时 secret
 
 ### 基础设施仓库
 
@@ -72,15 +91,15 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
 
 ### Cloud Run
 
-Cloud Run 继续只部署策略仓库，不部署 `QuantPlatformKit`。
+Cloud Run 继续只部署运行仓库，不部署 `QuantPlatformKit`。
 
 推荐服务名：
 
 | 仓库 | 推荐服务名 |
 |---|---|
-| `InteractiveBrokersQuant` | `interactive-brokers-quant` |
-| `CharlesSchwabQuant` | `charles-schwab-quant` |
-| `LongBridgeQuant` | `longbridge-quant-hk` / `longbridge-quant-sg` |
+| `InteractiveBrokersPlatform` | `interactive-brokers-quant-global-etf-rotation` |
+| `CharlesSchwabPlatform` | `charles-schwab-quant-hybrid-growth-income` |
+| `LongBridgePlatform` | `longbridge-quant-semiconductor-rotation-income-hk` / `longbridge-quant-semiconductor-rotation-income-sg` |
 
 如果后面同一平台下再增加第二套相近策略，可以用：
 
@@ -141,7 +160,7 @@ Cloud Run 继续只部署策略仓库，不部署 `QuantPlatformKit`。
 
 ### LongBridge 双服务
 
-`LongBridgeQuant` 的 HK / SG 继续保持：
+`LongBridgePlatform` 的 HK / SG 继续保持：
 
 - 同一个策略仓库
 - 两个 Cloud Run 服务
@@ -171,7 +190,7 @@ Cloud Run 继续只部署策略仓库，不部署 `QuantPlatformKit`。
 
 ## 一句话规则
 
-- 平台代码进 `QuantPlatformKit`
-- 策略仓库继续作为部署单元
-- GCP / VPS 只部署策略仓库
+- 平台共享代码进 `QuantPlatformKit`
+- 平台运行仓库继续作为部署单元
+- GCP / VPS 只部署平台运行仓库
 - 版本靠固定 tag 管理
