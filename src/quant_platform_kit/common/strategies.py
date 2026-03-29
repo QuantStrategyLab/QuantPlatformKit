@@ -1,9 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from importlib import import_module
+from types import ModuleType
+from typing import Iterable
 
 US_EQUITY_DOMAIN = "us_equity"
 CRYPTO_DOMAIN = "crypto"
+
+
+@dataclass(frozen=True)
+class StrategyComponentDefinition:
+    name: str
+    module_path: str
 
 
 @dataclass(frozen=True)
@@ -11,6 +20,43 @@ class StrategyDefinition:
     profile: str
     domain: str
     supported_platforms: frozenset[str]
+    components: tuple[StrategyComponentDefinition, ...] = field(default_factory=tuple)
+
+
+def get_strategy_component_map(
+    definition: StrategyDefinition,
+) -> dict[str, StrategyComponentDefinition]:
+    return {component.name: component for component in definition.components}
+
+
+def load_strategy_component_module(
+    definition: StrategyDefinition,
+    *,
+    component_name: str,
+) -> ModuleType:
+    component_map = get_strategy_component_map(definition)
+    component = component_map.get(component_name)
+    if component is None:
+        available = ", ".join(sorted(component_map)) or "<none>"
+        raise ValueError(
+            f"Strategy profile {definition.profile!r} does not expose component "
+            f"{component_name!r}; available components: {available}"
+        )
+    return import_module(component.module_path)
+
+
+def load_strategy_component_modules(
+    definition: StrategyDefinition,
+    *,
+    component_names: Iterable[str],
+) -> dict[str, ModuleType]:
+    return {
+        component_name: load_strategy_component_module(
+            definition,
+            component_name=component_name,
+        )
+        for component_name in component_names
+    }
 
 
 def get_supported_profiles_for_platform(
