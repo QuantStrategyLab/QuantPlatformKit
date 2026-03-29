@@ -26,7 +26,7 @@ _核对时间：2026-03-30_
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | 不能，当前只支持这个 profile |
 | Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | 不能，当前只支持这个 profile |
 | LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | 不能，当前只支持这个 profile |
-| Binance | `QuantStrategyLab/BinanceQuant` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | 不能，当前只支持这个 profile |
+| Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | 不能，当前只支持这个 profile |
 
 ## 这张表现在该怎么理解
 
@@ -54,7 +54,7 @@ _核对时间：2026-03-30_
 
 当前属于这个大类的平台有：
 
-- `BinanceQuant`
+- `BinancePlatform`
 
 当前 `crypto` 域里线上在跑的 profile：
 

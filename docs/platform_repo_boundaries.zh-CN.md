@@ -45,7 +45,7 @@
 - `InteractiveBrokersPlatform`
 - `CharlesSchwabPlatform`
 - `LongBridgePlatform`
-- `BinanceQuant`
+- `BinancePlatform`
 
 这些仓库就是实际部署单元。
 

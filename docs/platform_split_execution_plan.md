@@ -79,7 +79,7 @@ Recommended future strategy repositories:
 
 - platform repositories enforce domain/profile compatibility, but each still supports only one real profile today
 - LongBridge and IBKR runtime-facing naming is now mostly aligned, but the final `-service` rule is not yet applied everywhere
-- Binance is still named `BinanceQuant`, not `BinancePlatform`
+- Binance has now been renamed to `BinancePlatform`; the remaining work is strategy/code split, not repo naming
 
 ### Still far
 
@@ -116,9 +116,9 @@ Goal:
 
 Tasks:
 
-1. review rename impact for `BinanceQuant`
-2. rename it to `BinancePlatform` only after checking workflow / runner / external dispatch dependencies
-3. update local workspace folder accordingly
+1. keep `BinancePlatform` as the runtime repo name
+2. keep Oracle/VPS dispatch, runner, and local workspace paths aligned with the renamed repo
+3. continue with strategy split work after runtime verification
 
 Exit criteria:
 

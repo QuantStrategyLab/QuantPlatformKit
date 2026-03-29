@@ -79,7 +79,7 @@ trigger 命名统一用：
 
 - 平台仓已经会做大类 / profile 校验，但每个平台现在实际上还是只支持一个真实 profile
 - LongBridge、IBKR 的运行时命名已经大致理顺，但 `-service` 这条最终规则还没有完全统一
-- `BinanceQuant` 还没改成 `BinancePlatform`
+- `BinancePlatform` 已完成改名；后面剩下的是策略/代码层拆分，不是仓库命名
 
 ### 还差得比较远的部分
 
@@ -116,9 +116,9 @@ trigger 命名统一用：
 
 任务：
 
-1. 先排查 `BinanceQuant` 改名影响
-2. 确认 workflow / runner / 外部 dispatch 没风险后，再改成 `BinancePlatform`
-3. 同步本地目录名
+1. 保持 `BinancePlatform` 作为当前运行仓库名
+2. 继续让 Oracle/VPS dispatch、runner、本地工作目录和新仓库名一致
+3. 后续再进入策略拆分
 
 验收标准：
 
