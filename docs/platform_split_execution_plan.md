@@ -30,6 +30,24 @@ For runtime-facing prefixes such as logs / Telegram labels, keep:
 
 Do not force the `-service` suffix into every user-facing prefix if it hurts readability.
 
+Scheduler names should follow:
+
+```text
+{service-name}-scheduler
+```
+
+Trigger names should follow:
+
+```text
+{platform-or-repo}-{strategy}-{scope?}-main-deploy
+```
+
+Examples:
+
+- `interactive-brokers-quant-global-etf-rotation-service-scheduler`
+- `charles-schwab-platform-hybrid-growth-income-main-deploy`
+- `longbridge-platform-semiconductor-rotation-income-hk-main-deploy`
+
 ### Repository target
 
 - one repository per platform runtime

@@ -30,6 +30,24 @@ _核对时间：2026-03-30_
 
 不要为了形式统一，强行把 `-service` 也塞进所有用户可见前缀里。
 
+调度器命名统一用：
+
+```text
+{service-name}-scheduler
+```
+
+trigger 命名统一用：
+
+```text
+{platform-or-repo}-{strategy}-{scope?}-main-deploy
+```
+
+示例：
+
+- `interactive-brokers-quant-global-etf-rotation-service-scheduler`
+- `charles-schwab-platform-hybrid-growth-income-main-deploy`
+- `longbridge-platform-semiconductor-rotation-income-hk-main-deploy`
+
 ### 仓库目标
 
 - 一个平台一个运行仓库
