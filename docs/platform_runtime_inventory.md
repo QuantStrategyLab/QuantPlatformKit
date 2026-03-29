@@ -114,7 +114,7 @@ This is a **current-state runbook**, not a target-state design doc. For target a
 - **Current notes**
   - HK and SG keep two independent Cloud Run services, two triggers, and two GitHub Environments.
   - App key / secret and Telegram token are now Secret Manager refs shared inside the LongBridge project.
-  - `SERVICE_NAME` is now aligned to runtime-facing names such as `longbridge-quant-hk` / `longbridge-quant-sg`, while `CLOUD_RUN_SERVICE` points to the full service names above.
+  - `SERVICE_NAME` is now aligned to the full runtime-facing names above, instead of using the older short `longbridge-quant-hk` / `longbridge-quant-sg` prefixes.
 
 ### Binance
 
