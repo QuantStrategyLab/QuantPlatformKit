@@ -1,1 +1,1 @@
-"""Shared domain models and ports."""
+"""Shared domain models, ports, and strategy contracts."""
