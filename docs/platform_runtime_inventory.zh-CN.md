@@ -41,13 +41,13 @@ _校验快照日期：2026-03-30_
 - **Cloud Run 项目**
   - `interactivebrokersquant`
 - **服务**
-  - `interactive-brokers-quant-global-etf-rotation`
+  - `interactive-brokers-quant-global-etf-rotation-service`
 - **runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **runtime revision**
-  - `interactive-brokers-quant-global-etf-rotation-00010-xz8`
+  - `interactive-brokers-quant-global-etf-rotation-service-00001-wg8`
 - **Scheduler**
-  - `interactive-brokers-quant-global-etf-rotation-scheduler`
+  - `interactive-brokers-quant-global-etf-rotation-service-scheduler`
   - region：`us-central1`
 - **核心运行选择器**
   - `STRATEGY_PROFILE=global_etf_rotation`

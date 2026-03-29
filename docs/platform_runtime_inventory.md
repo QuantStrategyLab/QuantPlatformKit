@@ -39,13 +39,13 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Cloud Run project**
   - `interactivebrokersquant`
 - **Service**
-  - `interactive-brokers-quant-global-etf-rotation`
+  - `interactive-brokers-quant-global-etf-rotation-service`
 - **Runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **Runtime revision**
-  - `interactive-brokers-quant-global-etf-rotation-00010-xz8`
+  - `interactive-brokers-quant-global-etf-rotation-service-00001-wg8`
 - **Scheduler**
-  - `interactive-brokers-quant-global-etf-rotation-scheduler`
+  - `interactive-brokers-quant-global-etf-rotation-service-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=global_etf_rotation`
