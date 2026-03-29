@@ -170,10 +170,6 @@ _校验快照日期：2026-03-30_
 
 ## 当前刻意还没做完的事
 
-- 这台机器上的本地目录名还没跟 GitHub repo 名同步，仍然是：
-  - `/Users/lisiyi/Projects/IBKRQuant`
-  - `/Users/lisiyi/Projects/CharlesSchwabQuant`
-  - `/Users/lisiyi/Projects/LongBridgeQuant`
 - Cloud Run 项目里的 scheduler OIDC 身份还在用默认 compute service account。
 - 真正的跨平台策略实现共享还没开始；现在只有共享策略契约和平台兼容骨架。
 

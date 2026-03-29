@@ -168,10 +168,6 @@ This is a **wiring runbook**, not a target-state design doc. For target architec
 
 ## What is still intentionally not finished
 
-- Local workspace folder names are still old-style in this machine, even though the GitHub repositories have already been renamed:
-  - `/Users/lisiyi/Projects/IBKRQuant`
-  - `/Users/lisiyi/Projects/CharlesSchwabQuant`
-  - `/Users/lisiyi/Projects/LongBridgeQuant`
 - Scheduler OIDC identity is still tied to the default compute service account in the Cloud Run projects.
 - Real cross-platform strategy implementation sharing has **not** started yet. Only the shared strategy contract and platform-compatibility skeleton are in place.
 
