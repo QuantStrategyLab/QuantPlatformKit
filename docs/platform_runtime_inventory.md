@@ -26,8 +26,8 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 | Platform | Repo | Strategy domain | Current profile | Runtime model | Project / backend | Current runtime unit |
 |---|---|---:|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-global-etf-rotation-service` |
-| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-hybrid-growth-income` |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridge-quant-semiconductor-rotation-income-hk`, `longbridge-quant-semiconductor-rotation-income-sg` |
+| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-hybrid-growth-income-service` |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridge-quant-semiconductor-rotation-income-hk-service`, `longbridge-quant-semiconductor-rotation-income-sg-service` |
 | Binance | `QuantStrategyLab/BinanceQuant` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## Platform details
@@ -64,13 +64,13 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 - **Cloud Run project**
   - `charlesschwabquant`
 - **Service**
-  - `charles-schwab-quant-hybrid-growth-income`
+  - `charles-schwab-quant-hybrid-growth-income-service`
 - **Runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **Current ready revision**
-  - `charles-schwab-quant-hybrid-growth-income-00002-m2w`
+  - `charles-schwab-quant-hybrid-growth-income-service-00002-nhn`
 - **Scheduler**
-  - `charles-schwab-quant-hybrid-growth-income-scheduler`
+  - `charles-schwab-quant-hybrid-growth-income-service-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=hybrid_growth_income`
@@ -91,16 +91,16 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 - **Cloud Run project**
   - `longbridgequant`
 - **Services**
-  - HK: `longbridge-quant-semiconductor-rotation-income-hk`
-  - SG: `longbridge-quant-semiconductor-rotation-income-sg`
+  - HK: `longbridge-quant-semiconductor-rotation-income-hk-service`
+  - SG: `longbridge-quant-semiconductor-rotation-income-sg-service`
 - **Runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **Current ready revisions**
-  - HK: `longbridge-quant-semiconductor-rotation-income-hk-00003-n4t`
-  - SG: `longbridge-quant-semiconductor-rotation-income-sg-00003-mwz`
+  - HK: `longbridge-quant-semiconductor-rotation-income-hk-ser-00002-w62`
+  - SG: `longbridge-quant-semiconductor-rotation-income-sg-ser-00002-694`
 - **Schedulers**
-  - `longbridge-quant-semiconductor-rotation-income-hk-scheduler` in `asia-east2`
-  - `longbridge-quant-semiconductor-rotation-income-sg-scheduler` in `asia-southeast1`
+  - `longbridge-quant-semiconductor-rotation-income-hk-service-scheduler` in `asia-east2`
+  - `longbridge-quant-semiconductor-rotation-income-sg-service-scheduler` in `asia-southeast1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=semiconductor_rotation_income`
   - `ACCOUNT_REGION=HK|SG`
