@@ -116,7 +116,7 @@ _校验快照日期：2026-03-30_
 - **运行说明**
   - HK / SG 继续保持两个 Cloud Run 服务、两个 trigger、两个 GitHub Environment。
   - App key / secret 和 Telegram token 现在都已经改成 LongBridge 项目内部共享的 Secret Manager 引用。
-  - `SERVICE_NAME` 也已经改成更贴近运行面的名字，比如 `longbridge-quant-hk` / `longbridge-quant-sg`，`CLOUD_RUN_SERVICE` 则指向上面的完整 service 名。
+  - `SERVICE_NAME` 现在也已经对齐到上面的完整运行时名字，不再使用旧的 `longbridge-quant-hk` / `longbridge-quant-sg` 这种短前缀。
 
 ### Binance
 
