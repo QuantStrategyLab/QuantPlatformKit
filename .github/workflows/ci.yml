@@ -21,7 +21,12 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . numpy pandas
+          python -m pip install -e . numpy pandas ruff
+
+      - name: Run Ruff
+        run: |
+          set -euo pipefail
+          ruff check .
 
       - name: Run unit tests
         run: |
