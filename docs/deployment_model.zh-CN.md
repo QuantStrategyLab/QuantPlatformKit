@@ -64,7 +64,7 @@
 策略仓库应该固定依赖某个 tag，例如：
 
 ```text
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.5.0
+quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.6.0
 ```
 
 不要用：

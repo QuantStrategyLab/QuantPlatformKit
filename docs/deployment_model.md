@@ -97,7 +97,7 @@ They should **not** own:
 All strategy or platform runtime repositories should pin a fixed tag, for example:
 
 ```text
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.5.0
+quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.6.0
 ```
 
 Avoid:
