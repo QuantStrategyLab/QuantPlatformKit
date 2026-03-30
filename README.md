@@ -81,7 +81,7 @@ Cloud Run and self-hosted runner deployments should continue to deploy the strat
 - service naming suggestions
 - fixed-tag dependency rules
 - Google Cloud trigger rebind steps after repo rename
-- HK / SG multi-service guidance for `LongBridgeQuant`
+- HK / SG multi-service guidance for `LongBridgePlatform`
 
 ---
 
