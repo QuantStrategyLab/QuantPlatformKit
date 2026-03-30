@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from .market_data import fetch_last_price
+
 
 def fetch_strategy_account_state(
     q_ctx: Any,
@@ -46,6 +48,3 @@ def fetch_strategy_account_state(
         "sellable_quantities": sellable_quantities,
         "total_strategy_equity": available_cash + sum(market_values.values()),
     }
-
-
-from .market_data import fetch_last_price
