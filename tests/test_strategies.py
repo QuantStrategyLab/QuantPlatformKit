@@ -4,10 +4,22 @@ import unittest
 
 from quant_platform_kit.common.strategies import (
     CRYPTO_DOMAIN,
+    PlatformStrategyPolicy,
     US_EQUITY_DOMAIN,
     StrategyComponentDefinition,
     StrategyDefinition,
+    StrategyMetadata,
+    build_platform_profile_matrix,
+    build_profile_aliases,
+    build_strategy_catalog,
+    build_strategy_index_rows,
+    get_catalog_compatible_platforms,
+    get_catalog_strategy_definition,
+    get_catalog_strategy_metadata,
+    get_enabled_profiles_for_platform,
     get_supported_profiles_for_platform,
+    resolve_catalog_profile,
+    resolve_platform_strategy_definition,
     load_strategy_component_module,
     resolve_strategy_definition,
 )
@@ -101,4 +113,96 @@ class StrategyContractsTests(unittest.TestCase):
             load_strategy_component_module(
                 definition,
                 component_name="allocation",
+            )
+
+    def test_catalog_helpers_resolve_alias_and_metadata(self) -> None:
+        catalog = build_strategy_catalog(
+            strategy_definitions=self.strategy_definitions,
+            metadata={
+                "global_etf_rotation": StrategyMetadata(
+                    canonical_profile="global_etf_rotation",
+                    display_name="Global ETF Rotation Defense",
+                    description="rotation",
+                    aliases=("global_macro_etf_rotation",),
+                    cadence="quarterly",
+                    benchmark="VOO",
+                )
+            },
+            compatible_platforms={
+                "global_etf_rotation": frozenset({"ibkr"}),
+            },
+        )
+
+        self.assertEqual(
+            resolve_catalog_profile("global_macro_etf_rotation", strategy_catalog=catalog),
+            "global_etf_rotation",
+        )
+        self.assertEqual(
+            get_catalog_strategy_definition(catalog, "global_macro_etf_rotation").profile,
+            "global_etf_rotation",
+        )
+        self.assertEqual(
+            get_catalog_strategy_metadata(catalog, "global_etf_rotation").display_name,
+            "Global ETF Rotation Defense",
+        )
+        self.assertEqual(
+            get_catalog_compatible_platforms(catalog, "global_etf_rotation"),
+            frozenset({"ibkr"}),
+        )
+        rows = build_strategy_index_rows(catalog)
+        by_profile = {row["canonical_profile"]: row for row in rows}
+        self.assertEqual(by_profile["global_etf_rotation"]["display_name"], "Global ETF Rotation Defense")
+
+    def test_platform_policy_helpers_build_matrix_and_resolve_enabled_profile(self) -> None:
+        catalog = build_strategy_catalog(
+            strategy_definitions=self.strategy_definitions,
+            metadata={
+                "global_etf_rotation": StrategyMetadata(
+                    canonical_profile="global_etf_rotation",
+                    display_name="Global ETF Rotation Defense",
+                    description="rotation",
+                    aliases=("global_macro_etf_rotation",),
+                ),
+            },
+        )
+        policy = PlatformStrategyPolicy(
+            platform_id="ibkr",
+            supported_domains=frozenset({US_EQUITY_DOMAIN}),
+            enabled_profiles=frozenset({"global_etf_rotation"}),
+            default_profile="global_etf_rotation",
+            rollback_profile="global_etf_rotation",
+            require_explicit_profile=True,
+        )
+
+        self.assertEqual(
+            get_enabled_profiles_for_platform("ibkr", policy=policy),
+            frozenset({"global_etf_rotation"}),
+        )
+        matrix = build_platform_profile_matrix(catalog, policy=policy)
+        self.assertEqual(matrix[0]["display_name"], "Global ETF Rotation Defense")
+        definition = resolve_platform_strategy_definition(
+            "global_macro_etf_rotation",
+            platform_id="ibkr",
+            strategy_catalog=catalog,
+            policy=policy,
+        )
+        self.assertEqual(definition.profile, "global_etf_rotation")
+
+    def test_build_profile_aliases_rejects_duplicate_alias(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Duplicate strategy alias"):
+            build_profile_aliases(
+                {
+                    "one": StrategyMetadata(
+                        canonical_profile="one",
+                        display_name="One",
+                        description="",
+                        aliases=("shared",),
+                    ),
+                    "two": StrategyMetadata(
+                        canonical_profile="two",
+                        display_name="Two",
+                        description="",
+                        aliases=("shared",),
+                    ),
+                }
             )

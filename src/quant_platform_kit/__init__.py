@@ -1,6 +1,6 @@
 """QuantPlatformKit public package surface."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 from .common.models import (
     ExecutionReport,
@@ -14,9 +14,23 @@ from .common.models import (
 )
 from .common.strategies import (
     CRYPTO_DOMAIN,
+    PlatformStrategyPolicy,
+    StrategyCatalog,
     US_EQUITY_DOMAIN,
     StrategyDefinition,
+    StrategyMetadata,
+    build_platform_profile_matrix,
+    build_profile_aliases,
+    build_strategy_catalog,
+    build_strategy_index_rows,
+    get_catalog_compatible_platforms,
+    get_catalog_strategy_definition,
+    get_catalog_strategy_metadata,
     get_supported_profiles_for_platform,
+    get_enabled_profiles_for_platform,
+    normalize_profile_name,
+    resolve_catalog_profile,
+    resolve_platform_strategy_definition,
     resolve_strategy_definition,
 )
 
@@ -24,15 +38,29 @@ __all__ = [
     "__version__",
     "CRYPTO_DOMAIN",
     "ExecutionReport",
+    "PlatformStrategyPolicy",
     "OrderIntent",
     "PortfolioSnapshot",
     "Position",
     "PricePoint",
     "PriceSeries",
     "QuoteSnapshot",
+    "StrategyCatalog",
     "StrategyDefinition",
     "StrategyDecision",
+    "StrategyMetadata",
     "US_EQUITY_DOMAIN",
+    "build_platform_profile_matrix",
+    "build_profile_aliases",
+    "build_strategy_catalog",
+    "build_strategy_index_rows",
+    "get_catalog_compatible_platforms",
+    "get_catalog_strategy_definition",
+    "get_catalog_strategy_metadata",
+    "get_enabled_profiles_for_platform",
     "get_supported_profiles_for_platform",
+    "normalize_profile_name",
+    "resolve_catalog_profile",
+    "resolve_platform_strategy_definition",
     "resolve_strategy_definition",
 ]
