@@ -27,6 +27,19 @@ It is not intended to contain:
 - Cloud Run entrypoints
 - scheduler or workflow orchestration specific to one strategy
 
+## Strategy contract boundary
+
+The current mainline split is:
+
+- platform repositories assemble `StrategyContext`
+- platform repositories load a strategy entrypoint through `load_strategy_entrypoint(...)`
+- strategy repositories return a unified `StrategyDecision`
+- platform-local decision mappers turn that decision into broker orders, notifications, and runtime state updates
+
+Strategy repositories should expose `manifest + evaluate(ctx)` and keep any migration-window runtime metadata behind `StrategyRuntimeAdapter`. Broker-specific order sequencing and UI layout should stay out of strategy outputs.
+
+Migration details and follow-up guidance live in [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md).
+
 ## Package layout
 
 ```text
@@ -73,7 +86,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 `QuantPlatformKit` is a shared dependency, not a runtime service. Strategy repos should pin a fixed Git tag such as:
 
 ```text
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.6.0
+quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.7.0
 ```
 
 Cloud Run and self-hosted runner deployments should continue to deploy the strategy repositories only. See [docs/deployment_model.md](./docs/deployment_model.md) for:
@@ -107,6 +120,19 @@ Cloud Run and self-hosted runner deployments should continue to deploy the strat
 ### 范围
 
 这个仓库是各平台仓库共享的公共依赖。
+
+### 策略契约边界
+
+当前主线边界已经固定为：
+
+- 平台仓库负责组装 `StrategyContext`
+- 平台仓库通过 `load_strategy_entrypoint(...)` 加载策略入口
+- 策略仓库只返回统一的 `StrategyDecision`
+- 平台自己的 decision mapper 再把决策映射成券商订单、通知和运行时状态更新
+
+策略仓库应该暴露 `manifest + evaluate(ctx)`；如果迁移窗口里还需要少量运行时元数据，就放在 `StrategyRuntimeAdapter` 里，不要把券商专属下单顺序或展示布局塞回策略输出。
+
+迁移说明和后续约束见 [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md)。
 
 ### 目录结构
 

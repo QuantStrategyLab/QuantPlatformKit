@@ -18,6 +18,16 @@ PR1 kept the old global compatibility helpers for one compatibility window.
 They have now been removed in the next-window cleanup batch; platforms should use
 `resolve_platform_strategy_definition(...)` and `get_enabled_profiles_for_platform(...)`.
 
+## Fixed-tag release line
+
+The current boundary-refactor release line is:
+
+- `QuantPlatformKit`: `v0.7.0`
+- `UsEquityStrategies`: `v0.7.0`
+- `CryptoStrategies`: `v0.4.0`
+
+Downstream repositories should prefer these fixed tags over long-lived commit SHA pins.
+
 ## How strategy repos should migrate next
 
 ### 1. Add manifest + evaluate entrypoint per live profile
@@ -95,6 +105,36 @@ During the compatibility window, old component loaders may stay in place behind 
 - `InteractiveBrokersPlatform`: stop reading strategy private constants in `main.py`, consume unified decisions via a mapper.
 - `LongBridgePlatform` / `CharlesSchwabPlatform`: remove allocation shims and hard-coded strategy asset lists.
 - `BinancePlatform`: replace `core` / `rotation` shims with a unified entrypoint and explicit artifact contract.
+
+## How to add a strategy profile
+
+1. Add a `StrategyManifest` for the live profile in the strategy repository.
+2. Expose a unified `entrypoint` or `manifest + evaluate(ctx)` pair.
+3. Keep legacy strategy functions as internal adapters only if they are still needed for rollback safety.
+4. Return only contract fields from the unified path:
+   - `positions`
+   - `budgets`
+   - `risk_flags`
+   - `diagnostics`
+5. Cover the new profile with contract and regression tests before wiring it into a platform runtime.
+
+## How to add a platform
+
+1. Resolve the canonical profile through platform policy and `load_strategy_entrypoint(...)`.
+2. Build `StrategyContext` from platform-owned market data, portfolio snapshots, runtime config, and validated artifacts.
+3. Keep broker-specific behavior in a local decision mapper:
+   - order sizing
+   - order type preference
+   - notifications
+   - runtime state updates
+4. Do not read private strategy constants or platform-only fields from strategy returns in `main.py`.
+
+## How to add an upstream artifact provider
+
+1. Fetch and validate provider payloads in the platform repository, not inside the pure strategy repo.
+2. Normalize the accepted payload into `ctx.artifacts` or a platform-owned runtime helper before calling `evaluate(ctx)`.
+3. Validate freshness, shape, version, and optional checksum at the platform boundary.
+4. Keep the strategy layer focused on decision logic over normalized inputs, not provider-specific transport details.
 
 ## PR6 cleanup status
 
