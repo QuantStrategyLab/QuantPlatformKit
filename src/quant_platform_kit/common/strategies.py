@@ -3,7 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from importlib import import_module
 from types import ModuleType
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
+
+from .strategy_contracts import (
+    CallableStrategyEntrypoint,
+    StrategyContractValidationError,
+    StrategyEntrypoint,
+    StrategyManifest,
+    validate_strategy_manifest,
+)
 
 US_EQUITY_DOMAIN = "us_equity"
 CRYPTO_DOMAIN = "crypto"
@@ -16,11 +24,21 @@ class StrategyComponentDefinition:
 
 
 @dataclass(frozen=True)
+class StrategyEntrypointDefinition:
+    module_path: str
+    attribute_name: str = "entrypoint"
+
+
+@dataclass(frozen=True)
 class StrategyDefinition:
     profile: str
     domain: str
     supported_platforms: frozenset[str]
     components: tuple[StrategyComponentDefinition, ...] = field(default_factory=tuple)
+    entrypoint: StrategyEntrypointDefinition | None = None
+    required_inputs: frozenset[str] = frozenset()
+    compatible_capabilities: frozenset[str] = frozenset()
+    default_config: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -88,7 +106,10 @@ def build_strategy_catalog(
     compatible_platforms: Mapping[str, frozenset[str]] | None = None,
     profile_aliases: Mapping[str, str] | None = None,
 ) -> StrategyCatalog:
-    definitions = {normalize_profile_name(profile): definition for profile, definition in strategy_definitions.items()}
+    definitions = {
+        normalize_profile_name(profile): definition
+        for profile, definition in strategy_definitions.items()
+    }
     metadata_map = {
         normalize_profile_name(profile): value for profile, value in (metadata or {}).items()
     }
@@ -107,7 +128,9 @@ def build_strategy_catalog(
     aliases = {
         normalize_profile_name(alias): normalize_profile_name(canonical)
         for alias, canonical in (
-            profile_aliases.items() if profile_aliases is not None else build_profile_aliases(metadata_map).items()
+            profile_aliases.items()
+            if profile_aliases is not None
+            else build_profile_aliases(metadata_map).items()
         )
     }
     return StrategyCatalog(
@@ -118,7 +141,12 @@ def build_strategy_catalog(
     )
 
 
-def _unsupported_profile_error(*, profile: str | None, supported: Iterable[str], aliases: Iterable[str]) -> ValueError:
+def _unsupported_profile_error(
+    *,
+    profile: str | None,
+    supported: Iterable[str],
+    aliases: Iterable[str],
+) -> ValueError:
     supported_text = ", ".join(sorted(supported)) or "<none>"
     alias_text = ", ".join(sorted(aliases)) or "<none>"
     return ValueError(
@@ -202,6 +230,10 @@ def build_strategy_index_rows(strategy_catalog: StrategyCatalog) -> list[dict[st
                     strategy_catalog,
                     canonical_profile,
                 ),
+                "has_entrypoint": definition.entrypoint is not None
+                or "entrypoint" in {component.name for component in definition.components},
+                "required_inputs": definition.required_inputs,
+                "compatible_capabilities": definition.compatible_capabilities,
             }
         )
     return rows
@@ -310,52 +342,178 @@ def load_strategy_component_modules(
     }
 
 
-def get_supported_profiles_for_platform(
-    strategy_definitions: dict[str, StrategyDefinition],
-    platform_supported_domains: dict[str, frozenset[str]],
+def build_strategy_manifest(
+    definition: StrategyDefinition,
     *,
-    platform_id: str,
-) -> frozenset[str]:
-    return frozenset(
-        profile
-        for profile, definition in strategy_definitions.items()
-        if platform_id in definition.supported_platforms
-        and definition.domain in platform_supported_domains.get(platform_id, frozenset())
+    metadata: StrategyMetadata | None = None,
+) -> StrategyManifest:
+    manifest = StrategyManifest(
+        profile=definition.profile,
+        domain=definition.domain,
+        display_name=(metadata.display_name if metadata else definition.profile.replace("_", " ").title()),
+        description=(
+            metadata.description
+            if metadata
+            else f"Legacy entrypoint adapter for strategy profile {definition.profile}."
+        ),
+        aliases=metadata.aliases if metadata else (),
+        required_inputs=definition.required_inputs,
+        compatible_capabilities=definition.compatible_capabilities,
+        default_config=dict(definition.default_config),
+    )
+    return validate_strategy_manifest(manifest)
+
+
+def _coerce_entrypoint_candidate(
+    candidate: object,
+    *,
+    source: str,
+) -> StrategyEntrypoint:
+    manifest = getattr(candidate, "manifest", None)
+    evaluate = getattr(candidate, "evaluate", None)
+    if manifest is None or not callable(evaluate):
+        raise StrategyContractValidationError(
+            f"{source} must expose manifest and callable evaluate(ctx)"
+        )
+    return CallableStrategyEntrypoint(
+        manifest=validate_strategy_manifest(manifest),
+        _evaluate=evaluate,
     )
 
 
-def resolve_strategy_definition(
-    raw_value: str | None,
+def _module_entrypoint_candidate(
+    module: ModuleType,
     *,
-    platform_id: str,
-    strategy_definitions: dict[str, StrategyDefinition],
-    platform_supported_domains: dict[str, frozenset[str]],
-    default_profile: str | None = None,
-    require_explicit: bool = False,
-) -> StrategyDefinition:
-    if require_explicit and not str(raw_value or "").strip():
-        raise EnvironmentError("STRATEGY_PROFILE is required")
+    module_ref: StrategyEntrypointDefinition,
+    definition: StrategyDefinition,
+    metadata: StrategyMetadata | None,
+) -> StrategyEntrypoint | None:
+    attribute_name = module_ref.attribute_name.strip()
+    if attribute_name:
+        explicit = getattr(module, attribute_name, None)
+        if explicit is not None:
+            return _coerce_entrypoint_candidate(
+                explicit,
+                source=f"{module.__name__}.{attribute_name}",
+            )
 
-    profile = (raw_value or default_profile or "").strip().lower()
-    if not profile:
-        raise EnvironmentError("STRATEGY_PROFILE is required")
+    factory = getattr(module, "build_entrypoint", None)
+    if callable(factory):
+        return _coerce_entrypoint_candidate(factory(), source=f"{module.__name__}.build_entrypoint()")
 
-    supported_profiles = get_supported_profiles_for_platform(
-        strategy_definitions,
-        platform_supported_domains,
-        platform_id=platform_id,
+    evaluate = getattr(module, "evaluate", None)
+    if not callable(evaluate):
+        return None
+
+    manifest = getattr(module, "manifest", None)
+    if manifest is None:
+        manifest = build_strategy_manifest(definition, metadata=metadata)
+    else:
+        validate_strategy_manifest(manifest)
+    return CallableStrategyEntrypoint(manifest=manifest, _evaluate=evaluate)
+
+
+def _iter_entrypoint_candidates(
+    definition: StrategyDefinition,
+) -> tuple[StrategyEntrypointDefinition, ...]:
+    candidates: list[StrategyEntrypointDefinition] = []
+    seen: set[tuple[str, str]] = set()
+
+    def append_candidate(module_path: str, attribute_name: str = "entrypoint") -> None:
+        key = (module_path, attribute_name)
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(
+            StrategyEntrypointDefinition(module_path=module_path, attribute_name=attribute_name)
+        )
+
+    if definition.entrypoint is not None:
+        append_candidate(
+            definition.entrypoint.module_path,
+            definition.entrypoint.attribute_name,
+        )
+
+    component_map = get_strategy_component_map(definition)
+    entrypoint_component = component_map.get("entrypoint")
+    if entrypoint_component is not None:
+        append_candidate(entrypoint_component.module_path)
+
+    for component in definition.components:
+        append_candidate(component.module_path)
+
+    return tuple(candidates)
+
+
+def _validate_entrypoint_compatibility(
+    entrypoint: StrategyEntrypoint,
+    definition: StrategyDefinition,
+    *,
+    platform_id: str | None,
+    available_inputs: Iterable[str] | None,
+    available_capabilities: Iterable[str] | None,
+) -> None:
+    manifest = validate_strategy_manifest(entrypoint.manifest)
+
+    if available_inputs is not None and manifest.required_inputs:
+        missing_inputs = manifest.required_inputs - frozenset(available_inputs)
+        if missing_inputs:
+            raise StrategyContractValidationError(
+                "Strategy manifest requires missing inputs: "
+                f"{', '.join(sorted(missing_inputs))}"
+            )
+
+    if manifest.compatible_capabilities:
+        capabilities = frozenset(available_capabilities or ())
+        missing_capabilities = manifest.compatible_capabilities - capabilities
+        if missing_capabilities:
+            raise StrategyContractValidationError(
+                "Strategy manifest requires missing capabilities: "
+                f"{', '.join(sorted(missing_capabilities))}"
+            )
+        return
+
+    if platform_id is not None and platform_id not in definition.supported_platforms:
+        supported = ", ".join(sorted(definition.supported_platforms)) or "<none>"
+        raise StrategyContractValidationError(
+            f"Strategy profile {definition.profile!r} is not compatible with platform "
+            f"{platform_id!r}; supported_platforms={supported}"
+        )
+
+
+def load_strategy_entrypoint(
+    definition: StrategyDefinition,
+    *,
+    metadata: StrategyMetadata | None = None,
+    platform_id: str | None = None,
+    available_inputs: Iterable[str] | None = None,
+    available_capabilities: Iterable[str] | None = None,
+) -> StrategyEntrypoint:
+    candidates = _iter_entrypoint_candidates(definition)
+    if not candidates:
+        raise ValueError(f"Strategy profile {definition.profile!r} has no entrypoint candidates")
+
+    for module_ref in candidates:
+        module = import_module(module_ref.module_path)
+        entrypoint = _module_entrypoint_candidate(
+            module,
+            module_ref=module_ref,
+            definition=definition,
+            metadata=metadata,
+        )
+        if entrypoint is None:
+            continue
+        _validate_entrypoint_compatibility(
+            entrypoint,
+            definition,
+            platform_id=platform_id,
+            available_inputs=available_inputs,
+            available_capabilities=available_capabilities,
+        )
+        return entrypoint
+
+    candidate_modules = ", ".join(module_ref.module_path for module_ref in candidates)
+    raise ValueError(
+        f"Strategy profile {definition.profile!r} does not expose a unified entrypoint; "
+        f"checked modules: {candidate_modules}"
     )
-    supported = ", ".join(sorted(supported_profiles))
-
-    definition = strategy_definitions.get(profile)
-    if definition is None or platform_id not in definition.supported_platforms:
-        raise ValueError(
-            f"Unsupported STRATEGY_PROFILE={raw_value!r}; supported values: {supported}"
-        )
-
-    if definition.domain not in platform_supported_domains.get(platform_id, frozenset()):
-        raise ValueError(
-            f"Unsupported strategy domain {definition.domain!r} for platform {platform_id!r}"
-        )
-
-    return definition

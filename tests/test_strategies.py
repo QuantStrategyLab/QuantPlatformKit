@@ -17,11 +17,9 @@ from quant_platform_kit.common.strategies import (
     get_catalog_strategy_definition,
     get_catalog_strategy_metadata,
     get_enabled_profiles_for_platform,
-    get_supported_profiles_for_platform,
     resolve_catalog_profile,
-    resolve_platform_strategy_definition,
     load_strategy_component_module,
-    resolve_strategy_definition,
+    resolve_platform_strategy_definition,
 )
 
 
@@ -55,45 +53,60 @@ class StrategyContractsTests(unittest.TestCase):
             "ibkr": frozenset({US_EQUITY_DOMAIN}),
             "binance": frozenset({CRYPTO_DOMAIN}),
         }
-
-    def test_get_supported_profiles_for_platform_filters_by_domain_and_platform(self) -> None:
-        supported = get_supported_profiles_for_platform(
-            self.strategy_definitions,
-            self.platform_supported_domains,
+        self.strategy_catalog = build_strategy_catalog(
+            strategy_definitions=self.strategy_definitions,
+        )
+        self.ibkr_policy = PlatformStrategyPolicy(
             platform_id="ibkr",
+            supported_domains=self.platform_supported_domains["ibkr"],
+            enabled_profiles=frozenset({"global_etf_rotation"}),
+            default_profile="global_etf_rotation",
+            rollback_profile="global_etf_rotation",
+            require_explicit_profile=True,
+        )
+        self.binance_policy = PlatformStrategyPolicy(
+            platform_id="binance",
+            supported_domains=self.platform_supported_domains["binance"],
+            enabled_profiles=frozenset({"crypto_leader_rotation"}),
+            default_profile="crypto_leader_rotation",
+            rollback_profile="crypto_leader_rotation",
+        )
+
+    def test_get_enabled_profiles_for_platform_reads_platform_policy(self) -> None:
+        supported = get_enabled_profiles_for_platform(
+            "ibkr",
+            policy=self.ibkr_policy,
         )
 
         self.assertEqual(supported, frozenset({"global_etf_rotation"}))
 
-    def test_resolve_strategy_definition_uses_default_profile_when_allowed(self) -> None:
-        definition = resolve_strategy_definition(
+    def test_resolve_platform_strategy_definition_uses_default_profile_when_allowed(self) -> None:
+        definition = resolve_platform_strategy_definition(
             None,
             platform_id="binance",
-            strategy_definitions=self.strategy_definitions,
-            platform_supported_domains=self.platform_supported_domains,
-            default_profile="crypto_leader_rotation",
+            strategy_catalog=self.strategy_catalog,
+            policy=self.binance_policy,
         )
 
         self.assertEqual(definition.profile, "crypto_leader_rotation")
         self.assertEqual(definition.domain, CRYPTO_DOMAIN)
 
-    def test_resolve_strategy_definition_requires_explicit_when_requested(self) -> None:
+    def test_resolve_platform_strategy_definition_requires_explicit_when_requested(self) -> None:
         with self.assertRaisesRegex(EnvironmentError, "STRATEGY_PROFILE is required"):
-            resolve_strategy_definition(
+            resolve_platform_strategy_definition(
                 None,
                 platform_id="ibkr",
-                strategy_definitions=self.strategy_definitions,
-                platform_supported_domains=self.platform_supported_domains,
-                require_explicit=True,
+                strategy_catalog=self.strategy_catalog,
+                policy=self.ibkr_policy,
             )
 
-    def test_resolve_strategy_definition_rejects_profile_outside_platform_domain(self) -> None:
+    def test_resolve_platform_strategy_definition_rejects_profile_outside_platform_domain(self) -> None:
         with self.assertRaisesRegex(ValueError, "Unsupported STRATEGY_PROFILE"):
-            resolve_strategy_definition(
+            resolve_platform_strategy_definition(
                 "crypto_leader_rotation",
                 platform_id="ibkr",
-                strategy_definitions=self.strategy_definitions,
-                platform_supported_domains=self.platform_supported_domains,
+                strategy_catalog=self.strategy_catalog,
+                policy=self.ibkr_policy,
             )
 
     def test_load_strategy_component_module_imports_named_component(self) -> None:
