@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from typing import Any, Callable
 
 
@@ -20,15 +21,46 @@ def ensure_event_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
+def probe_tcp_endpoint(
+    host: str,
+    port: int,
+    *,
+    timeout: float,
+    socket_create_connection: Callable[..., Any] | None = None,
+) -> None:
+    if socket_create_connection is None:
+        socket_create_connection = socket.create_connection
+
+    try:
+        connection = socket_create_connection((host, port), timeout)
+    except TimeoutError as exc:
+        raise TimeoutError(f"TCP preflight timed out for {host}:{port}") from exc
+    except OSError as exc:
+        raise ConnectionError(f"TCP preflight failed for {host}:{port}: {exc}") from exc
+
+    close = getattr(connection, "close", None)
+    if callable(close):
+        close()
+
+
 def connect_ib(
     host: str,
     port: int,
     client_id: int,
     *,
     timeout: int = 20,
+    tcp_preflight_timeout: float | None = 3.0,
+    socket_create_connection: Callable[..., Any] | None = None,
     ib_factory: Callable[[], Any] | None = None,
 ) -> Any:
     ensure_event_loop()
+    if tcp_preflight_timeout is not None and tcp_preflight_timeout > 0:
+        probe_tcp_endpoint(
+            host,
+            port,
+            timeout=min(float(timeout), float(tcp_preflight_timeout)),
+            socket_create_connection=socket_create_connection,
+        )
     if ib_factory is None:
         from ib_insync import IB
 
