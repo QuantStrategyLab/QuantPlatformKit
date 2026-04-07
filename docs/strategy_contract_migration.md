@@ -22,7 +22,7 @@ They have now been removed in the next-window cleanup batch; platforms should us
 
 The current boundary-refactor release line is:
 
-- `QuantPlatformKit`: `v0.7.0`
+- `QuantPlatformKit`: `v0.7.1`
 - `UsEquityStrategies`: `v0.7.0`
 - `CryptoStrategies`: `v0.4.0`
 
