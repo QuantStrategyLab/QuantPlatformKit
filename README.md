@@ -86,7 +86,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 `QuantPlatformKit` is a shared dependency, not a runtime service. Strategy repos should pin a fixed Git tag such as:
 
 ```text
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.7.0
+quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.7.1
 ```
 
 Cloud Run and self-hosted runner deployments should continue to deploy the strategy repositories only. See [docs/deployment_model.md](./docs/deployment_model.md) for:
@@ -180,7 +180,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests
 `QuantPlatformKit` 只作为共享依赖，不单独部署。策略仓库应该固定依赖某个 Git tag，例如：
 
 ```text
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.6.0
+quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.7.1
 ```
 
 部署说明见：
