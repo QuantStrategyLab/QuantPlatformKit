@@ -187,8 +187,16 @@ def persist_runtime_report(
     )
     write_runtime_report_json(report, output_path=local_path)
     if gcs_uri is not None:
+        upload_report = _normalize_mapping(report)
+        _merge_section(
+            upload_report,
+            "artifacts",
+            {
+                "runtime_report_gcs_uri": gcs_uri,
+            },
+        )
         gcs_uri = upload_runtime_report_to_gcs(
-            report,
+            upload_report,
             gcs_uri=gcs_uri,
             gcp_project_id=gcp_project_id,
             client_factory=client_factory,
