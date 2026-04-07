@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import sys
+import time
 import types
 import unittest
 from unittest.mock import patch
@@ -62,6 +63,17 @@ class FakeRequests:
         return Response()
 
 
+class FakeFailedRequests:
+    @staticmethod
+    def get(url, headers, timeout):
+        class Response:
+            @staticmethod
+            def json():
+                return {"code": 401003, "message": "token expired", "data": None}
+
+        return Response()
+
+
 class LongBridgeAuthTests(unittest.TestCase):
     def test_fetch_token_from_secret_reads_latest_version(self) -> None:
         client = FakeSecretClient("token-abc")
@@ -108,6 +120,57 @@ class LongBridgeAuthTests(unittest.TestCase):
         self.assertEqual(refreshed, "new-token")
         self.assertEqual(client.created_parent, "projects/demo/secrets/token")
         self.assertEqual(client.destroyed, ["projects/demo/secrets/token/versions/1"])
+
+    def test_refresh_token_if_needed_raises_clear_error_when_expired_and_refresh_fails(self) -> None:
+        payload = {"exp": 1}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
+        token = f"aaa.{encoded}.bbb"
+
+        with self.assertRaises(RuntimeError) as context:
+            refresh_token_if_needed(
+                token,
+                project_id="demo",
+                secret_name="longport_token_sg",
+                app_key="key",
+                app_secret="secret",
+                requests_module=FakeFailedRequests,
+            )
+
+        self.assertIn("longport_token_sg", str(context.exception))
+        self.assertIn("refresh failed with code 401003", str(context.exception))
+
+    def test_refresh_token_if_needed_returns_same_token_when_refresh_fails_but_token_not_expired(self) -> None:
+        payload = {"exp": int(time.time()) + 86400}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
+        token = f"aaa.{encoded}.bbb"
+
+        refreshed = refresh_token_if_needed(
+            token,
+            project_id="demo",
+            secret_name="token",
+            app_key="key",
+            app_secret="secret",
+            refresh_threshold_days=30,
+            requests_module=FakeFailedRequests,
+        )
+
+        self.assertEqual(refreshed, token)
+
+    def test_refresh_token_if_needed_raises_clear_error_when_expired_and_app_credentials_missing(self) -> None:
+        payload = {"exp": 1}
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
+        token = f"aaa.{encoded}.bbb"
+
+        with self.assertRaises(RuntimeError) as context:
+            refresh_token_if_needed(
+                token,
+                project_id="demo",
+                secret_name="longport_token_sg",
+                app_key="",
+                app_secret="",
+            )
+
+        self.assertIn("LONGPORT_APP_KEY/LONGPORT_APP_SECRET is missing", str(context.exception))
 
     def test_build_contexts_uses_longport_openapi(self) -> None:
         longport_module = types.ModuleType("longport")
