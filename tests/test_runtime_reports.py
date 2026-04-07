@@ -187,6 +187,9 @@ class RuntimeReportsTests(unittest.TestCase):
             fake_clients[0].buckets["demo-bucket"].last_blob.name,
             "runtime-reports/charles_schwab/hybrid_growth_income/2026-04/run-005.json",
         )
+        uploaded_payload = json.loads(fake_clients[0].buckets["demo-bucket"].last_blob.payload)
+        self.assertEqual(uploaded_payload["artifacts"]["runtime_report_gcs_uri"], result.gcs_uri)
+        self.assertEqual(uploaded_payload["artifacts"]["runtime_report_local_path"], result.local_path)
         self.assertEqual(
             fake_clients[0].buckets["demo-bucket"].last_blob.content_type,
             "application/json",
