@@ -17,9 +17,9 @@ For deployable runtime units, use:
 Examples:
 
 - `interactive-brokers-quant-global-etf-rotation-service`
-- `charles-schwab-quant-hybrid-growth-income-service`
-- `longbridge-quant-semiconductor-rotation-income-hk-service`
-- `longbridge-quant-semiconductor-rotation-income-sg-service`
+- `charles-schwab-quant-service`
+- `longbridge-quant-hk-service`
+- `longbridge-quant-sg-service`
 - `binance-quant-crypto-leader-rotation-service`
 
 For runtime-facing prefixes such as logs / Telegram labels, keep:
@@ -208,8 +208,8 @@ Goal:
 
 Recommended order:
 
-1. `hybrid_growth_income`
-2. `semiconductor_rotation_income`
+1. `tqqq_growth_income`
+2. `soxl_soxx_trend_income`
 3. SOXL/TQQQ-related strategies later
 
 Exit criteria:

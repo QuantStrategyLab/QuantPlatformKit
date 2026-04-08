@@ -19,6 +19,20 @@ DEFAULT_SNAPSHOT_MANIFEST_SUFFIX = ".manifest.json"
 DEFAULT_ARTIFACT_CACHE_DIR = Path(tempfile.gettempdir()) / "quant_strategy_artifacts"
 
 
+def _normalize_strategy_profile_label(value: object) -> str:
+    label = str(value or "").strip()
+    if not label:
+        return ""
+    try:
+        from us_equity_strategies.catalog import resolve_canonical_profile
+    except Exception:
+        return label
+    try:
+        return str(resolve_canonical_profile(label)).strip()
+    except Exception:
+        return label
+
+
 @dataclass(frozen=True)
 class FeatureSnapshotGuardResult:
     frame: pd.DataFrame | None
@@ -540,7 +554,7 @@ def load_feature_snapshot_guarded(
                 ),
             )
 
-        if expected_strategy_profile and str(manifest_payload.get("strategy_profile")).strip() != str(expected_strategy_profile).strip():
+        if expected_strategy_profile and _normalize_strategy_profile_label(manifest_payload.get("strategy_profile")) != _normalize_strategy_profile_label(expected_strategy_profile):
             return FeatureSnapshotGuardResult(
                 frame=None,
                 metadata=_build_guard_metadata(

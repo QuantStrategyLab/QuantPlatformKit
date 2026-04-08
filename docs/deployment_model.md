@@ -204,8 +204,8 @@ The split should always be defined by runtime configuration:
 
 Current naming examples:
 
-- `longbridge-quant-semiconductor-rotation-income-hk-service`
-- `longbridge-quant-semiconductor-rotation-income-sg-service`
+- `longbridge-quant-hk-service`
+- `longbridge-quant-sg-service`
 
 ### Charles Schwab
 

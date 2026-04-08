@@ -27,9 +27,9 @@ _校验快照日期：2026-03-30_
 
 | 平台 | 仓库 | 策略大类 | 当前策略值 | 运行模型 | 项目 / 后端 | 当前运行单元 |
 |---|---|---:|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-global-etf-rotation-service` |
-| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-hybrid-growth-income-service` |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | `longbridgequant` | `longbridge-quant-semiconductor-rotation-income-hk-service`、`longbridge-quant-semiconductor-rotation-income-sg-service` |
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-service` |
+| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `tqqq_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-service` |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | `longbridgequant` | `longbridge-quant-hk-service`、`longbridge-quant-sg-service` |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` 只承担 Firestore / GCP 凭据 | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## 各平台明细
@@ -41,16 +41,16 @@ _校验快照日期：2026-03-30_
 - **Cloud Run 项目**
   - `interactivebrokersquant`
 - **服务**
-  - `interactive-brokers-quant-global-etf-rotation-service`
+  - `interactive-brokers-quant-service`
 - **runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **当前 ready revision**
-  - `interactive-brokers-quant-global-etf-rotation-service-00001-wg8`
+  - `interactive-brokers-quant-service-00001-wg8`
 - **Scheduler**
-  - `interactive-brokers-quant-global-etf-rotation-service-scheduler`
+  - `interactive-brokers-quant-service-scheduler`
   - region：`us-central1`
 - **核心运行选择器**
-  - `STRATEGY_PROFILE=global_etf_rotation`
+  - `STRATEGY_PROFILE=soxl_soxx_trend_income`
   - `ACCOUNT_GROUP=default`
   - `IB_ACCOUNT_GROUP_CONFIG_SECRET_NAME=ibkr-account-groups`
 - **运行时 secret**
@@ -66,16 +66,16 @@ _校验快照日期：2026-03-30_
 - **Cloud Run 项目**
   - `charlesschwabquant`
 - **服务**
-  - `charles-schwab-quant-hybrid-growth-income-service`
+  - `charles-schwab-quant-service`
 - **runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **当前 ready revision**
-  - `charles-schwab-quant-hybrid-growth-income-service-00002-nhn`
+  - `charles-schwab-quant-service-00002-nhn`
 - **Scheduler**
-  - `charles-schwab-quant-hybrid-growth-income-service-scheduler`
+  - `charles-schwab-quant-service-scheduler`
   - region：`us-central1`
 - **核心运行选择器**
-  - `STRATEGY_PROFILE=hybrid_growth_income`
+  - `STRATEGY_PROFILE=tqqq_growth_income`
 - **运行时 secret**
   - `schwab_token`
   - `charles-schwab-api-key`
@@ -93,18 +93,18 @@ _校验快照日期：2026-03-30_
 - **Cloud Run 项目**
   - `longbridgequant`
 - **服务**
-  - HK：`longbridge-quant-semiconductor-rotation-income-hk-service`
-  - SG：`longbridge-quant-semiconductor-rotation-income-sg-service`
+  - HK：`longbridge-quant-hk-service`
+  - SG：`longbridge-quant-sg-service`
 - **runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **当前 ready revision**
   - HK：`longbridge-quant-semiconductor-rotation-income-hk-ser-00002-w62`
   - SG：`longbridge-quant-semiconductor-rotation-income-sg-ser-00002-694`
 - **Scheduler**
-  - `longbridge-quant-semiconductor-rotation-income-hk-service-scheduler`（`asia-east2`）
-  - `longbridge-quant-semiconductor-rotation-income-sg-service-scheduler`（`asia-southeast1`）
+  - `longbridge-quant-hk-service-scheduler`（`asia-east2`）
+  - `longbridge-quant-sg-service-scheduler`（`asia-southeast1`）
 - **核心运行选择器**
-  - `STRATEGY_PROFILE=semiconductor_rotation_income`
+  - `STRATEGY_PROFILE=HK 使用 qqq_tech_enhancement；SG 使用 tqqq_growth_income`
   - `ACCOUNT_REGION=HK|SG`
   - `LONGPORT_SECRET_NAME=longport_token_hk|longport_token_sg`
 - **运行时 secret**

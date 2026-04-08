@@ -23,9 +23,9 @@ _核对时间：2026-03-30_
 
 | 平台 | 仓库 | 策略大类 | 当前 live profile | 运行模型 | 现在能否真实切换？ |
 |---|---|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | 不能，当前只支持这个 profile |
-| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | 不能，当前只支持这个 profile |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | 不能，当前只支持这个 profile |
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | 可以，rollout allowlist 可在受支持 profile 间切换 |
+| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `tqqq_growth_income` | Cloud Run | 可以，rollout allowlist 可在受支持 profile 间切换 |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `HK: qqq_tech_enhancement / SG: tqqq_growth_income` | Cloud Run | 可以，rollout allowlist 可在受支持 profile 间切换 |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | 不能，当前只支持这个 profile |
 
 ## 这张表现在该怎么理解
@@ -46,9 +46,9 @@ _核对时间：2026-03-30_
 
 当前 `us_equity` 域里线上在跑的 profile 有：
 
-- `global_etf_rotation`
-- `hybrid_growth_income`
-- `semiconductor_rotation_income`
+- `soxl_soxx_trend_income`
+- `tqqq_growth_income`
+- `qqq_tech_enhancement`
 
 ### `crypto`
 

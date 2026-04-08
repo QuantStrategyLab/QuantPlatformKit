@@ -55,8 +55,8 @@
 
 建议这次统一成：
 
-- `QuantPlatformKit` -> `v0.7.9`
-- `UsEquityStrategies` -> `v0.7.12`
+- `QuantPlatformKit` -> `v0.7.10`
+- `UsEquityStrategies` -> `v0.7.13`
 
 原因：
 
@@ -77,17 +77,17 @@
 
 产出：
 
-- tag `v0.7.9`
+- tag `v0.7.10`
 
 ### 第二步：更新并发布 `UsEquityStrategies`
 
 改动：
 
-- 把它对 QPK 的依赖升级到 `quant-platform-kit @ ...@v0.7.9`
+- 把它对 QPK 的依赖升级到 `quant-platform-kit @ ...@v0.7.10`
 
 产出：
 
-- tag `v0.7.12`
+- tag `v0.7.13`
 
 ### 第三步：更新平台仓库 requirements
 
@@ -95,9 +95,9 @@
 
 | 仓库 | `quant-platform-kit` | `us-equity-strategies` |
 | --- | --- | --- |
-| `InteractiveBrokersPlatform` | `v0.7.9` | `v0.7.12` |
-| `CharlesSchwabPlatform` | `v0.7.9` | `v0.7.12` |
-| `LongBridgePlatform` | `v0.7.9` | `v0.7.12` |
+| `InteractiveBrokersPlatform` | `v0.7.10` | `v0.7.13` |
+| `CharlesSchwabPlatform` | `v0.7.10` | `v0.7.13` |
+| `LongBridgePlatform` | `v0.7.10` | `v0.7.13` |
 
 注意：
 
@@ -117,7 +117,7 @@
 
 下面这套顺序可以直接用，前提是每一步先看清楚待提交内容再打 tag。
 
-### 1）发布 `QuantPlatformKit` -> `v0.7.9`
+### 1）发布 `QuantPlatformKit` -> `v0.7.10`
 
 ```bash
 cd /Users/lisiyi/Projects/QuantPlatformKit
@@ -129,13 +129,13 @@ PYTHONPATH=src /Users/lisiyi/Projects/LongBridgePlatform/.venv/bin/python -m uni
   tests.test_longbridge_portfolio
 
 git add README.md README.zh-CN.md pyproject.toml src tests docs
-git commit -m "Prepare v0.7.9 release"
-git tag v0.7.9
+git commit -m "Prepare v0.7.10 release"
+git tag v0.7.10
 git push origin HEAD
-git push origin v0.7.9
+git push origin v0.7.10
 ```
 
-### 2）发布 `UsEquityStrategies` -> `v0.7.12`
+### 2）发布 `UsEquityStrategies` -> `v0.7.13`
 
 ```bash
 cd /Users/lisiyi/Projects/UsEquityStrategies
@@ -147,10 +147,10 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:src \
   tests.test_platform_registry_support
 
 git add README.md pyproject.toml src tests docs
-git commit -m "Prepare v0.7.12 release"
-git tag v0.7.12
+git commit -m "Prepare v0.7.13 release"
+git tag v0.7.13
 git push origin HEAD
-git push origin v0.7.12
+git push origin v0.7.13
 ```
 
 ### 3）等两个 tag 都存在后，再更新三个平台仓库
@@ -181,10 +181,10 @@ git push origin HEAD
 
 | 平台服务 | 目标策略 profile | 说明 |
 | --- | --- | --- |
-| `charles-schwab-quant-service` | `hybrid_growth_income` | Schwab 继续跑 TQQQ 增长收益 |
-| `longbridge-quant-hk-service` | `tech_pullback_cash_buffer` | HK 切到 QQQ 科技增强 |
-| `longbridge-quant-sg-service` | `hybrid_growth_income` | SG 继续跑 TQQQ 增长收益 |
-| `interactive-brokers-quant-service` | `semiconductor_rotation_income` | IBKR 切到 SOXL/SOXX 半导体趋势收益 |
+| `charles-schwab-quant-service` | `tqqq_growth_income` | Schwab 继续跑 TQQQ 增长收益 |
+| `longbridge-quant-hk-service` | `qqq_tech_enhancement` | HK 切到 QQQ 科技增强 |
+| `longbridge-quant-sg-service` | `tqqq_growth_income` | SG 继续跑 TQQQ 增长收益 |
+| `interactive-brokers-quant-service` | `soxl_soxx_trend_income` | IBKR 切到 SOXL/SOXX 半导体趋势收益 |
 
 ## 切换时要改的 env
 
@@ -196,7 +196,7 @@ git push origin HEAD
 
 设置：
 
-- `STRATEGY_PROFILE=hybrid_growth_income`
+- `STRATEGY_PROFILE=tqqq_growth_income`
 
 删除：
 
@@ -212,7 +212,7 @@ git push origin HEAD
 
 - `ACCOUNT_PREFIX=HK`
 - `ACCOUNT_REGION=HK`
-- `STRATEGY_PROFILE=tech_pullback_cash_buffer`
+- `STRATEGY_PROFILE=qqq_tech_enhancement`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
 - `LONGBRIDGE_STRATEGY_CONFIG_PATH`
@@ -223,7 +223,7 @@ git push origin HEAD
 
 原因：
 
-- `tech_pullback_cash_buffer` 是 feature snapshot 策略
+- `qqq_tech_enhancement` 是 feature snapshot 策略
 - HK 这次不只是改 profile，还需要把 snapshot/config 输入一起接上
 
 ### LongBridgePlatform SG
@@ -236,7 +236,7 @@ git push origin HEAD
 
 - `ACCOUNT_PREFIX=SG`
 - `ACCOUNT_REGION=SG`
-- `STRATEGY_PROFILE=hybrid_growth_income`
+- `STRATEGY_PROFILE=tqqq_growth_income`
 
 是否继续 dry-run，保持当前决定：
 
@@ -256,14 +256,14 @@ git push origin HEAD
 
 设置：
 
-- `STRATEGY_PROFILE=semiconductor_rotation_income`
+- `STRATEGY_PROFILE=soxl_soxx_trend_income`
 
 下面这些先保持现状，除非另行决定是否真跑：
 
 - `IBKR_DRY_RUN_ONLY`
 - `ACCOUNT_GROUP`
 
-从 `tech_pullback_cash_buffer` 切走后，要把 tech 专用的 feature snapshot env 删掉：
+从 `qqq_tech_enhancement` 切走后，要把 tech 专用的 feature snapshot env 删掉：
 
 - `IBKR_FEATURE_SNAPSHOT_PATH`
 - `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
@@ -272,7 +272,7 @@ git push origin HEAD
 
 原因：
 
-- `semiconductor_rotation_income` 现在走的是 canonical `derived_indicators + portfolio_snapshot`
+- `soxl_soxx_trend_income` 现在走的是 canonical `derived_indicators + portfolio_snapshot`
 - 不再需要科技增强那套 feature snapshot artifact 链路
 
 ## 验证清单

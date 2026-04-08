@@ -138,16 +138,16 @@
 - `global_etf_rotation`
   - 现在策略契约已经是 `market_history` + `target_mode=weight`
   - `schwab` / `longbridge` 后续需要 `weight -> value`
-- `hybrid_growth_income`
+- `tqqq_growth_income`
   - 现在已经是 canonical `value`
   - `ibkr` 后续需要 `value -> weight`
-- `semiconductor_rotation_income`
+- `soxl_soxx_trend_income`
   - 现在已经是 canonical `value`
   - `ibkr` 后续需要 `value -> weight`
 - `russell_1000_multi_factor_defensive`
   - 目前还是先走 artifact contract
   - 后面做跨平台 rollout 时也会依赖执行翻译支持
-- `tech_pullback_cash_buffer`
+- `qqq_tech_enhancement`
   - 路径和 Russell 类似：先 artifact，再执行翻译
 
 ## P3 PR 的 review 要点

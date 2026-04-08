@@ -23,9 +23,9 @@ For repository responsibility boundaries, see [`platform_repo_boundaries.md`](./
 
 | Platform | Repo | Strategy domain | Current live profile | Runtime model | Real switching today? |
 |---|---|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `global_etf_rotation` | Cloud Run | No - only this profile is supported today |
-| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | No - only this profile is supported today |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `semiconductor_rotation_income` | Cloud Run | No - only this profile is supported today |
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
+| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `tqqq_growth_income` | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `qqq_tech_enhancement` on HK / `tqqq_growth_income` on SG | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
 
 ## What this means right now
@@ -46,9 +46,9 @@ Important limitation:
 
 Current live profiles in `us_equity`:
 
-- `global_etf_rotation`
-- `hybrid_growth_income`
-- `semiconductor_rotation_income`
+- `soxl_soxx_trend_income`
+- `tqqq_growth_income`
+- `qqq_tech_enhancement`
 
 ### `crypto`
 

@@ -204,13 +204,13 @@ Current live profiles can migrate incrementally, but the end state should be:
 
 - `global_etf_rotation`: portable through normalized history inputs plus
   weight/value translation
-- `hybrid_growth_income`: portable through benchmark/portfolio inputs plus
+- `tqqq_growth_income`: portable through benchmark/portfolio inputs plus
   value/weight translation
-- `semiconductor_rotation_income`: portable through indicator/account-state
+- `soxl_soxx_trend_income`: portable through indicator/account-state
   inputs plus value/weight translation
 - `russell_1000_multi_factor_defensive`: portable through standardized
   `feature_snapshot` artifact delivery
-- `tech_pullback_cash_buffer`: portable through standardized `feature_snapshot`
+- `qqq_tech_enhancement`: portable through standardized `feature_snapshot`
   artifact delivery
 
 New profiles should target the end state immediately instead of adding more
