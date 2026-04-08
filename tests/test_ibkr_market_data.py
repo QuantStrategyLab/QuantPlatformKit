@@ -21,11 +21,20 @@ class FakeBar:
 
 
 class FakeTicker:
-    def __init__(self, market_price: float, close: float, bid: float | None = None, ask: float | None = None):
+    def __init__(
+        self,
+        market_price: float,
+        close: float,
+        bid: float | None = None,
+        ask: float | None = None,
+        *,
+        last: float | None = None,
+    ):
         self._market_price = market_price
         self.close = close
         self.bid = bid
         self.ask = ask
+        self.last = last
 
     def marketPrice(self) -> float:
         return self._market_price
@@ -81,6 +90,39 @@ class IbkrMarketDataTests(unittest.TestCase):
         self.assertIn("SPY", snapshots)
         self.assertEqual(snapshots["SPY"].last_price, 102.5)
         self.assertEqual(len(ib.cancelled), 1)
+
+
+    def test_fetch_quote_snapshots_falls_back_to_close_when_market_price_is_negative(self) -> None:
+        class NegativePriceIB(FakeIB):
+            def reqMktData(self, contract, *_args):
+                self.last_market_data_contract = contract
+                return FakeTicker(-1.0, close=101.8, bid=None, ask=None)
+
+        ib = NegativePriceIB()
+        snapshots = fetch_quote_snapshots(
+            ib,
+            {"SPY"},
+            wait_seconds=0,
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(snapshots["SPY"].last_price, 101.8)
+
+    def test_fetch_quote_snapshots_falls_back_to_bid_ask_mid_when_last_and_close_missing(self) -> None:
+        class BidAskOnlyIB(FakeIB):
+            def reqMktData(self, contract, *_args):
+                self.last_market_data_contract = contract
+                return FakeTicker(-1.0, close=float("nan"), bid=102.4, ask=102.6)
+
+        ib = BidAskOnlyIB()
+        snapshots = fetch_quote_snapshots(
+            ib,
+            {"SPY"},
+            wait_seconds=0,
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(snapshots["SPY"].last_price, 102.5)
 
 
 if __name__ == "__main__":
