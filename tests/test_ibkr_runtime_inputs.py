@@ -13,7 +13,8 @@ from quant_platform_kit.ibkr.runtime_inputs import (
 
 class IbkrRuntimeInputsTests(unittest.TestCase):
     def test_build_market_history_inputs_wraps_loader(self) -> None:
-        loader = lambda *_args, **_kwargs: None
+        def loader(*_args, **_kwargs):
+            return None
 
         payload = build_market_history_inputs(loader)
 
