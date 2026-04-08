@@ -94,26 +94,20 @@ def _extract_market_price(ticker: Any) -> float | None:
     return bid or ask
 
 
-def fetch_quote_snapshots(
-    ib: Any,
-    symbols: list[str] | tuple[str, ...] | set[str],
-    *,
-    wait_seconds: float = 3.0,
-    exchange: str = "SMART",
-    currency: str = "USD",
-    stock_factory: Callable[..., Any] | None = None,
-) -> dict[str, QuoteSnapshot]:
-    contracts: list[tuple[str, Any]] = []
-    for symbol in symbols:
-        contract = _build_stock_contract(
-            symbol,
-            exchange=exchange,
-            currency=currency,
-            stock_factory=stock_factory,
-        )
-        ib.qualifyContracts(contract)
-        contracts.append((symbol, contract))
+def _set_market_data_type(ib: Any, market_data_type: int) -> None:
+    setter = getattr(ib, "reqMarketDataType", None)
+    if callable(setter):
+        setter(market_data_type)
 
+
+
+def _collect_quote_snapshots(
+    ib: Any,
+    contracts: list[tuple[str, Any]],
+    *,
+    wait_seconds: float,
+    currency: str,
+) -> dict[str, QuoteSnapshot]:
     requested = {
         symbol: ib.reqMktData(contract, "", False, False)
         for symbol, contract in contracts
@@ -142,5 +136,62 @@ def fetch_quote_snapshots(
             ask_price=float(ask) if ask is not None and not (isinstance(ask, float) and isnan(ask)) else None,
             currency=currency,
         )
+    return snapshots
+
+
+
+def fetch_quote_snapshots(
+    ib: Any,
+    symbols: list[str] | tuple[str, ...] | set[str],
+    *,
+    wait_seconds: float = 3.0,
+    exchange: str = "SMART",
+    currency: str = "USD",
+    stock_factory: Callable[..., Any] | None = None,
+) -> dict[str, QuoteSnapshot]:
+    contracts: list[tuple[str, Any]] = []
+    for symbol in symbols:
+        contract = _build_stock_contract(
+            symbol,
+            exchange=exchange,
+            currency=currency,
+            stock_factory=stock_factory,
+        )
+        ib.qualifyContracts(contract)
+        contracts.append((symbol, contract))
+
+    snapshots = _collect_quote_snapshots(
+        ib,
+        contracts,
+        wait_seconds=wait_seconds,
+        currency=currency,
+    )
+    missing_contracts = [(symbol, contract) for symbol, contract in contracts if symbol not in snapshots]
+    if not missing_contracts:
+        return snapshots
+
+    setter = getattr(ib, "reqMarketDataType", None)
+    if not callable(setter):
+        return snapshots
+
+    try:
+        for market_data_type in (2, 4):
+            _set_market_data_type(ib, market_data_type)
+            recovered = _collect_quote_snapshots(
+                ib,
+                missing_contracts,
+                wait_seconds=wait_seconds,
+                currency=currency,
+            )
+            snapshots.update(recovered)
+            missing_contracts = [
+                (symbol, contract)
+                for symbol, contract in missing_contracts
+                if symbol not in recovered
+            ]
+            if not missing_contracts:
+                break
+    finally:
+        _set_market_data_type(ib, 1)
 
     return snapshots

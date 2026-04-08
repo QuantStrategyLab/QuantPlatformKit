@@ -125,5 +125,36 @@ class IbkrMarketDataTests(unittest.TestCase):
         self.assertEqual(snapshots["SPY"].last_price, 102.5)
 
 
+    def test_fetch_quote_snapshots_retries_with_market_data_fallbacks(self) -> None:
+        class FallbackMarketDataIB(FakeIB):
+            def __init__(self):
+                super().__init__()
+                self.market_data_type = 1
+                self.market_data_type_calls = []
+
+            def reqMarketDataType(self, market_data_type):
+                self.market_data_type = market_data_type
+                self.market_data_type_calls.append(market_data_type)
+
+            def reqMktData(self, contract, *_args):
+                self.last_market_data_contract = contract
+                if self.market_data_type == 1:
+                    return FakeTicker(-1.0, close=float("nan"), bid=None, ask=None)
+                if self.market_data_type == 2:
+                    return FakeTicker(-1.0, close=float("nan"), bid=None, ask=None)
+                return FakeTicker(-1.0, close=101.8, bid=None, ask=None)
+
+        ib = FallbackMarketDataIB()
+        snapshots = fetch_quote_snapshots(
+            ib,
+            {"SPY"},
+            wait_seconds=0,
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(snapshots["SPY"].last_price, 101.8)
+        self.assertEqual(ib.market_data_type_calls, [2, 4, 1])
+
+
 if __name__ == "__main__":
     unittest.main()
