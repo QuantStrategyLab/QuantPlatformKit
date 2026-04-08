@@ -1,6 +1,6 @@
 """QuantPlatformKit public package surface."""
 
-__version__ = "0.7.6"
+__version__ = "0.7.7"
 
 from .common.models import (
     ExecutionReport,
@@ -13,6 +13,7 @@ from .common.models import (
     StrategyDecision,
 )
 from .common.strategy_contracts import (
+    AllocationIntent,
     BudgetIntent,
     PositionTarget,
     StrategyContext,
@@ -21,6 +22,9 @@ from .common.strategy_contracts import (
     StrategyEntrypoint,
     StrategyManifest,
     StrategyRuntimeAdapter,
+    build_allocation_intent,
+    build_allocation_payload,
+    build_value_target_allocation_intent,
     validate_strategy_decision,
     validate_strategy_manifest,
     validate_strategy_runtime_adapter,
@@ -51,6 +55,7 @@ from .common.strategies import (
 
 __all__ = [
     "__version__",
+    "AllocationIntent",
     "BudgetIntent",
     "CRYPTO_DOMAIN",
     "ExecutionReport",
@@ -74,6 +79,9 @@ __all__ = [
     "StrategyMetadata",
     "StrategyRuntimeAdapter",
     "US_EQUITY_DOMAIN",
+    "build_allocation_intent",
+    "build_allocation_payload",
+    "build_value_target_allocation_intent",
     "build_value_target_plan_payload",
     "build_platform_profile_matrix",
     "build_profile_aliases",

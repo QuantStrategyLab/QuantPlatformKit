@@ -59,6 +59,17 @@ class StrategyDecision:
 
 
 @dataclass(frozen=True)
+class AllocationIntent:
+    strategy_profile: str
+    target_mode: str
+    strategy_symbols: tuple[str, ...]
+    risk_symbols: tuple[str, ...]
+    income_symbols: tuple[str, ...]
+    safe_haven_symbols: tuple[str, ...]
+    positions: tuple[PositionTarget, ...]
+
+
+@dataclass(frozen=True)
 class ValueTargetExecutionPlan:
     strategy_profile: str
     target_values: Mapping[str, float]
@@ -310,6 +321,187 @@ def build_value_target_execution_plan(
     )
 
 
+def _role_for_symbol(
+    symbol: str,
+    *,
+    risk_symbols: tuple[str, ...],
+    income_symbols: tuple[str, ...],
+    safe_haven_symbols: tuple[str, ...],
+) -> str:
+    if symbol in safe_haven_symbols:
+        return "safe_haven"
+    if symbol in income_symbols:
+        return "income"
+    if symbol in risk_symbols:
+        return "risk"
+    return "risk"
+
+
+def build_allocation_intent(
+    decision: StrategyDecision,
+    *,
+    strategy_profile: str,
+    strategy_symbols_order: str = "decision",
+) -> AllocationIntent:
+    validate_strategy_decision(decision)
+    if not decision.positions:
+        raise StrategyContractValidationError(
+            "AllocationIntent requires at least one position target"
+        )
+
+    weight_symbols: list[str] = []
+    value_symbols: list[str] = []
+    risk_symbols: list[str] = []
+    income_symbols: list[str] = []
+    safe_haven_symbols: list[str] = []
+    for position in decision.positions:
+        has_weight = position.target_weight is not None
+        has_value = position.target_value is not None
+        if has_weight and has_value:
+            raise StrategyContractValidationError(
+                "AllocationIntent positions must not set both target_weight and target_value; "
+                f"position {position.symbol!r} is ambiguous"
+            )
+        if has_weight:
+            weight_symbols.append(position.symbol)
+        elif has_value:
+            value_symbols.append(position.symbol)
+        else:
+            raise StrategyContractValidationError(
+                f"position {position.symbol!r} must set target_weight or target_value"
+            )
+
+        if position.role == "safe_haven":
+            safe_haven_symbols.append(position.symbol)
+        elif position.role == "income":
+            income_symbols.append(position.symbol)
+        else:
+            risk_symbols.append(position.symbol)
+
+    target_mode: str
+    if weight_symbols and value_symbols:
+        raise StrategyContractValidationError(
+            "AllocationIntent requires a single target mode across all positions"
+        )
+    if weight_symbols:
+        target_mode = "weight"
+    elif value_symbols:
+        target_mode = "value"
+    else:
+        raise StrategyContractValidationError(
+            "AllocationIntent requires at least one target_weight or target_value"
+        )
+
+    decision_order_symbols = tuple(dict.fromkeys(position.symbol for position in decision.positions))
+    risk_symbols_unique = tuple(sorted(dict.fromkeys(risk_symbols)))
+    safe_haven_symbols_unique = tuple(sorted(dict.fromkeys(safe_haven_symbols)))
+    income_symbols_unique = tuple(sorted(dict.fromkeys(income_symbols)))
+    if strategy_symbols_order == "decision":
+        strategy_symbols = decision_order_symbols
+    elif strategy_symbols_order == "risk_safe_income":
+        strategy_symbols = tuple(
+            risk_symbols_unique + safe_haven_symbols_unique + income_symbols_unique
+        )
+    elif strategy_symbols_order == "risk_income_safe":
+        strategy_symbols = tuple(
+            risk_symbols_unique + income_symbols_unique + safe_haven_symbols_unique
+        )
+    else:
+        raise StrategyContractValidationError(
+            "allocation_intent.strategy_symbols_order must be one of: "
+            "decision, risk_safe_income, risk_income_safe"
+        )
+
+    positions_by_symbol = {position.symbol: position for position in decision.positions}
+    ordered_positions = tuple(positions_by_symbol[symbol] for symbol in strategy_symbols)
+    return AllocationIntent(
+        strategy_profile=str(strategy_profile),
+        target_mode=target_mode,
+        strategy_symbols=strategy_symbols,
+        risk_symbols=risk_symbols_unique,
+        income_symbols=income_symbols_unique,
+        safe_haven_symbols=safe_haven_symbols_unique,
+        positions=ordered_positions,
+    )
+
+
+def build_allocation_payload(intent: AllocationIntent) -> dict[str, Any]:
+    if not isinstance(intent, AllocationIntent):
+        raise StrategyContractValidationError("intent must be AllocationIntent")
+    if intent.target_mode not in {"weight", "value"}:
+        raise StrategyContractValidationError(
+            "allocation intent target_mode must be weight or value"
+        )
+
+    target_key = "target_weight" if intent.target_mode == "weight" else "target_value"
+    targets: dict[str, float] = {}
+    positions_payload: list[dict[str, Any]] = []
+    for position in intent.positions:
+        target_value = (
+            float(position.target_weight)
+            if intent.target_mode == "weight"
+            else float(position.target_value)
+        )
+        targets[position.symbol] = target_value
+        payload = {
+            "symbol": position.symbol,
+            target_key: target_value,
+            "role": _role_for_symbol(
+                position.symbol,
+                risk_symbols=intent.risk_symbols,
+                income_symbols=intent.income_symbols,
+                safe_haven_symbols=intent.safe_haven_symbols,
+            ),
+        }
+        if position.order_preference:
+            payload["order_preference"] = str(position.order_preference)
+        positions_payload.append(payload)
+
+    return {
+        "strategy_profile": intent.strategy_profile,
+        "target_mode": intent.target_mode,
+        "strategy_symbols": intent.strategy_symbols,
+        "risk_symbols": intent.risk_symbols,
+        "income_symbols": intent.income_symbols,
+        "safe_haven_symbols": intent.safe_haven_symbols,
+        "targets": targets,
+        "positions": positions_payload,
+    }
+
+
+def build_value_target_allocation_intent(
+    portfolio_plan: ValueTargetPortfolioPlan,
+) -> AllocationIntent:
+    if not isinstance(portfolio_plan, ValueTargetPortfolioPlan):
+        raise StrategyContractValidationError(
+            "portfolio_plan must be ValueTargetPortfolioPlan"
+        )
+    positions = []
+    for symbol in portfolio_plan.strategy_symbols:
+        role = _role_for_symbol(
+            symbol,
+            risk_symbols=portfolio_plan.risk_symbols,
+            income_symbols=portfolio_plan.income_symbols,
+            safe_haven_symbols=portfolio_plan.safe_haven_symbols,
+        )
+        positions.append(
+            PositionTarget(
+                symbol=symbol,
+                target_value=float(portfolio_plan.target_values.get(symbol, 0.0)),
+                role=role,
+            )
+        )
+    return AllocationIntent(
+        strategy_profile=portfolio_plan.strategy_profile,
+        target_mode="value",
+        strategy_symbols=portfolio_plan.strategy_symbols,
+        risk_symbols=portfolio_plan.risk_symbols,
+        income_symbols=portfolio_plan.income_symbols,
+        safe_haven_symbols=portfolio_plan.safe_haven_symbols,
+        positions=tuple(positions),
+    )
+
+
 def build_strategy_context_from_available_inputs(
     *,
     entrypoint: StrategyEntrypoint,
@@ -516,6 +708,9 @@ def build_value_target_plan_payload(
 
     return {
         "strategy_profile": str(strategy_profile),
+        "allocation": build_allocation_payload(
+            build_value_target_allocation_intent(portfolio_plan)
+        ),
         "portfolio": portfolio_payload,
         "execution": execution_payload,
     }
