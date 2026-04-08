@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from importlib import import_module
+from pathlib import Path
 from types import ModuleType
-from typing import Any, Iterable, Mapping
+from typing import Any, Callable, Iterable, Mapping
 
 from .strategy_contracts import (
     CallableStrategyEntrypoint,
     StrategyContractValidationError,
     StrategyEntrypoint,
     StrategyManifest,
+    StrategyRuntimeAdapter,
     validate_strategy_manifest,
 )
 
@@ -39,6 +41,18 @@ class StrategyDefinition:
     required_inputs: frozenset[str] = frozenset()
     compatible_capabilities: frozenset[str] = frozenset()
     default_config: Mapping[str, Any] = field(default_factory=dict)
+    target_mode: str | None = None
+    bundled_config_relpath: str | None = None
+
+
+@dataclass(frozen=True)
+class StrategyArtifactPaths:
+    artifact_root: Path | None = None
+    artifact_dir: Path | None = None
+    bundled_config_path: Path | None = None
+    feature_snapshot_path: Path | None = None
+    feature_snapshot_manifest_path: Path | None = None
+    reconciliation_output_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -70,6 +84,18 @@ class PlatformStrategyPolicy:
     default_profile: str
     rollback_profile: str
     require_explicit_profile: bool = False
+
+
+@dataclass(frozen=True)
+class PlatformCapabilityMatrix:
+    platform_id: str
+    supported_domains: frozenset[str]
+    supported_target_modes: frozenset[str]
+    supported_inputs: frozenset[str] = frozenset()
+    supported_capabilities: frozenset[str] = frozenset()
+
+
+_SUPPORTED_TARGET_MODES = frozenset({"weight", "value"})
 
 
 def normalize_profile_name(profile: str | None) -> str:
@@ -139,6 +165,19 @@ def build_strategy_catalog(
         compatible_platforms=compatibility_map,
         profile_aliases=aliases,
     )
+
+
+def _resolve_target_mode(definition: StrategyDefinition) -> str | None:
+    target_mode = str(definition.target_mode or "").strip().lower()
+    if not target_mode:
+        return None
+    if target_mode not in _SUPPORTED_TARGET_MODES:
+        supported_text = ", ".join(sorted(_SUPPORTED_TARGET_MODES))
+        raise ValueError(
+            f"Unsupported target_mode={definition.target_mode!r} for strategy profile "
+            f"{definition.profile!r}; supported values: {supported_text}"
+        )
+    return target_mode
 
 
 def _unsupported_profile_error(
@@ -234,9 +273,57 @@ def build_strategy_index_rows(strategy_catalog: StrategyCatalog) -> list[dict[st
                 or "entrypoint" in {component.name for component in definition.components},
                 "required_inputs": definition.required_inputs,
                 "compatible_capabilities": definition.compatible_capabilities,
+                "target_mode": _resolve_target_mode(definition),
+                "bundled_config_relpath": definition.bundled_config_relpath,
             }
         )
     return rows
+
+
+def get_catalog_target_mode(
+    strategy_catalog: StrategyCatalog,
+    profile: str,
+) -> str | None:
+    definition = get_catalog_strategy_definition(strategy_catalog, profile)
+    return _resolve_target_mode(definition)
+
+
+def derive_strategy_artifact_paths(
+    strategy_catalog: StrategyCatalog,
+    profile: str,
+    *,
+    artifact_root: str | Path | None = None,
+    repo_root: str | Path | None = None,
+) -> StrategyArtifactPaths:
+    definition = get_catalog_strategy_definition(strategy_catalog, profile)
+    artifact_root_path = Path(artifact_root).expanduser() if artifact_root else None
+    artifact_dir = artifact_root_path / definition.profile if artifact_root_path else None
+    repo_root_path = Path(repo_root).expanduser() if repo_root else None
+
+    bundled_config_path = None
+    bundled_config_relpath = str(definition.bundled_config_relpath or "").strip()
+    if bundled_config_relpath and repo_root_path is not None:
+        bundled_config_path = repo_root_path / bundled_config_relpath
+
+    feature_snapshot_path = None
+    feature_snapshot_manifest_path = None
+    if artifact_dir is not None and "feature_snapshot" in frozenset(definition.required_inputs):
+        feature_snapshot_filename = f"{definition.profile}_feature_snapshot_latest.csv"
+        feature_snapshot_path = artifact_dir / feature_snapshot_filename
+        feature_snapshot_manifest_path = artifact_dir / f"{feature_snapshot_filename}.manifest.json"
+
+    reconciliation_output_dir = None
+    if artifact_dir is not None:
+        reconciliation_output_dir = artifact_dir / "reconciliation"
+
+    return StrategyArtifactPaths(
+        artifact_root=artifact_root_path,
+        artifact_dir=artifact_dir,
+        bundled_config_path=bundled_config_path,
+        feature_snapshot_path=feature_snapshot_path,
+        feature_snapshot_manifest_path=feature_snapshot_manifest_path,
+        reconciliation_output_dir=reconciliation_output_dir,
+    )
 
 
 def get_enabled_profiles_for_platform(
@@ -247,6 +334,78 @@ def get_enabled_profiles_for_platform(
     if platform_id != policy.platform_id:
         return frozenset()
     return policy.enabled_profiles
+
+
+def _matches_platform_capability_matrix(
+    definition: StrategyDefinition,
+    *,
+    runtime_adapter: StrategyRuntimeAdapter,
+    capability_matrix: PlatformCapabilityMatrix,
+) -> bool:
+    if definition.domain not in capability_matrix.supported_domains:
+        return False
+
+    target_mode = _resolve_target_mode(definition)
+    if target_mode is not None and target_mode not in capability_matrix.supported_target_modes:
+        return False
+
+    adapter_inputs = frozenset(runtime_adapter.available_inputs)
+    if definition.required_inputs - adapter_inputs:
+        return False
+    if adapter_inputs - capability_matrix.supported_inputs:
+        return False
+
+    adapter_capabilities = frozenset(runtime_adapter.available_capabilities)
+    if definition.compatible_capabilities - adapter_capabilities:
+        return False
+    if adapter_capabilities - capability_matrix.supported_capabilities:
+        return False
+
+    return True
+
+
+def derive_eligible_profiles_for_platform(
+    strategy_catalog: StrategyCatalog,
+    *,
+    capability_matrix: PlatformCapabilityMatrix,
+    runtime_adapter_loader: Callable[[str], StrategyRuntimeAdapter],
+) -> frozenset[str]:
+    eligible_profiles: list[str] = []
+    for profile in sorted(strategy_catalog.definitions):
+        definition = strategy_catalog.definitions[profile]
+        try:
+            runtime_adapter = runtime_adapter_loader(profile)
+        except ValueError:
+            continue
+        if _matches_platform_capability_matrix(
+            definition,
+            runtime_adapter=runtime_adapter,
+            capability_matrix=capability_matrix,
+        ):
+            eligible_profiles.append(definition.profile)
+    return frozenset(eligible_profiles)
+
+
+def derive_enabled_profiles_for_platform(
+    strategy_catalog: StrategyCatalog,
+    *,
+    capability_matrix: PlatformCapabilityMatrix,
+    runtime_adapter_loader: Callable[[str], StrategyRuntimeAdapter],
+    rollout_allowlist: Iterable[str] | None = None,
+) -> frozenset[str]:
+    eligible_profiles = derive_eligible_profiles_for_platform(
+        strategy_catalog,
+        capability_matrix=capability_matrix,
+        runtime_adapter_loader=runtime_adapter_loader,
+    )
+    if rollout_allowlist is None:
+        return eligible_profiles
+
+    normalized_allowlist = {
+        resolve_catalog_profile(profile, strategy_catalog=strategy_catalog)
+        for profile in rollout_allowlist
+    }
+    return frozenset(sorted(eligible_profiles & normalized_allowlist))
 
 
 def build_platform_profile_matrix(
@@ -265,6 +424,36 @@ def build_platform_profile_matrix(
                 "display_name": metadata.display_name if metadata else definition.profile,
                 "aliases": metadata.aliases if metadata else (),
                 "enabled": True,
+                "is_default": definition.profile == policy.default_profile,
+                "is_rollback": definition.profile == policy.rollback_profile,
+                "domain": definition.domain,
+            }
+        )
+    return rows
+
+
+def build_platform_profile_status_matrix(
+    strategy_catalog: StrategyCatalog,
+    *,
+    policy: PlatformStrategyPolicy,
+    eligible_profiles: Iterable[str],
+) -> list[dict[str, object]]:
+    eligible = {
+        resolve_catalog_profile(profile, strategy_catalog=strategy_catalog)
+        for profile in eligible_profiles
+    }
+    visible_profiles = sorted(eligible | set(policy.enabled_profiles))
+    rows: list[dict[str, object]] = []
+    for profile in visible_profiles:
+        definition = get_catalog_strategy_definition(strategy_catalog, profile)
+        metadata = strategy_catalog.metadata.get(definition.profile)
+        rows.append(
+            {
+                "platform": policy.platform_id,
+                "canonical_profile": definition.profile,
+                "display_name": metadata.display_name if metadata else definition.profile,
+                "eligible": definition.profile in eligible,
+                "enabled": definition.profile in policy.enabled_profiles,
                 "is_default": definition.profile == policy.default_profile,
                 "is_rollback": definition.profile == policy.rollback_profile,
                 "domain": definition.domain,

@@ -1,6 +1,6 @@
 """QuantPlatformKit public package surface."""
 
-__version__ = "0.7.7"
+__version__ = "0.7.8"
 
 from .common.models import (
     ExecutionReport,
