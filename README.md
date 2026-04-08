@@ -40,6 +40,15 @@ Strategy repositories should expose `manifest + evaluate(ctx)` and keep any migr
 
 Migration details and follow-up guidance live in [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md).
 
+For the stricter end-state rules for new US equity strategies, see:
+
+- [`docs/us_equity_cross_platform_strategy_spec.md`](./docs/us_equity_cross_platform_strategy_spec.md)
+- [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
+- [`docs/us_equity_execution_translation_spec.md`](./docs/us_equity_execution_translation_spec.md)
+- [`docs/us_equity_execution_translation_spec.zh-CN.md`](./docs/us_equity_execution_translation_spec.zh-CN.md)
+- [`docs/us_equity_release_cutover_plan.md`](./docs/us_equity_release_cutover_plan.md)
+- [`docs/us_equity_release_cutover_plan.zh-CN.md`](./docs/us_equity_release_cutover_plan.zh-CN.md)
+
 ## Package layout
 
 ```text
@@ -95,6 +104,7 @@ Cloud Run and self-hosted runner deployments should continue to deploy the strat
 - fixed-tag dependency rules
 - Google Cloud trigger rebind steps after repo rename
 - HK / SG multi-service guidance for `LongBridgePlatform`
+- US equity cross-platform strategy contract rules
 
 ---
 
@@ -133,6 +143,11 @@ Cloud Run and self-hosted runner deployments should continue to deploy the strat
 策略仓库应该暴露 `manifest + evaluate(ctx)`；如果迁移窗口里还需要少量运行时元数据，就放在 `StrategyRuntimeAdapter` 里，不要把券商专属下单顺序或展示布局塞回策略输出。
 
 迁移说明和后续约束见 [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md)。
+
+以后新增美股策略要遵守的更严格跨平台规范见：
+
+- [`docs/us_equity_cross_platform_strategy_spec.md`](./docs/us_equity_cross_platform_strategy_spec.md)
+- [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
 
 ### 目录结构
 
@@ -187,3 +202,5 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
 
 - [英文部署说明](./docs/deployment_model.md)
 - [中文部署说明](./docs/deployment_model.zh-CN.md)
+- [美股跨平台策略规范（英文）](./docs/us_equity_cross_platform_strategy_spec.md)
+- [美股跨平台策略规范（中文）](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)

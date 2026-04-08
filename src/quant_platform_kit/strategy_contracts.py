@@ -24,6 +24,21 @@ from .common.strategy_contracts import (
     validate_strategy_manifest,
     validate_strategy_runtime_adapter,
 )
+from .common.execution_translation import (
+    ValueTargetPortfolioInputs,
+    build_value_target_portfolio_inputs_from_account_state,
+    build_value_target_portfolio_inputs_from_snapshot,
+    build_value_target_runtime_plan,
+    resolve_decision_target_mode,
+    translate_decision_to_target_mode,
+    translate_value_decision_to_weight_targets,
+    translate_weight_decision_to_value_targets,
+)
+from .common.runtime_inputs import (
+    build_account_state_from_portfolio_snapshot,
+    build_portfolio_snapshot_from_account_state,
+    build_strategy_evaluation_inputs,
+)
 
 __all__ = [
     "AllocationIntent",
@@ -38,13 +53,24 @@ __all__ = [
     "StrategyRuntimeAdapter",
     "ValueTargetExecutionAnnotations",
     "ValueTargetExecutionPlan",
+    "ValueTargetPortfolioInputs",
     "ValueTargetPortfolioPlan",
     "build_allocation_intent",
     "build_allocation_payload",
+    "build_account_state_from_portfolio_snapshot",
+    "build_portfolio_snapshot_from_account_state",
+    "build_strategy_evaluation_inputs",
+    "build_value_target_portfolio_inputs_from_account_state",
+    "build_value_target_portfolio_inputs_from_snapshot",
+    "resolve_decision_target_mode",
+    "translate_decision_to_target_mode",
+    "translate_value_decision_to_weight_targets",
+    "translate_weight_decision_to_value_targets",
     "build_value_target_allocation_intent",
     "build_value_target_plan_payload",
     "build_value_target_execution_annotations",
     "build_value_target_portfolio_plan",
+    "build_value_target_runtime_plan",
     "build_strategy_context_from_available_inputs",
     "build_value_target_execution_plan",
     "validate_strategy_decision",

@@ -29,6 +29,15 @@
 
 迁移说明和后续约束见 [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md)。
 
+以后新增美股策略要遵守的更严格跨平台规范见：
+
+- [`docs/us_equity_cross_platform_strategy_spec.md`](./docs/us_equity_cross_platform_strategy_spec.md)
+- [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
+- [`docs/us_equity_execution_translation_spec.md`](./docs/us_equity_execution_translation_spec.md)
+- [`docs/us_equity_execution_translation_spec.zh-CN.md`](./docs/us_equity_execution_translation_spec.zh-CN.md)
+- [`docs/us_equity_release_cutover_plan.md`](./docs/us_equity_release_cutover_plan.md)
+- [`docs/us_equity_release_cutover_plan.zh-CN.md`](./docs/us_equity_release_cutover_plan.zh-CN.md)
+
 [English README](./README.md)
 
 ## 目录结构
@@ -83,3 +92,7 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
 
 - [英文部署说明](./docs/deployment_model.md)
 - [中文部署说明](./docs/deployment_model.zh-CN.md)
+- [美股跨平台策略规范（英文）](./docs/us_equity_cross_platform_strategy_spec.md)
+- [美股跨平台策略规范（中文）](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
+- [美股执行翻译规范（英文）](./docs/us_equity_execution_translation_spec.md)
+- [美股执行翻译规范（中文）](./docs/us_equity_execution_translation_spec.zh-CN.md)

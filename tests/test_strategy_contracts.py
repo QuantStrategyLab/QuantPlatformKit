@@ -4,6 +4,7 @@ from types import ModuleType
 import sys
 import unittest
 
+from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from quant_platform_kit.common.strategies import (
     CRYPTO_DOMAIN,
     PlatformStrategyPolicy,
@@ -31,12 +32,22 @@ from quant_platform_kit.strategy_contracts import (
     ValueTargetExecutionPlan,
     build_allocation_intent,
     build_allocation_payload,
+    build_account_state_from_portfolio_snapshot,
+    build_portfolio_snapshot_from_account_state,
+    build_strategy_evaluation_inputs,
     build_value_target_allocation_intent,
     build_value_target_execution_annotations,
     build_value_target_execution_plan,
     build_value_target_plan_payload,
+    build_value_target_portfolio_inputs_from_account_state,
+    build_value_target_portfolio_inputs_from_snapshot,
     build_value_target_portfolio_plan,
+    build_value_target_runtime_plan,
     build_strategy_context_from_available_inputs,
+    resolve_decision_target_mode,
+    translate_decision_to_target_mode,
+    translate_value_decision_to_weight_targets,
+    translate_weight_decision_to_value_targets,
     validate_strategy_decision,
     validate_strategy_manifest,
     validate_strategy_runtime_adapter,
@@ -231,6 +242,78 @@ class StrategyContractMigrationTests(unittest.TestCase):
         self.assertEqual(adapter.available_inputs, frozenset({"feature_snapshot"}))
         self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
 
+    def test_build_account_state_from_portfolio_snapshot_filters_strategy_symbols(self) -> None:
+        snapshot = PortfolioSnapshot(
+            as_of="2026-04-09",
+            total_equity=50000.0,
+            buying_power=12000.0,
+            positions=(
+                Position(symbol="TQQQ", quantity=5, market_value=1000.0),
+                Position(symbol="BOXX", quantity=10, market_value=5000.0),
+                Position(symbol="QQQ", quantity=99, market_value=9999.0),
+            ),
+            metadata={"cash_available_for_trading": 8000.0},
+        )
+
+        account_state = build_account_state_from_portfolio_snapshot(
+            snapshot,
+            strategy_symbols=("TQQQ", "BOXX", "QQQI"),
+        )
+
+        self.assertEqual(account_state["available_cash"], 8000.0)
+        self.assertEqual(
+            account_state["market_values"],
+            {"TQQQ": 1000.0, "BOXX": 5000.0, "QQQI": 0.0},
+        )
+        self.assertEqual(
+            account_state["quantities"],
+            {"TQQQ": 5, "BOXX": 10, "QQQI": 0},
+        )
+        self.assertEqual(
+            account_state["sellable_quantities"],
+            {"TQQQ": 5, "BOXX": 10, "QQQI": 0},
+        )
+        self.assertEqual(account_state["total_strategy_equity"], 50000.0)
+
+    def test_build_portfolio_snapshot_from_account_state_keeps_strategy_symbol_order(self) -> None:
+        snapshot = build_portfolio_snapshot_from_account_state(
+            {
+                "available_cash": 1500.0,
+                "market_values": {"QQQI": 300.0, "TQQQ": 1200.0, "QQQ": 8000.0},
+                "quantities": {"QQQI": 10, "TQQQ": 3, "QQQ": 99},
+                "total_strategy_equity": 3000.0,
+            },
+            strategy_symbols=("TQQQ", "QQQI", "BOXX"),
+            metadata={"account_hash": "acct-001"},
+        )
+
+        self.assertEqual(snapshot.total_equity, 3000.0)
+        self.assertEqual(snapshot.buying_power, 1500.0)
+        self.assertEqual(snapshot.cash_balance, 1500.0)
+        self.assertEqual([position.symbol for position in snapshot.positions], ["TQQQ", "QQQI"])
+        self.assertEqual(snapshot.metadata["account_hash"], "acct-001")
+
+    def test_build_strategy_evaluation_inputs_only_keeps_available_inputs(self) -> None:
+        snapshot = object()
+        evaluation_inputs = build_strategy_evaluation_inputs(
+            available_inputs=frozenset({"benchmark_history", "portfolio_snapshot"}),
+            market_inputs={
+                "benchmark_history": [1, 2, 3],
+                "derived_indicators": {"soxl": {"price": 1.0}},
+            },
+            portfolio_snapshot=snapshot,
+            account_state={"available_cash": 0.0},
+            translator=lambda key: key,
+            signal_text_fn=lambda key: key,
+        )
+
+        self.assertEqual(evaluation_inputs["benchmark_history"], [1, 2, 3])
+        self.assertIs(evaluation_inputs["portfolio_snapshot"], snapshot)
+        self.assertIn("translator", evaluation_inputs)
+        self.assertIn("signal_text_fn", evaluation_inputs)
+        self.assertNotIn("derived_indicators", evaluation_inputs)
+        self.assertNotIn("account_state", evaluation_inputs)
+
     def test_platform_policy_helpers_replace_legacy_global_helpers(self) -> None:
         strategy_definitions = {
             "global_etf_rotation": StrategyDefinition(
@@ -281,6 +364,89 @@ class StrategyContractMigrationTests(unittest.TestCase):
             plan.strategy_symbols_risk_safe_income,
             ("TQQQ", "BOXX", "QQQI", "SPYI"),
         )
+
+    def test_translate_value_decision_to_weight_targets(self) -> None:
+        decision = StrategyDecision(
+            positions=(
+                PositionTarget(symbol="SOXL", target_value=30000.0),
+                PositionTarget(symbol="BOXX", target_value=20000.0, role="safe_haven"),
+            ),
+            diagnostics={"signal_description": "risk on"},
+        )
+
+        translated = translate_value_decision_to_weight_targets(decision, total_equity=50000.0)
+
+        self.assertEqual(translated.positions[0].target_weight, 0.6)
+        self.assertEqual(translated.positions[1].target_weight, 0.4)
+        self.assertEqual(translated.positions[1].role, "safe_haven")
+        self.assertEqual(translated.diagnostics["signal_description"], "risk on")
+
+    def test_translate_weight_decision_to_value_targets(self) -> None:
+        decision = StrategyDecision(
+            positions=(
+                PositionTarget(symbol="AAPL", target_weight=0.35),
+                PositionTarget(symbol="MSFT", target_weight=0.35),
+                PositionTarget(symbol="BOXX", target_weight=0.30, role="safe_haven"),
+            ),
+            diagnostics={"benchmark_symbol": "QQQ"},
+        )
+
+        translated = translate_weight_decision_to_value_targets(decision, total_equity=20000.0)
+
+        self.assertEqual(translated.positions[0].target_value, 7000.0)
+        self.assertEqual(translated.positions[1].target_value, 7000.0)
+        self.assertEqual(translated.positions[2].target_value, 6000.0)
+        self.assertEqual(translated.positions[2].role, "safe_haven")
+        self.assertEqual(translated.diagnostics["benchmark_symbol"], "QQQ")
+
+    def test_resolve_decision_target_mode(self) -> None:
+        self.assertEqual(
+            resolve_decision_target_mode(
+                StrategyDecision(
+                    positions=(PositionTarget(symbol="SOXL", target_value=30000.0),)
+                )
+            ),
+            "value",
+        )
+        self.assertEqual(
+            resolve_decision_target_mode(
+                StrategyDecision(
+                    positions=(PositionTarget(symbol="SOXL", target_weight=0.6),)
+                )
+            ),
+            "weight",
+        )
+        self.assertIsNone(resolve_decision_target_mode(StrategyDecision()))
+
+    def test_translate_decision_to_target_mode(self) -> None:
+        weight_decision = StrategyDecision(
+            positions=(
+                PositionTarget(symbol="AAPL", target_weight=0.35),
+                PositionTarget(symbol="BOXX", target_weight=0.65, role="safe_haven"),
+            )
+        )
+        value_decision = StrategyDecision(
+            positions=(
+                PositionTarget(symbol="SOXL", target_value=30000.0),
+                PositionTarget(symbol="BOXX", target_value=20000.0, role="safe_haven"),
+            )
+        )
+
+        translated_to_value = translate_decision_to_target_mode(
+            weight_decision,
+            target_mode="value",
+            total_equity=20000.0,
+        )
+        translated_to_weight = translate_decision_to_target_mode(
+            value_decision,
+            target_mode="weight",
+            total_equity=50000.0,
+        )
+
+        self.assertEqual(translated_to_value.positions[0].target_value, 7000.0)
+        self.assertEqual(translated_to_value.positions[1].target_value, 13000.0)
+        self.assertEqual(translated_to_weight.positions[0].target_weight, 0.6)
+        self.assertEqual(translated_to_weight.positions[1].target_weight, 0.4)
 
     def test_build_value_target_execution_plan_rejects_weight_only_positions(self) -> None:
         decision = StrategyDecision(
@@ -551,3 +717,88 @@ class StrategyContractMigrationTests(unittest.TestCase):
         self.assertEqual(annotations.signal_display, "signal")
         self.assertEqual(annotations.status_display, "status")
         self.assertEqual(annotations.deploy_ratio_text, "60%")
+
+    def test_build_value_target_portfolio_inputs_from_snapshot_supports_sellable_quantities(self) -> None:
+        snapshot = type(
+            "Snapshot",
+            (),
+            {
+                "total_equity": 25000.0,
+                "buying_power": 6000.0,
+                "positions": (
+                    type("Pos", (), {"symbol": "TQQQ", "quantity": 10, "market_value": 5000.0})(),
+                    type("Pos", (), {"symbol": "BOXX", "quantity": 20, "market_value": 2000.0})(),
+                ),
+            },
+        )()
+
+        inputs = build_value_target_portfolio_inputs_from_snapshot(
+            snapshot,
+            include_sellable_quantities=True,
+        )
+
+        self.assertEqual(inputs.market_values["TQQQ"], 5000.0)
+        self.assertEqual(inputs.quantities["BOXX"], 20)
+        self.assertEqual(inputs.sellable_quantities, {"TQQQ": 10, "BOXX": 20})
+        self.assertEqual(inputs.total_equity, 25000.0)
+        self.assertEqual(inputs.liquid_cash, 6000.0)
+
+    def test_build_value_target_portfolio_inputs_from_account_state_normalizes_payload(self) -> None:
+        inputs = build_value_target_portfolio_inputs_from_account_state(
+            {
+                "market_values": {"SOXL": 30000, "BOXX": 15000},
+                "quantities": {"SOXL": 100, "BOXX": 50},
+                "sellable_quantities": {"SOXL": 100, "BOXX": 50},
+                "total_strategy_equity": 50000,
+                "available_cash": 10000,
+            }
+        )
+
+        self.assertEqual(inputs.market_values, {"SOXL": 30000.0, "BOXX": 15000.0})
+        self.assertEqual(inputs.quantities, {"SOXL": 100, "BOXX": 50})
+        self.assertEqual(inputs.sellable_quantities, {"SOXL": 100, "BOXX": 50})
+        self.assertEqual(inputs.total_equity, 50000.0)
+        self.assertEqual(inputs.liquid_cash, 10000.0)
+
+    def test_build_value_target_runtime_plan_translates_decision_with_shared_helper(self) -> None:
+        decision = StrategyDecision(
+            positions=(
+                PositionTarget(symbol="SOXL", target_value=30000.0),
+                PositionTarget(symbol="BOXX", target_value=15000.0, role="safe_haven"),
+            ),
+            diagnostics={
+                "execution_annotations": {
+                    "trade_threshold_value": 250.0,
+                    "signal_display": "risk-on",
+                }
+            },
+        )
+        inputs = build_value_target_portfolio_inputs_from_account_state(
+            {
+                "market_values": {"SOXL": 5000.0, "BOXX": 1000.0},
+                "quantities": {"SOXL": 10, "BOXX": 5},
+                "sellable_quantities": {"SOXL": 10, "BOXX": 5},
+                "total_strategy_equity": 50000.0,
+                "available_cash": 12000.0,
+            }
+        )
+
+        payload = build_value_target_runtime_plan(
+            decision,
+            strategy_profile="semiconductor_rotation_income",
+            portfolio_inputs=inputs,
+            portfolio_rows_layout=("risk", "safe"),
+            execution_fields=(
+                "trade_threshold_value",
+                "signal_display",
+                "investable_cash",
+            ),
+            execution_defaults={"investable_cash": 12000.0},
+        )
+
+        self.assertEqual(payload["allocation"]["target_mode"], "value")
+        self.assertEqual(payload["allocation"]["targets"]["SOXL"], 30000.0)
+        self.assertEqual(payload["portfolio"]["sellable_quantities"]["BOXX"], 5)
+        self.assertEqual(payload["execution"]["trade_threshold_value"], 250.0)
+        self.assertEqual(payload["execution"]["signal_display"], "risk-on")
+        self.assertEqual(payload["execution"]["investable_cash"], 12000.0)

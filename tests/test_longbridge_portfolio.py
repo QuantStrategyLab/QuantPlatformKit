@@ -61,6 +61,18 @@ class LongBridgePortfolioTests(unittest.TestCase):
         self.assertEqual(state["sellable_quantities"]["QQQI"], 1)
         self.assertEqual(state["total_strategy_equity"], 1190.0)
 
+    def test_fetch_strategy_account_state_includes_all_positions_when_assets_empty(self) -> None:
+        state = fetch_strategy_account_state(
+            FakeQuoteContext(),
+            FakeTradeContext(),
+            [],
+        )
+
+        self.assertEqual(state["market_values"], {"SOXL": 150.0, "QQQI": 40.0})
+        self.assertEqual(state["quantities"], {"SOXL": 3, "QQQI": 2})
+        self.assertEqual(state["sellable_quantities"], {"SOXL": 3, "QQQI": 1})
+        self.assertEqual(state["total_strategy_equity"], 1190.0)
+
 
 if __name__ == "__main__":
     unittest.main()

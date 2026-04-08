@@ -17,19 +17,24 @@ def fetch_strategy_account_state(
             if getattr(cash_info, "currency", None) == "USD":
                 available_cash += float(getattr(cash_info, "available_cash", 0.0))
 
-    assets = list(strategy_assets)
+    assets = [str(symbol).strip().upper() for symbol in strategy_assets if str(symbol).strip()]
     market_values = {symbol: 0.0 for symbol in assets}
     quantities = {symbol: 0 for symbol in assets}
     sellable_quantities = {symbol: 0 for symbol in assets}
+    filter_enabled = bool(assets)
 
     positions_response = t_ctx.stock_positions()
     if positions_response and hasattr(positions_response, "channels"):
         for channel in positions_response.channels:
             for position in getattr(channel, "positions", []):
                 full_symbol = getattr(position, "symbol", "")
-                root_symbol = full_symbol.split(".")[0]
-                if root_symbol not in market_values:
+                root_symbol = full_symbol.split(".")[0].strip().upper()
+                if filter_enabled and root_symbol not in market_values:
                     continue
+                if root_symbol not in market_values:
+                    market_values[root_symbol] = 0.0
+                    quantities[root_symbol] = 0
+                    sellable_quantities[root_symbol] = 0
 
                 last_price = fetch_last_price(q_ctx, full_symbol)
                 if last_price is None:
