@@ -17,9 +17,9 @@ _核对时间：2026-03-30_
 示例：
 
 - `interactive-brokers-quant-global-etf-rotation-service`
-- `charles-schwab-quant-hybrid-growth-income-service`
-- `longbridge-quant-semiconductor-rotation-income-hk-service`
-- `longbridge-quant-semiconductor-rotation-income-sg-service`
+- `charles-schwab-quant-service`
+- `longbridge-quant-hk-service`
+- `longbridge-quant-sg-service`
 - `binance-quant-crypto-leader-rotation-service`
 
 运行时内部前缀（例如日志 / Telegram）统一用：
@@ -208,8 +208,8 @@ trigger 命名统一用：
 
 建议顺序：
 
-1. `hybrid_growth_income`
-2. `semiconductor_rotation_income`
+1. `tqqq_growth_income`
+2. `soxl_soxx_trend_income`
 3. 最后再评估 SOXL / TQQQ 相关策略
 
 验收标准：

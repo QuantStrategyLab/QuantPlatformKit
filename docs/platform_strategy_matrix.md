@@ -23,8 +23,8 @@ For repository responsibility boundaries, see [`platform_repo_boundaries.md`](./
 
 | Platform | Repo | Strategy domain | Configurable profile scope | Runtime model | Real switching today? |
 |---|---|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
-| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+***REMOVED***
+***REMOVED***
 | LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
 
@@ -46,9 +46,9 @@ Important limitation:
 
 Configurable profile scopes in `us_equity`:
 
-- `global_etf_rotation`
-- `hybrid_growth_income`
-- `semiconductor_rotation_income`
+- `soxl_soxx_trend_income`
+- `tqqq_growth_income`
+- `qqq_tech_enhancement`
 
 ### `crypto`
 

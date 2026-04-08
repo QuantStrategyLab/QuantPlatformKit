@@ -23,8 +23,8 @@ _核对时间：2026-03-30_
 
 | 平台 | 仓库 | 策略大类 | 可配置 profile 范围 | 运行模型 | 现在能否真实切换？ |
 |---|---|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
-| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+***REMOVED***
+***REMOVED***
 | LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
 ***REMOVED***
 
@@ -46,9 +46,9 @@ _核对时间：2026-03-30_
 
 当前 `us_equity` 域里支持的 profile 有：
 
-- `global_etf_rotation`
-- `hybrid_growth_income`
-- `semiconductor_rotation_income`
+- `soxl_soxx_trend_income`
+- `tqqq_growth_income`
+- `qqq_tech_enhancement`
 
 ### `crypto`
 

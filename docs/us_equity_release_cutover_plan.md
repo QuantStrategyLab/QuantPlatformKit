@@ -55,8 +55,8 @@ This mismatch is the main release risk. The local runtime refactor is already ah
 
 Recommended target tags for the next bundle:
 
-- `QuantPlatformKit` -> `v0.7.9`
-- `UsEquityStrategies` -> `v0.7.12`
+- `QuantPlatformKit` -> `v0.7.10`
+- `UsEquityStrategies` -> `v0.7.13`
 
 Reason:
 
@@ -77,17 +77,17 @@ Expected contents:
 
 Output:
 
-- tag `v0.7.9`
+- tag `v0.7.10`
 
 ### Step 2: update and release `UsEquityStrategies`
 
 Change:
 
-- bump its QPK dependency to `quant-platform-kit @ ...@v0.7.9`
+- bump its QPK dependency to `quant-platform-kit @ ...@v0.7.10`
 
 Output:
 
-- tag `v0.7.12`
+- tag `v0.7.13`
 
 ### Step 3: bump platform repo requirements
 
@@ -95,9 +95,9 @@ After both tags exist, update all three platform repos to:
 
 | Repository | `quant-platform-kit` | `us-equity-strategies` |
 | --- | --- | --- |
-| `InteractiveBrokersPlatform` | `v0.7.9` | `v0.7.12` |
-| `CharlesSchwabPlatform` | `v0.7.9` | `v0.7.12` |
-| `LongBridgePlatform` | `v0.7.9` | `v0.7.12` |
+| `InteractiveBrokersPlatform` | `v0.7.10` | `v0.7.13` |
+| `CharlesSchwabPlatform` | `v0.7.10` | `v0.7.13` |
+| `LongBridgePlatform` | `v0.7.10` | `v0.7.13` |
 
 Important:
 
@@ -117,7 +117,7 @@ Minimum deployment rule:
 
 Use this sequence as-is, with commits reviewed before tagging.
 
-### 1) Release `QuantPlatformKit` as `v0.7.9`
+### 1) Release `QuantPlatformKit` as `v0.7.10`
 
 ```bash
 cd /Users/lisiyi/Projects/QuantPlatformKit
@@ -129,13 +129,13 @@ PYTHONPATH=src /Users/lisiyi/Projects/LongBridgePlatform/.venv/bin/python -m uni
   tests.test_longbridge_portfolio
 
 git add README.md README.zh-CN.md pyproject.toml src tests docs
-git commit -m "Prepare v0.7.9 release"
-git tag v0.7.9
+git commit -m "Prepare v0.7.10 release"
+git tag v0.7.10
 git push origin HEAD
-git push origin v0.7.9
+git push origin v0.7.10
 ```
 
-### 2) Release `UsEquityStrategies` as `v0.7.12`
+### 2) Release `UsEquityStrategies` as `v0.7.13`
 
 ```bash
 cd /Users/lisiyi/Projects/UsEquityStrategies
@@ -147,10 +147,10 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:src \
   tests.test_platform_registry_support
 
 git add README.md pyproject.toml src tests docs
-git commit -m "Prepare v0.7.12 release"
-git tag v0.7.12
+git commit -m "Prepare v0.7.13 release"
+git tag v0.7.13
 git push origin HEAD
-git push origin v0.7.12
+git push origin v0.7.13
 ```
 
 ### 3) Update platform repos after both tags exist
@@ -182,7 +182,7 @@ If any repo still has unrelated local edits, split or stash them before creating
 | Platform service | Intended strategy profile | Notes |
 | --- | --- | --- |
 ***REMOVED***
-| `longbridge-quant-hk-service` | `tech_pullback_cash_buffer` | HK should move to QQQ Tech Enhancement |
+| `longbridge-quant-hk-service` | `qqq_tech_enhancement` | HK should move to QQQ Tech Enhancement |
 ***REMOVED***
 ***REMOVED***
 
@@ -196,7 +196,7 @@ Service:
 
 Set:
 
-- `STRATEGY_PROFILE=hybrid_growth_income`
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
 
 Remove:
 
@@ -212,7 +212,7 @@ Set:
 
 - `ACCOUNT_PREFIX=HK`
 - `ACCOUNT_REGION=HK`
-- `STRATEGY_PROFILE=tech_pullback_cash_buffer`
+- `STRATEGY_PROFILE=qqq_tech_enhancement`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
 - `LONGBRIDGE_STRATEGY_CONFIG_PATH`
@@ -223,7 +223,7 @@ Keep unset unless explicitly needed:
 
 Reason:
 
-- `tech_pullback_cash_buffer` is a feature snapshot strategy
+- `qqq_tech_enhancement` is a feature snapshot strategy
 - HK cutover is not only a profile switch; it also needs snapshot/config inputs
 
 ### LongBridgePlatform SG
@@ -236,7 +236,7 @@ Set:
 
 - `ACCOUNT_PREFIX=SG`
 - `ACCOUNT_REGION=SG`
-- `STRATEGY_PROFILE=hybrid_growth_income`
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
 
 Keep current dry-run choice unless separately changed:
 
@@ -256,14 +256,14 @@ Service:
 
 Set:
 
-- `STRATEGY_PROFILE=semiconductor_rotation_income`
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
 
 Keep as-is unless the live rollout decision changes:
 
 - `IBKR_DRY_RUN_ONLY`
 - `ACCOUNT_GROUP`
 
-Remove the tech-specific feature snapshot envs after switching away from `tech_pullback_cash_buffer`:
+Remove the tech-specific feature snapshot envs after switching away from `qqq_tech_enhancement`:
 
 - `IBKR_FEATURE_SNAPSHOT_PATH`
 - `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
@@ -272,7 +272,7 @@ Remove the tech-specific feature snapshot envs after switching away from `tech_p
 
 Reason:
 
-- `semiconductor_rotation_income` now uses canonical `derived_indicators + portfolio_snapshot`
+- `soxl_soxx_trend_income` now uses canonical `derived_indicators + portfolio_snapshot`
 - it does not need the tech feature snapshot artifact chain
 
 ## Verification checklist

@@ -204,13 +204,13 @@ allowlist 只影响 `enabled`，不要再手写一堆“这个策略天生只能
 
 - `global_etf_rotation`
   - 通过标准历史数据输入 + `weight/value` 翻译实现跨平台
-- `hybrid_growth_income`
+- `tqqq_growth_income`
   - 通过基准/账户输入 + `value/weight` 翻译实现跨平台
-- `semiconductor_rotation_income`
+- `soxl_soxx_trend_income`
   - 通过指标/账户输入 + `value/weight` 翻译实现跨平台
 - `russell_1000_multi_factor_defensive`
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
-- `tech_pullback_cash_buffer`
+- `qqq_tech_enhancement`
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
 
 以后新策略应该直接朝这个目标写，不要再新增一堆一次性的运行时契约。

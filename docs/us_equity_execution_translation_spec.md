@@ -147,16 +147,16 @@ The blocked reason should appear in platform diagnostics or runtime reports.
 - `global_etf_rotation`
   - strategy contract is now `market_history` + `target_mode=weight`
   - `schwab` / `longbridge` need `weight -> value`
-- `hybrid_growth_income`
+- `tqqq_growth_income`
   - strategy contract is now canonical `value`
   - `ibkr` needs `value -> weight`
-- `semiconductor_rotation_income`
+- `soxl_soxx_trend_income`
   - strategy contract is now canonical `value`
   - `ibkr` needs `value -> weight`
 - `russell_1000_multi_factor_defensive`
   - still artifact-driven, but cross-platform rollout later also depends on
     translation support
-- `tech_pullback_cash_buffer`
+- `qqq_tech_enhancement`
   - same as Russell: artifact path first, translation path next
 
 ## Review rule for P3 PRs

@@ -99,9 +99,9 @@ Cloud Run 继续只部署运行仓库，不部署 `QuantPlatformKit`。
 
 | 仓库 | 推荐服务名 |
 |---|---|
-| `InteractiveBrokersPlatform` | `interactive-brokers-quant-global-etf-rotation-service` |
-| `CharlesSchwabPlatform` | `charles-schwab-quant-hybrid-growth-income-service` |
-| `LongBridgePlatform` | `longbridge-quant-semiconductor-rotation-income-hk-service` / `longbridge-quant-semiconductor-rotation-income-sg-service` |
+| `InteractiveBrokersPlatform` | `interactive-brokers-quant-service` |
+| `CharlesSchwabPlatform` | `charles-schwab-quant-service` |
+| `LongBridgePlatform` | `longbridge-quant-hk-service` / `longbridge-quant-sg-service` |
 
 如果后面同一平台下再增加第二套相近策略，可以用：
 

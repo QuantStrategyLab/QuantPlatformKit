@@ -25,9 +25,9 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 
 | Platform | Repo | Strategy domain | Strategy selector | Runtime model | Project / backend | Runtime unit |
 |---|---|---:|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
-| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `hybrid_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-hybrid-growth-income-service` |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+***REMOVED***
+***REMOVED***
+***REMOVED***
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## Platform details
@@ -39,16 +39,16 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Cloud Run project**
   - `interactivebrokersquant`
 - **Service**
-  - `interactive-brokers-quant-global-etf-rotation-service`
+  - `interactive-brokers-quant-service`
 - **Runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **Runtime revision**
-  - `interactive-brokers-quant-global-etf-rotation-service-00001-wg8`
+  - `interactive-brokers-quant-service-00001-wg8`
 - **Scheduler**
-  - `interactive-brokers-quant-global-etf-rotation-service-scheduler`
+  - `interactive-brokers-quant-service-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
-  - `STRATEGY_PROFILE=global_etf_rotation`
+  - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
   - `ACCOUNT_GROUP=<account group selector>`
   - `IB_ACCOUNT_GROUP_CONFIG_SECRET_NAME=<Secret Manager secret name>`
 - **Runtime secrets**
@@ -64,16 +64,16 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Cloud Run project**
   - `charlesschwabquant`
 - **Service**
-  - `charles-schwab-quant-hybrid-growth-income-service`
+  - `charles-schwab-quant-service`
 - **Runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **Runtime revision**
-  - `charles-schwab-quant-hybrid-growth-income-service-00002-nhn`
+  - `charles-schwab-quant-service-00002-nhn`
 - **Scheduler**
-  - `charles-schwab-quant-hybrid-growth-income-service-scheduler`
+  - `charles-schwab-quant-service-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
-  - `STRATEGY_PROFILE=hybrid_growth_income`
+  - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
 - **Runtime secrets**
   - `schwab_token`
   - `charles-schwab-api-key`
@@ -91,18 +91,18 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Cloud Run project**
   - `longbridgequant`
 - **Services**
-  - HK: `longbridge-quant-semiconductor-rotation-income-hk-service`
-  - SG: `longbridge-quant-semiconductor-rotation-income-sg-service`
+  - HK: `longbridge-quant-hk-service`
+  - SG: `longbridge-quant-sg-service`
 - **Runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **Runtime revisions**
   - HK: `longbridge-quant-semiconductor-rotation-income-hk-ser-00002-w62`
   - SG: `longbridge-quant-semiconductor-rotation-income-sg-ser-00002-694`
 - **Schedulers**
-  - `longbridge-quant-semiconductor-rotation-income-hk-service-scheduler` in `asia-east2`
-  - `longbridge-quant-semiconductor-rotation-income-sg-service-scheduler` in `asia-southeast1`
+  - `longbridge-quant-hk-service-scheduler` in `asia-east2`
+  - `longbridge-quant-sg-service-scheduler` in `asia-southeast1`
 - **Core runtime selectors**
-  - `STRATEGY_PROFILE=semiconductor_rotation_income`
+  - `STRATEGY_PROFILE=qqq_tech_enhancement on HK; STRATEGY_PROFILE=<runtime_enabled us_equity profile> on SG`
   - `ACCOUNT_REGION=HK|SG`
   - `LONGPORT_SECRET_NAME=<region token secret>`
 - **Runtime secrets**
