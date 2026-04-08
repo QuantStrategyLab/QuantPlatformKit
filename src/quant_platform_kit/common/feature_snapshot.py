@@ -33,6 +33,16 @@ def _normalize_strategy_profile_label(value: object) -> str:
         return label
 
 
+def _normalize_contract_version_label(value: object) -> str:
+    label = str(value or "").strip()
+    if not label:
+        return ""
+    prefix, marker, suffix = label.partition(".feature_snapshot.")
+    if not marker:
+        return label
+    return f"{_normalize_strategy_profile_label(prefix)}{marker}{suffix}"
+
+
 @dataclass(frozen=True)
 class FeatureSnapshotGuardResult:
     frame: pd.DataFrame | None
@@ -602,7 +612,7 @@ def load_feature_snapshot_guarded(
                 ),
             )
 
-        if expected_contract_version and str(manifest_payload.get("contract_version")).strip() != str(expected_contract_version).strip():
+        if expected_contract_version and _normalize_contract_version_label(manifest_payload.get("contract_version")) != _normalize_contract_version_label(expected_contract_version):
             return FeatureSnapshotGuardResult(
                 frame=None,
                 metadata=_build_guard_metadata(
