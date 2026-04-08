@@ -58,6 +58,60 @@ class StrategyDecision:
     diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class ValueTargetExecutionPlan:
+    strategy_profile: str
+    target_values: Mapping[str, float]
+    risk_symbols: tuple[str, ...]
+    income_symbols: tuple[str, ...]
+    safe_haven_symbols: tuple[str, ...]
+
+    @property
+    def strategy_symbols_risk_safe_income(self) -> tuple[str, ...]:
+        return tuple(self.risk_symbols + self.safe_haven_symbols + self.income_symbols)
+
+    @property
+    def strategy_symbols_risk_income_safe(self) -> tuple[str, ...]:
+        return tuple(self.risk_symbols + self.income_symbols + self.safe_haven_symbols)
+
+
+@dataclass(frozen=True)
+class ValueTargetPortfolioPlan:
+    strategy_profile: str
+    target_values: Mapping[str, float]
+    risk_symbols: tuple[str, ...]
+    income_symbols: tuple[str, ...]
+    safe_haven_symbols: tuple[str, ...]
+    strategy_symbols: tuple[str, ...]
+    portfolio_rows: tuple[tuple[str, ...], ...]
+    market_values: Mapping[str, float]
+    quantities: Mapping[str, int]
+    sellable_quantities: Mapping[str, int] | None
+    total_equity: float
+    liquid_cash: float
+    cash_sweep_symbol: str | None = None
+
+
+@dataclass(frozen=True)
+class ValueTargetExecutionAnnotations:
+    trade_threshold_value: float
+    reserved_cash: float = 0.0
+    signal_display: str | None = None
+    status_display: str | None = None
+    dashboard_text: str | None = None
+    separator: str | None = None
+    benchmark_symbol: str | None = None
+    benchmark_price: float | None = None
+    long_trend_value: float | None = None
+    exit_line: float | None = None
+    deploy_ratio_text: str | None = None
+    income_ratio_text: str | None = None
+    income_locked_ratio_text: str | None = None
+    active_risk_asset: str | None = None
+    current_min_trade: float | None = None
+    investable_cash: float | None = None
+
+
 class StrategyEntrypoint(Protocol):
     manifest: StrategyManifest
 
@@ -67,6 +121,8 @@ class StrategyEntrypoint(Protocol):
 @dataclass(frozen=True)
 class StrategyRuntimeAdapter:
     status_icon: str = "🐤"
+    available_inputs: frozenset[str] = frozenset()
+    available_capabilities: frozenset[str] = frozenset()
     required_feature_columns: frozenset[str] = frozenset()
     snapshot_date_columns: tuple[str, ...] = ("as_of", "snapshot_date")
     max_snapshot_month_lag: int = 1
@@ -74,6 +130,7 @@ class StrategyRuntimeAdapter:
     snapshot_contract_version: str | None = None
     runtime_parameter_loader: Callable[..., Mapping[str, object]] | None = None
     managed_symbols_extractor: Callable[..., tuple[str, ...]] | None = None
+    portfolio_input_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -171,6 +228,14 @@ def validate_strategy_runtime_adapter(adapter: StrategyRuntimeAdapter) -> Strate
 
     _ensure_non_empty_string(adapter.status_icon, field_name="runtime_adapter.status_icon")
     _ensure_string_set(
+        adapter.available_inputs,
+        field_name="runtime_adapter.available_inputs[]",
+    )
+    _ensure_string_set(
+        adapter.available_capabilities,
+        field_name="runtime_adapter.available_capabilities[]",
+    )
+    _ensure_string_set(
         adapter.required_feature_columns,
         field_name="runtime_adapter.required_feature_columns[]",
     )
@@ -195,4 +260,316 @@ def validate_strategy_runtime_adapter(adapter: StrategyRuntimeAdapter) -> Strate
         raise StrategyContractValidationError(
             "runtime_adapter.managed_symbols_extractor must be callable when provided"
         )
+    if adapter.portfolio_input_name is not None:
+        _ensure_non_empty_string(
+            adapter.portfolio_input_name,
+            field_name="runtime_adapter.portfolio_input_name",
+        )
     return adapter
+
+
+def build_value_target_execution_plan(
+    decision: StrategyDecision,
+    *,
+    strategy_profile: str,
+) -> ValueTargetExecutionPlan:
+    validate_strategy_decision(decision)
+
+    target_values: dict[str, float] = {}
+    for position in decision.positions:
+        if position.target_value is None:
+            raise StrategyContractValidationError(
+                "ValueTargetExecutionPlan requires target_value positions; "
+                f"position {position.symbol!r} is missing target_value"
+            )
+        target_values[position.symbol] = float(position.target_value)
+
+    risk_symbols: list[str] = []
+    income_symbols: list[str] = []
+    safe_haven_symbols: list[str] = []
+    for position in decision.positions:
+        if position.role == "safe_haven":
+            safe_haven_symbols.append(position.symbol)
+        elif position.role == "income":
+            income_symbols.append(position.symbol)
+        else:
+            risk_symbols.append(position.symbol)
+
+    ordered_income = tuple(
+        sorted(
+            dict.fromkeys(income_symbols),
+            key=lambda symbol: (-target_values.get(symbol, 0.0), symbol),
+        )
+    )
+    return ValueTargetExecutionPlan(
+        strategy_profile=str(strategy_profile),
+        target_values=target_values,
+        risk_symbols=tuple(sorted(dict.fromkeys(risk_symbols))),
+        income_symbols=ordered_income,
+        safe_haven_symbols=tuple(sorted(dict.fromkeys(safe_haven_symbols))),
+    )
+
+
+def build_strategy_context_from_available_inputs(
+    *,
+    entrypoint: StrategyEntrypoint,
+    runtime_adapter: StrategyRuntimeAdapter | None,
+    as_of: Any,
+    available_inputs: Mapping[str, Any],
+    runtime_config: Mapping[str, Any] | None = None,
+    state: Mapping[str, Any] | None = None,
+    capabilities: Mapping[str, Any] | None = None,
+) -> StrategyContext:
+    manifest = validate_strategy_manifest(entrypoint.manifest)
+    required_inputs = frozenset(manifest.required_inputs)
+    provided = dict(available_inputs or {})
+    missing_inputs = sorted(required_inputs - frozenset(provided))
+    if missing_inputs:
+        raise StrategyContractValidationError(
+            "Strategy runtime is missing required inputs: "
+            + ", ".join(missing_inputs)
+        )
+
+    portfolio = None
+    if runtime_adapter is not None and runtime_adapter.portfolio_input_name is not None:
+        portfolio_input_name = runtime_adapter.portfolio_input_name
+        if portfolio_input_name not in provided:
+            raise StrategyContractValidationError(
+                f"Strategy runtime is missing portfolio input: {portfolio_input_name}"
+            )
+        portfolio = provided[portfolio_input_name]
+
+    market_data = {name: provided[name] for name in required_inputs}
+    return StrategyContext(
+        as_of=as_of,
+        market_data=market_data,
+        portfolio=portfolio,
+        state=dict(state or {}),
+        runtime_config=dict(runtime_config or {}),
+        capabilities=dict(capabilities or {}),
+    )
+
+
+def build_value_target_portfolio_plan(
+    execution_plan: ValueTargetExecutionPlan,
+    *,
+    market_values: Mapping[str, float],
+    quantities: Mapping[str, int],
+    total_equity: float,
+    liquid_cash: float,
+    sellable_quantities: Mapping[str, int] | None = None,
+    strategy_symbols_order: str = "risk_safe_income",
+    portfolio_rows_layout: tuple[str, ...] = ("risk_safe", "income"),
+) -> ValueTargetPortfolioPlan:
+    if not isinstance(execution_plan, ValueTargetExecutionPlan):
+        raise StrategyContractValidationError(
+            "execution_plan must be ValueTargetExecutionPlan"
+        )
+    _ensure_finite_number(total_equity, field_name="portfolio_plan.total_equity")
+    _ensure_finite_number(liquid_cash, field_name="portfolio_plan.liquid_cash")
+
+    if strategy_symbols_order == "risk_safe_income":
+        strategy_symbols = execution_plan.strategy_symbols_risk_safe_income
+    elif strategy_symbols_order == "risk_income_safe":
+        strategy_symbols = execution_plan.strategy_symbols_risk_income_safe
+    else:
+        raise StrategyContractValidationError(
+            "portfolio_plan.strategy_symbols_order must be one of: "
+            "risk_safe_income, risk_income_safe"
+        )
+
+    row_segments = {
+        "risk": execution_plan.risk_symbols,
+        "income": execution_plan.income_symbols,
+        "safe": execution_plan.safe_haven_symbols,
+        "risk_safe": execution_plan.risk_symbols + execution_plan.safe_haven_symbols,
+        "risk_income": execution_plan.risk_symbols + execution_plan.income_symbols,
+    }
+    portfolio_rows: list[tuple[str, ...]] = []
+    for row_name in portfolio_rows_layout:
+        row_key = str(row_name).strip().lower()
+        row_symbols = row_segments.get(row_key)
+        if row_symbols is None:
+            raise StrategyContractValidationError(
+                f"Unsupported portfolio row layout segment: {row_name!r}"
+            )
+        if row_symbols:
+            portfolio_rows.append(tuple(row_symbols))
+
+    normalized_market_values = {
+        symbol: float(market_values.get(symbol, 0.0))
+        for symbol in strategy_symbols
+    }
+    normalized_quantities = {
+        symbol: int(quantities.get(symbol, 0))
+        for symbol in strategy_symbols
+    }
+    normalized_sellable_quantities = (
+        None
+        if sellable_quantities is None
+        else {
+            symbol: int(sellable_quantities.get(symbol, 0))
+            for symbol in strategy_symbols
+        }
+    )
+    cash_sweep_symbol = (
+        execution_plan.safe_haven_symbols[0]
+        if execution_plan.safe_haven_symbols
+        else None
+    )
+    return ValueTargetPortfolioPlan(
+        strategy_profile=execution_plan.strategy_profile,
+        target_values=dict(execution_plan.target_values),
+        risk_symbols=execution_plan.risk_symbols,
+        income_symbols=execution_plan.income_symbols,
+        safe_haven_symbols=execution_plan.safe_haven_symbols,
+        strategy_symbols=strategy_symbols,
+        portfolio_rows=tuple(portfolio_rows),
+        market_values=normalized_market_values,
+        quantities=normalized_quantities,
+        sellable_quantities=normalized_sellable_quantities,
+        total_equity=float(total_equity),
+        liquid_cash=float(liquid_cash),
+        cash_sweep_symbol=cash_sweep_symbol,
+    )
+
+
+def build_value_target_plan_payload(
+    *,
+    strategy_profile: str,
+    portfolio_plan: ValueTargetPortfolioPlan,
+    annotations: ValueTargetExecutionAnnotations,
+    include_sellable_quantities: bool = False,
+    execution_fields: tuple[str, ...] | None = None,
+    execution_defaults: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(portfolio_plan, ValueTargetPortfolioPlan):
+        raise StrategyContractValidationError(
+            "portfolio_plan must be ValueTargetPortfolioPlan"
+        )
+    if not isinstance(annotations, ValueTargetExecutionAnnotations):
+        raise StrategyContractValidationError(
+            "annotations must be ValueTargetExecutionAnnotations"
+        )
+
+    portfolio_payload: dict[str, Any] = {
+        "strategy_symbols": portfolio_plan.strategy_symbols,
+        "portfolio_rows": portfolio_plan.portfolio_rows,
+        "market_values": dict(portfolio_plan.market_values),
+        "quantities": dict(portfolio_plan.quantities),
+        "target_values": dict(portfolio_plan.target_values),
+        "total_equity": portfolio_plan.total_equity,
+        "liquid_cash": portfolio_plan.liquid_cash,
+        "cash_sweep_symbol": portfolio_plan.cash_sweep_symbol,
+        "risk_symbols": portfolio_plan.risk_symbols,
+        "income_symbols": portfolio_plan.income_symbols,
+        "safe_haven_symbols": portfolio_plan.safe_haven_symbols,
+    }
+    if include_sellable_quantities:
+        portfolio_payload["sellable_quantities"] = dict(
+            portfolio_plan.sellable_quantities or {}
+        )
+
+    defaults = dict(execution_defaults or {})
+    candidate_values: dict[str, Any] = {
+        "trade_threshold_value": float(annotations.trade_threshold_value),
+        "reserved_cash": float(annotations.reserved_cash),
+        "signal_display": annotations.signal_display,
+        "status_display": annotations.status_display,
+        "dashboard_text": annotations.dashboard_text,
+        "separator": annotations.separator,
+        "benchmark_symbol": annotations.benchmark_symbol,
+        "benchmark_price": annotations.benchmark_price,
+        "long_trend_value": annotations.long_trend_value,
+        "exit_line": annotations.exit_line,
+        "deploy_ratio_text": annotations.deploy_ratio_text,
+        "income_ratio_text": annotations.income_ratio_text,
+        "income_locked_ratio_text": annotations.income_locked_ratio_text,
+        "active_risk_asset": annotations.active_risk_asset,
+        "current_min_trade": annotations.current_min_trade,
+        "investable_cash": annotations.investable_cash,
+    }
+    selected_fields = tuple(execution_fields or candidate_values.keys())
+    execution_payload: dict[str, Any] = {}
+    for field_name in selected_fields:
+        candidate = candidate_values.get(field_name)
+        if candidate is None:
+            candidate = defaults.get(field_name)
+        if candidate is None:
+            continue
+        if field_name in {
+            "trade_threshold_value",
+            "reserved_cash",
+            "benchmark_price",
+            "long_trend_value",
+            "exit_line",
+            "current_min_trade",
+            "investable_cash",
+        }:
+            _ensure_finite_number(candidate, field_name=f"execution_payload.{field_name}")
+            execution_payload[field_name] = float(candidate)
+            continue
+        text = str(candidate).strip()
+        if not text and field_name not in defaults:
+            continue
+        execution_payload[field_name] = text
+
+    return {
+        "strategy_profile": str(strategy_profile),
+        "portfolio": portfolio_payload,
+        "execution": execution_payload,
+    }
+
+
+def build_value_target_execution_annotations(
+    decision: StrategyDecision,
+) -> ValueTargetExecutionAnnotations:
+    validate_strategy_decision(decision)
+    diagnostics = dict(decision.diagnostics)
+    raw_annotations = diagnostics.get("execution_annotations")
+    annotations = dict(raw_annotations) if isinstance(raw_annotations, Mapping) else {}
+
+    def _pick_str(*keys: str) -> str | None:
+        for key in keys:
+            value = annotations.get(key, diagnostics.get(key))
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+        return None
+
+    def _pick_float(*keys: str, default: float | None = None) -> float | None:
+        for key in keys:
+            value = annotations.get(key, diagnostics.get(key))
+            if value is None:
+                continue
+            _ensure_finite_number(value, field_name=f"execution_annotations.{key}")
+            return float(value)
+        return default
+
+    threshold_value = _pick_float("trade_threshold_value", "threshold", "threshold_value")
+    if threshold_value is None:
+        raise StrategyContractValidationError(
+            "ValueTargetExecutionAnnotations requires trade_threshold_value "
+            "(or legacy threshold/threshold_value)"
+        )
+
+    return ValueTargetExecutionAnnotations(
+        trade_threshold_value=threshold_value,
+        reserved_cash=float(_pick_float("reserved_cash", "reserved", default=0.0) or 0.0),
+        signal_display=_pick_str("signal_display", "signal_message"),
+        status_display=_pick_str("status_display", "market_status"),
+        dashboard_text=_pick_str("dashboard_text", "dashboard"),
+        separator=_pick_str("separator"),
+        benchmark_symbol=_pick_str("benchmark_symbol"),
+        benchmark_price=_pick_float("benchmark_price", "qqq_price"),
+        long_trend_value=_pick_float("long_trend_value", "ma200"),
+        exit_line=_pick_float("exit_line"),
+        deploy_ratio_text=_pick_str("deploy_ratio_text"),
+        income_ratio_text=_pick_str("income_ratio_text"),
+        income_locked_ratio_text=_pick_str("income_locked_ratio_text"),
+        active_risk_asset=_pick_str("active_risk_asset"),
+        current_min_trade=_pick_float("current_min_trade"),
+        investable_cash=_pick_float("investable_cash"),
+    )

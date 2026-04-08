@@ -1,6 +1,6 @@
 """QuantPlatformKit public package surface."""
 
-__version__ = "0.7.5"
+__version__ = "0.7.6"
 
 from .common.models import (
     ExecutionReport,
@@ -24,6 +24,7 @@ from .common.strategy_contracts import (
     validate_strategy_decision,
     validate_strategy_manifest,
     validate_strategy_runtime_adapter,
+    build_value_target_plan_payload,
 )
 from .common.strategies import (
     CRYPTO_DOMAIN,
@@ -73,6 +74,7 @@ __all__ = [
     "StrategyMetadata",
     "StrategyRuntimeAdapter",
     "US_EQUITY_DOMAIN",
+    "build_value_target_plan_payload",
     "build_platform_profile_matrix",
     "build_profile_aliases",
     "build_strategy_catalog",
