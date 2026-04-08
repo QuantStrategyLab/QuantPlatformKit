@@ -1,4 +1,5 @@
 from .common.strategy_contracts import (
+    AllocationIntent,
     BudgetIntent,
     CallableStrategyEntrypoint,
     PositionTarget,
@@ -11,6 +12,9 @@ from .common.strategy_contracts import (
     ValueTargetExecutionPlan,
     ValueTargetExecutionAnnotations,
     ValueTargetPortfolioPlan,
+    build_allocation_intent,
+    build_allocation_payload,
+    build_value_target_allocation_intent,
     build_value_target_plan_payload,
     build_value_target_execution_annotations,
     build_value_target_portfolio_plan,
@@ -22,6 +26,7 @@ from .common.strategy_contracts import (
 )
 
 __all__ = [
+    "AllocationIntent",
     "BudgetIntent",
     "CallableStrategyEntrypoint",
     "PositionTarget",
@@ -34,6 +39,9 @@ __all__ = [
     "ValueTargetExecutionAnnotations",
     "ValueTargetExecutionPlan",
     "ValueTargetPortfolioPlan",
+    "build_allocation_intent",
+    "build_allocation_payload",
+    "build_value_target_allocation_intent",
     "build_value_target_plan_payload",
     "build_value_target_execution_annotations",
     "build_value_target_portfolio_plan",

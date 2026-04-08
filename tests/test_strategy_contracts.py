@@ -19,6 +19,7 @@ from quant_platform_kit.common.strategies import (
     resolve_platform_strategy_definition,
 )
 from quant_platform_kit.strategy_contracts import (
+    AllocationIntent,
     CallableStrategyEntrypoint,
     PositionTarget,
     StrategyContext,
@@ -28,6 +29,9 @@ from quant_platform_kit.strategy_contracts import (
     StrategyRuntimeAdapter,
     ValueTargetExecutionAnnotations,
     ValueTargetExecutionPlan,
+    build_allocation_intent,
+    build_allocation_payload,
+    build_value_target_allocation_intent,
     build_value_target_execution_annotations,
     build_value_target_execution_plan,
     build_value_target_plan_payload,
@@ -292,6 +296,43 @@ class StrategyContractMigrationTests(unittest.TestCase):
                 strategy_profile="hybrid_growth_income",
             )
 
+    def test_build_allocation_intent_for_weight_targets(self) -> None:
+        decision = StrategyDecision(
+            positions=(
+                PositionTarget(symbol="AAA", target_weight=0.6),
+                PositionTarget(symbol="BOXX", target_weight=0.4, role="safe_haven"),
+            )
+        )
+
+        intent = build_allocation_intent(
+            decision,
+            strategy_profile="tech_pullback_cash_buffer",
+            strategy_symbols_order="risk_safe_income",
+        )
+
+        self.assertIsInstance(intent, AllocationIntent)
+        self.assertEqual(intent.target_mode, "weight")
+        self.assertEqual(intent.strategy_symbols, ("AAA", "BOXX"))
+        self.assertEqual(intent.safe_haven_symbols, ("BOXX",))
+        payload = build_allocation_payload(intent)
+        self.assertEqual(payload["target_mode"], "weight")
+        self.assertEqual(payload["targets"]["AAA"], 0.6)
+        self.assertEqual(payload["positions"][1]["role"], "safe_haven")
+
+    def test_build_allocation_intent_rejects_mixed_target_modes(self) -> None:
+        decision = StrategyDecision(
+            positions=(
+                PositionTarget(symbol="AAA", target_weight=0.6),
+                PositionTarget(symbol="BOXX", target_value=400.0, role="safe_haven"),
+            )
+        )
+
+        with self.assertRaisesRegex(StrategyContractValidationError, "single target mode"):
+            build_allocation_intent(
+                decision,
+                strategy_profile="tech_pullback_cash_buffer",
+            )
+
     def test_build_strategy_context_from_available_inputs_uses_required_inputs_and_portfolio_mapping(self) -> None:
         entrypoint = CallableStrategyEntrypoint(
             manifest=StrategyManifest(
@@ -433,12 +474,39 @@ class StrategyContractMigrationTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["strategy_profile"], "semiconductor_rotation_income")
+        self.assertEqual(payload["allocation"]["target_mode"], "value")
+        self.assertEqual(payload["allocation"]["targets"]["SOXL"], 30000.0)
+        self.assertEqual(payload["allocation"]["positions"][1]["role"], "safe_haven")
         self.assertEqual(payload["portfolio"]["strategy_symbols"], ("SOXL", "BOXX"))
         self.assertEqual(payload["portfolio"]["sellable_quantities"]["SOXL"], 10)
         self.assertEqual(payload["execution"]["trade_threshold_value"], 250.0)
         self.assertEqual(payload["execution"]["signal_display"], "risk-on")
         self.assertEqual(payload["execution"]["status_display"], "")
         self.assertEqual(payload["execution"]["investable_cash"], 12000.0)
+
+    def test_build_value_target_allocation_intent_reuses_portfolio_symbol_order(self) -> None:
+        portfolio_plan = build_value_target_portfolio_plan(
+            ValueTargetExecutionPlan(
+                strategy_profile="hybrid_growth_income",
+                target_values={"TQQQ": 30000.0, "BOXX": 35000.0, "QQQI": 18000.0},
+                risk_symbols=("TQQQ",),
+                income_symbols=("QQQI",),
+                safe_haven_symbols=("BOXX",),
+            ),
+            market_values={"TQQQ": 1000.0},
+            quantities={"TQQQ": 1},
+            total_equity=120000.0,
+            liquid_cash=20000.0,
+            strategy_symbols_order="risk_safe_income",
+            portfolio_rows_layout=("risk_safe", "income"),
+        )
+
+        intent = build_value_target_allocation_intent(portfolio_plan)
+
+        self.assertEqual(intent.target_mode, "value")
+        self.assertEqual(intent.strategy_symbols, ("TQQQ", "BOXX", "QQQI"))
+        self.assertEqual(intent.positions[1].symbol, "BOXX")
+        self.assertEqual(intent.positions[1].target_value, 35000.0)
 
     def test_build_value_target_execution_annotations_prefers_normalized_mapping(self) -> None:
         decision = StrategyDecision(
