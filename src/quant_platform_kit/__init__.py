@@ -1,6 +1,6 @@
 """QuantPlatformKit public package surface."""
 
-__version__ = "0.7.8"
+__version__ = "0.7.9"
 
 from .common.models import (
     ExecutionReport,
@@ -29,6 +29,21 @@ from .common.strategy_contracts import (
     validate_strategy_manifest,
     validate_strategy_runtime_adapter,
     build_value_target_plan_payload,
+)
+from .common.execution_translation import (
+    ValueTargetPortfolioInputs,
+    build_value_target_portfolio_inputs_from_account_state,
+    build_value_target_portfolio_inputs_from_snapshot,
+    build_value_target_runtime_plan,
+    resolve_decision_target_mode,
+    translate_decision_to_target_mode,
+    translate_value_decision_to_weight_targets,
+    translate_weight_decision_to_value_targets,
+)
+from .common.runtime_inputs import (
+    build_account_state_from_portfolio_snapshot,
+    build_portfolio_snapshot_from_account_state,
+    build_strategy_evaluation_inputs,
 )
 from .common.strategies import (
     CRYPTO_DOMAIN,
@@ -78,11 +93,22 @@ __all__ = [
     "StrategyManifest",
     "StrategyMetadata",
     "StrategyRuntimeAdapter",
+    "ValueTargetPortfolioInputs",
     "US_EQUITY_DOMAIN",
     "build_allocation_intent",
     "build_allocation_payload",
+    "build_account_state_from_portfolio_snapshot",
+    "build_portfolio_snapshot_from_account_state",
+    "build_strategy_evaluation_inputs",
+    "build_value_target_portfolio_inputs_from_account_state",
+    "build_value_target_portfolio_inputs_from_snapshot",
+    "resolve_decision_target_mode",
+    "translate_decision_to_target_mode",
+    "translate_value_decision_to_weight_targets",
+    "translate_weight_decision_to_value_targets",
     "build_value_target_allocation_intent",
     "build_value_target_plan_payload",
+    "build_value_target_runtime_plan",
     "build_platform_profile_matrix",
     "build_profile_aliases",
     "build_strategy_catalog",
