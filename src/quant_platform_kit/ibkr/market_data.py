@@ -65,17 +65,33 @@ def fetch_historical_price_series(
     return PriceSeries(symbol=symbol, currency=currency, points=points)
 
 
+def _coerce_positive_price(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and isnan(value):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if numeric > 0 else None
+
+
 def _extract_market_price(ticker: Any) -> float | None:
-    price = ticker.marketPrice()
-    if price is None:
-        return None
-    if isinstance(price, float) and isnan(price):
-        price = getattr(ticker, "close", None)
-    if price is None:
-        return None
-    if isinstance(price, float) and isnan(price):
-        return None
-    return float(price) if price > 0 else None
+    for candidate in (
+        ticker.marketPrice(),
+        getattr(ticker, "last", None),
+        getattr(ticker, "close", None),
+    ):
+        price = _coerce_positive_price(candidate)
+        if price is not None:
+            return price
+
+    bid = _coerce_positive_price(getattr(ticker, "bid", None))
+    ask = _coerce_positive_price(getattr(ticker, "ask", None))
+    if bid is not None and ask is not None:
+        return float((bid + ask) / 2.0)
+    return bid or ask
 
 
 def fetch_quote_snapshots(
