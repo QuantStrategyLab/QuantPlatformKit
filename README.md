@@ -48,6 +48,8 @@ For the stricter end-state rules for new US equity strategies, see:
 - [`docs/us_equity_execution_translation_spec.zh-CN.md`](./docs/us_equity_execution_translation_spec.zh-CN.md)
 - [`docs/us_equity_release_cutover_plan.md`](./docs/us_equity_release_cutover_plan.md)
 - [`docs/us_equity_release_cutover_plan.zh-CN.md`](./docs/us_equity_release_cutover_plan.zh-CN.md)
+- [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
+- [`docs/us_equity_live_switch_runbook.zh-CN.md`](./docs/us_equity_live_switch_runbook.zh-CN.md)
 
 ## Package layout
 
@@ -148,6 +150,8 @@ Cloud Run and self-hosted runner deployments should continue to deploy the strat
 
 - [`docs/us_equity_cross_platform_strategy_spec.md`](./docs/us_equity_cross_platform_strategy_spec.md)
 - [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
+- [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
+- [`docs/us_equity_live_switch_runbook.zh-CN.md`](./docs/us_equity_live_switch_runbook.zh-CN.md)
 
 ### 目录结构
 

@@ -1,5 +1,8 @@
 # US Equity release and cutover plan
 
+> This document records the original release bundle and first cutover sequence.
+> For the current day-to-day live switch or rollback procedure, use `docs/us_equity_live_switch_runbook.md`.
+
 This document is the operational follow-up to:
 
 - `docs/us_equity_cross_platform_strategy_spec.md`
