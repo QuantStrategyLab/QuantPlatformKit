@@ -43,6 +43,10 @@ def _normalize_contract_version_label(value: object) -> str:
     return f"{_normalize_strategy_profile_label(prefix)}{marker}{suffix}"
 
 
+def _normalize_config_name_label(value: object) -> str:
+    return _normalize_strategy_profile_label(value)
+
+
 @dataclass(frozen=True)
 class FeatureSnapshotGuardResult:
     frame: pd.DataFrame | None
@@ -588,7 +592,7 @@ def load_feature_snapshot_guarded(
                 ),
             )
 
-        if expected_config_name and str(manifest_payload.get("config_name")).strip() != str(expected_config_name).strip():
+        if expected_config_name and _normalize_config_name_label(manifest_payload.get("config_name")) != _normalize_config_name_label(expected_config_name):
             return FeatureSnapshotGuardResult(
                 frame=None,
                 metadata=_build_guard_metadata(

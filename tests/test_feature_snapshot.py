@@ -62,7 +62,7 @@ class FeatureSnapshotGuardAliasTests(unittest.TestCase):
                 manifest_path=str(manifest_path),
                 require_manifest=True,
                 expected_strategy_profile="qqq_tech_enhancement",
-                expected_config_name="tech_pullback_cash_buffer",
+                expected_config_name="qqq_tech_enhancement",
             )
 
             self.assertIsNotNone(result.frame)
