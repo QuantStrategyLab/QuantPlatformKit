@@ -4,6 +4,7 @@ import unittest
 
 from quant_platform_kit.strategy_contracts import StrategyManifest, StrategyRuntimeAdapter
 from quant_platform_kit.ibkr.runtime_inputs import (
+    build_benchmark_history_inputs,
     build_ibkr_strategy_context,
     build_market_history_inputs,
     build_semiconductor_rotation_indicators,
@@ -20,6 +21,22 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
 
         self.assertEqual(set(payload), {"market_history"})
         self.assertIs(payload["market_history"], loader)
+
+    def test_build_benchmark_history_inputs_loads_candles_for_symbol(self) -> None:
+        observed = {}
+
+        def loader(_ib, symbol, duration="2 Y", bar_size="1 day"):
+            observed["call"] = (symbol, duration, bar_size)
+            return [{"close": 1.0, "high": 1.1, "low": 0.9}]
+
+        payload = build_benchmark_history_inputs(
+            "fake-ib",
+            loader,
+            benchmark_symbol="QQQ",
+        )
+
+        self.assertEqual(observed["call"], ("QQQ", "2 Y", "1 day"))
+        self.assertEqual(payload["benchmark_history"][0]["close"], 1.0)
 
     def test_build_ibkr_strategy_context_uses_required_inputs_and_portfolio(self) -> None:
         entrypoint = type(

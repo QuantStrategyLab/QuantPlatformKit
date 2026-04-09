@@ -19,6 +19,24 @@ def build_market_history_inputs(
     return {"market_history": historical_close_loader}
 
 
+def build_benchmark_history_inputs(
+    ib: Any,
+    historical_candle_loader: Callable[..., Any],
+    *,
+    benchmark_symbol: str,
+    duration: str = "2 Y",
+    bar_size: str = "1 day",
+) -> dict[str, Any]:
+    return {
+        "benchmark_history": historical_candle_loader(
+            ib,
+            benchmark_symbol,
+            duration=duration,
+            bar_size=bar_size,
+        )
+    }
+
+
 def build_ibkr_strategy_context(
     *,
     entrypoint: StrategyEntrypoint,
