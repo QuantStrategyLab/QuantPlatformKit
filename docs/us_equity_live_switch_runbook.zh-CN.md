@@ -238,6 +238,101 @@ gcloud run services describe longbridge-quant-sg-service \
 - manifest 和当前 contract version 对得上
 - 第一条通知里的 managed symbols 符合预期
 
+## 常用切换示例
+
+下面这些不是唯一做法，但都是最常见、最容易照抄的切换模板。
+
+### 示例 A：把 IBKR 切到 `tqqq_growth_income`
+
+设置：
+
+- `STRATEGY_PROFILE=tqqq_growth_income`
+- 保留 `ACCOUNT_GROUP`
+- 保留 `IB_ACCOUNT_GROUP_CONFIG_SECRET_NAME`
+
+如果还留着，就删掉：
+
+- `IBKR_FEATURE_SNAPSHOT_PATH`
+- `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `IBKR_STRATEGY_CONFIG_PATH`
+- `IBKR_RECONCILIATION_OUTPUT_PATH`
+
+原因：
+
+- `tqqq_growth_income` 只需要 `benchmark_history + portfolio_snapshot`
+- 不需要 feature-snapshot 这条 artifact 链
+
+### 示例 B：把 Schwab 切到 `qqq_tech_enhancement`
+
+设置：
+
+- `STRATEGY_PROFILE=qqq_tech_enhancement`
+- `SCHWAB_FEATURE_SNAPSHOT_PATH`
+- `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `SCHWAB_STRATEGY_CONFIG_PATH`
+
+是否保留下面这个开关，单独按 rollout 决定：
+
+- `SCHWAB_DRY_RUN_ONLY`
+
+原因：
+
+- `qqq_tech_enhancement` 是 feature-snapshot 策略
+- 运行时还需要它对应的外部 config 路径
+
+### 示例 C：把 LongBridge HK 切到 `russell_1000_multi_factor_defensive`
+
+保留：
+
+- `ACCOUNT_PREFIX=HK`
+- `ACCOUNT_REGION=HK`
+- `LONGPORT_SECRET_NAME`
+- `LONGPORT_APP_KEY_SECRET_NAME`
+- `LONGPORT_APP_SECRET_SECRET_NAME`
+
+设置：
+
+- `STRATEGY_PROFILE=russell_1000_multi_factor_defensive`
+- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
+- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
+
+如果还留着，就删掉：
+
+- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
+
+原因：
+
+- Russell 走的是 feature snapshot 合约
+- 但它不像 `qqq_tech_enhancement`，不需要额外的 strategy config path
+
+### 示例 D：把 LongBridge SG 切回非 snapshot 策略
+
+保留：
+
+- `ACCOUNT_PREFIX=SG`
+- `ACCOUNT_REGION=SG`
+
+下面三选一设置：
+
+- `STRATEGY_PROFILE=tqqq_growth_income`
+- `STRATEGY_PROFILE=soxl_soxx_trend_income`
+- `STRATEGY_PROFILE=global_etf_rotation`
+
+如果还留着，就删掉：
+
+- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
+- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
+
+下面这个单独决定：
+
+- `LONGBRIDGE_DRY_RUN_ONLY` 是否保留
+
+原因：
+
+- 非 snapshot 策略不需要 feature-snapshot artifact 链
+- SG 是否 dry-run 是运维选择，不是策略本身要求
+
 ## 回滚原则
 
 回滚时保持简单：
