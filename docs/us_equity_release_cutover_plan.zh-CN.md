@@ -1,5 +1,8 @@
 # 美股发布与切换计划
 
+> 这份文档主要记录最初那次共享包发布和首轮切换顺序。
+> 现在日常做线上策略切换或回滚时，请优先看 `docs/us_equity_live_switch_runbook.zh-CN.md`。
+
 这份文档是下面两份规范的执行版补充：
 
 - `docs/us_equity_cross_platform_strategy_spec.md`

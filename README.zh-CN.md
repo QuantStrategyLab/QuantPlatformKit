@@ -37,6 +37,8 @@
 - [`docs/us_equity_execution_translation_spec.zh-CN.md`](./docs/us_equity_execution_translation_spec.zh-CN.md)
 - [`docs/us_equity_release_cutover_plan.md`](./docs/us_equity_release_cutover_plan.md)
 - [`docs/us_equity_release_cutover_plan.zh-CN.md`](./docs/us_equity_release_cutover_plan.zh-CN.md)
+- [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
+- [`docs/us_equity_live_switch_runbook.zh-CN.md`](./docs/us_equity_live_switch_runbook.zh-CN.md)
 
 [English README](./README.md)
 
@@ -96,3 +98,5 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
 - [美股跨平台策略规范（中文）](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
 - [美股执行翻译规范（英文）](./docs/us_equity_execution_translation_spec.md)
 - [美股执行翻译规范（中文）](./docs/us_equity_execution_translation_spec.zh-CN.md)
+- [美股线上切换与回滚手册（英文）](./docs/us_equity_live_switch_runbook.md)
+- [美股线上切换与回滚手册（中文）](./docs/us_equity_live_switch_runbook.zh-CN.md)
