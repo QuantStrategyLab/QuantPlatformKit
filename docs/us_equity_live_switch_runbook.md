@@ -237,6 +237,101 @@ If the profile uses feature snapshots, also verify:
 - the manifest matches the expected contract version
 - the managed symbols in the first notification match the intended strategy
 
+## Common switch examples
+
+Use these as concrete templates. They are not the only valid switches, but they cover the most common operational paths.
+
+### Example A: switch IBKR to `tqqq_growth_income`
+
+Set:
+
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
+- keep `ACCOUNT_GROUP`
+- keep `IB_ACCOUNT_GROUP_CONFIG_SECRET_NAME`
+
+Remove if present:
+
+- `IBKR_FEATURE_SNAPSHOT_PATH`
+- `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `IBKR_STRATEGY_CONFIG_PATH`
+- `IBKR_RECONCILIATION_OUTPUT_PATH`
+
+Why:
+
+- `tqqq_growth_income` only needs `benchmark_history + portfolio_snapshot`
+- it does not use the feature-snapshot artifact chain
+
+### Example B: switch Schwab to `qqq_tech_enhancement`
+
+Set:
+
+- `STRATEGY_PROFILE=qqq_tech_enhancement`
+- `SCHWAB_FEATURE_SNAPSHOT_PATH`
+- `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `SCHWAB_STRATEGY_CONFIG_PATH`
+
+Keep or remove separately depending on the rollout choice:
+
+- `SCHWAB_DRY_RUN_ONLY`
+
+Why:
+
+- `qqq_tech_enhancement` is a feature-snapshot profile
+- the strategy also expects its external config path on the runtime side
+
+### Example C: switch LongBridge HK to `russell_1000_multi_factor_defensive`
+
+Keep:
+
+- `ACCOUNT_PREFIX=HK`
+- `ACCOUNT_REGION=HK`
+- `LONGPORT_SECRET_NAME`
+- `LONGPORT_APP_KEY_SECRET_NAME`
+- `LONGPORT_APP_SECRET_SECRET_NAME`
+
+Set:
+
+- `STRATEGY_PROFILE=russell_1000_multi_factor_defensive`
+- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
+- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
+
+Remove if present:
+
+- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
+
+Why:
+
+- Russell uses the feature snapshot contract
+- unlike `qqq_tech_enhancement`, it does not need the extra strategy config path
+
+### Example D: switch LongBridge SG back to a non-snapshot profile
+
+Keep:
+
+- `ACCOUNT_PREFIX=SG`
+- `ACCOUNT_REGION=SG`
+
+Set one of:
+
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
+- `STRATEGY_PROFILE=global_etf_rotation`
+
+Remove if present:
+
+- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
+- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
+
+Decide separately:
+
+- whether `LONGBRIDGE_DRY_RUN_ONLY` should stay or be removed
+
+Why:
+
+- non-snapshot profiles do not need the feature-snapshot artifact chain
+- SG often carries dry-run as an operational choice, not as a profile requirement
+
 ## Rollback rules
 
 Rollback is simple if you keep it operational:
