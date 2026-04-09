@@ -65,6 +65,45 @@ def fetch_historical_price_series(
     return PriceSeries(symbol=symbol, currency=currency, points=points)
 
 
+def fetch_historical_price_candles(
+    ib: Any,
+    symbol: str,
+    *,
+    duration: str = "2 Y",
+    bar_size: str = "1 day",
+    exchange: str = "SMART",
+    currency: str = "USD",
+    stock_factory: Callable[..., Any] | None = None,
+) -> list[dict[str, Any]]:
+    contract = _build_stock_contract(
+        symbol,
+        exchange=exchange,
+        currency=currency,
+        stock_factory=stock_factory,
+    )
+    ib.qualifyContracts(contract)
+    bars = ib.reqHistoricalData(
+        contract,
+        endDateTime="",
+        durationStr=duration,
+        barSizeSetting=bar_size,
+        whatToShow="ADJUSTED_LAST",
+        useRTH=True,
+        formatDate=1,
+    )
+    return [
+        {
+            "as_of": _coerce_as_of(bar.date),
+            "open": float(getattr(bar, "open", bar.close)),
+            "high": float(getattr(bar, "high", bar.close)),
+            "low": float(getattr(bar, "low", bar.close)),
+            "close": float(bar.close),
+            "volume": float(getattr(bar, "volume", 0.0) or 0.0),
+        }
+        for bar in bars or ()
+    ]
+
+
 def _coerce_positive_price(value: Any) -> float | None:
     if value is None:
         return None

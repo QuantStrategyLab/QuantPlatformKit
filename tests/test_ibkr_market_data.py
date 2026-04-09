@@ -4,7 +4,11 @@ from dataclasses import dataclass
 from datetime import date
 import unittest
 
-from quant_platform_kit.ibkr.market_data import fetch_historical_price_series, fetch_quote_snapshots
+from quant_platform_kit.ibkr.market_data import (
+    fetch_historical_price_candles,
+    fetch_historical_price_series,
+    fetch_quote_snapshots,
+)
 
 
 @dataclass
@@ -18,6 +22,10 @@ class FakeContract:
 class FakeBar:
     date: date
     close: float
+    open: float = 0.0
+    high: float = 0.0
+    low: float = 0.0
+    volume: float = 0.0
 
 
 class FakeTicker:
@@ -52,8 +60,8 @@ class FakeIB:
         self.last_history_contract = contract
         self.last_history_kwargs = kwargs
         return [
-            FakeBar(date=date(2026, 3, 27), close=100.5),
-            FakeBar(date=date(2026, 3, 28), close=101.0),
+            FakeBar(date=date(2026, 3, 27), open=100.0, high=101.0, low=99.5, close=100.5, volume=1000.0),
+            FakeBar(date=date(2026, 3, 28), open=100.5, high=101.5, low=100.0, close=101.0, volume=1200.0),
         ]
 
     def reqMktData(self, contract, *_args):
@@ -77,6 +85,20 @@ class IbkrMarketDataTests(unittest.TestCase):
         self.assertEqual(series.points[-1].close, 101.0)
         self.assertEqual(ib.last_history_contract.symbol, "SPY")
         self.assertEqual(ib.last_history_kwargs["durationStr"], "2 Y")
+
+    def test_fetch_historical_price_candles_exposes_ohlc_fields(self) -> None:
+        ib = FakeIB()
+        candles = fetch_historical_price_candles(
+            ib,
+            "QQQ",
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(candles[-1]["close"], 101.0)
+        self.assertEqual(candles[-1]["open"], 100.5)
+        self.assertEqual(candles[-1]["high"], 101.5)
+        self.assertEqual(candles[-1]["low"], 100.0)
+        self.assertEqual(candles[-1]["volume"], 1200.0)
 
     def test_fetch_quote_snapshots_returns_last_price(self) -> None:
         ib = FakeIB()
