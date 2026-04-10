@@ -27,6 +27,26 @@
 
 对当前这 5 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，接下来换线上策略主要是运维切换，不再是契约迁移。
 
+## 运维分组
+
+现在最好把 live 策略按两组理解：
+
+- **直接运行输入策略**
+  - `global_etf_rotation`
+  - `tqqq_growth_income`
+  - `soxl_soxx_trend_income`
+- **snapshot 驱动策略**
+  - `russell_1000_multi_factor_defensive`
+  - `qqq_tech_enhancement`
+
+平台脚本现在会直接输出这些字段：
+
+- `input_mode`
+- `requires_snapshot_artifacts`
+- `requires_strategy_config_path`
+
+这样切换时不用再靠记忆判断“这条是不是 snapshot 策略”。
+
 ## 标准切换路径
 
 每次都按同一套顺序走：
