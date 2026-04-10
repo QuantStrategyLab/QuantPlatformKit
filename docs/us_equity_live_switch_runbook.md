@@ -24,6 +24,26 @@ Current runtime platforms:
 
 For the current five-profile scope, all three platforms now report the full matrix as `eligible=true` and `enabled=true`. That means live switching is now an operational change, not a strategy-contract migration.
 
+## Operational profile groups
+
+Treat the live profiles as two operational groups:
+
+- **Direct-runtime profiles**
+  - `global_etf_rotation`
+  - `tqqq_growth_income`
+  - `soxl_soxx_trend_income`
+- **Snapshot-backed profiles**
+  - `russell_1000_multi_factor_defensive`
+  - `qqq_tech_enhancement`
+
+The platform scripts now expose this view directly:
+
+- `input_mode`
+- `requires_snapshot_artifacts`
+- `requires_strategy_config_path`
+
+So the operator does not need to remember the distinction from profile names alone.
+
 ## Standard switch path
 
 Use the same path every time:
