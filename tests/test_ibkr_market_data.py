@@ -147,6 +147,43 @@ class IbkrMarketDataTests(unittest.TestCase):
         self.assertEqual(snapshots["SPY"].last_price, 102.5)
 
 
+
+    def test_fetch_quote_snapshots_retries_same_market_data_type_before_fallback(self) -> None:
+        class RetrySameTypeIB(FakeIB):
+            def __init__(self):
+                super().__init__()
+                self.market_data_type = 1
+                self.market_data_type_calls = []
+                self.market_data_attempts = {}
+
+            def reqMarketDataType(self, market_data_type):
+                self.market_data_type = market_data_type
+                self.market_data_type_calls.append(market_data_type)
+
+            def reqMktData(self, contract, *_args):
+                self.last_market_data_contract = contract
+                key = (self.market_data_type, contract.symbol)
+                attempt = self.market_data_attempts.get(key, 0)
+                self.market_data_attempts[key] = attempt + 1
+                if self.market_data_type == 1 and attempt == 0:
+                    return FakeTicker(-1.0, close=float("nan"), bid=None, ask=None)
+                return FakeTicker(101.8, close=101.8, bid=101.7, ask=101.9)
+
+        ib = RetrySameTypeIB()
+        snapshots = fetch_quote_snapshots(
+            ib,
+            {"SPY"},
+            wait_seconds=0,
+            retry_wait_seconds=0,
+            attempts_per_data_type=2,
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(snapshots["SPY"].last_price, 101.8)
+        self.assertEqual(ib.market_data_attempts[(1, "SPY")], 2)
+        self.assertNotIn(2, ib.market_data_type_calls)
+        self.assertNotIn(4, ib.market_data_type_calls)
+
     def test_fetch_quote_snapshots_retries_with_market_data_fallbacks(self) -> None:
         class FallbackMarketDataIB(FakeIB):
             def __init__(self):
@@ -175,7 +212,7 @@ class IbkrMarketDataTests(unittest.TestCase):
         )
 
         self.assertEqual(snapshots["SPY"].last_price, 101.8)
-        self.assertEqual(ib.market_data_type_calls, [2, 4, 1])
+        self.assertEqual(ib.market_data_type_calls, [1, 2, 4, 1])
 
 
 if __name__ == "__main__":
