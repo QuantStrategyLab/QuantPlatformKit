@@ -184,6 +184,8 @@ def fetch_quote_snapshots(
     symbols: list[str] | tuple[str, ...] | set[str],
     *,
     wait_seconds: float = 3.0,
+    retry_wait_seconds: float = 1.5,
+    attempts_per_data_type: int = 2,
     exchange: str = "SMART",
     currency: str = "USD",
     stock_factory: Callable[..., Any] | None = None,
@@ -199,38 +201,39 @@ def fetch_quote_snapshots(
         ib.qualifyContracts(contract)
         contracts.append((symbol, contract))
 
-    snapshots = _collect_quote_snapshots(
-        ib,
-        contracts,
-        wait_seconds=wait_seconds,
-        currency=currency,
-    )
-    missing_contracts = [(symbol, contract) for symbol, contract in contracts if symbol not in snapshots]
-    if not missing_contracts:
-        return snapshots
+    snapshots: dict[str, QuoteSnapshot] = {}
+    missing_contracts = list(contracts)
+    attempts_per_data_type = max(int(attempts_per_data_type or 1), 1)
 
     setter = getattr(ib, "reqMarketDataType", None)
-    if not callable(setter):
-        return snapshots
+    market_data_types = (1, 2, 4) if callable(setter) else (1,)
 
     try:
-        for market_data_type in (2, 4):
-            _set_market_data_type(ib, market_data_type)
-            recovered = _collect_quote_snapshots(
-                ib,
-                missing_contracts,
-                wait_seconds=wait_seconds,
-                currency=currency,
-            )
-            snapshots.update(recovered)
-            missing_contracts = [
-                (symbol, contract)
-                for symbol, contract in missing_contracts
-                if symbol not in recovered
-            ]
+        for market_data_type in market_data_types:
+            if callable(setter):
+                _set_market_data_type(ib, market_data_type)
+
+            for attempt_index in range(attempts_per_data_type):
+                wait_for_attempt = wait_seconds if attempt_index == 0 else retry_wait_seconds
+                recovered = _collect_quote_snapshots(
+                    ib,
+                    missing_contracts,
+                    wait_seconds=wait_for_attempt,
+                    currency=currency,
+                )
+                snapshots.update(recovered)
+                missing_contracts = [
+                    (symbol, contract)
+                    for symbol, contract in missing_contracts
+                    if symbol not in snapshots
+                ]
+                if not missing_contracts:
+                    break
+
             if not missing_contracts:
                 break
     finally:
-        _set_market_data_type(ib, 1)
+        if callable(setter):
+            _set_market_data_type(ib, 1)
 
     return snapshots
