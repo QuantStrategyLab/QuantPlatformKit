@@ -139,6 +139,17 @@ def _set_market_data_type(ib: Any, market_data_type: int) -> None:
         setter(market_data_type)
 
 
+def _wait_for_market_data(ib: Any, wait_seconds: float) -> None:
+    if not wait_seconds:
+        return
+    sleeper = getattr(ib, "sleep", None)
+    if callable(sleeper):
+        sleeper(wait_seconds)
+        return
+    import time as time_module
+
+    time_module.sleep(wait_seconds)
+
 
 def _collect_quote_snapshots(
     ib: Any,
@@ -151,10 +162,7 @@ def _collect_quote_snapshots(
         symbol: ib.reqMktData(contract, "", False, False)
         for symbol, contract in contracts
     }
-    if wait_seconds:
-        import time as time_module
-
-        time_module.sleep(wait_seconds)
+    _wait_for_market_data(ib, wait_seconds)
 
     as_of = datetime.utcnow()
     snapshots: dict[str, QuoteSnapshot] = {}

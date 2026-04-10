@@ -148,6 +148,44 @@ class IbkrMarketDataTests(unittest.TestCase):
 
 
 
+
+    def test_fetch_quote_snapshots_uses_ib_sleep_when_available(self) -> None:
+        class DeferredTicker(FakeTicker):
+            def __init__(self):
+                super().__init__(-1.0, close=float("nan"), bid=None, ask=None)
+
+        class SleepAwareIB(FakeIB):
+            def __init__(self):
+                super().__init__()
+                self.tickers = []
+                self.sleep_calls = []
+
+            def reqMktData(self, contract, *_args):
+                ticker = DeferredTicker()
+                self.tickers.append(ticker)
+                return ticker
+
+            def sleep(self, seconds):
+                self.sleep_calls.append(seconds)
+                for ticker in self.tickers:
+                    ticker.last = 101.8
+                    ticker.close = 101.8
+                    ticker.bid = 101.7
+                    ticker.ask = 101.9
+
+        ib = SleepAwareIB()
+        snapshots = fetch_quote_snapshots(
+            ib,
+            {"SPY"},
+            wait_seconds=0.1,
+            retry_wait_seconds=0,
+            attempts_per_data_type=1,
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(snapshots["SPY"].last_price, 101.8)
+        self.assertEqual(ib.sleep_calls, [0.1])
+
     def test_fetch_quote_snapshots_retries_same_market_data_type_before_fallback(self) -> None:
         class RetrySameTypeIB(FakeIB):
             def __init__(self):
