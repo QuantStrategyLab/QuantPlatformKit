@@ -14,7 +14,9 @@ Current live US equity profiles:
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
 - `russell_1000_multi_factor_defensive`
-- `qqq_tech_enhancement`
+- `tech_communication_pullback_enhancement`
+
+Note: older deployments may still accept `qqq_tech_enhancement` as a legacy alias for `tech_communication_pullback_enhancement`, but runbooks should use the canonical profile name.
 
 Current runtime platforms:
 
@@ -34,7 +36,7 @@ Treat the live profiles as two operational groups:
   - `soxl_soxx_trend_income`
 - **Snapshot-backed profiles**
   - `russell_1000_multi_factor_defensive`
-  - `qqq_tech_enhancement`
+  - `tech_communication_pullback_enhancement`
 
 The platform scripts now expose this view directly:
 
@@ -109,11 +111,11 @@ If any of those checks fail, stop. That is a code or rollout problem, not a live
 | `tqqq_growth_income` | none |
 | `soxl_soxx_trend_income` | none |
 | `russell_1000_multi_factor_defensive` | feature snapshot path + snapshot manifest path |
-| `qqq_tech_enhancement` | feature snapshot path + snapshot manifest path + strategy config path |
+| `tech_communication_pullback_enhancement` | feature snapshot path + snapshot manifest path + strategy config path |
 
 Notes:
 
-- `qqq_tech_enhancement` on IBKR may also keep a reconciliation output path when the deployment wants that artifact.
+- `tech_communication_pullback_enhancement` on IBKR may also keep a reconciliation output path when the deployment wants that artifact.
 - When switching away from a feature-snapshot profile, remove stale snapshot/config envs from the service instead of leaving them behind.
 
 ## Step 3: update GitHub-managed runtime variables
@@ -139,7 +141,7 @@ Feature-snapshot profiles additionally need:
 
 - `IBKR_FEATURE_SNAPSHOT_PATH`
 - `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `IBKR_STRATEGY_CONFIG_PATH` for `qqq_tech_enhancement`
+- `IBKR_STRATEGY_CONFIG_PATH` for `tech_communication_pullback_enhancement`
 
 Remove when not needed:
 
@@ -281,11 +283,11 @@ Why:
 - `tqqq_growth_income` only needs `benchmark_history + portfolio_snapshot`
 - it does not use the feature-snapshot artifact chain
 
-### Example B: switch Schwab to `qqq_tech_enhancement`
+### Example B: switch Schwab to `tech_communication_pullback_enhancement`
 
 Set:
 
-- `STRATEGY_PROFILE=qqq_tech_enhancement`
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
 - `SCHWAB_FEATURE_SNAPSHOT_PATH`
 - `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH`
 - `SCHWAB_STRATEGY_CONFIG_PATH`
@@ -296,7 +298,7 @@ Keep or remove separately depending on the rollout choice:
 
 Why:
 
-- `qqq_tech_enhancement` is a feature-snapshot profile
+- `tech_communication_pullback_enhancement` is a feature-snapshot profile
 - the strategy also expects its external config path on the runtime side
 
 ### Example C: switch LongBridge HK to `russell_1000_multi_factor_defensive`
@@ -322,7 +324,7 @@ Remove if present:
 Why:
 
 - Russell uses the feature snapshot contract
-- unlike `qqq_tech_enhancement`, it does not need the extra strategy config path
+- unlike `tech_communication_pullback_enhancement`, it does not need the extra strategy config path
 
 ### Example D: switch LongBridge SG back to a non-snapshot profile
 

@@ -185,7 +185,7 @@ If any repo still has unrelated local edits, split or stash them before creating
 | Platform service | Intended strategy profile | Notes |
 | --- | --- | --- |
 ***REMOVED***
-| `longbridge-quant-hk-service` | `qqq_tech_enhancement` | HK should move to QQQ Tech Enhancement |
+***REMOVED***
 ***REMOVED***
 ***REMOVED***
 
@@ -215,7 +215,7 @@ Set:
 
 - `ACCOUNT_PREFIX=HK`
 - `ACCOUNT_REGION=HK`
-- `STRATEGY_PROFILE=qqq_tech_enhancement`
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
 - `LONGBRIDGE_STRATEGY_CONFIG_PATH`
@@ -226,7 +226,7 @@ Keep unset unless explicitly needed:
 
 Reason:
 
-- `qqq_tech_enhancement` is a feature snapshot strategy
+- `tech_communication_pullback_enhancement` is a feature snapshot strategy
 - HK cutover is not only a profile switch; it also needs snapshot/config inputs
 
 ### LongBridgePlatform SG
@@ -266,7 +266,7 @@ Keep as-is unless the live rollout decision changes:
 - `IBKR_DRY_RUN_ONLY`
 - `ACCOUNT_GROUP`
 
-Remove the tech-specific feature snapshot envs after switching away from `qqq_tech_enhancement`:
+Remove the tech-specific feature snapshot envs after switching away from `tech_communication_pullback_enhancement`:
 
 - `IBKR_FEATURE_SNAPSHOT_PATH`
 - `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
@@ -301,7 +301,7 @@ Verify with `gcloud run services describe ...`:
 Then verify the first heartbeat / execution notification:
 
 ***REMOVED***
-- LongBridge HK -> `QQQ Tech Enhancement`
+***REMOVED***
 - LongBridge SG -> `TQQQ Growth Income`
 ***REMOVED***
 

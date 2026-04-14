@@ -185,7 +185,7 @@ git push origin HEAD
 | 平台服务 | 目标策略 profile | 说明 |
 | --- | --- | --- |
 ***REMOVED***
-| `longbridge-quant-hk-service` | `qqq_tech_enhancement` | HK 切到 QQQ 科技增强 |
+***REMOVED***
 ***REMOVED***
 ***REMOVED***
 
@@ -215,7 +215,7 @@ git push origin HEAD
 
 - `ACCOUNT_PREFIX=HK`
 - `ACCOUNT_REGION=HK`
-- `STRATEGY_PROFILE=qqq_tech_enhancement`
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
 - `LONGBRIDGE_STRATEGY_CONFIG_PATH`
@@ -226,7 +226,7 @@ git push origin HEAD
 
 原因：
 
-- `qqq_tech_enhancement` 是 feature snapshot 策略
+- `tech_communication_pullback_enhancement` 是 feature snapshot 策略
 - HK 这次不只是改 profile，还需要把 snapshot/config 输入一起接上
 
 ### LongBridgePlatform SG
@@ -266,7 +266,7 @@ git push origin HEAD
 - `IBKR_DRY_RUN_ONLY`
 - `ACCOUNT_GROUP`
 
-从 `qqq_tech_enhancement` 切走后，要把 tech 专用的 feature snapshot env 删掉：
+从 `tech_communication_pullback_enhancement` 切走后，要把 tech 专用的 feature snapshot env 删掉：
 
 - `IBKR_FEATURE_SNAPSHOT_PATH`
 - `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
@@ -301,7 +301,7 @@ git push origin HEAD
 再看第一条心跳 / 执行通知：
 
 ***REMOVED***
-- LongBridge HK -> `QQQ Tech Enhancement`
+***REMOVED***
 - LongBridge SG -> `TQQQ Growth Income`
 ***REMOVED***
 

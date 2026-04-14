@@ -1,6 +1,6 @@
 # 平台策略矩阵
 
-_核对时间：2026-03-30_
+_核对时间：2026-04-14_
 
 这页只回答一个问题：
 
@@ -16,8 +16,8 @@ _核对时间：2026-03-30_
   - `us_equity`
   - `crypto`
 - 各个平台仓库现在都已经保留了 `STRATEGY_PROFILE` 入口，但这**还不是**真正的多策略平台。
-- 现在每个平台仓库实际上仍然只支持自己当前在跑的那个 profile。
-- 共享的只是策略契约；真实策略实现目前还在各自的平台仓库里。
+- 现在每个美股平台仓库都可以通过 rollout allowlist 在已启用的 live `us_equity` profile 之间切换。
+- 共享契约在 `QuantPlatformKit`；真实的 `us_equity` 策略实现现在放在 `UsEquityStrategies`，平台仓库负责运行时适配和券商执行。
 
 ## 当前平台矩阵
 
@@ -25,7 +25,7 @@ _核对时间：2026-03-30_
 |---|---|---|---|---|---|
 ***REMOVED***
 ***REMOVED***
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+***REMOVED***
 ***REMOVED***
 
 ## 这张表现在该怎么理解
@@ -48,7 +48,7 @@ _核对时间：2026-03-30_
 
 - `soxl_soxx_trend_income`
 - `tqqq_growth_income`
-- `qqq_tech_enhancement`
+- `tech_communication_pullback_enhancement`
 
 ### `crypto`
 
@@ -77,9 +77,9 @@ _核对时间：2026-03-30_
 
 下面这些现在都**还不是真的**：
 
-- 只改一个 env 就能让任意 `us_equity` 策略在任意 `us_equity` 平台上跑起来
-- 真正跨平台共享的策略实现包
-- 已经投入生产使用的独立策略仓库
+- 只改一个 env 就能让任意未来 `us_equity` 策略在任意 `us_equity` 平台上跑起来
+- 每条策略都完整覆盖每个券商适配器
+- `UsEquityStrategies` 之外已经投入生产使用的独立策略仓库
 
 ## 当前推荐理解方式
 
@@ -95,5 +95,5 @@ _核对时间：2026-03-30_
 
 1. 先保持运行命名和文档一致
 2. 持续更新这份平台 / 大类 / profile 矩阵
-3. 等至少有一个 `us_equity` 策略真的准备好被 IBKR / Schwab / LongBridge 复用
-4. 到那时再按**策略大类**拆，不按 broker 拆
+3. 把策略层行为和频率继续放在 `UsEquityStrategies`
+4. 平台文档只保留运行时适配、profile 启用状态和券商执行说明

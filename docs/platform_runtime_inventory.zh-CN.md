@@ -1,6 +1,6 @@
 # 平台运行清单
 
-_校验快照日期：2026-03-30_
+_校验快照日期：2026-04-14_
 
 这份文档记录的是**公开 runtime 接线清单**，用来快速回答一个问题：
 
@@ -45,7 +45,7 @@ _校验快照日期：2026-03-30_
 - **runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **runtime revision**
-  - `interactive-brokers-quant-service-00001-wg8`
+  - `interactive-brokers-quant-service-00072-2hn`
 - **Scheduler**
   - `interactive-brokers-quant-service-scheduler`
   - region：`us-central1`
@@ -70,7 +70,7 @@ _校验快照日期：2026-03-30_
 - **runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **runtime revision**
-  - `charles-schwab-quant-service-00002-nhn`
+  - `charles-schwab-quant-service-00043-jvd`
 - **Scheduler**
   - `charles-schwab-quant-service-scheduler`
   - region：`us-central1`
@@ -98,26 +98,28 @@ _校验快照日期：2026-03-30_
 - **runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **runtime revision**
-  - HK：`longbridge-quant-semiconductor-rotation-income-hk-ser-00002-w62`
-  - SG：`longbridge-quant-semiconductor-rotation-income-sg-ser-00002-694`
+  - HK：`longbridge-quant-hk-service-00060-xgm`
+  - SG：`longbridge-quant-sg-service-00055-pch`
 - **Scheduler**
   - `longbridge-quant-hk-service-scheduler`（`asia-east2`）
   - `longbridge-quant-sg-service-scheduler`（`asia-southeast1`）
 - **核心运行选择器**
-  - `STRATEGY_PROFILE=HK 使用 qqq_tech_enhancement；SG 使用 tqqq_growth_income`
+***REMOVED***
   - `ACCOUNT_REGION=HK|SG`
   - `LONGPORT_SECRET_NAME=<region token secret>`
 - **运行时 secret**
-  - 共享 app secret：
+  - Secret Manager 引用：
     - `longbridge-telegram-token`
-    - `longport-app-key`
-    - `longport-app-secret`
+    - `longport-app-key-hk`
+    - `longport-app-key-sg`
+    - `longport-app-secret-hk`
+    - `longport-app-secret-sg`
   - 区域 token secret：
     - `longport_token_hk`
     - `longport_token_sg`
 - **运行说明**
   - HK / SG 继续保持两个 Cloud Run 服务、两个 trigger、两个 GitHub Environment。
-  - App key / secret 和 Telegram token 现在都已经改成 LongBridge 项目内部共享的 Secret Manager 引用。
+  - App key / secret 现在使用分区域的 Secret Manager 引用；Telegram token 在 LongBridge 项目内共享。
   - `SERVICE_NAME` 现在也已经对齐到上面的完整运行时名字，不再使用旧的 `longbridge-quant-hk` / `longbridge-quant-sg` 这种短前缀。
 
 ### Binance

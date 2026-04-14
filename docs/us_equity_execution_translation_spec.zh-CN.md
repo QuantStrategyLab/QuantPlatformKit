@@ -147,7 +147,7 @@
 - `russell_1000_multi_factor_defensive`
   - 目前还是先走 artifact contract
   - 后面做跨平台 rollout 时也会依赖执行翻译支持
-- `qqq_tech_enhancement`
+- `tech_communication_pullback_enhancement`
   - 路径和 Russell 类似：先 artifact，再执行翻译
 
 ## P3 PR 的 review 要点
