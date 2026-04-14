@@ -17,7 +17,9 @@
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`
 - `russell_1000_multi_factor_defensive`
-- `qqq_tech_enhancement`
+- `tech_communication_pullback_enhancement`
+
+说明：旧部署里 `qqq_tech_enhancement` 仍可能作为 `tech_communication_pullback_enhancement` 的 legacy alias 被接受，但运行手册统一使用 canonical profile 名。
 
 当前运行平台：
 
@@ -37,7 +39,7 @@
   - `soxl_soxx_trend_income`
 - **snapshot 驱动策略**
   - `russell_1000_multi_factor_defensive`
-  - `qqq_tech_enhancement`
+  - `tech_communication_pullback_enhancement`
 
 平台脚本现在会直接输出这些字段：
 
@@ -112,11 +114,11 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 | `tqqq_growth_income` | 无 |
 | `soxl_soxx_trend_income` | 无 |
 | `russell_1000_multi_factor_defensive` | feature snapshot 路径 + manifest 路径 |
-| `qqq_tech_enhancement` | feature snapshot 路径 + manifest 路径 + strategy config 路径 |
+| `tech_communication_pullback_enhancement` | feature snapshot 路径 + manifest 路径 + strategy config 路径 |
 
 说明：
 
-- `qqq_tech_enhancement` 在 IBKR 上如果还要留对账产物，可以继续配 reconciliation output path。
+- `tech_communication_pullback_enhancement` 在 IBKR 上如果还要留对账产物，可以继续配 reconciliation output path。
 - 如果从 feature-snapshot 策略切回普通策略，要把旧的 snapshot/config env 一起删掉，不要留脏状态。
 
 ## 第三步：改 GitHub 管理的运行时变量
@@ -142,7 +144,7 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 
 - `IBKR_FEATURE_SNAPSHOT_PATH`
 - `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `IBKR_STRATEGY_CONFIG_PATH`（`qqq_tech_enhancement` 需要）
+- `IBKR_STRATEGY_CONFIG_PATH`（`tech_communication_pullback_enhancement` 需要）
 
 不再需要时要删掉：
 
@@ -282,11 +284,11 @@ gcloud run services describe longbridge-quant-sg-service \
 - `tqqq_growth_income` 只需要 `benchmark_history + portfolio_snapshot`
 - 不需要 feature-snapshot 这条 artifact 链
 
-### 示例 B：把 Schwab 切到 `qqq_tech_enhancement`
+### 示例 B：把 Schwab 切到 `tech_communication_pullback_enhancement`
 
 设置：
 
-- `STRATEGY_PROFILE=qqq_tech_enhancement`
+- `STRATEGY_PROFILE=tech_communication_pullback_enhancement`
 - `SCHWAB_FEATURE_SNAPSHOT_PATH`
 - `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH`
 - `SCHWAB_STRATEGY_CONFIG_PATH`
@@ -297,7 +299,7 @@ gcloud run services describe longbridge-quant-sg-service \
 
 原因：
 
-- `qqq_tech_enhancement` 是 feature-snapshot 策略
+- `tech_communication_pullback_enhancement` 是 feature-snapshot 策略
 - 运行时还需要它对应的外部 config 路径
 
 ### 示例 C：把 LongBridge HK 切到 `russell_1000_multi_factor_defensive`
@@ -323,7 +325,7 @@ gcloud run services describe longbridge-quant-sg-service \
 原因：
 
 - Russell 走的是 feature snapshot 合约
-- 但它不像 `qqq_tech_enhancement`，不需要额外的 strategy config path
+- 但它不像 `tech_communication_pullback_enhancement`，不需要额外的 strategy config path
 
 ### 示例 D：把 LongBridge SG 切回非 snapshot 策略
 

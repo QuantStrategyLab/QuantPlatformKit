@@ -1,6 +1,6 @@
 # Platform Runtime Inventory
 
-_Verified snapshot: 2026-03-30_
+_Verified snapshot: 2026-04-14_
 
 This document records the **current live runtime inventory** across platform repositories and deployment projects. It is meant to answer one question quickly:
 
@@ -27,7 +27,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 |---|---|---:|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-service` |
 | Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `tqqq_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-service` |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | `longbridgequant` | `longbridge-quant-hk-service`, `longbridge-quant-sg-service` |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `HK: tech_communication_pullback_enhancement` / `SG: tqqq_growth_income` | Cloud Run | `longbridgequant` | `longbridge-quant-hk-service`, `longbridge-quant-sg-service` |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## Platform details
@@ -43,7 +43,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 - **Runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **Current ready revision**
-  - `interactive-brokers-quant-service-00001-wg8`
+  - `interactive-brokers-quant-service-00072-2hn`
 - **Scheduler**
   - `interactive-brokers-quant-service-scheduler`
   - region: `us-central1`
@@ -68,7 +68,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 - **Runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **Current ready revision**
-  - `charles-schwab-quant-service-00002-nhn`
+  - `charles-schwab-quant-service-00043-jvd`
 - **Scheduler**
   - `charles-schwab-quant-service-scheduler`
   - region: `us-central1`
@@ -96,26 +96,28 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 - **Runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **Current ready revisions**
-  - HK: `longbridge-quant-semiconductor-rotation-income-hk-ser-00002-w62`
-  - SG: `longbridge-quant-semiconductor-rotation-income-sg-ser-00002-694`
+  - HK: `longbridge-quant-hk-service-00060-xgm`
+  - SG: `longbridge-quant-sg-service-00055-pch`
 - **Schedulers**
   - `longbridge-quant-hk-service-scheduler` in `asia-east2`
   - `longbridge-quant-sg-service-scheduler` in `asia-southeast1`
 - **Core runtime selectors**
-  - `STRATEGY_PROFILE=qqq_tech_enhancement on HK; STRATEGY_PROFILE=tqqq_growth_income on SG`
+  - `STRATEGY_PROFILE=tech_communication_pullback_enhancement on HK; STRATEGY_PROFILE=tqqq_growth_income on SG`
   - `ACCOUNT_REGION=HK|SG`
   - `LONGPORT_SECRET_NAME=longport_token_hk|longport_token_sg`
 - **Runtime secrets**
-  - shared app secrets:
+  - Secret Manager refs:
     - `longbridge-telegram-token`
-    - `longport-app-key`
-    - `longport-app-secret`
+    - `longport-app-key-hk`
+    - `longport-app-key-sg`
+    - `longport-app-secret-hk`
+    - `longport-app-secret-sg`
   - region token secrets:
     - `longport_token_hk`
     - `longport_token_sg`
 - **Current notes**
   - HK and SG keep two independent Cloud Run services, two triggers, and two GitHub Environments.
-  - App key / secret and Telegram token are now Secret Manager refs shared inside the LongBridge project.
+  - App key / secret are region-specific Secret Manager refs; Telegram token is shared inside the LongBridge project.
   - `SERVICE_NAME` is now aligned to the full runtime-facing names above, instead of using the older short `longbridge-quant-hk` / `longbridge-quant-sg` prefixes.
 
 ### Binance

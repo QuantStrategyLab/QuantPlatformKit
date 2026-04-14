@@ -210,7 +210,7 @@ Current live profiles can migrate incrementally, but the end state should be:
   inputs plus value/weight translation
 - `russell_1000_multi_factor_defensive`: portable through standardized
   `feature_snapshot` artifact delivery
-- `qqq_tech_enhancement`: portable through standardized `feature_snapshot`
+- `tech_communication_pullback_enhancement`: portable through standardized `feature_snapshot`
   artifact delivery
 
 New profiles should target the end state immediately instead of adding more

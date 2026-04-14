@@ -156,7 +156,7 @@ The blocked reason should appear in platform diagnostics or runtime reports.
 - `russell_1000_multi_factor_defensive`
   - still artifact-driven, but cross-platform rollout later also depends on
     translation support
-- `qqq_tech_enhancement`
+- `tech_communication_pullback_enhancement`
   - same as Russell: artifact path first, translation path next
 
 ## Review rule for P3 PRs

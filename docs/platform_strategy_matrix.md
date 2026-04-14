@@ -1,6 +1,6 @@
 # Platform Strategy Matrix
 
-_Verified snapshot: 2026-03-30_
+_Verified snapshot: 2026-04-14_
 
 This page is the short answer to one question:
 
@@ -16,8 +16,8 @@ For repository responsibility boundaries, see [`platform_repo_boundaries.md`](./
   - `us_equity`
   - `crypto`
 - Runtime repositories already expose `STRATEGY_PROFILE`, but this is **not** a full multi-strategy marketplace yet.
-- Today, each platform repository still supports only its current live profile.
-- The shared contract is in `QuantPlatformKit`; real strategy implementations still live in the platform runtime repositories.
+- Today, each US equity platform can switch among its enabled live `us_equity` profiles through its rollout allowlist.
+- The shared contract is in `QuantPlatformKit`; real `us_equity` strategy implementations now live in `UsEquityStrategies`, while platform repositories own runtime adapters and broker execution.
 
 ## Current platform matrix
 
@@ -25,7 +25,7 @@ For repository responsibility boundaries, see [`platform_repo_boundaries.md`](./
 |---|---|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
 | Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `tqqq_growth_income` | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `qqq_tech_enhancement` on HK / `tqqq_growth_income` on SG | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `tech_communication_pullback_enhancement` on HK / `tqqq_growth_income` on SG | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
 
 ## What this means right now
@@ -48,7 +48,7 @@ Current live profiles in `us_equity`:
 
 - `soxl_soxx_trend_income`
 - `tqqq_growth_income`
-- `qqq_tech_enhancement`
+- `tech_communication_pullback_enhancement`
 
 ### `crypto`
 
@@ -77,9 +77,9 @@ These pieces are already real and shared:
 
 These are **not** true yet:
 
-- selecting any `us_equity` strategy on any `us_equity` platform by one env change
-- shared cross-platform strategy implementation packages
-- independent strategy repositories that are already used in production
+- selecting any future `us_equity` strategy on any `us_equity` platform by one env change
+- every strategy having complete adapter coverage on every broker
+- independent strategy repositories outside `UsEquityStrategies` that are already used in production
 
 ## Recommended interpretation
 
@@ -95,5 +95,5 @@ Before extracting real strategy implementations, keep doing this in order:
 
 1. keep runtime naming and docs aligned
 2. keep the platform/domain/profile matrix accurate
-3. wait until at least one `us_equity` strategy is truly ready to be reused across IBKR / Schwab / LongBridge
-4. then extract by **strategy domain**, not by broker
+3. keep strategy-layer behavior and cadence in `UsEquityStrategies`
+4. keep platform docs focused on runtime adapters, profile enablement, and broker execution

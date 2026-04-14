@@ -210,7 +210,7 @@ allowlist 只影响 `enabled`，不要再手写一堆“这个策略天生只能
   - 通过指标/账户输入 + `value/weight` 翻译实现跨平台
 - `russell_1000_multi_factor_defensive`
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
-- `qqq_tech_enhancement`
+- `tech_communication_pullback_enhancement`
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
 
 以后新策略应该直接朝这个目标写，不要再新增一堆一次性的运行时契约。
