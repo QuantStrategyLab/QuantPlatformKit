@@ -19,9 +19,8 @@ _校验快照日期：2026-04-14_
   - `STRATEGY_PROFILE` 这类策略选择器
   - `*_SECRET_NAME` 这类 secret 选择器
 - Secret Manager 负责 Cloud Run 运行时真正要吃的敏感值。
-- GitHub Secrets 依然保留给 CI/CD 启动凭据用，比如：
-  - `GCP_SA_KEY`
-  - 以及运行时迁移还没完成时的临时 fallback
+- 美股 Cloud Run env-sync workflow 使用 GitHub OIDC + Workload Identity Federation，不再需要 `GCP_SA_KEY`。
+- GitHub Secrets 可以继续保留给运行时迁移还没完成时的临时 fallback。
 
 ## 当前清单
 
@@ -162,7 +161,6 @@ _校验快照日期：2026-04-14_
 
 ### 继续放在 GitHub Secrets
 
-- `GCP_SA_KEY`
 - 迁移还没结束时的临时 fallback
 
 ### 应该放在 Secret Manager

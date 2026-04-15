@@ -212,6 +212,11 @@ Current live profiles can migrate incrementally, but the end state should be:
   `feature_snapshot` artifact delivery
 - `tech_communication_pullback_enhancement`: portable through standardized `feature_snapshot`
   artifact delivery
+- `mega_cap_leader_rotation_dynamic_top20`: portable through standardized
+  `feature_snapshot` artifact delivery
+- `dynamic_mega_leveraged_pullback`: portable through standardized
+  `feature_snapshot` artifact delivery plus canonical market, benchmark, and
+  portfolio inputs
 
 New profiles should target the end state immediately instead of adding more
 one-off runtime contracts.

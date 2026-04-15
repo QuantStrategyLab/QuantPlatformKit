@@ -1,6 +1,6 @@
 # 平台策略矩阵
 
-_核对时间：2026-04-14_
+_核对时间：2026-04-15_
 
 这页只回答一个问题：
 
@@ -16,7 +16,8 @@ _核对时间：2026-04-14_
   - `us_equity`
   - `crypto`
 - 各个平台仓库现在都已经保留了 `STRATEGY_PROFILE` 入口，但这**还不是**真正的多策略平台。
-- 现在每个美股平台仓库都可以通过 rollout allowlist 在已启用的 live `us_equity` profile 之间切换。
+- 现在每个美股平台仓库都可以在 `UsEquityStrategies` 发布的 live `runtime_enabled` `us_equity` profile 之间切换。
+- 平台 runtime adapter 会根据策略输入、target mode 和平台 capability 自动生成；规范内的新 profile 不应该再需要三个平台分别手写 allowlist。
 - 共享契约在 `QuantPlatformKit`；真实的 `us_equity` 策略实现现在放在 `UsEquityStrategies`，平台仓库负责运行时适配和券商执行。
 
 ## 当前平台矩阵
@@ -40,14 +41,18 @@ _核对时间：2026-04-14_
 
 但要注意：
 
-- 这**不等于**任何一个 `us_equity` 策略现在都能直接在这三个平台上切换运行。
-- 它只表示这些平台已经共享同一层“策略大类 + 兼容性”抽象。
-- 真正的具体策略，仍然要单独声明自己支持哪些平台、是否真的适合那个运行时。
+- 这**不等于**任意未来 `us_equity` 策略只靠名字就能跑。
+- 它表示只要策略遵守共享输入和 target-mode 契约，就可以通过 `UsEquityStrategies` 元数据和生成式 runtime adapter 接入。
+- 如果策略需要新的输入类型或券商能力，要先扩共享契约和平台 capability matrix。
 
-当前 `us_equity` 域里线上在跑的 profile 有：
+当前 `us_equity` 域里已经启用的 live profile 有：
 
-- `soxl_soxx_trend_income`
+- `dynamic_mega_leveraged_pullback`
+- `global_etf_rotation`
+- `mega_cap_leader_rotation_dynamic_top20`
+- `russell_1000_multi_factor_defensive`
 - `tqqq_growth_income`
+- `soxl_soxx_trend_income`
 - `tech_communication_pullback_enhancement`
 
 ### `crypto`
@@ -77,8 +82,8 @@ _核对时间：2026-04-14_
 
 下面这些现在都**还不是真的**：
 
-- 只改一个 env 就能让任意未来 `us_equity` 策略在任意 `us_equity` 平台上跑起来
-- 每条策略都完整覆盖每个券商适配器
+- 未来策略没有 catalog、manifest、基础 runtime adapter spec 和标准输入契约时，不能只改一个 env 就上线
+- 需要新平台能力的策略，在 capability matrix 扩展前不能直接跑
 - `UsEquityStrategies` 之外已经投入生产使用的独立策略仓库
 
 ## 当前推荐理解方式

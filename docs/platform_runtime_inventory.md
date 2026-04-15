@@ -19,7 +19,8 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
   - strategy selectors such as `STRATEGY_PROFILE`
   - secret selector variables such as `*_SECRET_NAME`
 - Secret Manager is the runtime source of truth for sensitive values that Cloud Run services actually consume.
-- GitHub Secrets are still valid for CI/CD bootstrap values such as `GCP_SA_KEY`, and can remain as temporary fallbacks where runtime migration is not fully finished.
+- The US equity Cloud Run env-sync workflows use GitHub OIDC + Workload Identity Federation. `GCP_SA_KEY` is not required for those workflows.
+- GitHub Secrets can remain as temporary runtime fallbacks where migration is not fully finished.
 
 ## Current inventory
 
@@ -160,8 +161,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 
 ### Keep in GitHub Secrets
 
-- `GCP_SA_KEY`
-- temporary bootstrap fallbacks if a runtime migration is still in progress
+- temporary fallback values if a runtime migration is still in progress
 
 ### Keep in Secret Manager
 
