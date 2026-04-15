@@ -13,10 +13,12 @@
 
 当前美股 live profile：
 
+- `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
-- `tqqq_growth_income`
-- `soxl_soxx_trend_income`
+- `mega_cap_leader_rotation_dynamic_top20`
 - `russell_1000_multi_factor_defensive`
+- `soxl_soxx_trend_income`
+- `tqqq_growth_income`
 - `tech_communication_pullback_enhancement`
 
 说明：旧部署里 `qqq_tech_enhancement` 仍可能作为 `tech_communication_pullback_enhancement` 的 legacy alias 被接受，但运行手册统一使用 canonical profile 名。
@@ -27,7 +29,7 @@
 - `schwab`
 - `longbridge`
 
-对当前这 5 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，接下来换线上策略主要是运维切换，不再是契约迁移。
+对当前这 7 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，接下来换线上策略主要是运维切换，不再是契约迁移。
 
 ## 运维分组
 
@@ -38,6 +40,8 @@
   - `tqqq_growth_income`
   - `soxl_soxx_trend_income`
 - **snapshot 驱动策略**
+  - `dynamic_mega_leveraged_pullback`
+  - `mega_cap_leader_rotation_dynamic_top20`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
 
@@ -45,6 +49,7 @@
 
 - `input_mode`
 - `requires_snapshot_artifacts`
+- `requires_snapshot_manifest_path`
 - `requires_strategy_config_path`
 
 这样切换时不用再靠记忆判断“这条是不是 snapshot 策略”。
@@ -110,15 +115,19 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 
 | 策略 | 除了 `STRATEGY_PROFILE` 之外还需要的输入 |
 | --- | --- |
+| `dynamic_mega_leveraged_pullback` | feature snapshot 路径 + manifest 路径 |
 | `global_etf_rotation` | 无 |
-| `tqqq_growth_income` | 无 |
+| `mega_cap_leader_rotation_dynamic_top20` | feature snapshot 路径 + manifest 路径 |
+| `russell_1000_multi_factor_defensive` | feature snapshot 路径 |
 | `soxl_soxx_trend_income` | 无 |
-| `russell_1000_multi_factor_defensive` | feature snapshot 路径 + manifest 路径 |
+| `tqqq_growth_income` | 无 |
 | `tech_communication_pullback_enhancement` | feature snapshot 路径 + manifest 路径 + strategy config 路径 |
 
 说明：
 
 - `tech_communication_pullback_enhancement` 在 IBKR 上如果还要留对账产物，可以继续配 reconciliation output path。
+- `dynamic_mega_leveraged_pullback` 还会用到 market history、benchmark history 和 portfolio snapshot，但这些由平台运行时从券商/行情侧供应，不是额外 artifact env。
+- `russell_1000_multi_factor_defensive` 目前只强制 snapshot 路径，不强制 manifest 路径。
 - 如果从 feature-snapshot 策略切回普通策略，要把旧的 snapshot/config env 一起删掉，不要留脏状态。
 
 ## 第三步：改 GitHub 管理的运行时变量
@@ -143,8 +152,8 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 如果是 feature-snapshot 策略，还需要：
 
 - `IBKR_FEATURE_SNAPSHOT_PATH`
-- `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `IBKR_STRATEGY_CONFIG_PATH`（`tech_communication_pullback_enhancement` 需要）
+- `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`（当目标 profile 要求 manifest 时）
+- `IBKR_STRATEGY_CONFIG_PATH`（当目标 profile 要求外部 runtime config 时）
 
 不再需要时要删掉：
 
@@ -166,8 +175,8 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 如果是 feature-snapshot 策略，还需要：
 
 - `SCHWAB_FEATURE_SNAPSHOT_PATH`
-- `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `SCHWAB_STRATEGY_CONFIG_PATH`（当该策略走外部配置文件时）
+- `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH`（当目标 profile 要求 manifest 时）
+- `SCHWAB_STRATEGY_CONFIG_PATH`（当目标 profile 要求外部 runtime config 时）
 
 不再需要时要删掉：
 
@@ -193,8 +202,8 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 如果是 feature-snapshot 策略，还需要：
 
 - `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
+- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`（当目标 profile 要求 manifest 时）
+- `LONGBRIDGE_STRATEGY_CONFIG_PATH`（当目标 profile 要求外部 runtime config 时）
 
 不再需要时要删掉：
 
@@ -354,6 +363,33 @@ gcloud run services describe longbridge-quant-sg-service \
 
 - 非 snapshot 策略不需要 feature-snapshot artifact 链
 - SG 是否 dry-run 是运维选择，不是策略本身要求
+
+### 示例 E：把 LongBridge SG dry-run 切到 `dynamic_mega_leveraged_pullback`
+
+保留：
+
+- `ACCOUNT_PREFIX=SG`
+- `ACCOUNT_REGION=SG`
+- `LONGPORT_SECRET_NAME`
+- `LONGPORT_APP_KEY_SECRET_NAME`
+- `LONGPORT_APP_SECRET_SECRET_NAME`
+
+设置：
+
+- `STRATEGY_PROFILE=dynamic_mega_leveraged_pullback`
+- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
+- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `LONGBRIDGE_DRY_RUN_ONLY=true`
+
+如果还留着，就删掉：
+
+- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
+
+原因：
+
+- 这个策略用 feature snapshot 获取动态 mega-cap 池
+- 每日 market、benchmark 和 portfolio 输入由平台运行时供应
+- dry-run 是部署选择，不是策略契约的一部分
 
 ## 回滚原则
 

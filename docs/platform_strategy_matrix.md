@@ -1,6 +1,6 @@
 # Platform Strategy Matrix
 
-_Verified snapshot: 2026-04-14_
+_Verified snapshot: 2026-04-15_
 
 This page is the short answer to one question:
 
@@ -16,7 +16,8 @@ For repository responsibility boundaries, see [`platform_repo_boundaries.md`](./
   - `us_equity`
   - `crypto`
 - Runtime repositories already expose `STRATEGY_PROFILE`, but this is **not** a full multi-strategy marketplace yet.
-- Today, each US equity platform can switch among its enabled live `us_equity` profiles through its rollout allowlist.
+- Today, each US equity platform can switch among the `runtime_enabled` `us_equity` profiles published by `UsEquityStrategies`.
+- Platform runtime adapters are generated from strategy input/target-mode declarations plus platform capabilities, so new in-contract profiles should not need per-platform allowlist edits.
 - The shared contract is in `QuantPlatformKit`; real `us_equity` strategy implementations now live in `UsEquityStrategies`, while platform repositories own runtime adapters and broker execution.
 
 ## Current platform matrix
@@ -40,12 +41,16 @@ Platforms currently in this domain:
 
 Important limitation:
 
-- This does **not** mean every `us_equity` strategy can already run on every `us_equity` platform.
-- It only means these platforms now share the same top-level domain and compatibility model.
-- Each concrete strategy still needs its own platform-compatibility declaration and runtime fit.
+- This does **not** mean any arbitrary future `us_equity` strategy can run by name alone.
+- It means strategies that stay inside the shared input/target-mode contract can be admitted through `UsEquityStrategies` metadata and generated runtime adapters.
+- If a strategy needs a new input type or broker capability, the shared contract and platform capability matrix must be extended first.
 
-Configurable profile scopes in `us_equity`:
+Currently enabled live profiles in `us_equity`:
 
+- `dynamic_mega_leveraged_pullback`
+- `global_etf_rotation`
+- `mega_cap_leader_rotation_dynamic_top20`
+- `russell_1000_multi_factor_defensive`
 - `soxl_soxx_trend_income`
 - `tqqq_growth_income`
 - `tech_communication_pullback_enhancement`
@@ -77,8 +82,8 @@ These pieces are already real and shared:
 
 These are **not** true yet:
 
-- selecting any future `us_equity` strategy on any `us_equity` platform by one env change
-- every strategy having complete adapter coverage on every broker
+- selecting a future `us_equity` strategy before it has a catalog entry, manifest, base runtime adapter spec, and supported input contract
+- running strategies that require new platform capabilities before those capabilities are added to the shared matrix
 - independent strategy repositories outside `UsEquityStrategies` that are already used in production
 
 ## Recommended interpretation

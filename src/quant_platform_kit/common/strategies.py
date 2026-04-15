@@ -342,6 +342,9 @@ def _matches_platform_capability_matrix(
     runtime_adapter: StrategyRuntimeAdapter,
     capability_matrix: PlatformCapabilityMatrix,
 ) -> bool:
+    if capability_matrix.platform_id not in frozenset(definition.supported_platforms):
+        return False
+
     if definition.domain not in capability_matrix.supported_domains:
         return False
 

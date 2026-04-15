@@ -295,6 +295,13 @@ class StrategyContractsTests(unittest.TestCase):
                     required_inputs=frozenset({"feature_snapshot"}),
                     target_mode="weight",
                 ),
+                "schwab_only_weight": StrategyDefinition(
+                    profile="schwab_only_weight",
+                    domain=US_EQUITY_DOMAIN,
+                    supported_platforms=frozenset({"schwab"}),
+                    required_inputs=frozenset({"feature_snapshot"}),
+                    target_mode="weight",
+                ),
             }
         )
         ibkr_matrix = PlatformCapabilityMatrix(
@@ -313,6 +320,9 @@ class StrategyContractsTests(unittest.TestCase):
                 available_inputs=frozenset({"qqq_history", "snapshot"}),
             ),
             "tech_pullback_cash_buffer": StrategyRuntimeAdapter(
+                available_inputs=frozenset({"feature_snapshot"}),
+            ),
+            "schwab_only_weight": StrategyRuntimeAdapter(
                 available_inputs=frozenset({"feature_snapshot"}),
             ),
         }

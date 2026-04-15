@@ -42,6 +42,8 @@ Migration details and follow-up guidance live in [`docs/strategy_contract_migrat
 
 For the stricter end-state rules for new US equity strategies, see:
 
+- [`docs/us_equity_strategy_onboarding.md`](./docs/us_equity_strategy_onboarding.md)
+- [`docs/us_equity_strategy_onboarding.zh-CN.md`](./docs/us_equity_strategy_onboarding.zh-CN.md)
 - [`docs/us_equity_cross_platform_strategy_spec.md`](./docs/us_equity_cross_platform_strategy_spec.md)
 - [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
 - [`docs/us_equity_execution_translation_spec.md`](./docs/us_equity_execution_translation_spec.md)
@@ -148,6 +150,8 @@ Cloud Run and self-hosted runner deployments should continue to deploy the strat
 
 以后新增美股策略要遵守的更严格跨平台规范见：
 
+- [`docs/us_equity_strategy_onboarding.md`](./docs/us_equity_strategy_onboarding.md)
+- [`docs/us_equity_strategy_onboarding.zh-CN.md`](./docs/us_equity_strategy_onboarding.zh-CN.md)
 - [`docs/us_equity_cross_platform_strategy_spec.md`](./docs/us_equity_cross_platform_strategy_spec.md)
 - [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
 - [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
