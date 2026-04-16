@@ -23,11 +23,13 @@ from quant_platform_kit.strategy_contracts import (
     AllocationIntent,
     CallableStrategyEntrypoint,
     PositionTarget,
+    StrategyArtifactContract,
     StrategyContext,
     StrategyContractValidationError,
     StrategyDecision,
     StrategyManifest,
     StrategyRuntimeAdapter,
+    StrategyRuntimePolicy,
     ValueTargetExecutionAnnotations,
     ValueTargetExecutionPlan,
     build_allocation_intent,
@@ -44,13 +46,16 @@ from quant_platform_kit.strategy_contracts import (
     build_value_target_portfolio_plan,
     build_value_target_runtime_plan,
     build_strategy_context_from_available_inputs,
+    resolve_strategy_artifact_contract,
     resolve_decision_target_mode,
     translate_decision_to_target_mode,
     translate_value_decision_to_weight_targets,
     translate_weight_decision_to_value_targets,
+    validate_strategy_artifact_contract,
     validate_strategy_decision,
     validate_strategy_manifest,
     validate_strategy_runtime_adapter,
+    validate_strategy_runtime_policy,
 )
 
 
@@ -124,9 +129,9 @@ class StrategyContractMigrationTests(unittest.TestCase):
     def test_load_strategy_entrypoint_falls_back_to_legacy_component_module(self) -> None:
         module_name = "_quant_platform_kit_test_legacy_component"
         manifest = StrategyManifest(
-            profile="tech_pullback_cash_buffer",
+            profile="tech_communication_pullback_enhancement",
             domain=US_EQUITY_DOMAIN,
-            display_name="Tech Pullback Cash Buffer",
+            display_name="Tech Communication Pullback Enhancement",
             description="legacy component with manifest/evaluate",
             required_inputs=frozenset({"market_data"}),
         )
@@ -140,7 +145,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
 
         self._install_module(module_name, manifest=manifest, evaluate=evaluate)
         definition = StrategyDefinition(
-            profile="tech_pullback_cash_buffer",
+            profile="tech_communication_pullback_enhancement",
             domain=US_EQUITY_DOMAIN,
             supported_platforms=frozenset({"ibkr"}),
             components=(
@@ -159,7 +164,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
         decision = loaded.evaluate(StrategyContext(as_of="2026-04-06"))
 
         self.assertEqual(decision.risk_flags, ("cash_buffer",))
-        self.assertEqual(loaded.manifest.display_name, "Tech Pullback Cash Buffer")
+        self.assertEqual(loaded.manifest.display_name, "Tech Communication Pullback Enhancement")
 
     def test_load_strategy_entrypoint_rejects_missing_inputs_and_legacy_platform_fallback(self) -> None:
         module_name = "_quant_platform_kit_test_requirements"
@@ -241,6 +246,60 @@ class StrategyContractMigrationTests(unittest.TestCase):
         self.assertEqual(adapter.status_icon, "🧲")
         self.assertEqual(adapter.available_inputs, frozenset({"feature_snapshot"}))
         self.assertEqual(adapter.available_capabilities, frozenset({"broker_client"}))
+
+    def test_runtime_adapter_supports_explicit_artifact_contract_and_policy(self) -> None:
+        contract = validate_strategy_artifact_contract(
+            StrategyArtifactContract(
+                requires_snapshot_artifacts=True,
+                requires_snapshot_manifest_path=True,
+                requires_strategy_config_path=True,
+                snapshot_contract_version="tech.feature_snapshot.v1",
+                config_source_policy="bundled_or_env",
+            )
+        )
+        policy = validate_strategy_runtime_policy(
+            StrategyRuntimePolicy(
+                reconciliation_output_policy="optional",
+                runtime_execution_window_trading_days=1,
+            )
+        )
+        adapter = validate_strategy_runtime_adapter(
+            StrategyRuntimeAdapter(
+                available_inputs=frozenset({"feature_snapshot"}),
+                artifact_contract=contract,
+                runtime_policy=policy,
+            )
+        )
+
+        resolved_contract = resolve_strategy_artifact_contract(
+            adapter,
+            required_inputs=frozenset({"feature_snapshot"}),
+        )
+
+        self.assertIs(resolved_contract, contract)
+        self.assertTrue(resolved_contract.requires_snapshot_manifest_path)
+        self.assertTrue(resolved_contract.requires_strategy_config_path)
+        self.assertEqual(resolved_contract.config_source_policy, "bundled_or_env")
+        self.assertEqual(adapter.runtime_policy.reconciliation_output_policy, "optional")
+        self.assertEqual(adapter.runtime_policy.runtime_execution_window_trading_days, 1)
+
+    def test_artifact_contract_resolver_preserves_legacy_adapter_inference(self) -> None:
+        adapter = StrategyRuntimeAdapter(
+            require_snapshot_manifest=True,
+            snapshot_contract_version="legacy.feature_snapshot.v1",
+            runtime_parameter_loader=lambda **_kwargs: {"name": "legacy"},
+        )
+
+        contract = resolve_strategy_artifact_contract(
+            adapter,
+            required_inputs=frozenset({"feature_snapshot"}),
+        )
+
+        self.assertTrue(contract.requires_snapshot_artifacts)
+        self.assertTrue(contract.requires_snapshot_manifest_path)
+        self.assertTrue(contract.requires_strategy_config_path)
+        self.assertEqual(contract.snapshot_contract_version, "legacy.feature_snapshot.v1")
+        self.assertEqual(contract.config_source_policy, "runtime_parameter_loader")
 
     def test_build_account_state_from_portfolio_snapshot_filters_strategy_symbols(self) -> None:
         snapshot = PortfolioSnapshot(
@@ -352,10 +411,10 @@ class StrategyContractMigrationTests(unittest.TestCase):
 
         plan = build_value_target_execution_plan(
             decision,
-            strategy_profile="hybrid_growth_income",
+            strategy_profile="tqqq_growth_income",
         )
 
-        self.assertEqual(plan.strategy_profile, "hybrid_growth_income")
+        self.assertEqual(plan.strategy_profile, "tqqq_growth_income")
         self.assertEqual(plan.target_values["BOXX"], 35000.0)
         self.assertEqual(plan.risk_symbols, ("TQQQ",))
         self.assertEqual(plan.income_symbols, ("QQQI", "SPYI"))
@@ -459,7 +518,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
         ):
             build_value_target_execution_plan(
                 decision,
-                strategy_profile="hybrid_growth_income",
+                strategy_profile="tqqq_growth_income",
             )
 
     def test_build_allocation_intent_for_weight_targets(self) -> None:
@@ -472,7 +531,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
 
         intent = build_allocation_intent(
             decision,
-            strategy_profile="tech_pullback_cash_buffer",
+            strategy_profile="tech_communication_pullback_enhancement",
             strategy_symbols_order="risk_safe_income",
         )
 
@@ -496,13 +555,13 @@ class StrategyContractMigrationTests(unittest.TestCase):
         with self.assertRaisesRegex(StrategyContractValidationError, "single target mode"):
             build_allocation_intent(
                 decision,
-                strategy_profile="tech_pullback_cash_buffer",
+                strategy_profile="tech_communication_pullback_enhancement",
             )
 
     def test_build_strategy_context_from_available_inputs_uses_required_inputs_and_portfolio_mapping(self) -> None:
         entrypoint = CallableStrategyEntrypoint(
             manifest=StrategyManifest(
-                profile="hybrid_growth_income",
+                profile="tqqq_growth_income",
                 domain=US_EQUITY_DOMAIN,
                 display_name="Hybrid Growth Income",
                 description="test",
@@ -528,7 +587,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
     def test_build_strategy_context_from_available_inputs_rejects_missing_required_input(self) -> None:
         entrypoint = CallableStrategyEntrypoint(
             manifest=StrategyManifest(
-                profile="hybrid_growth_income",
+                profile="tqqq_growth_income",
                 domain=US_EQUITY_DOMAIN,
                 display_name="Hybrid Growth Income",
                 description="test",
@@ -556,7 +615,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
         )
         execution_plan = build_value_target_execution_plan(
             decision,
-            strategy_profile="hybrid_growth_income",
+            strategy_profile="tqqq_growth_income",
         )
 
         portfolio_plan = build_value_target_portfolio_plan(
@@ -577,7 +636,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
 
     def test_build_value_target_portfolio_plan_rejects_unknown_layout(self) -> None:
         execution_plan = ValueTargetExecutionPlan(
-            strategy_profile="hybrid_growth_income",
+            strategy_profile="tqqq_growth_income",
             target_values={"TQQQ": 1.0},
             risk_symbols=("TQQQ",),
             income_symbols=(),
@@ -609,7 +668,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
         )
         execution_plan = build_value_target_execution_plan(
             decision,
-            strategy_profile="semiconductor_rotation_income",
+            strategy_profile="soxl_soxx_trend_income",
         )
         portfolio_plan = build_value_target_portfolio_plan(
             execution_plan,
@@ -623,7 +682,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
         annotations = build_value_target_execution_annotations(decision)
 
         payload = build_value_target_plan_payload(
-            strategy_profile="semiconductor_rotation_income",
+            strategy_profile="soxl_soxx_trend_income",
             portfolio_plan=portfolio_plan,
             annotations=annotations,
             include_sellable_quantities=True,
@@ -639,7 +698,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
             },
         )
 
-        self.assertEqual(payload["strategy_profile"], "semiconductor_rotation_income")
+        self.assertEqual(payload["strategy_profile"], "soxl_soxx_trend_income")
         self.assertEqual(payload["allocation"]["target_mode"], "value")
         self.assertEqual(payload["allocation"]["targets"]["SOXL"], 30000.0)
         self.assertEqual(payload["allocation"]["positions"][1]["role"], "safe_haven")
@@ -653,7 +712,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
     def test_build_value_target_allocation_intent_reuses_portfolio_symbol_order(self) -> None:
         portfolio_plan = build_value_target_portfolio_plan(
             ValueTargetExecutionPlan(
-                strategy_profile="hybrid_growth_income",
+                strategy_profile="tqqq_growth_income",
                 target_values={"TQQQ": 30000.0, "BOXX": 35000.0, "QQQI": 18000.0},
                 risk_symbols=("TQQQ",),
                 income_symbols=("QQQI",),
@@ -785,7 +844,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
 
         payload = build_value_target_runtime_plan(
             decision,
-            strategy_profile="semiconductor_rotation_income",
+            strategy_profile="soxl_soxx_trend_income",
             portfolio_inputs=inputs,
             portfolio_rows_layout=("risk", "safe"),
             execution_fields=(

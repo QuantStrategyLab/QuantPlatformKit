@@ -12,6 +12,7 @@ Current live US equity profiles:
 
 - `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
+- `mega_cap_leader_rotation_aggressive`
 - `mega_cap_leader_rotation_dynamic_top20`
 - `russell_1000_multi_factor_defensive`
 - `soxl_soxx_trend_income`
@@ -26,7 +27,7 @@ Current runtime platforms:
 - `schwab`
 - `longbridge`
 
-For the current seven-profile scope, all three platforms now report the full matrix as `eligible=true` and `enabled=true`. That means live switching is now an operational change, not a strategy-contract migration.
+For the current eight-profile scope, all three platforms now report the full matrix as `eligible=true` and `enabled=true`. That means live switching is now an operational change, not a strategy-contract migration.
 
 ## Operational profile groups
 
@@ -38,6 +39,7 @@ Treat the live profiles as two operational groups:
   - `soxl_soxx_trend_income`
 - **Snapshot-backed profiles**
   - `dynamic_mega_leveraged_pullback`
+  - `mega_cap_leader_rotation_aggressive`
   - `mega_cap_leader_rotation_dynamic_top20`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
@@ -48,6 +50,9 @@ The platform scripts now expose this view directly:
 - `requires_snapshot_artifacts`
 - `requires_snapshot_manifest_path`
 - `requires_strategy_config_path`
+- `config_source_policy`
+- `reconciliation_output_policy`
+- `runtime_execution_window_trading_days`
 
 So the operator does not need to remember the distinction from profile names alone.
 
@@ -114,15 +119,17 @@ If any of those checks fail, stop. That is a code or rollout problem, not a live
 | --- | --- |
 | `dynamic_mega_leveraged_pullback` | feature snapshot path + snapshot manifest path |
 | `global_etf_rotation` | none |
+| `mega_cap_leader_rotation_aggressive` | feature snapshot path + snapshot manifest path |
 | `mega_cap_leader_rotation_dynamic_top20` | feature snapshot path + snapshot manifest path |
 | `russell_1000_multi_factor_defensive` | feature snapshot path |
 | `soxl_soxx_trend_income` | none |
 | `tqqq_growth_income` | none |
-| `tech_communication_pullback_enhancement` | feature snapshot path + snapshot manifest path + strategy config path |
+| `tech_communication_pullback_enhancement` | feature snapshot path + snapshot manifest path; strategy config path is optional unless the rollout overrides the packaged config |
 
 Notes:
 
 - `tech_communication_pullback_enhancement` on IBKR may also keep a reconciliation output path when the deployment wants that artifact.
+- `tech_communication_pullback_enhancement` now has `config_source_policy=bundled_or_env`, so the packaged canonical config is used unless an env path is deliberately set.
 - `dynamic_mega_leveraged_pullback` also uses market history, benchmark history, and portfolio snapshot, but the platform runtime supplies those from broker/runtime data, not extra artifact env.
 - `russell_1000_multi_factor_defensive` currently requires the snapshot path but not a manifest path.
 - When switching away from a feature-snapshot profile, remove stale snapshot/config envs from the service instead of leaving them behind.
@@ -150,7 +157,7 @@ Feature-snapshot profiles additionally need:
 
 - `IBKR_FEATURE_SNAPSHOT_PATH`
 - `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH` when the selected profile requires a manifest
-- `IBKR_STRATEGY_CONFIG_PATH` when the selected profile requires an external runtime config
+- `IBKR_STRATEGY_CONFIG_PATH` only when `config_source_policy=env_only`, or as an explicit override for `bundled_or_env`
 
 Remove when not needed:
 
@@ -173,7 +180,7 @@ Feature-snapshot profiles additionally need:
 
 - `SCHWAB_FEATURE_SNAPSHOT_PATH`
 - `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH` when the selected profile requires a manifest
-- `SCHWAB_STRATEGY_CONFIG_PATH` when the selected profile requires an external runtime config
+- `SCHWAB_STRATEGY_CONFIG_PATH` only when `config_source_policy=env_only`, or as an explicit override for `bundled_or_env`
 
 Remove when not needed:
 
@@ -200,7 +207,7 @@ Feature-snapshot profiles additionally need:
 
 - `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH` when the selected profile requires a manifest
-- `LONGBRIDGE_STRATEGY_CONFIG_PATH` when the selected profile requires an external runtime config
+- `LONGBRIDGE_STRATEGY_CONFIG_PATH` only when `config_source_policy=env_only`, or as an explicit override for `bundled_or_env`
 
 Remove when not needed:
 
@@ -299,6 +306,9 @@ Set:
 - `STRATEGY_PROFILE=tech_communication_pullback_enhancement`
 - `SCHWAB_FEATURE_SNAPSHOT_PATH`
 - `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH`
+
+Optional override:
+
 - `SCHWAB_STRATEGY_CONFIG_PATH`
 
 Keep or remove separately depending on the rollout choice:
@@ -308,7 +318,7 @@ Keep or remove separately depending on the rollout choice:
 Why:
 
 - `tech_communication_pullback_enhancement` is a feature-snapshot profile
-- the strategy also expects its external config path on the runtime side
+- the strategy has a packaged canonical config; set the env path only when overriding it
 
 ### Example C: switch LongBridge HK to `russell_1000_multi_factor_defensive`
 
@@ -324,16 +334,16 @@ Set:
 
 - `STRATEGY_PROFILE=russell_1000_multi_factor_defensive`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
 
 Remove if present:
 
+- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
 - `LONGBRIDGE_STRATEGY_CONFIG_PATH`
 
 Why:
 
 - Russell uses the feature snapshot contract
-- unlike `tech_communication_pullback_enhancement`, it does not need the extra strategy config path
+- it currently requires the snapshot path but not the manifest or strategy config path
 
 ### Example D: switch LongBridge SG back to a non-snapshot profile
 

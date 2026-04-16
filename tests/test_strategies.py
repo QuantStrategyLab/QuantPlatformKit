@@ -271,6 +271,28 @@ class StrategyContractsTests(unittest.TestCase):
             "/var/strategy-artifacts/feature_snapshot_strategy/reconciliation",
         )
 
+    def test_artifact_paths_resolve_package_bundled_config(self) -> None:
+        catalog = build_strategy_catalog(
+            strategy_definitions={
+                "feature_snapshot_strategy": StrategyDefinition(
+                    profile="feature_snapshot_strategy",
+                    domain=US_EQUITY_DOMAIN,
+                    supported_platforms=frozenset({"ibkr"}),
+                    required_inputs=frozenset({"feature_snapshot"}),
+                    bundled_config_relpath="package://quant_platform_kit/__init__.py",
+                )
+            }
+        )
+
+        paths = derive_strategy_artifact_paths(
+            catalog,
+            "feature_snapshot_strategy",
+            repo_root="/workspace/runtime",
+        )
+
+        self.assertIsNotNone(paths.bundled_config_path)
+        self.assertTrue(str(paths.bundled_config_path).endswith("quant_platform_kit/__init__.py"))
+
     def test_platform_capability_matrix_derives_eligible_profiles(self) -> None:
         catalog = build_strategy_catalog(
             strategy_definitions={
@@ -281,15 +303,15 @@ class StrategyContractsTests(unittest.TestCase):
                     required_inputs=frozenset({"historical_close_loader"}),
                     target_mode="weight",
                 ),
-                "hybrid_growth_income": StrategyDefinition(
-                    profile="hybrid_growth_income",
+                "tqqq_growth_income": StrategyDefinition(
+                    profile="tqqq_growth_income",
                     domain=US_EQUITY_DOMAIN,
                     supported_platforms=frozenset({"schwab"}),
                     required_inputs=frozenset({"qqq_history", "snapshot"}),
                     target_mode="value",
                 ),
-                "tech_pullback_cash_buffer": StrategyDefinition(
-                    profile="tech_pullback_cash_buffer",
+                "tech_communication_pullback_enhancement": StrategyDefinition(
+                    profile="tech_communication_pullback_enhancement",
                     domain=US_EQUITY_DOMAIN,
                     supported_platforms=frozenset({"ibkr"}),
                     required_inputs=frozenset({"feature_snapshot"}),
@@ -316,10 +338,10 @@ class StrategyContractsTests(unittest.TestCase):
                 available_inputs=frozenset({"historical_close_loader"}),
                 available_capabilities=frozenset({"broker_client"}),
             ),
-            "hybrid_growth_income": StrategyRuntimeAdapter(
+            "tqqq_growth_income": StrategyRuntimeAdapter(
                 available_inputs=frozenset({"qqq_history", "snapshot"}),
             ),
-            "tech_pullback_cash_buffer": StrategyRuntimeAdapter(
+            "tech_communication_pullback_enhancement": StrategyRuntimeAdapter(
                 available_inputs=frozenset({"feature_snapshot"}),
             ),
             "schwab_only_weight": StrategyRuntimeAdapter(
@@ -335,7 +357,7 @@ class StrategyContractsTests(unittest.TestCase):
 
         self.assertEqual(
             eligible,
-            frozenset({"global_etf_rotation", "tech_pullback_cash_buffer"}),
+            frozenset({"global_etf_rotation", "tech_communication_pullback_enhancement"}),
         )
 
     def test_platform_capability_matrix_applies_rollout_allowlist(self) -> None:
@@ -348,8 +370,8 @@ class StrategyContractsTests(unittest.TestCase):
                     required_inputs=frozenset({"historical_close_loader"}),
                     target_mode="weight",
                 ),
-                "tech_pullback_cash_buffer": StrategyDefinition(
-                    profile="tech_pullback_cash_buffer",
+                "tech_communication_pullback_enhancement": StrategyDefinition(
+                    profile="tech_communication_pullback_enhancement",
                     domain=US_EQUITY_DOMAIN,
                     supported_platforms=frozenset({"ibkr"}),
                     required_inputs=frozenset({"feature_snapshot"}),
@@ -369,7 +391,7 @@ class StrategyContractsTests(unittest.TestCase):
                 available_inputs=frozenset({"historical_close_loader"}),
                 available_capabilities=frozenset({"broker_client"}),
             ),
-            "tech_pullback_cash_buffer": StrategyRuntimeAdapter(
+            "tech_communication_pullback_enhancement": StrategyRuntimeAdapter(
                 available_inputs=frozenset({"feature_snapshot"}),
             ),
         }
@@ -378,10 +400,10 @@ class StrategyContractsTests(unittest.TestCase):
             catalog,
             capability_matrix=ibkr_matrix,
             runtime_adapter_loader=lambda profile: adapters[profile],
-            rollout_allowlist=("tech_pullback_cash_buffer",),
+            rollout_allowlist=("tech_communication_pullback_enhancement",),
         )
 
-        self.assertEqual(enabled, frozenset({"tech_pullback_cash_buffer"}))
+        self.assertEqual(enabled, frozenset({"tech_communication_pullback_enhancement"}))
 
     def test_build_profile_aliases_rejects_duplicate_alias(self) -> None:
         with self.assertRaisesRegex(ValueError, "Duplicate strategy alias"):

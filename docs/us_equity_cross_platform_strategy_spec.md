@@ -37,6 +37,44 @@ In practice that means:
 
 Strategy code must not branch on broker platform.
 
+## Responsibility boundaries
+
+`QuantPlatformKit` owns shared contracts and common runtime helpers:
+
+- `StrategyManifest`, `StrategyDecision`, and `StrategyRuntimeAdapter`
+- `StrategyArtifactContract` and `StrategyRuntimePolicy`
+- artifact path resolution, runtime config resolution, and feature snapshot guards
+- standard `StrategyContext` builders and input validation
+
+`UsEquityStrategies` owns strategy semantics:
+
+- profile catalog, manifest, and default config
+- pure `evaluate(ctx)` implementations
+- platform-neutral base runtime adapter specs
+- feature snapshot schema, manifest contract version, and managed symbol extractors
+- packaged or published canonical strategy config
+
+Platform repositories own runtime and broker integration:
+
+- platform env, secrets, scheduler parameters, and broker sessions
+- market data, account data, holdings, and portfolio snapshots
+- `StrategyContext` assembly from declared contracts
+- mapping `StrategyDecision` to broker orders, notifications, and runtime reports
+- deployment, retries, idempotency, and reconciliation output
+
+The snapshot production pipeline owns artifact publication:
+
+- snapshot files, manifests, checksums, and contract versions
+- config checksum alignment with profile and config name
+- GCS or local runtime path delivery
+
+Do not introduce reverse coupling:
+
+- strategy code must not import broker SDKs or read platform env vars
+- platform code must not hard-code private strategy symbol pools, snapshot schemas, or config paths by profile name
+- platform workflows must not keep a second list of snapshot profiles and must read derived adapter requirements
+- live strategy config must not depend on platform `research/` directories
+
 ## Mandatory layers
 
 ### 1. Strategy definition layer
@@ -212,6 +250,8 @@ Current live profiles can migrate incrementally, but the end state should be:
   `feature_snapshot` artifact delivery
 - `tech_communication_pullback_enhancement`: portable through standardized `feature_snapshot`
   artifact delivery
+- `mega_cap_leader_rotation_aggressive`: portable through standardized
+  `feature_snapshot` artifact delivery
 - `mega_cap_leader_rotation_dynamic_top20`: portable through standardized
   `feature_snapshot` artifact delivery
 - `dynamic_mega_leveraged_pullback`: portable through standardized
