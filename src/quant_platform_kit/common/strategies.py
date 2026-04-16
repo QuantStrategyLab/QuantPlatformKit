@@ -302,7 +302,18 @@ def derive_strategy_artifact_paths(
 
     bundled_config_path = None
     bundled_config_relpath = str(definition.bundled_config_relpath or "").strip()
-    if bundled_config_relpath and repo_root_path is not None:
+    if bundled_config_relpath.startswith("package://"):
+        package_resource = bundled_config_relpath.removeprefix("package://")
+        package_name, separator, resource_path = package_resource.partition("/")
+        if not separator or not package_name or not resource_path:
+            raise ValueError(
+                f"Invalid package bundled config path {bundled_config_relpath!r}"
+            )
+        package_module = import_module(package_name)
+        if package_module.__file__ is None:
+            raise ValueError(f"Package {package_name!r} does not expose a filesystem path")
+        bundled_config_path = Path(package_module.__file__).resolve().parent / resource_path
+    elif bundled_config_relpath and repo_root_path is not None:
         bundled_config_path = repo_root_path / bundled_config_relpath
 
     feature_snapshot_path = None

@@ -1,6 +1,6 @@
 # US Equity Strategy Onboarding Checklist
 
-_Verified snapshot: 2026-04-15_
+_Verified snapshot: 2026-04-16_
 
 This checklist describes how a new `us_equity` strategy becomes available on the three US equity broker platforms without adding a manual allowlist entry in each platform repository.
 
@@ -42,6 +42,9 @@ In `UsEquityStrategies`, a new live profile needs:
 - a manifest and unified entrypoint
 - focused strategy tests
 - one platform-neutral runtime adapter spec
+- `StrategyArtifactContract` when artifacts are required
+- `StrategyRuntimePolicy` when runtime windows or reconciliation output rules are required
+- packaged or artifact-published canonical config when a live default config exists
 
 The current standard input names are:
 
@@ -61,8 +64,9 @@ The base adapter should declare strategy-owned metadata:
 
 - required feature snapshot columns when the strategy uses `feature_snapshot`
 - snapshot date/freshness rules when the artifact has date-sensitive content
-- manifest requirements and contract version when a manifest is required
-- runtime config loader only when the strategy genuinely needs an external config file
+- `StrategyArtifactContract`, including snapshot, manifest, strategy config, and config source policy
+- `StrategyRuntimePolicy`, including reconciliation output and runtime execution window requirements
+- runtime config loaders only as strategy config readers, not as platform deployment logic
 
 Platform-specific adapters are generated from:
 
@@ -74,6 +78,17 @@ Platform-specific adapters are generated from:
 When a weight-mode strategy runs on a value-native platform, the generated adapter adds `portfolio_snapshot` so the platform can translate weights into dollar orders. When the strategy already requires `portfolio_snapshot`, the generated adapter maps it as the portfolio input automatically.
 
 The adapter generator is the bridge between strategy contract and platform runtime. Strategy code should not branch on broker platform ids.
+
+When adapters change, platform scripts should only consume the derived runtime requirements:
+
+- `requires_snapshot_artifacts`
+- `requires_snapshot_manifest_path`
+- `requires_strategy_config_path`
+- `config_source_policy`
+- `reconciliation_output_policy`
+- `runtime_execution_window_trading_days`
+
+Platform code should not add `if profile == "..."` branches for strategy-private behavior.
 
 ## Platform repository requirements
 
@@ -89,6 +104,8 @@ The platform registry should derive live profiles from `UsEquityStrategies.get_r
 
 Platform repositories should not hard-code strategy symbol pools, private strategy constants, or manual live profile allowlists.
 
+Platform repositories may change when a new broker capability is needed, such as a new market-data input builder. They should not change their core execution flow just to accommodate a strategy-private parameter.
+
 ## Artifact-backed profiles
 
 If a strategy uses `feature_snapshot`, the platform env sync workflow must enforce the artifact env vars before Cloud Run is updated. The workflow should derive this from `scripts/print_strategy_profile_status.py --json`, not from a hard-coded profile-name list.
@@ -101,7 +118,20 @@ Current env mapping:
 | Schwab | `SCHWAB_FEATURE_SNAPSHOT_PATH` | `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH` | `SCHWAB_STRATEGY_CONFIG_PATH` |
 | LongBridge | `LONGBRIDGE_FEATURE_SNAPSHOT_PATH` | `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH` | `LONGBRIDGE_STRATEGY_CONFIG_PATH` |
 
-Only profiles whose adapter requires a manifest should require the manifest path. Only profiles with a runtime config loader should require the strategy config path.
+Only profiles whose adapter requires a manifest should require the manifest path.
+Only profiles with `config_source_policy="env_only"` should require the strategy config path.
+Profiles with `config_source_policy="bundled_or_env"` use the packaged canonical config by default and treat env paths as explicit overrides.
+
+## Minimum onboarding steps
+
+1. Register the profile, manifest, default config, and unified entrypoint in `UsEquityStrategies`.
+2. Declare `required_inputs`, `target_mode`, `supported_platforms`, and `status`.
+3. Add the base `StrategyRuntimeAdapter` with `StrategyArtifactContract` and `StrategyRuntimePolicy`.
+4. If the profile uses `feature_snapshot`, declare schema, date columns, freshness, manifest contract version, and managed symbol extraction.
+5. If live config is required, prefer packaging it with the strategy package; use `env_only` only when it cannot be packaged.
+6. Run strategy contract governance and entrypoint tests, then verify `describe_platform_runtime_requirements()`.
+7. Run each platform status or switch-plan script and confirm eligible/enabled state plus artifact env requirements come from the adapter.
+8. Modify platform core flow only when a new broker data source or execution capability is required.
 
 ## Test gates
 
