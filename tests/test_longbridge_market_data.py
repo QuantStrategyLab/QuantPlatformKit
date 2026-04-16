@@ -25,7 +25,7 @@ class FakeQuoteContext:
     def candlesticks(self, symbol, period, count, adjust_type):
         if symbol == "SOXL.US":
             return [FakeBar(100 + i) for i in range(count)]
-        return [FakeBar(200.0) for _ in range(20)]
+        return [FakeBar(200.0 + i) for i in range(count)]
 
 
 class LongBridgeMarketDataTests(unittest.TestCase):
@@ -43,7 +43,9 @@ class LongBridgeMarketDataTests(unittest.TestCase):
 
         self.assertIsNotNone(indicators)
         self.assertEqual(indicators["soxl"]["price"], 319.0)
-        self.assertEqual(indicators["soxx"]["price"], 200.0)
+        self.assertEqual(indicators["soxx"]["price"], 419.0)
+        self.assertAlmostEqual(indicators["soxx"]["ma20"], sum(200.0 + i for i in range(200, 220)) / 20)
+        self.assertGreater(indicators["soxx"]["ma20_slope"], 0.0)
 
 
 if __name__ == "__main__":

@@ -67,5 +67,14 @@ def connect_ib(
         ib_factory = IB
 
     ib = ib_factory()
-    ib.connect(host, port, clientId=client_id, timeout=timeout)
+    try:
+        ib.connect(host, port, clientId=client_id, timeout=timeout)
+    except TimeoutError as exc:
+        raise TimeoutError(
+            "IBKR API handshake timed out after TCP preflight succeeded "
+            f"for {host}:{port} clientId={client_id}. "
+            "Check that IB Gateway/TWS is fully logged in, API access is enabled, "
+            "the paper/live port matches the session, no login/API prompt is blocking, "
+            "and the client ID is not already stuck in another session."
+        ) from exc
     return ib
