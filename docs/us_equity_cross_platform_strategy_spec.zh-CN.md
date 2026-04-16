@@ -37,6 +37,44 @@ Telegram 文案细节。
 
 策略代码里不能按平台分支。
 
+## 职责边界
+
+`QuantPlatformKit` 负责共享契约和通用运行 helper：
+
+- `StrategyManifest`、`StrategyDecision`、`StrategyRuntimeAdapter`
+- `StrategyArtifactContract` 和 `StrategyRuntimePolicy`
+- artifact path 解析、runtime config 解析、feature snapshot guard
+- 标准 `StrategyContext` 构建和输入校验
+
+`UsEquityStrategies` 负责策略语义：
+
+- profile catalog、manifest、default config
+- 纯策略 `evaluate(ctx)` 实现
+- 平台无关的基础 runtime adapter spec
+- feature snapshot schema、manifest contract version、managed symbols extractor
+- canonical strategy config 的打包或发布规则
+
+平台仓库只负责运行时和券商集成：
+
+- 解析平台 env、secrets、调度参数和 broker session
+- 拉取行情、账户、持仓、portfolio snapshot
+- 按契约组装 `StrategyContext`
+- 把 `StrategyDecision` 映射成券商订单、通知和运行报告
+- 处理平台自己的部署、重试、幂等和 reconciliation 输出
+
+snapshot 生产链负责生成和发布 artifact：
+
+- snapshot 文件、manifest、checksum、contract version
+- config checksum 与 profile/config name 对齐
+- GCS 或本地运行路径的交付
+
+禁止反向耦合：
+
+- 策略代码不能 import 券商 SDK，不能读取平台 env。
+- 平台代码不能按 profile 名硬编码策略私有股票池、snapshot schema 或 config 路径。
+- 平台 workflow 不能维护第二套 snapshot profile 名单，必须读取 adapter 派生出来的需求。
+- 策略配置不能散落在平台 `research/` 目录里作为 live 运行依赖。
+
 ## 必须有的四层
 
 ### 1）策略定义层
@@ -211,6 +249,8 @@ allowlist 只影响 `enabled`，不要再手写一堆“这个策略天生只能
 - `russell_1000_multi_factor_defensive`
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
 - `tech_communication_pullback_enhancement`
+  - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
+- `mega_cap_leader_rotation_aggressive`
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
 - `mega_cap_leader_rotation_dynamic_top20`
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台

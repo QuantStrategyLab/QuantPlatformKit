@@ -44,7 +44,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
             (),
             {
                 "manifest": StrategyManifest(
-                    profile="semiconductor_rotation_income",
+                    profile="soxl_soxx_trend_income",
                     domain="us_equity",
                     display_name="SOXL/SOXX Semiconductor Trend Income",
                     description="test",
@@ -87,7 +87,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         indicators = build_semiconductor_rotation_indicators(
             "fake-ib",
             fake_loader,
-            trend_ma_window=150,
+            trend_ma_window=140,
         )
 
         self.assertEqual(observed[0], ("SOXL", "220 D", "1 day"))
@@ -95,12 +95,12 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(indicators["soxl"]["price"], 269.0)
         self.assertAlmostEqual(
             indicators["soxl"]["ma_trend"],
-            sum(100.0 + idx for idx in range(20, 170)) / 150,
+            sum(100.0 + idx for idx in range(30, 170)) / 140,
         )
         self.assertEqual(indicators["soxx"]["price"], 369.0)
         self.assertAlmostEqual(
             indicators["soxx"]["ma_trend"],
-            sum(200.0 + idx for idx in range(20, 170)) / 150,
+            sum(200.0 + idx for idx in range(30, 170)) / 140,
         )
         self.assertAlmostEqual(
             indicators["soxx"]["ma20"],
@@ -119,7 +119,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         payload = build_semiconductor_rotation_inputs(
             "fake-ib",
             fake_loader,
-            trend_ma_window=150,
+            trend_ma_window=140,
         )
 
         self.assertEqual(set(payload), {"derived_indicators"})
@@ -139,7 +139,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
             build_semiconductor_rotation_indicators(
                 "fake-ib",
                 fake_loader,
-                trend_ma_window=150,
+                trend_ma_window=140,
             )
 
 

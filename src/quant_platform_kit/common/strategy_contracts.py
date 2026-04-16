@@ -130,6 +130,21 @@ class StrategyEntrypoint(Protocol):
 
 
 @dataclass(frozen=True)
+class StrategyArtifactContract:
+    requires_snapshot_artifacts: bool = False
+    requires_snapshot_manifest_path: bool = False
+    requires_strategy_config_path: bool = False
+    snapshot_contract_version: str | None = None
+    config_source_policy: str = "none"
+
+
+@dataclass(frozen=True)
+class StrategyRuntimePolicy:
+    reconciliation_output_policy: str = "none"
+    runtime_execution_window_trading_days: int | None = None
+
+
+@dataclass(frozen=True)
 class StrategyRuntimeAdapter:
     status_icon: str = "🐤"
     available_inputs: frozenset[str] = frozenset()
@@ -142,6 +157,8 @@ class StrategyRuntimeAdapter:
     runtime_parameter_loader: Callable[..., Mapping[str, object]] | None = None
     managed_symbols_extractor: Callable[..., tuple[str, ...]] | None = None
     portfolio_input_name: str | None = None
+    artifact_contract: StrategyArtifactContract | None = None
+    runtime_policy: StrategyRuntimePolicy = field(default_factory=StrategyRuntimePolicy)
 
 
 @dataclass(frozen=True)
@@ -169,6 +186,35 @@ def _ensure_finite_number(value: float | None, *, field_name: str) -> None:
         return
     if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
         raise StrategyContractValidationError(f"{field_name} must be a finite number when provided")
+
+
+def _ensure_bool(value: bool, *, field_name: str) -> None:
+    if not isinstance(value, bool):
+        raise StrategyContractValidationError(f"{field_name} must be a bool")
+
+
+def _ensure_allowed_string(
+    value: str,
+    *,
+    field_name: str,
+    allowed_values: frozenset[str],
+) -> None:
+    _ensure_non_empty_string(value, field_name=field_name)
+    if value not in allowed_values:
+        allowed = ", ".join(sorted(allowed_values))
+        raise StrategyContractValidationError(f"{field_name} must be one of: {allowed}")
+
+
+_CONFIG_SOURCE_POLICIES = frozenset(
+    {
+        "none",
+        "bundled_or_env",
+        "env_only",
+        "artifact_manifest",
+        "runtime_parameter_loader",
+    }
+)
+_RECONCILIATION_OUTPUT_POLICIES = frozenset({"none", "optional", "required"})
 
 
 def validate_strategy_manifest(manifest: StrategyManifest) -> StrategyManifest:
@@ -231,6 +277,69 @@ def validate_strategy_decision(decision: StrategyDecision) -> StrategyDecision:
     return decision
 
 
+def validate_strategy_artifact_contract(
+    contract: StrategyArtifactContract,
+) -> StrategyArtifactContract:
+    if not isinstance(contract, StrategyArtifactContract):
+        raise StrategyContractValidationError(
+            f"artifact contract must be StrategyArtifactContract, got {type(contract).__name__}"
+        )
+
+    _ensure_bool(
+        contract.requires_snapshot_artifacts,
+        field_name="artifact_contract.requires_snapshot_artifacts",
+    )
+    _ensure_bool(
+        contract.requires_snapshot_manifest_path,
+        field_name="artifact_contract.requires_snapshot_manifest_path",
+    )
+    _ensure_bool(
+        contract.requires_strategy_config_path,
+        field_name="artifact_contract.requires_strategy_config_path",
+    )
+    if contract.requires_snapshot_manifest_path and not contract.requires_snapshot_artifacts:
+        raise StrategyContractValidationError(
+            "artifact_contract.requires_snapshot_manifest_path requires snapshot artifacts"
+        )
+    if contract.requires_strategy_config_path and contract.config_source_policy == "none":
+        raise StrategyContractValidationError(
+            "artifact_contract.config_source_policy must describe required strategy config"
+        )
+    if contract.snapshot_contract_version is not None:
+        _ensure_non_empty_string(
+            contract.snapshot_contract_version,
+            field_name="artifact_contract.snapshot_contract_version",
+        )
+    _ensure_allowed_string(
+        contract.config_source_policy,
+        field_name="artifact_contract.config_source_policy",
+        allowed_values=_CONFIG_SOURCE_POLICIES,
+    )
+    return contract
+
+
+def validate_strategy_runtime_policy(policy: StrategyRuntimePolicy) -> StrategyRuntimePolicy:
+    if not isinstance(policy, StrategyRuntimePolicy):
+        raise StrategyContractValidationError(
+            f"runtime policy must be StrategyRuntimePolicy, got {type(policy).__name__}"
+        )
+
+    _ensure_allowed_string(
+        policy.reconciliation_output_policy,
+        field_name="runtime_policy.reconciliation_output_policy",
+        allowed_values=_RECONCILIATION_OUTPUT_POLICIES,
+    )
+    if policy.runtime_execution_window_trading_days is not None:
+        if (
+            not isinstance(policy.runtime_execution_window_trading_days, int)
+            or policy.runtime_execution_window_trading_days <= 0
+        ):
+            raise StrategyContractValidationError(
+                "runtime_policy.runtime_execution_window_trading_days must be a positive integer"
+            )
+    return policy
+
+
 def validate_strategy_runtime_adapter(adapter: StrategyRuntimeAdapter) -> StrategyRuntimeAdapter:
     if not isinstance(adapter, StrategyRuntimeAdapter):
         raise StrategyContractValidationError(
@@ -276,7 +385,38 @@ def validate_strategy_runtime_adapter(adapter: StrategyRuntimeAdapter) -> Strate
             adapter.portfolio_input_name,
             field_name="runtime_adapter.portfolio_input_name",
         )
+    if adapter.artifact_contract is not None:
+        validate_strategy_artifact_contract(adapter.artifact_contract)
+    validate_strategy_runtime_policy(adapter.runtime_policy)
     return adapter
+
+
+def resolve_strategy_artifact_contract(
+    adapter: StrategyRuntimeAdapter,
+    *,
+    required_inputs: frozenset[str] | set[str] | tuple[str, ...] = frozenset(),
+) -> StrategyArtifactContract:
+    validate_strategy_runtime_adapter(adapter)
+    if adapter.artifact_contract is not None:
+        return adapter.artifact_contract
+
+    normalized_required_inputs = frozenset(str(value).strip() for value in required_inputs)
+    requires_snapshot_artifacts = "feature_snapshot" in normalized_required_inputs
+    requires_strategy_config_path = bool(
+        requires_snapshot_artifacts and callable(adapter.runtime_parameter_loader)
+    )
+    config_source_policy = "runtime_parameter_loader" if requires_strategy_config_path else "none"
+    return validate_strategy_artifact_contract(
+        StrategyArtifactContract(
+            requires_snapshot_artifacts=requires_snapshot_artifacts,
+            requires_snapshot_manifest_path=bool(
+                requires_snapshot_artifacts and adapter.require_snapshot_manifest
+            ),
+            requires_strategy_config_path=requires_strategy_config_path,
+            snapshot_contract_version=adapter.snapshot_contract_version,
+            config_source_policy=config_source_policy,
+        )
+    )
 
 
 def build_value_target_execution_plan(
