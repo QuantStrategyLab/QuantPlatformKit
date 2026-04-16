@@ -15,6 +15,7 @@
 
 - `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
+- `mega_cap_leader_rotation_aggressive`
 - `mega_cap_leader_rotation_dynamic_top20`
 - `russell_1000_multi_factor_defensive`
 - `soxl_soxx_trend_income`
@@ -29,7 +30,7 @@
 - `schwab`
 - `longbridge`
 
-对当前这 7 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，接下来换线上策略主要是运维切换，不再是契约迁移。
+对当前这 8 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，接下来换线上策略主要是运维切换，不再是契约迁移。
 
 ## 运维分组
 
@@ -41,6 +42,7 @@
   - `soxl_soxx_trend_income`
 - **snapshot 驱动策略**
   - `dynamic_mega_leveraged_pullback`
+  - `mega_cap_leader_rotation_aggressive`
   - `mega_cap_leader_rotation_dynamic_top20`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
@@ -51,6 +53,9 @@
 - `requires_snapshot_artifacts`
 - `requires_snapshot_manifest_path`
 - `requires_strategy_config_path`
+- `config_source_policy`
+- `reconciliation_output_policy`
+- `runtime_execution_window_trading_days`
 
 这样切换时不用再靠记忆判断“这条是不是 snapshot 策略”。
 
@@ -117,15 +122,17 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 | --- | --- |
 | `dynamic_mega_leveraged_pullback` | feature snapshot 路径 + manifest 路径 |
 | `global_etf_rotation` | 无 |
+| `mega_cap_leader_rotation_aggressive` | feature snapshot 路径 + manifest 路径 |
 | `mega_cap_leader_rotation_dynamic_top20` | feature snapshot 路径 + manifest 路径 |
 | `russell_1000_multi_factor_defensive` | feature snapshot 路径 |
 | `soxl_soxx_trend_income` | 无 |
 | `tqqq_growth_income` | 无 |
-| `tech_communication_pullback_enhancement` | feature snapshot 路径 + manifest 路径 + strategy config 路径 |
+| `tech_communication_pullback_enhancement` | feature snapshot 路径 + manifest 路径；strategy config 路径只在要覆盖包内配置时才需要 |
 
 说明：
 
 - `tech_communication_pullback_enhancement` 在 IBKR 上如果还要留对账产物，可以继续配 reconciliation output path。
+- `tech_communication_pullback_enhancement` 现在是 `config_source_policy=bundled_or_env`，默认使用策略包里的 canonical config，只有显式覆盖时才配 env path。
 - `dynamic_mega_leveraged_pullback` 还会用到 market history、benchmark history 和 portfolio snapshot，但这些由平台运行时从券商/行情侧供应，不是额外 artifact env。
 - `russell_1000_multi_factor_defensive` 目前只强制 snapshot 路径，不强制 manifest 路径。
 - 如果从 feature-snapshot 策略切回普通策略，要把旧的 snapshot/config env 一起删掉，不要留脏状态。
@@ -153,7 +160,7 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 
 - `IBKR_FEATURE_SNAPSHOT_PATH`
 - `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`（当目标 profile 要求 manifest 时）
-- `IBKR_STRATEGY_CONFIG_PATH`（当目标 profile 要求外部 runtime config 时）
+- `IBKR_STRATEGY_CONFIG_PATH`（仅当 `config_source_policy=env_only`，或要显式覆盖 `bundled_or_env` 的包内配置时）
 
 不再需要时要删掉：
 
@@ -176,7 +183,7 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 
 - `SCHWAB_FEATURE_SNAPSHOT_PATH`
 - `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH`（当目标 profile 要求 manifest 时）
-- `SCHWAB_STRATEGY_CONFIG_PATH`（当目标 profile 要求外部 runtime config 时）
+- `SCHWAB_STRATEGY_CONFIG_PATH`（仅当 `config_source_policy=env_only`，或要显式覆盖 `bundled_or_env` 的包内配置时）
 
 不再需要时要删掉：
 
@@ -203,7 +210,7 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 
 - `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`（当目标 profile 要求 manifest 时）
-- `LONGBRIDGE_STRATEGY_CONFIG_PATH`（当目标 profile 要求外部 runtime config 时）
+- `LONGBRIDGE_STRATEGY_CONFIG_PATH`（仅当 `config_source_policy=env_only`，或要显式覆盖 `bundled_or_env` 的包内配置时）
 
 不再需要时要删掉：
 
@@ -300,6 +307,9 @@ gcloud run services describe longbridge-quant-sg-service \
 - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
 - `SCHWAB_FEATURE_SNAPSHOT_PATH`
 - `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH`
+
+可选覆盖：
+
 - `SCHWAB_STRATEGY_CONFIG_PATH`
 
 是否保留下面这个开关，单独按 rollout 决定：
@@ -309,7 +319,7 @@ gcloud run services describe longbridge-quant-sg-service \
 原因：
 
 - `tech_communication_pullback_enhancement` 是 feature-snapshot 策略
-- 运行时还需要它对应的外部 config 路径
+- 策略包已经带 canonical config，只有要覆盖它时才设置 env path
 
 ### 示例 C：把 LongBridge HK 切到 `russell_1000_multi_factor_defensive`
 
@@ -325,16 +335,16 @@ gcloud run services describe longbridge-quant-sg-service \
 
 - `STRATEGY_PROFILE=russell_1000_multi_factor_defensive`
 - `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
 
 如果还留着，就删掉：
 
+- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
 - `LONGBRIDGE_STRATEGY_CONFIG_PATH`
 
 原因：
 
 - Russell 走的是 feature snapshot 合约
-- 但它不像 `tech_communication_pullback_enhancement`，不需要额外的 strategy config path
+- 目前只强制 snapshot 路径，不需要 manifest 或 strategy config path
 
 ### 示例 D：把 LongBridge SG 切回非 snapshot 策略
 

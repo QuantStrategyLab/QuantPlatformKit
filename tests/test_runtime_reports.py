@@ -24,7 +24,7 @@ class RuntimeReportsTests(unittest.TestCase):
             platform="charles_schwab",
             deploy_target="cloud_run",
             service_name="schwab-runtime",
-            strategy_profile="hybrid_growth_income",
+            strategy_profile="tqqq_growth_income",
             strategy_domain="us_equity",
             run_id="run-001",
             run_source="cloud_run",
@@ -77,7 +77,7 @@ class RuntimeReportsTests(unittest.TestCase):
             platform="longbridge",
             deploy_target="cloud_run",
             service_name="longbridge-runtime",
-            strategy_profile="semiconductor_rotation_income",
+            strategy_profile="soxl_soxx_trend_income",
             strategy_domain="us_equity",
             account_scope="HK",
             run_id="run-003",
@@ -87,7 +87,7 @@ class RuntimeReportsTests(unittest.TestCase):
 
         self.assertEqual(
             runtime_report_relative_path(report).as_posix(),
-            "longbridge/semiconductor_rotation_income/HK/2026-04/run-003.json",
+            "longbridge/soxl_soxx_trend_income/HK/2026-04/run-003.json",
         )
 
     def test_build_runtime_report_gcs_uri_uses_relative_layout(self) -> None:
@@ -118,7 +118,7 @@ class RuntimeReportsTests(unittest.TestCase):
             platform="charles_schwab",
             deploy_target="cloud_run",
             service_name="schwab-runtime",
-            strategy_profile="hybrid_growth_income",
+            strategy_profile="tqqq_growth_income",
             strategy_domain="us_equity",
             run_id="run-005",
             run_source="cloud_run",
@@ -178,14 +178,14 @@ class RuntimeReportsTests(unittest.TestCase):
         self.assertEqual(result.local_path, str(default_runtime_report_path(report, base_dir=tmp_dir)))
         self.assertEqual(
             result.gcs_uri,
-            "gs://demo-bucket/runtime-reports/charles_schwab/hybrid_growth_income/2026-04/run-005.json",
+            "gs://demo-bucket/runtime-reports/charles_schwab/tqqq_growth_income/2026-04/run-005.json",
         )
         self.assertEqual(payload["artifacts"]["runtime_report_gcs_uri"], result.gcs_uri)
         self.assertEqual(payload["artifacts"]["runtime_report_local_path"], result.local_path)
         self.assertEqual(fake_clients[0].project, "demo-project")
         self.assertEqual(
             fake_clients[0].buckets["demo-bucket"].last_blob.name,
-            "runtime-reports/charles_schwab/hybrid_growth_income/2026-04/run-005.json",
+            "runtime-reports/charles_schwab/tqqq_growth_income/2026-04/run-005.json",
         )
         uploaded_payload = json.loads(fake_clients[0].buckets["demo-bucket"].last_blob.payload)
         self.assertEqual(uploaded_payload["artifacts"]["runtime_report_gcs_uri"], result.gcs_uri)

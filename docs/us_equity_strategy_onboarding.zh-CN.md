@@ -1,6 +1,6 @@
 # 美股策略接入清单
 
-_校验快照日期：2026-04-15_
+_校验快照日期：2026-04-16_
 
 这份清单说明一条新的 `us_equity` 策略，如何在不手写三个平台 allowlist 的情况下，进入 IBKR / Schwab / LongBridge 三个美股运行平台。
 
@@ -42,6 +42,9 @@ _校验快照日期：2026-04-15_
 - 有 manifest 和统一 entrypoint
 - 有聚焦的策略测试
 - 一份平台无关的 runtime adapter spec
+- 如果依赖 artifact，要声明 `StrategyArtifactContract`
+- 如果有运行窗口、reconciliation 输出等运行策略，要声明 `StrategyRuntimePolicy`
+- 如果有 live 默认配置，要把 canonical config 放在策略包或 artifact 发布链里
 
 当前标准输入名：
 
@@ -61,8 +64,9 @@ _校验快照日期：2026-04-15_
 
 - 使用 `feature_snapshot` 时需要的 snapshot columns
 - artifact 对日期敏感时的日期列和 freshness 规则
-- 需要 manifest 时的 manifest 要求和 contract version
-- 只有策略确实需要外部配置文件时，才加 runtime config loader
+- `StrategyArtifactContract`，包括是否需要 snapshot、manifest、strategy config，以及 config 来源策略
+- `StrategyRuntimePolicy`，包括 reconciliation 输出是否必需和运行窗口等策略运行约束
+- runtime config loader 只作为读取策略配置的适配入口，不能承担平台部署逻辑
 
 平台 adapter 会根据下面这些信息自动生成：
 
@@ -74,6 +78,17 @@ _校验快照日期：2026-04-15_
 当 weight-mode 策略运行在 value-native 平台上时，生成器会自动加入 `portfolio_snapshot`，让平台能把权重翻译成金额订单。策略本身已经需要 `portfolio_snapshot` 时，生成器会自动把它映射为 portfolio input。
 
 adapter 生成器是策略契约和平台运行时之间的桥。策略代码本身不要按券商平台分支。
+
+新增或修改 adapter 时，平台脚本只能消费派生后的运行需求，例如：
+
+- `requires_snapshot_artifacts`
+- `requires_snapshot_manifest_path`
+- `requires_strategy_config_path`
+- `config_source_policy`
+- `reconciliation_output_policy`
+- `runtime_execution_window_trading_days`
+
+平台代码不要再写 `if profile == "..."` 这类策略私有分支。
 
 ## 平台仓库要求
 
@@ -89,6 +104,9 @@ adapter 生成器是策略契约和平台运行时之间的桥。策略代码本
 
 平台仓库不要硬编码策略股票池、策略私有常量或手写 live profile allowlist。
 
+平台仓库可以因为新增 broker 能力而改代码，例如补一个新的行情输入 builder；
+但不能因为某条策略的私有参数而改平台执行主流程。
+
 ## Artifact 驱动策略
 
 如果策略使用 `feature_snapshot`，平台 env sync workflow 必须在更新 Cloud Run 前校验 artifact env。workflow 应该从 `scripts/print_strategy_profile_status.py --json` 动态解析需求，不要维护硬编码 profile 名单。
@@ -101,7 +119,20 @@ adapter 生成器是策略契约和平台运行时之间的桥。策略代码本
 | Schwab | `SCHWAB_FEATURE_SNAPSHOT_PATH` | `SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH` | `SCHWAB_STRATEGY_CONFIG_PATH` |
 | LongBridge | `LONGBRIDGE_FEATURE_SNAPSHOT_PATH` | `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH` | `LONGBRIDGE_STRATEGY_CONFIG_PATH` |
 
-只有 adapter 要求 manifest 的 profile，才强制 manifest path。只有带 runtime config loader 的 profile，才强制 strategy config path。
+只有 adapter 要求 manifest 的 profile，才强制 manifest path。
+只有 `config_source_policy="env_only"` 的 profile，才强制 strategy config path。
+`config_source_policy="bundled_or_env"` 的 profile 默认使用策略包内 canonical config，env path 只作为显式覆盖。
+
+## 新策略最小接入步骤
+
+1. 在 `UsEquityStrategies` 注册 profile、manifest、default config 和统一 entrypoint。
+2. 明确 `required_inputs`、`target_mode`、`supported_platforms` 和 `status`。
+3. 添加基础 `StrategyRuntimeAdapter`，同时声明 `StrategyArtifactContract` 和 `StrategyRuntimePolicy`。
+4. 如果使用 `feature_snapshot`，补齐 schema、date columns、freshness、manifest contract version 和 managed symbols extractor。
+5. 如果需要 live config，优先打包到策略包；只有不能打包时才使用 `env_only`。
+6. 跑策略仓 contract governance 和 entrypoint 测试，确认 `describe_platform_runtime_requirements()` 输出正确。
+7. 跑三个平台的 status/switch plan 脚本，确认 eligible/enabled 和 artifact env 需求来自 adapter。
+8. 只有新增 broker 数据源或执行能力时，才修改平台仓主流程。
 
 ## 测试门槛
 

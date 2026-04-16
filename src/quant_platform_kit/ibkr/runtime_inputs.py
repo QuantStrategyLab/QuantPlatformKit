@@ -71,7 +71,7 @@ def build_semiconductor_rotation_indicators(
     ib: Any,
     historical_close_loader: Callable[..., Any],
     *,
-    trend_ma_window: int = 150,
+    trend_ma_window: int = 140,
     lookback_buffer: int = 20,
 ) -> dict[str, dict[str, float]]:
     effective_lookback = max(220, int(trend_ma_window) + int(lookback_buffer))
@@ -121,7 +121,7 @@ def build_semiconductor_rotation_inputs(
     ib: Any,
     historical_close_loader: Callable[..., Any],
     *,
-    trend_ma_window: int = 150,
+    trend_ma_window: int = 140,
     lookback_buffer: int = 20,
 ) -> dict[str, dict[str, dict[str, float]]]:
     return {
