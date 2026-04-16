@@ -50,6 +50,26 @@ class IbkrConnectionTests(unittest.TestCase):
         self.assertIsInstance(ib, FakeIB)
         self.assertEqual(observed["args"], ("127.0.0.1", 4001, 9, 20))
 
+    def test_connect_ib_wraps_api_handshake_timeout(self) -> None:
+        class FakeConnection:
+            def close(self):
+                pass
+
+        def fake_socket_create_connection(_address, _timeout):
+            return FakeConnection()
+
+        class FakeIB:
+            def connect(self, host, port, clientId, timeout):
+                raise TimeoutError()
+
+        with self.assertRaisesRegex(TimeoutError, "API handshake timed out"):
+            connect_ib(
+                "10.0.0.8",
+                4002,
+                9,
+                socket_create_connection=fake_socket_create_connection,
+                ib_factory=FakeIB,
+            )
 
     def test_probe_tcp_endpoint_wraps_timeout(self) -> None:
         def fake_socket_create_connection(_address, _timeout):

@@ -81,7 +81,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
             if symbol == "SOXL":
                 return [100.0 + idx for idx in range(170)]
             if symbol == "SOXX":
-                return [200.0 + idx for idx in range(20)]
+                return [200.0 + idx for idx in range(170)]
             raise AssertionError(symbol)
 
         indicators = build_semiconductor_rotation_indicators(
@@ -91,20 +91,29 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         )
 
         self.assertEqual(observed[0], ("SOXL", "220 D", "1 day"))
-        self.assertEqual(observed[1], ("SOXX", "20 D", "1 day"))
+        self.assertEqual(observed[1], ("SOXX", "220 D", "1 day"))
         self.assertEqual(indicators["soxl"]["price"], 269.0)
         self.assertAlmostEqual(
             indicators["soxl"]["ma_trend"],
             sum(100.0 + idx for idx in range(20, 170)) / 150,
         )
-        self.assertEqual(indicators["soxx"]["price"], 219.0)
+        self.assertEqual(indicators["soxx"]["price"], 369.0)
+        self.assertAlmostEqual(
+            indicators["soxx"]["ma_trend"],
+            sum(200.0 + idx for idx in range(20, 170)) / 150,
+        )
+        self.assertAlmostEqual(
+            indicators["soxx"]["ma20"],
+            sum(200.0 + idx for idx in range(150, 170)) / 20,
+        )
+        self.assertGreater(indicators["soxx"]["ma20_slope"], 0.0)
 
     def test_build_semiconductor_rotation_inputs_wraps_derived_indicators(self) -> None:
         def fake_loader(_ib, symbol, duration="2 Y", bar_size="1 day"):
             if symbol == "SOXL":
                 return [100.0] * 170
             if symbol == "SOXX":
-                return [200.0] * 20
+                return [200.0] * 170
             raise AssertionError(symbol)
 
         payload = build_semiconductor_rotation_inputs(
@@ -116,6 +125,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(set(payload), {"derived_indicators"})
         self.assertEqual(payload["derived_indicators"]["soxl"]["price"], 100.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["price"], 200.0)
+        self.assertEqual(payload["derived_indicators"]["soxx"]["ma20"], 200.0)
 
     def test_build_semiconductor_rotation_indicators_requires_sufficient_history(self) -> None:
         def fake_loader(_ib, symbol, duration="2 Y", bar_size="1 day"):

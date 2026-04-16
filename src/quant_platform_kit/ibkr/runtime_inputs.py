@@ -87,7 +87,7 @@ def build_semiconductor_rotation_indicators(
         historical_close_loader(
             ib,
             "SOXX",
-            duration="20 D",
+            duration=f"{effective_lookback} D",
             bar_size="1 day",
         )
     )
@@ -96,10 +96,13 @@ def build_semiconductor_rotation_indicators(
 
     soxl_close = pd.to_numeric(soxl_series, errors="coerce").dropna()
     soxx_close = pd.to_numeric(soxx_series, errors="coerce").dropna()
-    if len(soxl_close) < int(trend_ma_window) or soxx_close.empty:
+    if len(soxl_close) < int(trend_ma_window) or len(soxx_close) < int(trend_ma_window):
         raise ValueError("IBKR semiconductor runtime requires sufficient SOXL/SOXX history")
 
     soxl_ma_trend = float(soxl_close.rolling(int(trend_ma_window)).mean().iloc[-1])
+    soxx_ma_trend = float(soxx_close.rolling(int(trend_ma_window)).mean().iloc[-1])
+    soxx_ma20 = float(soxx_close.rolling(20).mean().iloc[-1])
+    soxx_ma20_slope = float(soxx_close.rolling(20).mean().diff().iloc[-1])
     return {
         "soxl": {
             "price": float(soxl_close.iloc[-1]),
@@ -107,6 +110,9 @@ def build_semiconductor_rotation_indicators(
         },
         "soxx": {
             "price": float(soxx_close.iloc[-1]),
+            "ma_trend": soxx_ma_trend,
+            "ma20": soxx_ma20,
+            "ma20_slope": soxx_ma20_slope,
         },
     }
 
