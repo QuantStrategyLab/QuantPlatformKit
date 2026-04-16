@@ -52,6 +52,7 @@ For the stricter end-state rules for new US equity strategies, see:
 - [`docs/us_equity_release_cutover_plan.zh-CN.md`](./docs/us_equity_release_cutover_plan.zh-CN.md)
 - [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
 - [`docs/us_equity_live_switch_runbook.zh-CN.md`](./docs/us_equity_live_switch_runbook.zh-CN.md)
+- [`docs/strategy_plugin_runtime_contract.md`](./docs/strategy_plugin_runtime_contract.md)
 
 ## Package layout
 
@@ -61,6 +62,7 @@ src/quant_platform_kit/
     models.py
     ports.py
     strategies.py
+    strategy_plugins.py
   ibkr/
     connection.py
     market_data.py
@@ -156,6 +158,7 @@ Cloud Run and self-hosted runner deployments should continue to deploy the strat
 - [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
 - [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
 - [`docs/us_equity_live_switch_runbook.zh-CN.md`](./docs/us_equity_live_switch_runbook.zh-CN.md)
+- [`docs/strategy_plugin_runtime_contract.md`](./docs/strategy_plugin_runtime_contract.md)
 
 ### 目录结构
 
@@ -165,6 +168,7 @@ src/quant_platform_kit/
     models.py
     ports.py
     strategies.py
+    strategy_plugins.py
   ibkr/
     connection.py
     market_data.py
