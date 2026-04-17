@@ -302,7 +302,7 @@ git push origin HEAD
 
 ***REMOVED***
 ***REMOVED***
-- LongBridge SG -> `TQQQ Growth Income`
+***REMOVED***
 ***REMOVED***
 
 ## 回滚原则

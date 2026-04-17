@@ -302,7 +302,7 @@ Then verify the first heartbeat / execution notification:
 
 ***REMOVED***
 ***REMOVED***
-- LongBridge SG -> `TQQQ Growth Income`
+***REMOVED***
 ***REMOVED***
 
 ## Rollback rules

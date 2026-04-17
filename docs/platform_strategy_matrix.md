@@ -1,6 +1,6 @@
 # Platform Strategy Matrix
 
-_Verified snapshot: 2026-04-15_
+_Verified snapshot: 2026-04-18_
 
 This page is the short answer to one question:
 
@@ -9,6 +9,9 @@ This page is the short answer to one question:
 For runtime projects, services, schedulers, runtime identities, and secret names, see [`platform_runtime_inventory.md`](./platform_runtime_inventory.md).
 
 For repository responsibility boundaries, see [`platform_repo_boundaries.md`](./platform_repo_boundaries.md).
+
+For strategy behavior, research status, and archived backtest evidence, see
+`UsEquityStrategies/docs/us_equity_strategy_status.zh-CN.md`.
 
 ## Summary
 
@@ -49,7 +52,9 @@ Currently enabled live profiles in `us_equity`:
 
 - `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
+- `mega_cap_leader_rotation_aggressive`
 - `mega_cap_leader_rotation_dynamic_top20`
+- `mega_cap_leader_rotation_top50_balanced`
 - `russell_1000_multi_factor_defensive`
 - `soxl_soxx_trend_income`
 - `tqqq_growth_income`

@@ -17,6 +17,7 @@
 - `global_etf_rotation`
 - `mega_cap_leader_rotation_aggressive`
 - `mega_cap_leader_rotation_dynamic_top20`
+- `mega_cap_leader_rotation_top50_balanced`
 - `russell_1000_multi_factor_defensive`
 - `soxl_soxx_trend_income`
 - `tqqq_growth_income`
@@ -30,7 +31,7 @@
 - `schwab`
 - `longbridge`
 
-对当前这 8 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，接下来换线上策略主要是运维切换，不再是契约迁移。
+对当前这 9 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，接下来换线上策略主要是运维切换，不再是契约迁移。
 
 ## 运维分组
 
@@ -44,6 +45,7 @@
   - `dynamic_mega_leveraged_pullback`
   - `mega_cap_leader_rotation_aggressive`
   - `mega_cap_leader_rotation_dynamic_top20`
+  - `mega_cap_leader_rotation_top50_balanced`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
 
@@ -124,6 +126,7 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 | `global_etf_rotation` | 无 |
 | `mega_cap_leader_rotation_aggressive` | feature snapshot 路径 + manifest 路径 |
 | `mega_cap_leader_rotation_dynamic_top20` | feature snapshot 路径 + manifest 路径 |
+| `mega_cap_leader_rotation_top50_balanced` | feature snapshot 路径 + manifest 路径 |
 | `russell_1000_multi_factor_defensive` | feature snapshot 路径 |
 | `soxl_soxx_trend_income` | 无 |
 | `tqqq_growth_income` | 无 |

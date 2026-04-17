@@ -1,6 +1,6 @@
 # 平台运行清单
 
-_校验快照日期：2026-04-14_
+_校验快照日期：2026-04-18_
 
 这份文档记录的是**公开 runtime 接线清单**，用来快速回答一个问题：
 
@@ -44,7 +44,7 @@ _校验快照日期：2026-04-14_
 - **runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **runtime revision**
-  - `interactive-brokers-quant-service-00072-2hn`
+***REMOVED***
 - **Scheduler**
   - `interactive-brokers-quant-service-scheduler`
   - region：`us-central1`
@@ -56,7 +56,7 @@ _校验快照日期：2026-04-14_
   - `ibkr-account-groups`
   - `interactive-brokers-telegram-token`
 - **运行说明**
-  - 过渡 env `IB_GATEWAY_ZONE`、`IB_GATEWAY_IP_MODE` 已经从服务上删掉，因为当前选中的 account-group payload 已经带了这两个值。
+  - 过渡 env `IB_GATEWAY_ZONE=us-central1-c`、`IB_GATEWAY_IP_MODE=internal` 目前仍作为服务级 fallback 保留；目标状态仍然是放进选中的 account-group payload。
 
 ### Charles Schwab
 
@@ -69,12 +69,13 @@ _校验快照日期：2026-04-14_
 - **runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **runtime revision**
-  - `charles-schwab-quant-service-00043-jvd`
+***REMOVED***
 - **Scheduler**
   - `charles-schwab-quant-service-scheduler`
   - region：`us-central1`
 - **核心运行选择器**
   - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
+  - `DUAL_DRIVE_UNLEVERED_SYMBOL=<optional strategy-specific symbol>`
 - **运行时 secret**
   - `schwab_token`
   - `charles-schwab-api-key`
@@ -82,6 +83,7 @@ _校验快照日期：2026-04-14_
   - `charles-schwab-telegram-token`
 - **运行说明**
   - 运行时敏感配置已经不再走 Cloud Run 明文 env，而是走 Secret Manager 引用。
+***REMOVED***
   - token refresher 不在这个仓库里，而是在：
     - `QuantStrategyLab/SchwabTokenAutoRefresher`
 
@@ -97,8 +99,8 @@ _校验快照日期：2026-04-14_
 - **runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **runtime revision**
-  - HK：`longbridge-quant-hk-service-00060-xgm`
-  - SG：`longbridge-quant-sg-service-00055-pch`
+***REMOVED***
+***REMOVED***
 - **Scheduler**
   - `longbridge-quant-hk-service-scheduler`（`asia-east2`）
   - `longbridge-quant-sg-service-scheduler`（`asia-southeast1`）
@@ -118,6 +120,7 @@ _校验快照日期：2026-04-14_
     - `longport_token_sg`
 - **运行说明**
   - HK / SG 继续保持两个 Cloud Run 服务、两个 trigger、两个 GitHub Environment。
+***REMOVED***
   - App key / secret 现在使用分区域的 Secret Manager 引用；Telegram token 在 LongBridge 项目内共享。
   - `SERVICE_NAME` 现在也已经对齐到上面的完整运行时名字，不再使用旧的 `longbridge-quant-hk` / `longbridge-quant-sg` 这种短前缀。
 

@@ -1,6 +1,6 @@
 # Platform Runtime Inventory
 
-_Verified snapshot: 2026-04-14_
+_Verified snapshot: 2026-04-18_
 
 This document records the **public runtime wiring inventory** across platform repositories and deployment projects. It is meant to answer one question quickly:
 
@@ -44,7 +44,7 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **Runtime revision**
-  - `interactive-brokers-quant-service-00072-2hn`
+***REMOVED***
 - **Scheduler**
   - `interactive-brokers-quant-service-scheduler`
   - region: `us-central1`
@@ -56,7 +56,7 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
   - `ibkr-account-groups`
   - `interactive-brokers-telegram-token`
 - **Runtime notes**
-  - Transitional envs `IB_GATEWAY_ZONE` and `IB_GATEWAY_IP_MODE` have already been removed from the service because the selected account-group payload now carries those values.
+  - Transitional envs `IB_GATEWAY_ZONE=us-central1-c` and `IB_GATEWAY_IP_MODE=internal` are still present as service-level fallbacks; the target state is to keep these in the selected account-group payload.
 
 ### Charles Schwab
 
@@ -69,12 +69,13 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **Runtime revision**
-  - `charles-schwab-quant-service-00043-jvd`
+***REMOVED***
 - **Scheduler**
   - `charles-schwab-quant-service-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
+  - `DUAL_DRIVE_UNLEVERED_SYMBOL=<optional strategy-specific symbol>`
 - **Runtime secrets**
   - `schwab_token`
   - `charles-schwab-api-key`
@@ -82,6 +83,7 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
   - `charles-schwab-telegram-token`
 - **Runtime notes**
   - Runtime-sensitive envs have already been moved off plain Cloud Run env vars and into Secret Manager refs.
+***REMOVED***
   - The token refresher lives outside this repo:
     - `QuantStrategyLab/SchwabTokenAutoRefresher`
 
@@ -97,8 +99,8 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **Runtime revisions**
-  - HK: `longbridge-quant-hk-service-00060-xgm`
-  - SG: `longbridge-quant-sg-service-00055-pch`
+***REMOVED***
+***REMOVED***
 - **Schedulers**
   - `longbridge-quant-hk-service-scheduler` in `asia-east2`
   - `longbridge-quant-sg-service-scheduler` in `asia-southeast1`
@@ -118,6 +120,7 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
     - `longport_token_sg`
 - **Runtime notes**
   - HK and SG keep two independent Cloud Run services, two triggers, and two GitHub Environments.
+***REMOVED***
   - App key / secret are region-specific Secret Manager refs; Telegram token is shared inside the LongBridge project.
   - `SERVICE_NAME` is now aligned to the full runtime-facing names above, instead of using the older short `longbridge-quant-hk` / `longbridge-quant-sg` prefixes.
 
