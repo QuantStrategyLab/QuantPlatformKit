@@ -6,7 +6,7 @@
 - `InteractiveBrokersPlatform`、`CharlesSchwabPlatform`、`LongBridgePlatform`、`BinancePlatform` 这些仓库才是实际运行单元。
 - 策略仓库应该固定依赖某个 Git tag，不要直接依赖 `main`。
 
-如果要看公开 runtime 接线清单，包括仓库、项目、服务、scheduler、runtime identity、secret 名称，见 [`platform_runtime_inventory.zh-CN.md`](./platform_runtime_inventory.zh-CN.md)。
+如果要看公开 runtime 接线清单，包括仓库、项目、服务、scheduler、runtime identity、selector 和 secret 入口，见 [`platform_runtime_inventory.zh-CN.md`](./platform_runtime_inventory.zh-CN.md)。
 
 如果要看 `QuantPlatformKit`、平台运行仓库、未来策略仓库三者的职责边界，见 [`platform_repo_boundaries.zh-CN.md`](./platform_repo_boundaries.zh-CN.md)。
 

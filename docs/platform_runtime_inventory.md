@@ -2,11 +2,11 @@
 
 _Verified snapshot: 2026-04-18_
 
-This document records the **public runtime wiring inventory** across platform repositories and deployment projects. It is meant to answer one question quickly:
+This document records the public runtime wiring inventory across platform repositories and deployment projects. It is meant to answer one question quickly:
 
-> which repository, project, service, scheduler, runtime identity, and secret set is wired for each platform?
+> which repository, project, service, scheduler, runtime identity, selector, and secret set is wired for each platform?
 
-This is a **wiring runbook**, not a target-state design doc. For target architecture and migration rules, see [`deployment_model.md`](./deployment_model.md).
+This is a wiring runbook, not a record of any account's deployed strategy. It intentionally does **not** record mutable deployment state or account-specific allocation choices.
 
 For the platform / strategy-domain / configurable-profile matrix, see [`platform_strategy_matrix.md`](./platform_strategy_matrix.md).
 
@@ -26,10 +26,10 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 
 | Platform | Repo | Strategy domain | Strategy selector | Runtime model | Project / backend | Runtime unit |
 |---|---|---:|---|---|---|---|
-***REMOVED***
-***REMOVED***
-***REMOVED***
-| Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-service` |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+| Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `STRATEGY_PROFILE=crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## Platform details
 
@@ -43,8 +43,6 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
   - `interactive-brokers-quant-service`
 - **Runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
-- **Runtime revision**
-***REMOVED***
 - **Scheduler**
   - `interactive-brokers-quant-service-scheduler`
   - region: `us-central1`
@@ -53,10 +51,11 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
   - `ACCOUNT_GROUP=<account group selector>`
   - `IB_ACCOUNT_GROUP_CONFIG_SECRET_NAME=<Secret Manager secret name>`
 - **Runtime secrets**
-  - `ibkr-account-groups`
-  - `interactive-brokers-telegram-token`
+  - account-group payload secret selected by `IB_ACCOUNT_GROUP_CONFIG_SECRET_NAME`
+  - runtime Telegram token secret
 - **Runtime notes**
-  - Transitional envs `IB_GATEWAY_ZONE=us-central1-c` and `IB_GATEWAY_IP_MODE=internal` are still present as service-level fallbacks; the target state is to keep these in the selected account-group payload.
+  - `ACCOUNT_GROUP` decides which broker/account payload the runtime loads.
+  - Gateway zone and IP-mode settings should live in the selected account-group payload when the migration is complete.
 
 ### Charles Schwab
 
@@ -68,22 +67,19 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
   - `charles-schwab-quant-service`
 - **Runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
-- **Runtime revision**
-***REMOVED***
 - **Scheduler**
   - `charles-schwab-quant-service-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
-  - `DUAL_DRIVE_UNLEVERED_SYMBOL=<optional strategy-specific symbol>`
+  - optional strategy-specific envs such as `DUAL_DRIVE_UNLEVERED_SYMBOL`
 - **Runtime secrets**
-  - `schwab_token`
-  - `charles-schwab-api-key`
-  - `charles-schwab-app-secret`
-  - `charles-schwab-telegram-token`
+  - Schwab token payload secret
+  - Schwab API key / app secret refs
+  - runtime Telegram token secret
 - **Runtime notes**
-  - Runtime-sensitive envs have already been moved off plain Cloud Run env vars and into Secret Manager refs.
-***REMOVED***
+  - Runtime-sensitive envs should use Secret Manager refs, not plain Cloud Run env values.
+  - Strategy plugins are sidecars: `shadow` logs and notifies only; `paper`, `advisory`, and `live` semantics are governed by the plugin execution mode contract.
   - The token refresher lives outside this repo:
     - `QuantStrategyLab/SchwabTokenAutoRefresher`
 
@@ -98,31 +94,22 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
   - SG: `longbridge-quant-sg-service`
 - **Runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
-- **Runtime revisions**
-***REMOVED***
-***REMOVED***
 - **Schedulers**
   - `longbridge-quant-hk-service-scheduler` in `asia-east2`
   - `longbridge-quant-sg-service-scheduler` in `asia-southeast1`
 - **Core runtime selectors**
-  - `STRATEGY_PROFILE=<runtime_enabled us_equity profile> on HK; STRATEGY_PROFILE=<runtime_enabled us_equity profile> on SG`
+  - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per regional service
   - `ACCOUNT_REGION=HK|SG`
   - `LONGPORT_SECRET_NAME=<region token secret>`
 - **Runtime secrets**
-  - Secret Manager refs:
-    - `longbridge-telegram-token`
-    - `longport-app-key-hk`
-    - `longport-app-key-sg`
-    - `longport-app-secret-hk`
-    - `longport-app-secret-sg`
-  - region token secrets:
-    - `longport_token_hk`
-    - `longport_token_sg`
+  - Secret Manager refs for LongPort app key / app secret
+  - region token secrets selected by `LONGPORT_SECRET_NAME`
+  - runtime Telegram token secret
 - **Runtime notes**
   - HK and SG keep two independent Cloud Run services, two triggers, and two GitHub Environments.
-***REMOVED***
+  - Snapshot-backed profiles require feature snapshot path / manifest envs; direct-runtime profiles do not.
   - App key / secret are region-specific Secret Manager refs; Telegram token is shared inside the LongBridge project.
-  - `SERVICE_NAME` is now aligned to the full runtime-facing names above, instead of using the older short `longbridge-quant-hk` / `longbridge-quant-sg` prefixes.
+  - `SERVICE_NAME` should use the full runtime-facing service names above, not older short prefixes.
 
 ### Binance
 
@@ -177,9 +164,3 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 
 - Scheduler OIDC identity is still tied to the default compute service account in the Cloud Run projects.
 - Real cross-platform strategy implementation sharing has **not** started yet. Only the shared strategy contract and platform-compatibility skeleton are in place.
-
-## Recommended next steps after this inventory
-
-1. keep this file current whenever a runtime service, secret name, or runtime service account changes
-2. keep repository names, service names, scheduler names, and docs aligned whenever one side changes
-3. only after naming and runtime config are stable, start the real strategy-implementation split by domain

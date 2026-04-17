@@ -238,7 +238,7 @@ Reviewers should reject a new strategy PR if any of these are true:
 
 ## Migration notes for runtime profiles
 
-Configurable profile scopes can migrate incrementally, but the end state should be:
+Current runtime-enabled profiles can migrate incrementally, but the end state should be:
 
 - `global_etf_rotation`: portable through normalized history inputs plus
   weight/value translation

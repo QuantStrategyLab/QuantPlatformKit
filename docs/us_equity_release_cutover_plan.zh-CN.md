@@ -182,105 +182,59 @@ git push origin HEAD
 
 ## 策略选择器切换模式
 
-| 平台服务 | 目标策略 profile | 说明 |
-| --- | --- | --- |
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
+这份公开 runbook 不绑定任何账户或服务当前应该跑哪条策略。先从受支持平台矩阵里选择目标 profile，再按下面的输入类型切换。
+
+| 服务类型 | 策略选择器 | 直接运行输入 | Snapshot 驱动输入 |
+| --- | --- | --- | --- |
+| Schwab Cloud Run 服务 | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | runtime 提供 market / benchmark history 和 portfolio snapshot | feature snapshot path、manifest path、可选 strategy config path |
+| IBKR Cloud Run 服务 | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | runtime 提供 market / benchmark history 和 portfolio snapshot | feature snapshot path、manifest path、可选 strategy config path，以及 reconciliation output path |
+| LongBridge 区域服务 | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | runtime 提供 market / benchmark history 和 portfolio snapshot | feature snapshot path、manifest path、可选 strategy config path |
 
 ## 切换时要改的 env
 
-### CharlesSchwabPlatform
-
-服务：
-
-- `charles-schwab-quant-service`
+### 直接运行输入策略
 
 设置：
 
-- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
+- `STRATEGY_PROFILE=<direct-runtime profile>`
 
-删除：
+如果残留 snapshot env，要删掉：
 
-- `SCHWAB_DRY_RUN_ONLY`，除非明确要临时回到 dry-run
+- `*_FEATURE_SNAPSHOT_PATH`
+- `*_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `*_STRATEGY_CONFIG_PATH`
+- 平台拥有 reconciliation output 时，删掉 `*_RECONCILIATION_OUTPUT_PATH`
 
-### LongBridgePlatform HK
+执行模式或 dry-run 相关变量保持不动，除非这次 rollout 明确要改变。
 
-服务：
-
-- `longbridge-quant-hk-service`
+### Snapshot 驱动策略
 
 设置：
 
-- `ACCOUNT_PREFIX=HK`
-- `ACCOUNT_REGION=HK`
-- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
-
-默认保持不设：
-
-- `LONGBRIDGE_DRY_RUN_ONLY`
+- `STRATEGY_PROFILE=<snapshot-backed profile>`
+- `<PLATFORM>_FEATURE_SNAPSHOT_PATH`
+- `<PLATFORM>_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- profile 需要外部配置时设置 `<PLATFORM>_STRATEGY_CONFIG_PATH`
 
 原因：
 
-- `tech_communication_pullback_enhancement` 是 feature snapshot 策略
-- HK 这次不只是改 profile，还需要把 snapshot/config 输入一起接上
+- snapshot 驱动策略消费 `UsEquitySnapshotPipelines` 发布的 artifact
+- 直接运行输入策略不需要 feature snapshot artifact 链路
 
-### LongBridgePlatform SG
+### LongBridge 区域服务
 
-服务：
+每个区域服务分别设置：
 
-- `longbridge-quant-sg-service`
-
-设置：
-
-- `ACCOUNT_PREFIX=SG`
-- `ACCOUNT_REGION=SG`
+- `ACCOUNT_PREFIX=HK|SG`
+- `ACCOUNT_REGION=HK|SG`
 - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
+- `LONGPORT_SECRET_NAME=<region token secret>`
 
-是否继续 dry-run，保持当前决定：
-
-- `LONGBRIDGE_DRY_RUN_ONLY`
-
-如果还有这些变量，要删掉：
-
-- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
-
-### InteractiveBrokersPlatform
-
-服务：
-
-- `interactive-brokers-quant-service`
-
-设置：
-
-- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
-
-下面这些先保持现状，除非另行决定是否真跑：
-
-- `IBKR_DRY_RUN_ONLY`
-- `ACCOUNT_GROUP`
-
-从 `tech_communication_pullback_enhancement` 切走后，要把 tech 专用的 feature snapshot env 删掉：
-
-- `IBKR_FEATURE_SNAPSHOT_PATH`
-- `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `IBKR_STRATEGY_CONFIG_PATH`
-- `IBKR_RECONCILIATION_OUTPUT_PATH`
-
-原因：
-
-- `soxl_soxx_trend_income` 现在走的是 canonical `derived_indicators + portfolio_snapshot`
-- 不再需要科技增强那套 feature snapshot artifact 链路
+切换策略时不要改 service name。
 
 ## 验证清单
 
-### 改线上 env 之前
+### 改 env 之前
 
 每个平台仓库都要先做：
 
@@ -289,7 +243,7 @@ git push origin HEAD
 3. 部署
 4. 确认 Cloud Run 上真的已经是新 commit
 
-### 改线上 env 之后
+### 改 env 之后
 
 用 `gcloud run services describe ...` 确认：
 
@@ -300,10 +254,10 @@ git push origin HEAD
 
 再看第一条心跳 / 执行通知：
 
-***REMOVED***
-***REMOVED***
-***REMOVED***
-***REMOVED***
+- 策略显示名和选择的 profile 一致
+- 输入类型 diagnostics 和选择的 profile 类型一致
+- 直接运行输入策略没有残留 snapshot env
+- snapshot 驱动策略能加载目标 artifact manifest
 
 ## 回滚原则
 

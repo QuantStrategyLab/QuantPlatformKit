@@ -6,7 +6,7 @@ _核对时间：2026-04-18_
 
 > 现在各个平台分别属于哪个策略大类，哪些 profile 可以配置，哪些只是后续扩展接口？
 
-如果要看 live 的 GCP 项目、Cloud Run service、scheduler、runtime identity、secret 名，请看 [`platform_runtime_inventory.zh-CN.md`](./platform_runtime_inventory.zh-CN.md)。
+如果要看 runtime 的项目、Cloud Run service、scheduler、runtime identity 和 selector 名，请看 [`platform_runtime_inventory.zh-CN.md`](./platform_runtime_inventory.zh-CN.md)。
 
 如果要看仓库职责边界，请看 [`platform_repo_boundaries.zh-CN.md`](./platform_repo_boundaries.zh-CN.md)。
 
@@ -19,17 +19,17 @@ _核对时间：2026-04-18_
   - `us_equity`
   - `crypto`
 - 各个平台仓库现在都已经保留了 `STRATEGY_PROFILE` 入口，但这**还不是**真正的多策略平台。
-- 现在每个美股平台仓库都可以在 `UsEquityStrategies` 发布的 `runtime_enabled` `us_equity` profile 之间切换。
+- 现在每个美股平台仓库都可以在 `UsEquityStrategies` 发布的 `runtime_enabled` `us_equity` profile 之间切换，前提是对应平台 rollout 配置已经放开。
 - 平台 runtime adapter 会根据策略输入、target mode 和平台 capability 自动生成；规范内的新 profile 不应该再需要三个平台分别手写 allowlist。
 - 共享契约在 `QuantPlatformKit`；真实的 `us_equity` 策略实现现在放在 `UsEquityStrategies`，平台仓库负责运行时适配和券商执行。
 
-## 当前平台矩阵
+## 平台矩阵
 
 | 平台 | 仓库 | 策略大类 | 可配置 profile 范围 | 运行模型 | 现在能否真实切换？ |
 |---|---|---|---|---|---|
-***REMOVED***
-***REMOVED***
-***REMOVED***
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
 ***REMOVED***
 
 ## 这张表现在该怎么理解
@@ -48,7 +48,7 @@ _核对时间：2026-04-18_
 - 它表示只要策略遵守共享输入和 target-mode 契约，就可以通过 `UsEquityStrategies` 元数据和生成式 runtime adapter 接入。
 - 如果策略需要新的输入类型或券商能力，要先扩共享契约和平台 capability matrix。
 
-当前 `us_equity` 域里已经启用的 live profile 有：
+当前 `us_equity` 域里已经启用的 runtime profile 有：
 
 - `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`

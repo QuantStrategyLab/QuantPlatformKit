@@ -1,6 +1,6 @@
-# 美股线上切换与回滚运行手册
+# 美股策略切换与回滚运行手册
 
-这份文档是当前美股策略在线上切换时的操作手册。
+这份文档是当前美股策略切换时的操作手册。
 
 它默认前提是：
 
@@ -11,7 +11,7 @@
 
 ## 适用范围
 
-当前美股 live profile：
+可配置美股 profile：
 
 - `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
@@ -25,17 +25,17 @@
 
 说明：旧部署里 `qqq_tech_enhancement` 仍可能作为 `tech_communication_pullback_enhancement` 的 legacy alias 被接受，但运行手册统一使用 canonical profile 名。
 
-当前运行平台：
+运行平台：
 
 - `ibkr`
 - `schwab`
 - `longbridge`
 
-对当前这 9 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，接下来换线上策略主要是运维切换，不再是契约迁移。
+对当前这 9 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，在这些受支持 profile 之间切换主要是运维切换，不再是契约迁移。
 
 ## 运维分组
 
-现在最好把 live 策略按两组理解：
+现在最好把策略按两组理解：
 
 - **直接运行输入策略**
   - `global_etf_rotation`
