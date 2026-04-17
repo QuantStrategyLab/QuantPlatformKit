@@ -1,6 +1,6 @@
 # 平台策略矩阵
 
-_核对时间：2026-04-15_
+_核对时间：2026-04-18_
 
 这页只回答一个问题：
 
@@ -9,6 +9,9 @@ _核对时间：2026-04-15_
 如果要看 live 的 GCP 项目、Cloud Run service、scheduler、runtime identity、secret 名，请看 [`platform_runtime_inventory.zh-CN.md`](./platform_runtime_inventory.zh-CN.md)。
 
 如果要看仓库职责边界，请看 [`platform_repo_boundaries.zh-CN.md`](./platform_repo_boundaries.zh-CN.md)。
+
+如果要看每条策略的特点、研究状态和已归档回测证据，请看
+`UsEquityStrategies/docs/us_equity_strategy_status.zh-CN.md`。
 
 ## 总结
 
@@ -26,7 +29,7 @@ _核对时间：2026-04-15_
 |---|---|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | 可以，rollout allowlist 可在受支持 profile 间切换 |
 | Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `tqqq_growth_income` | Cloud Run | 可以，rollout allowlist 可在受支持 profile 间切换 |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `HK: tech_communication_pullback_enhancement / SG: tqqq_growth_income` | Cloud Run | 可以，rollout allowlist 可在受支持 profile 间切换 |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `HK: tech_communication_pullback_enhancement / SG: soxl_soxx_trend_income` | Cloud Run | 可以，rollout allowlist 可在受支持 profile 间切换 |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | 不能，当前只支持这个 profile |
 
 ## 这张表现在该怎么理解
@@ -49,7 +52,9 @@ _核对时间：2026-04-15_
 
 - `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
+- `mega_cap_leader_rotation_aggressive`
 - `mega_cap_leader_rotation_dynamic_top20`
+- `mega_cap_leader_rotation_top50_balanced`
 - `russell_1000_multi_factor_defensive`
 - `tqqq_growth_income`
 - `soxl_soxx_trend_income`

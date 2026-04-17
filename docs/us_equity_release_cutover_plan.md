@@ -186,7 +186,7 @@ If any repo still has unrelated local edits, split or stash them before creating
 | --- | --- | --- |
 | `charles-schwab-quant-service` | `tqqq_growth_income` | TQQQ Growth Income should remain the Schwab live profile |
 | `longbridge-quant-hk-service` | `tech_communication_pullback_enhancement` | HK should move to Tech/Communication Pullback Enhancement |
-| `longbridge-quant-sg-service` | `tqqq_growth_income` | SG should remain TQQQ Growth Income |
+| `longbridge-quant-sg-service` | `soxl_soxx_trend_income` | SG should run SOXL/SOXX Semiconductor Trend Income |
 | `interactive-brokers-quant-service` | `soxl_soxx_trend_income` | IBKR should move to SOXL/SOXX Semiconductor Trend Income |
 
 ## Cutover env changes
@@ -239,7 +239,7 @@ Set:
 
 - `ACCOUNT_PREFIX=SG`
 - `ACCOUNT_REGION=SG`
-- `STRATEGY_PROFILE=tqqq_growth_income`
+- `STRATEGY_PROFILE=soxl_soxx_trend_income`
 
 Keep current dry-run choice unless separately changed:
 
@@ -302,7 +302,7 @@ Then verify the first heartbeat / execution notification:
 
 - Schwab -> `TQQQ Growth Income`
 - LongBridge HK -> `Tech/Communication Pullback Enhancement`
-- LongBridge SG -> `TQQQ Growth Income`
+- LongBridge SG -> `SOXL/SOXX Semiconductor Trend Income`
 - IBKR -> `SOXL/SOXX Semiconductor Trend Income`
 
 ## Rollback rules

@@ -14,6 +14,7 @@ Current live US equity profiles:
 - `global_etf_rotation`
 - `mega_cap_leader_rotation_aggressive`
 - `mega_cap_leader_rotation_dynamic_top20`
+- `mega_cap_leader_rotation_top50_balanced`
 - `russell_1000_multi_factor_defensive`
 - `soxl_soxx_trend_income`
 - `tqqq_growth_income`
@@ -27,7 +28,7 @@ Current runtime platforms:
 - `schwab`
 - `longbridge`
 
-For the current eight-profile scope, all three platforms now report the full matrix as `eligible=true` and `enabled=true`. That means live switching is now an operational change, not a strategy-contract migration.
+For the current nine-profile scope, all three platforms now report the full matrix as `eligible=true` and `enabled=true`. That means live switching is now an operational change, not a strategy-contract migration.
 
 ## Operational profile groups
 
@@ -41,6 +42,7 @@ Treat the live profiles as two operational groups:
   - `dynamic_mega_leveraged_pullback`
   - `mega_cap_leader_rotation_aggressive`
   - `mega_cap_leader_rotation_dynamic_top20`
+  - `mega_cap_leader_rotation_top50_balanced`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
 
@@ -121,6 +123,7 @@ If any of those checks fail, stop. That is a code or rollout problem, not a live
 | `global_etf_rotation` | none |
 | `mega_cap_leader_rotation_aggressive` | feature snapshot path + snapshot manifest path |
 | `mega_cap_leader_rotation_dynamic_top20` | feature snapshot path + snapshot manifest path |
+| `mega_cap_leader_rotation_top50_balanced` | feature snapshot path + snapshot manifest path |
 | `russell_1000_multi_factor_defensive` | feature snapshot path |
 | `soxl_soxx_trend_income` | none |
 | `tqqq_growth_income` | none |

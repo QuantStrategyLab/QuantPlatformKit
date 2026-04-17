@@ -1,6 +1,6 @@
 # 平台运行清单
 
-_校验快照日期：2026-04-14_
+_校验快照日期：2026-04-18_
 
 这份文档记录的是**当前线上真实运行清单**，用来快速回答一个问题：
 
@@ -28,7 +28,7 @@ _校验快照日期：2026-04-14_
 |---|---|---:|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-service` |
 | Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `tqqq_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-service` |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `HK: tech_communication_pullback_enhancement` / `SG: tqqq_growth_income` | Cloud Run | `longbridgequant` | `longbridge-quant-hk-service`、`longbridge-quant-sg-service` |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `HK: tech_communication_pullback_enhancement` / `SG: soxl_soxx_trend_income` | Cloud Run | `longbridgequant` | `longbridge-quant-hk-service`、`longbridge-quant-sg-service` |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` 只承担 Firestore / GCP 凭据 | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## 各平台明细
@@ -44,7 +44,7 @@ _校验快照日期：2026-04-14_
 - **runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **当前 ready revision**
-  - `interactive-brokers-quant-service-00072-2hn`
+  - `interactive-brokers-quant-service-00111-wr5`
 - **Scheduler**
   - `interactive-brokers-quant-service-scheduler`
   - region：`us-central1`
@@ -56,7 +56,7 @@ _校验快照日期：2026-04-14_
   - `ibkr-account-groups`
   - `interactive-brokers-telegram-token`
 - **当前说明**
-  - 过渡 env `IB_GATEWAY_ZONE`、`IB_GATEWAY_IP_MODE` 已经从服务上删掉，因为当前选中的 account-group payload 已经带了这两个值。
+  - 过渡 env `IB_GATEWAY_ZONE=us-central1-c`、`IB_GATEWAY_IP_MODE=internal` 目前仍作为服务级 fallback 保留；目标状态仍然是放进选中的 account-group payload。
 
 ### Charles Schwab
 
@@ -69,12 +69,13 @@ _校验快照日期：2026-04-14_
 - **runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **当前 ready revision**
-  - `charles-schwab-quant-service-00043-jvd`
+  - `charles-schwab-quant-service-00092-8hz`
 - **Scheduler**
   - `charles-schwab-quant-service-scheduler`
   - region：`us-central1`
 - **核心运行选择器**
   - `STRATEGY_PROFILE=tqqq_growth_income`
+  - `DUAL_DRIVE_UNLEVERED_SYMBOL=QQQM`
 - **运行时 secret**
   - `schwab_token`
   - `charles-schwab-api-key`
@@ -82,6 +83,7 @@ _校验快照日期：2026-04-14_
   - `charles-schwab-telegram-token`
 - **当前说明**
   - 运行时敏感配置已经不再走 Cloud Run 明文 env，而是走 Secret Manager 引用。
+  - `crisis_response_shadow` 以 `shadow` 模式挂载到 `tqqq_growth_income`；它只进入日志/通知上下文，不改变 allocation。
   - token refresher 不在这个仓库里，而是在：
     - `QuantStrategyLab/SchwabTokenAutoRefresher`
 
@@ -97,13 +99,13 @@ _校验快照日期：2026-04-14_
 - **runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **当前 ready revision**
-  - HK：`longbridge-quant-hk-service-00060-xgm`
-  - SG：`longbridge-quant-sg-service-00055-pch`
+  - HK：`longbridge-quant-hk-service-00086-slh`
+  - SG：`longbridge-quant-sg-service-00089-526`
 - **Scheduler**
   - `longbridge-quant-hk-service-scheduler`（`asia-east2`）
   - `longbridge-quant-sg-service-scheduler`（`asia-southeast1`）
 - **核心运行选择器**
-  - `STRATEGY_PROFILE=HK 使用 tech_communication_pullback_enhancement；SG 使用 tqqq_growth_income`
+  - `STRATEGY_PROFILE=HK 使用 tech_communication_pullback_enhancement；SG 使用 soxl_soxx_trend_income`
   - `ACCOUNT_REGION=HK|SG`
   - `LONGPORT_SECRET_NAME=longport_token_hk|longport_token_sg`
 - **运行时 secret**
@@ -118,6 +120,7 @@ _校验快照日期：2026-04-14_
     - `longport_token_sg`
 - **当前说明**
   - HK / SG 继续保持两个 Cloud Run 服务、两个 trigger、两个 GitHub Environment。
+  - HK 使用 `tech_communication_pullback_enhancement` 的 feature-snapshot env；SG 当前是直接运行输入的 `soxl_soxx_trend_income`。
   - App key / secret 现在使用分区域的 Secret Manager 引用；Telegram token 在 LongBridge 项目内共享。
   - `SERVICE_NAME` 现在也已经对齐到上面的完整运行时名字，不再使用旧的 `longbridge-quant-hk` / `longbridge-quant-sg` 这种短前缀。
 
