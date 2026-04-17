@@ -186,7 +186,7 @@ git push origin HEAD
 | --- | --- | --- |
 | `charles-schwab-quant-service` | `tqqq_growth_income` | Schwab 继续跑 TQQQ 增长收益 |
 | `longbridge-quant-hk-service` | `tech_communication_pullback_enhancement` | HK 切到科技通信回调增强 |
-| `longbridge-quant-sg-service` | `tqqq_growth_income` | SG 继续跑 TQQQ 增长收益 |
+| `longbridge-quant-sg-service` | `soxl_soxx_trend_income` | SG 运行 SOXL/SOXX 半导体趋势收益 |
 | `interactive-brokers-quant-service` | `soxl_soxx_trend_income` | IBKR 切到 SOXL/SOXX 半导体趋势收益 |
 
 ## 切换时要改的 env
@@ -239,7 +239,7 @@ git push origin HEAD
 
 - `ACCOUNT_PREFIX=SG`
 - `ACCOUNT_REGION=SG`
-- `STRATEGY_PROFILE=tqqq_growth_income`
+- `STRATEGY_PROFILE=soxl_soxx_trend_income`
 
 是否继续 dry-run，保持当前决定：
 
@@ -302,7 +302,7 @@ git push origin HEAD
 
 - Schwab -> `TQQQ Growth Income`
 - LongBridge HK -> `Tech/Communication Pullback Enhancement`
-- LongBridge SG -> `TQQQ Growth Income`
+- LongBridge SG -> `SOXL/SOXX Semiconductor Trend Income`
 - IBKR -> `SOXL/SOXX Semiconductor Trend Income`
 
 ## 回滚原则

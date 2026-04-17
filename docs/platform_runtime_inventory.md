@@ -1,6 +1,6 @@
 # Platform Runtime Inventory
 
-_Verified snapshot: 2026-04-14_
+_Verified snapshot: 2026-04-18_
 
 This document records the **current live runtime inventory** across platform repositories and deployment projects. It is meant to answer one question quickly:
 
@@ -28,7 +28,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 |---|---|---:|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | `interactivebrokersquant` | `interactive-brokers-quant-service` |
 | Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `tqqq_growth_income` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-service` |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `HK: tech_communication_pullback_enhancement` / `SG: tqqq_growth_income` | Cloud Run | `longbridgequant` | `longbridge-quant-hk-service`, `longbridge-quant-sg-service` |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `HK: tech_communication_pullback_enhancement` / `SG: soxl_soxx_trend_income` | Cloud Run | `longbridgequant` | `longbridge-quant-hk-service`, `longbridge-quant-sg-service` |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## Platform details
@@ -44,7 +44,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 - **Runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **Current ready revision**
-  - `interactive-brokers-quant-service-00072-2hn`
+  - `interactive-brokers-quant-service-00111-wr5`
 - **Scheduler**
   - `interactive-brokers-quant-service-scheduler`
   - region: `us-central1`
@@ -56,7 +56,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
   - `ibkr-account-groups`
   - `interactive-brokers-telegram-token`
 - **Current notes**
-  - Transitional envs `IB_GATEWAY_ZONE` and `IB_GATEWAY_IP_MODE` have already been removed from the service because the selected account-group payload now carries those values.
+  - Transitional envs `IB_GATEWAY_ZONE=us-central1-c` and `IB_GATEWAY_IP_MODE=internal` are still present as service-level fallbacks; the target state is to keep these in the selected account-group payload.
 
 ### Charles Schwab
 
@@ -69,12 +69,13 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 - **Runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **Current ready revision**
-  - `charles-schwab-quant-service-00043-jvd`
+  - `charles-schwab-quant-service-00092-8hz`
 - **Scheduler**
   - `charles-schwab-quant-service-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=tqqq_growth_income`
+  - `DUAL_DRIVE_UNLEVERED_SYMBOL=QQQM`
 - **Runtime secrets**
   - `schwab_token`
   - `charles-schwab-api-key`
@@ -82,6 +83,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
   - `charles-schwab-telegram-token`
 - **Current notes**
   - Runtime-sensitive envs have already been moved off plain Cloud Run env vars and into Secret Manager refs.
+  - `crisis_response_shadow` is mounted for `tqqq_growth_income` in `shadow` mode. It is log/notification context only and does not change allocation.
   - The token refresher lives outside this repo:
     - `QuantStrategyLab/SchwabTokenAutoRefresher`
 
@@ -97,13 +99,13 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
 - **Runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **Current ready revisions**
-  - HK: `longbridge-quant-hk-service-00060-xgm`
-  - SG: `longbridge-quant-sg-service-00055-pch`
+  - HK: `longbridge-quant-hk-service-00086-slh`
+  - SG: `longbridge-quant-sg-service-00089-526`
 - **Schedulers**
   - `longbridge-quant-hk-service-scheduler` in `asia-east2`
   - `longbridge-quant-sg-service-scheduler` in `asia-southeast1`
 - **Core runtime selectors**
-  - `STRATEGY_PROFILE=tech_communication_pullback_enhancement on HK; STRATEGY_PROFILE=tqqq_growth_income on SG`
+  - `STRATEGY_PROFILE=tech_communication_pullback_enhancement on HK; STRATEGY_PROFILE=soxl_soxx_trend_income on SG`
   - `ACCOUNT_REGION=HK|SG`
   - `LONGPORT_SECRET_NAME=longport_token_hk|longport_token_sg`
 - **Runtime secrets**
@@ -118,6 +120,7 @@ For the current platform / strategy-domain / live-profile matrix, see [`platform
     - `longport_token_sg`
 - **Current notes**
   - HK and SG keep two independent Cloud Run services, two triggers, and two GitHub Environments.
+  - HK uses feature-snapshot envs for `tech_communication_pullback_enhancement`; SG is currently on the direct-runtime `soxl_soxx_trend_income` profile.
   - App key / secret are region-specific Secret Manager refs; Telegram token is shared inside the LongBridge project.
   - `SERVICE_NAME` is now aligned to the full runtime-facing names above, instead of using the older short `longbridge-quant-hk` / `longbridge-quant-sg` prefixes.
 
