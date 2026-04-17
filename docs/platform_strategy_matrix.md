@@ -4,9 +4,9 @@ _Verified snapshot: 2026-04-18_
 
 This page is the short answer to one question:
 
-> which platforms belong to which strategy domain today, what is live right now, and what is only a future extension point?
+> which platforms belong to which strategy domain today, which profiles are configurable, and what is only a future extension point?
 
-For live runtime projects, services, schedulers, runtime identities, and secret names, see [`platform_runtime_inventory.md`](./platform_runtime_inventory.md).
+For runtime projects, services, schedulers, runtime identities, and selector names, see [`platform_runtime_inventory.md`](./platform_runtime_inventory.md).
 
 For repository responsibility boundaries, see [`platform_repo_boundaries.md`](./platform_repo_boundaries.md).
 
@@ -19,17 +19,17 @@ For strategy behavior, research status, and archived backtest evidence, see
   - `us_equity`
   - `crypto`
 - Runtime repositories already expose `STRATEGY_PROFILE`, but this is **not** a full multi-strategy marketplace yet.
-- Today, each US equity platform can switch among the live `runtime_enabled` `us_equity` profiles published by `UsEquityStrategies`.
+- Today, each US equity platform can switch among the `runtime_enabled` `us_equity` profiles published by `UsEquityStrategies`, subject to each platform's rollout configuration.
 - Platform runtime adapters are generated from strategy input/target-mode declarations plus platform capabilities, so new in-contract profiles should not need per-platform allowlist edits.
 - The shared contract is in `QuantPlatformKit`; real `us_equity` strategy implementations now live in `UsEquityStrategies`, while platform repositories own runtime adapters and broker execution.
 
-## Current platform matrix
+## Platform matrix
 
-| Platform | Repo | Strategy domain | Current live profile | Runtime model | Real switching today? |
+| Platform | Repo | Strategy domain | Configurable profile scope | Runtime model | Real switching today? |
 |---|---|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `soxl_soxx_trend_income` | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
-| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `tqqq_growth_income` | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `tech_communication_pullback_enhancement` on HK / `soxl_soxx_trend_income` on SG | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `runtime_enabled` US equity profiles | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
+| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `runtime_enabled` US equity profiles | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `runtime_enabled` US equity profiles per regional service | Cloud Run | Yes - rollout allowlist can switch among supported profiles |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
 
 ## What this means right now
@@ -48,7 +48,7 @@ Important limitation:
 - It means strategies that stay inside the shared input/target-mode contract can be admitted through `UsEquityStrategies` metadata and generated runtime adapters.
 - If a strategy needs a new input type or broker capability, the shared contract and platform capability matrix must be extended first.
 
-Currently enabled live profiles in `us_equity`:
+Configurable runtime-enabled profiles in `us_equity`:
 
 - `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
@@ -66,7 +66,7 @@ Platforms currently in this domain:
 
 - `BinancePlatform`
 
-Current live profile in `crypto`:
+Currently supported profile in `crypto`:
 
 - `crypto_leader_rotation`
 

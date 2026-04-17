@@ -180,107 +180,61 @@ git push origin HEAD
 
 If any repo still has unrelated local edits, split or stash them before creating the release commit.
 
-## Intended live strategy matrix after cutover
+## Strategy selector cutover pattern
 
-| Platform service | Intended strategy profile | Notes |
-| --- | --- | --- |
-| `charles-schwab-quant-service` | `tqqq_growth_income` | TQQQ Growth Income should remain the Schwab live profile |
-| `longbridge-quant-hk-service` | `tech_communication_pullback_enhancement` | HK should move to Tech/Communication Pullback Enhancement |
-| `longbridge-quant-sg-service` | `soxl_soxx_trend_income` | SG should run SOXL/SOXX Semiconductor Trend Income |
-| `interactive-brokers-quant-service` | `soxl_soxx_trend_income` | IBKR should move to SOXL/SOXX Semiconductor Trend Income |
+This public runbook does not pin any account or service to a current strategy profile. Choose the target profile from the supported platform matrix, then apply the matching input mode below.
+
+| Service family | Strategy selector | Direct-runtime profile inputs | Snapshot-backed profile inputs |
+| --- | --- | --- | --- |
+| Schwab Cloud Run service | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | market / benchmark history and portfolio snapshot from the runtime | feature snapshot path, manifest path, and optional strategy config path |
+| IBKR Cloud Run service | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | market / benchmark history and portfolio snapshot from the runtime | feature snapshot path, manifest path, optional strategy config path, and reconciliation output path |
+| LongBridge regional service | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | market / benchmark history and portfolio snapshot from the runtime | feature snapshot path, manifest path, and optional strategy config path |
 
 ## Cutover env changes
 
-### CharlesSchwabPlatform
-
-Service:
-
-- `charles-schwab-quant-service`
+### Direct-runtime profile
 
 Set:
 
-- `STRATEGY_PROFILE=tqqq_growth_income`
+- `STRATEGY_PROFILE=<direct-runtime profile>`
 
-Remove:
+Remove stale snapshot envs if present:
 
-- `SCHWAB_DRY_RUN_ONLY` unless a dry-run rollback is explicitly wanted
+- `*_FEATURE_SNAPSHOT_PATH`
+- `*_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `*_STRATEGY_CONFIG_PATH`
+- `*_RECONCILIATION_OUTPUT_PATH` where the platform owns reconciliation output
 
-### LongBridgePlatform HK
+Keep execution-mode or dry-run flags unchanged unless the rollout decision explicitly changes them.
 
-Service:
-
-- `longbridge-quant-hk-service`
+### Snapshot-backed profile
 
 Set:
 
-- `ACCOUNT_PREFIX=HK`
-- `ACCOUNT_REGION=HK`
-- `STRATEGY_PROFILE=tech_communication_pullback_enhancement`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
-
-Keep unset unless explicitly needed:
-
-- `LONGBRIDGE_DRY_RUN_ONLY`
+- `STRATEGY_PROFILE=<snapshot-backed profile>`
+- `<PLATFORM>_FEATURE_SNAPSHOT_PATH`
+- `<PLATFORM>_FEATURE_SNAPSHOT_MANIFEST_PATH`
+- `<PLATFORM>_STRATEGY_CONFIG_PATH` if the profile needs an external config file
 
 Reason:
 
-- `tech_communication_pullback_enhancement` is a feature snapshot strategy
-- HK cutover is not only a profile switch; it also needs snapshot/config inputs
+- snapshot-backed profiles consume a published artifact from `UsEquitySnapshotPipelines`
+- direct-runtime profiles do not need the feature snapshot artifact chain
 
-### LongBridgePlatform SG
+### Regional LongBridge services
 
-Service:
+Set per regional service:
 
-- `longbridge-quant-sg-service`
+- `ACCOUNT_PREFIX=HK|SG`
+- `ACCOUNT_REGION=HK|SG`
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
+- `LONGPORT_SECRET_NAME=<region token secret>`
 
-Set:
-
-- `ACCOUNT_PREFIX=SG`
-- `ACCOUNT_REGION=SG`
-- `STRATEGY_PROFILE=soxl_soxx_trend_income`
-
-Keep current dry-run choice unless separately changed:
-
-- `LONGBRIDGE_DRY_RUN_ONLY`
-
-Remove if present:
-
-- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
-
-### InteractiveBrokersPlatform
-
-Service:
-
-- `interactive-brokers-quant-service`
-
-Set:
-
-- `STRATEGY_PROFILE=soxl_soxx_trend_income`
-
-Keep as-is unless the live rollout decision changes:
-
-- `IBKR_DRY_RUN_ONLY`
-- `ACCOUNT_GROUP`
-
-Remove the tech-specific feature snapshot envs after switching away from `tech_communication_pullback_enhancement`:
-
-- `IBKR_FEATURE_SNAPSHOT_PATH`
-- `IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `IBKR_STRATEGY_CONFIG_PATH`
-- `IBKR_RECONCILIATION_OUTPUT_PATH`
-
-Reason:
-
-- `soxl_soxx_trend_income` now uses canonical `derived_indicators + portfolio_snapshot`
-- it does not need the tech feature snapshot artifact chain
+Do not change service names as part of a strategy switch.
 
 ## Verification checklist
 
-### Before changing live env
+### Before changing env
 
 For each platform repo:
 
@@ -289,7 +243,7 @@ For each platform repo:
 3. deploy
 4. verify the new commit SHA is actually on Cloud Run
 
-### After changing live env
+### After changing env
 
 Verify with `gcloud run services describe ...`:
 
@@ -300,10 +254,10 @@ Verify with `gcloud run services describe ...`:
 
 Then verify the first heartbeat / execution notification:
 
-- Schwab -> `TQQQ Growth Income`
-- LongBridge HK -> `Tech/Communication Pullback Enhancement`
-- LongBridge SG -> `SOXL/SOXX Semiconductor Trend Income`
-- IBKR -> `SOXL/SOXX Semiconductor Trend Income`
+- strategy display name matches the selected profile
+- input-mode diagnostics match the selected profile type
+- stale snapshot envs are absent for direct-runtime profiles
+- snapshot-backed profiles can load the expected artifact manifest
 
 ## Rollback rules
 

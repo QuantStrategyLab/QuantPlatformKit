@@ -133,7 +133,7 @@
 
 这些原因应该体现在平台诊断或 runtime report 里。
 
-## 对当前 live profile 的影响
+## 对当前 runtime-enabled profile 的影响
 
 - `global_etf_rotation`
   - 现在策略契约已经是 `market_history` + `target_mode=weight`

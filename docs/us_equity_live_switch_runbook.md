@@ -1,6 +1,6 @@
-# US equity live switch and rollback runbook
+# US equity strategy switch and rollback runbook
 
-This document is the operational runbook for switching live US equity strategy profiles on the current broker platforms.
+This document is the operational runbook for switching US equity strategy profiles on the current broker platforms.
 
 Use this after the shared package and platform code is already deployed.
 
@@ -8,7 +8,7 @@ Do **not** use it to justify switching a profile that is not already supported b
 
 ## Scope
 
-Current live US equity profiles:
+Configurable US equity profiles:
 
 - `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
@@ -22,17 +22,17 @@ Current live US equity profiles:
 
 Note: older deployments may still accept `qqq_tech_enhancement` as a legacy alias for `tech_communication_pullback_enhancement`, but runbooks should use the canonical profile name.
 
-Current runtime platforms:
+Runtime platforms:
 
 - `ibkr`
 - `schwab`
 - `longbridge`
 
-For the current nine-profile scope, all three platforms now report the full matrix as `eligible=true` and `enabled=true`. That means live switching is now an operational change, not a strategy-contract migration.
+For the current nine-profile scope, all three platforms now report the full matrix as `eligible=true` and `enabled=true`. That means switching among these supported profiles is an operational change, not a strategy-contract migration.
 
 ## Operational profile groups
 
-Treat the live profiles as two operational groups:
+Treat the profiles as two operational groups:
 
 - **Direct-runtime profiles**
   - `global_etf_rotation`

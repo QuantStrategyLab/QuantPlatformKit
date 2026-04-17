@@ -238,7 +238,7 @@ allowlist 只影响 `enabled`，不要再手写一堆“这个策略天生只能
 
 ## 当前策略的迁移目标
 
-现有 live profile 可以分步迁移，但目标状态应该是：
+现有 runtime-enabled profile 可以分步迁移，但目标状态应该是：
 
 - `global_etf_rotation`
   - 通过标准历史数据输入 + `weight/value` 翻译实现跨平台
