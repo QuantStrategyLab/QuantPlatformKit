@@ -27,9 +27,9 @@ For strategy behavior, research status, and archived backtest evidence, see
 
 | Platform | Repo | Strategy domain | Configurable profile scope | Runtime model | Real switching today? |
 |---|---|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
-| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | Yes - controlled by platform rollout config |
+| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | Yes - controlled by platform rollout config |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per regional service | Cloud Run | Yes - controlled by platform rollout config |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
 
 ## What this means right now
