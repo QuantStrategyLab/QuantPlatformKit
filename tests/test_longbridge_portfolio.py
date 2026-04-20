@@ -13,7 +13,10 @@ class FakeCashInfo:
 
 class FakeBalanceAccount:
     def __init__(self):
-        self.cash_infos = [FakeCashInfo("USD", 1000.0)]
+        self.cash_infos = [
+            FakeCashInfo("USD", 1000.0),
+            FakeCashInfo("SGD", 350.0),
+        ]
 
 
 class FakePosition:
@@ -56,6 +59,7 @@ class LongBridgePortfolioTests(unittest.TestCase):
         )
 
         self.assertEqual(state["available_cash"], 1000.0)
+        self.assertEqual(state["cash_by_currency"], {"USD": 1000.0, "SGD": 350.0})
         self.assertEqual(state["market_values"]["SOXL"], 150.0)
         self.assertEqual(state["quantities"]["QQQI"], 2)
         self.assertEqual(state["sellable_quantities"]["QQQI"], 1)

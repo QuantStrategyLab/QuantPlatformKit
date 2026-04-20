@@ -43,6 +43,15 @@ def probe_tcp_endpoint(
         close()
 
 
+def _disconnect_quietly(ib: Any) -> None:
+    disconnect = getattr(ib, "disconnect", None)
+    if callable(disconnect):
+        try:
+            disconnect()
+        except Exception:
+            pass
+
+
 def connect_ib(
     host: str,
     port: int,
@@ -70,6 +79,7 @@ def connect_ib(
     try:
         ib.connect(host, port, clientId=client_id, timeout=timeout)
     except TimeoutError as exc:
+        _disconnect_quietly(ib)
         raise TimeoutError(
             "IBKR API handshake timed out after TCP preflight succeeded "
             f"for {host}:{port} clientId={client_id}. "
@@ -77,4 +87,7 @@ def connect_ib(
             "the paper/live port matches the session, no login/API prompt is blocking, "
             "and the client ID is not already stuck in another session."
         ) from exc
+    except Exception:
+        _disconnect_quietly(ib)
+        raise
     return ib
