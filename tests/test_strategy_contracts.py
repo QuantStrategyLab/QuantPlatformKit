@@ -338,6 +338,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
         snapshot = build_portfolio_snapshot_from_account_state(
             {
                 "available_cash": 1500.0,
+                "cash_by_currency": {"usd": 1500.0, "sgd": 350.0},
                 "market_values": {"QQQI": 300.0, "TQQQ": 1200.0, "QQQ": 8000.0},
                 "quantities": {"QQQI": 10, "TQQQ": 3, "QQQ": 99},
                 "total_strategy_equity": 3000.0,
@@ -351,6 +352,8 @@ class StrategyContractMigrationTests(unittest.TestCase):
         self.assertEqual(snapshot.cash_balance, 1500.0)
         self.assertEqual([position.symbol for position in snapshot.positions], ["TQQQ", "QQQI"])
         self.assertEqual(snapshot.metadata["account_hash"], "acct-001")
+        self.assertEqual(snapshot.metadata["strategy_symbols"], ("TQQQ", "QQQI", "BOXX"))
+        self.assertEqual(snapshot.metadata["cash_by_currency"], {"USD": 1500.0, "SGD": 350.0})
 
     def test_build_strategy_evaluation_inputs_only_keeps_available_inputs(self) -> None:
         snapshot = object()

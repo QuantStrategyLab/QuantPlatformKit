@@ -94,13 +94,25 @@ def build_portfolio_snapshot_from_account_state(
         )
 
     available_cash = float(account_state["available_cash"])
+    snapshot_metadata = dict(metadata or {})
+    if normalized_symbols:
+        snapshot_metadata.setdefault("strategy_symbols", normalized_symbols)
+    raw_cash_by_currency = account_state.get("cash_by_currency")
+    if isinstance(raw_cash_by_currency, Mapping):
+        cash_by_currency = {
+            str(currency).strip().upper(): float(amount)
+            for currency, amount in raw_cash_by_currency.items()
+            if str(currency).strip()
+        }
+        if cash_by_currency:
+            snapshot_metadata.setdefault("cash_by_currency", cash_by_currency)
     return PortfolioSnapshot(
         as_of=as_of or datetime.now(timezone.utc),
         total_equity=float(account_state["total_strategy_equity"]),
         buying_power=available_cash,
         cash_balance=available_cash,
         positions=tuple(positions),
-        metadata=dict(metadata or {}),
+        metadata=snapshot_metadata,
     )
 
 
