@@ -11,11 +11,17 @@ def fetch_strategy_account_state(
     strategy_assets: Iterable[str],
 ) -> dict[str, Any]:
     available_cash = 0.0
+    cash_by_currency: dict[str, float] = {}
     account_balance = t_ctx.account_balance()
     for account in account_balance:
         for cash_info in getattr(account, "cash_infos", []):
-            if getattr(cash_info, "currency", None) == "USD":
-                available_cash += float(getattr(cash_info, "available_cash", 0.0))
+            currency = str(getattr(cash_info, "currency", "") or "").strip().upper()
+            if not currency:
+                continue
+            cash_amount = float(getattr(cash_info, "available_cash", 0.0))
+            cash_by_currency[currency] = cash_by_currency.get(currency, 0.0) + cash_amount
+            if currency == "USD":
+                available_cash += cash_amount
 
     assets = [str(symbol).strip().upper() for symbol in strategy_assets if str(symbol).strip()]
     market_values = {symbol: 0.0 for symbol in assets}
@@ -48,6 +54,7 @@ def fetch_strategy_account_state(
 
     return {
         "available_cash": available_cash,
+        "cash_by_currency": cash_by_currency,
         "market_values": market_values,
         "quantities": quantities,
         "sellable_quantities": sellable_quantities,
