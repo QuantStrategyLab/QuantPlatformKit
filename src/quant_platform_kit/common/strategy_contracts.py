@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from importlib import import_module
 from typing import Any, Callable, Mapping, Protocol
 import math
+
+import pandas as pd
 
 
 class StrategyContractValidationError(ValueError):
@@ -110,6 +113,11 @@ class ValueTargetExecutionAnnotations:
     signal_display: str | None = None
     status_display: str | None = None
     dashboard_text: str | None = None
+    signal_date: str | None = None
+    effective_date: str | None = None
+    execution_timing_contract: str | None = None
+    execution_calendar_source: str | None = None
+    signal_effective_after_trading_days: int | None = None
     separator: str | None = None
     benchmark_symbol: str | None = None
     benchmark_price: float | None = None
@@ -142,6 +150,7 @@ class StrategyArtifactContract:
 class StrategyRuntimePolicy:
     reconciliation_output_policy: str = "none"
     runtime_execution_window_trading_days: int | None = None
+    signal_effective_after_trading_days: int | None = None
 
 
 @dataclass(frozen=True)
@@ -215,6 +224,94 @@ _CONFIG_SOURCE_POLICIES = frozenset(
     }
 )
 _RECONCILIATION_OUTPUT_POLICIES = frozenset({"none", "optional", "required"})
+
+
+def _load_nyse_calendar():
+    try:
+        module = import_module("pandas_market_calendars")
+    except Exception:
+        return None
+    try:
+        return module.get_calendar("NYSE")
+    except Exception:
+        return None
+
+
+def _normalize_as_of_date(as_of: Any) -> pd.Timestamp:
+    timestamp = pd.Timestamp(as_of)
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert(None)
+    return timestamp.normalize()
+
+
+def _next_trading_days(
+    start_date: pd.Timestamp,
+    *,
+    count: int,
+) -> tuple[tuple[pd.Timestamp, ...], str]:
+    normalized_start = _normalize_as_of_date(start_date)
+    calendar = _load_nyse_calendar()
+    if calendar is not None:
+        schedule = calendar.schedule(
+            start_date=normalized_start + pd.Timedelta(days=1),
+            end_date=normalized_start + pd.Timedelta(days=max(10, count * 10)),
+        )
+        if not schedule.empty:
+            days = tuple(pd.Timestamp(index).tz_localize(None).normalize() for index in schedule.index[:count])
+            if len(days) == count:
+                return days, "pandas_market_calendars"
+    fallback_days = tuple(
+        pd.bdate_range(
+            start=normalized_start + pd.Timedelta(days=1),
+            periods=max(1, count),
+        ).normalize()
+    )
+    return fallback_days[:count], "business_day_fallback"
+
+
+def build_execution_timing_metadata(
+    *,
+    signal_date: Any,
+    signal_effective_after_trading_days: int | None = None,
+) -> dict[str, Any]:
+    resolved_signal_date = _normalize_as_of_date(signal_date)
+    metadata: dict[str, Any] = {
+        "signal_date": resolved_signal_date.date().isoformat(),
+    }
+    if signal_effective_after_trading_days is None:
+        return metadata
+
+    delay = int(signal_effective_after_trading_days)
+    metadata["signal_effective_after_trading_days"] = delay
+    if delay == 0:
+        metadata["effective_date"] = resolved_signal_date.date().isoformat()
+        metadata["execution_timing_contract"] = "same_trading_day"
+        metadata["execution_calendar_source"] = "signal_date"
+        return metadata
+
+    trading_days, calendar_source = _next_trading_days(
+        resolved_signal_date,
+        count=delay,
+    )
+    effective_date = trading_days[-1] if trading_days else resolved_signal_date
+    metadata["effective_date"] = effective_date.date().isoformat()
+    metadata["execution_timing_contract"] = (
+        "next_trading_day" if delay == 1 else f"next_{delay}_trading_days"
+    )
+    metadata["execution_calendar_source"] = calendar_source
+    return metadata
+
+
+def apply_runtime_policy_to_runtime_config(
+    runtime_config: dict[str, Any],
+    runtime_adapter: StrategyRuntimeAdapter,
+) -> None:
+    trading_days = runtime_adapter.runtime_policy.runtime_execution_window_trading_days
+    if trading_days is not None:
+        runtime_config.setdefault("runtime_execution_window_trading_days", trading_days)
+    signal_delay = runtime_adapter.runtime_policy.signal_effective_after_trading_days
+    if signal_delay is not None:
+        runtime_config.setdefault("signal_effective_after_trading_days", signal_delay)
 
 
 def validate_strategy_manifest(manifest: StrategyManifest) -> StrategyManifest:
@@ -336,6 +433,14 @@ def validate_strategy_runtime_policy(policy: StrategyRuntimePolicy) -> StrategyR
         ):
             raise StrategyContractValidationError(
                 "runtime_policy.runtime_execution_window_trading_days must be a positive integer"
+            )
+    if policy.signal_effective_after_trading_days is not None:
+        if (
+            not isinstance(policy.signal_effective_after_trading_days, int)
+            or policy.signal_effective_after_trading_days < 0
+        ):
+            raise StrategyContractValidationError(
+                "runtime_policy.signal_effective_after_trading_days must be a non-negative integer"
             )
     return policy
 
@@ -809,6 +914,11 @@ def build_value_target_plan_payload(
         "signal_display": annotations.signal_display,
         "status_display": annotations.status_display,
         "dashboard_text": annotations.dashboard_text,
+        "signal_date": annotations.signal_date,
+        "effective_date": annotations.effective_date,
+        "execution_timing_contract": annotations.execution_timing_contract,
+        "execution_calendar_source": annotations.execution_calendar_source,
+        "signal_effective_after_trading_days": annotations.signal_effective_after_trading_days,
         "separator": annotations.separator,
         "benchmark_symbol": annotations.benchmark_symbol,
         "benchmark_price": annotations.benchmark_price,
@@ -896,6 +1006,15 @@ def build_value_target_execution_annotations(
         signal_display=_pick_str("signal_display", "signal_message"),
         status_display=_pick_str("status_display", "market_status"),
         dashboard_text=_pick_str("dashboard_text", "dashboard"),
+        signal_date=_pick_str("signal_date"),
+        effective_date=_pick_str("effective_date"),
+        execution_timing_contract=_pick_str("execution_timing_contract"),
+        execution_calendar_source=_pick_str("execution_calendar_source"),
+        signal_effective_after_trading_days=(
+            int(signal_delay)
+            if (signal_delay := _pick_float("signal_effective_after_trading_days")) is not None
+            else None
+        ),
         separator=_pick_str("separator"),
         benchmark_symbol=_pick_str("benchmark_symbol"),
         benchmark_price=_pick_float("benchmark_price", "qqq_price"),

@@ -10,6 +10,7 @@ from .strategy_contracts import (
     StrategyDecision,
     StrategyEntrypoint,
     StrategyRuntimeAdapter,
+    apply_runtime_policy_to_runtime_config,
     build_strategy_context_from_available_inputs,
 )
 
@@ -269,9 +270,7 @@ def _apply_runtime_policy(
     runtime_config: dict[str, Any],
     runtime_adapter: StrategyRuntimeAdapter,
 ) -> None:
-    trading_days = runtime_adapter.runtime_policy.runtime_execution_window_trading_days
-    if trading_days is not None:
-        runtime_config.setdefault("runtime_execution_window_trading_days", trading_days)
+    apply_runtime_policy_to_runtime_config(runtime_config, runtime_adapter)
 
 
 def _resolve_symbol(raw_value: Any, *, default: str | None) -> str | None:
