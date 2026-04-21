@@ -35,6 +35,7 @@ from quant_platform_kit.strategy_contracts import (
     build_allocation_intent,
     build_allocation_payload,
     build_account_state_from_portfolio_snapshot,
+    build_execution_timing_metadata,
     build_portfolio_snapshot_from_account_state,
     build_strategy_evaluation_inputs,
     build_value_target_allocation_intent,
@@ -261,6 +262,7 @@ class StrategyContractMigrationTests(unittest.TestCase):
             StrategyRuntimePolicy(
                 reconciliation_output_policy="optional",
                 runtime_execution_window_trading_days=1,
+                signal_effective_after_trading_days=1,
             )
         )
         adapter = validate_strategy_runtime_adapter(
@@ -282,6 +284,21 @@ class StrategyContractMigrationTests(unittest.TestCase):
         self.assertEqual(resolved_contract.config_source_policy, "bundled_or_env")
         self.assertEqual(adapter.runtime_policy.reconciliation_output_policy, "optional")
         self.assertEqual(adapter.runtime_policy.runtime_execution_window_trading_days, 1)
+        self.assertEqual(adapter.runtime_policy.signal_effective_after_trading_days, 1)
+
+    def test_build_execution_timing_metadata_uses_next_trading_day_contract(self) -> None:
+        metadata = build_execution_timing_metadata(
+            signal_date="2026-04-01",
+            signal_effective_after_trading_days=1,
+        )
+
+        self.assertEqual(metadata["signal_date"], "2026-04-01")
+        self.assertEqual(metadata["effective_date"], "2026-04-02")
+        self.assertEqual(metadata["execution_timing_contract"], "next_trading_day")
+        self.assertIn(
+            metadata["execution_calendar_source"],
+            {"pandas_market_calendars", "business_day_fallback"},
+        )
 
     def test_artifact_contract_resolver_preserves_legacy_adapter_inference(self) -> None:
         adapter = StrategyRuntimeAdapter(
