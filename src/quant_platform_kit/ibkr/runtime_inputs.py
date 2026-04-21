@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import pandas as pd
-
 from quant_platform_kit.strategy_contracts import (
     StrategyEntrypoint,
     StrategyRuntimeAdapter,
     build_strategy_context_from_available_inputs,
     build_strategy_evaluation_inputs,
+)
+from quant_platform_kit.common.runtime_inputs import (
+    build_semiconductor_rotation_indicators_from_history,
 )
 
 
@@ -75,46 +76,23 @@ def build_semiconductor_rotation_indicators(
     lookback_buffer: int = 20,
 ) -> dict[str, dict[str, float]]:
     effective_lookback = max(220, int(trend_ma_window) + int(lookback_buffer))
-    soxl_series = pd.Series(
-        historical_close_loader(
-            ib,
-            "SOXL",
-            duration=f"{effective_lookback} D",
-            bar_size="1 day",
-        )
+    soxl_history = historical_close_loader(
+        ib,
+        "SOXL",
+        duration=f"{effective_lookback} D",
+        bar_size="1 day",
     )
-    soxx_series = pd.Series(
-        historical_close_loader(
-            ib,
-            "SOXX",
-            duration=f"{effective_lookback} D",
-            bar_size="1 day",
-        )
+    soxx_history = historical_close_loader(
+        ib,
+        "SOXX",
+        duration=f"{effective_lookback} D",
+        bar_size="1 day",
     )
-    if soxl_series.empty or soxx_series.empty:
-        raise ValueError("IBKR semiconductor runtime requires SOXL/SOXX price history")
-
-    soxl_close = pd.to_numeric(soxl_series, errors="coerce").dropna()
-    soxx_close = pd.to_numeric(soxx_series, errors="coerce").dropna()
-    if len(soxl_close) < int(trend_ma_window) or len(soxx_close) < int(trend_ma_window):
-        raise ValueError("IBKR semiconductor runtime requires sufficient SOXL/SOXX history")
-
-    soxl_ma_trend = float(soxl_close.rolling(int(trend_ma_window)).mean().iloc[-1])
-    soxx_ma_trend = float(soxx_close.rolling(int(trend_ma_window)).mean().iloc[-1])
-    soxx_ma20 = float(soxx_close.rolling(20).mean().iloc[-1])
-    soxx_ma20_slope = float(soxx_close.rolling(20).mean().diff().iloc[-1])
-    return {
-        "soxl": {
-            "price": float(soxl_close.iloc[-1]),
-            "ma_trend": soxl_ma_trend,
-        },
-        "soxx": {
-            "price": float(soxx_close.iloc[-1]),
-            "ma_trend": soxx_ma_trend,
-            "ma20": soxx_ma20,
-            "ma20_slope": soxx_ma20_slope,
-        },
-    }
+    return build_semiconductor_rotation_indicators_from_history(
+        soxl_history=soxl_history,
+        soxx_history=soxx_history,
+        trend_ma_window=trend_ma_window,
+    )
 
 
 def build_semiconductor_rotation_inputs(

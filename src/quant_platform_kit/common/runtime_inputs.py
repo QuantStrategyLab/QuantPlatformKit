@@ -4,6 +4,8 @@ from collections.abc import Collection, Iterable, Mapping
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+import pandas as pd
+
 from .models import PortfolioSnapshot, Position
 
 
@@ -13,6 +15,65 @@ def _normalize_symbols(strategy_symbols: Iterable[str]) -> tuple[str, ...]:
         for symbol in strategy_symbols
         if str(symbol).strip()
     )
+
+
+def _normalize_numeric_history(
+    history: Iterable[float] | pd.Series,
+    *,
+    label: str,
+) -> pd.Series:
+    normalized = pd.to_numeric(pd.Series(history), errors="coerce").dropna()
+    if normalized.empty:
+        raise ValueError(f"Semiconductor rotation inputs require non-empty {label} history")
+    return normalized.astype(float)
+
+
+def build_semiconductor_rotation_indicators_from_history(
+    *,
+    soxl_history: Iterable[float] | pd.Series,
+    soxx_history: Iterable[float] | pd.Series,
+    trend_ma_window: int = 140,
+) -> dict[str, dict[str, float]]:
+    window = int(trend_ma_window)
+    if window <= 0:
+        raise ValueError("trend_ma_window must be positive")
+
+    soxl_close = _normalize_numeric_history(soxl_history, label="SOXL")
+    soxx_close = _normalize_numeric_history(soxx_history, label="SOXX")
+    if len(soxl_close) < window or len(soxx_close) < window:
+        raise ValueError("Semiconductor rotation inputs require sufficient SOXL/SOXX history")
+
+    soxl_ma_trend = float(soxl_close.rolling(window).mean().iloc[-1])
+    soxx_ma_trend = float(soxx_close.rolling(window).mean().iloc[-1])
+    soxx_ma20 = float(soxx_close.rolling(20).mean().iloc[-1])
+    soxx_ma20_slope = float(soxx_close.rolling(20).mean().diff().iloc[-1])
+    return {
+        "soxl": {
+            "price": float(soxl_close.iloc[-1]),
+            "ma_trend": soxl_ma_trend,
+        },
+        "soxx": {
+            "price": float(soxx_close.iloc[-1]),
+            "ma_trend": soxx_ma_trend,
+            "ma20": soxx_ma20,
+            "ma20_slope": soxx_ma20_slope,
+        },
+    }
+
+
+def build_semiconductor_rotation_inputs_from_history(
+    *,
+    soxl_history: Iterable[float] | pd.Series,
+    soxx_history: Iterable[float] | pd.Series,
+    trend_ma_window: int = 140,
+) -> dict[str, dict[str, dict[str, float]]]:
+    return {
+        "derived_indicators": build_semiconductor_rotation_indicators_from_history(
+            soxl_history=soxl_history,
+            soxx_history=soxx_history,
+            trend_ma_window=trend_ma_window,
+        )
+    }
 
 
 def build_account_state_from_portfolio_snapshot(
