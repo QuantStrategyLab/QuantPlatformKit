@@ -48,6 +48,8 @@ from .common.execution_translation import (
 from .common.runtime_inputs import (
     build_account_state_from_portfolio_snapshot,
     build_portfolio_snapshot_from_account_state,
+    build_semiconductor_rotation_indicators_from_history,
+    build_semiconductor_rotation_inputs_from_history,
     build_strategy_evaluation_inputs,
 )
 from .common.strategy_plugins import (
@@ -128,6 +130,8 @@ __all__ = [
     "build_allocation_payload",
     "build_account_state_from_portfolio_snapshot",
     "build_portfolio_snapshot_from_account_state",
+    "build_semiconductor_rotation_indicators_from_history",
+    "build_semiconductor_rotation_inputs_from_history",
     "build_strategy_evaluation_inputs",
     "build_value_target_portfolio_inputs_from_account_state",
     "build_value_target_portfolio_inputs_from_snapshot",
