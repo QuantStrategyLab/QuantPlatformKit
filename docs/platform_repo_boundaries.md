@@ -59,6 +59,75 @@ They should own:
 - account or region selection
 - current platform-specific strategy implementations
 
+Inside a platform runtime repository, prefer these local boundaries before
+considering any shared-library extraction:
+
+- entrypoint / request handler
+- cycle orchestrator (`rebalance_service.py`)
+- execution service (`execution_service.py`)
+- notification renderer / publisher
+
+Prefer wiring these boundaries through small dependency bundles such as
+`<Broker>RebalanceRuntime` and `<Broker>RebalanceConfig` instead of passing a
+long flat list of callables into the orchestrator.
+
+When a runtime already has a controlled cutover window, prefer removing the old
+flat callable entrypoint entirely instead of carrying both shapes in parallel.
+Keeping `runtime/config` and legacy one-off call signatures alive at the same
+time usually leaks compatibility branches back into execution and notification
+code.
+
+When a dependency already matches a shared interface, entrypoints should adapt
+it to the shared port first, for example:
+
+- `MarketDataPort`
+- `NotificationPort`
+- `PortfolioPort`
+- `ExecutionPort`
+
+`QuantPlatformKit.common.port_adapters` exists for this lightweight binding
+layer. Quote loaders, history fetchers, and broker-specific notification
+senders should usually be wrapped at the entrypoint and then passed inward as
+ports. Keep broker-specific closures local, but keep the orchestrator surface
+small and explicit.
+
+For account reads, prefer normalizing broker-native payloads into
+`PortfolioSnapshot` at the entrypoint or adapter edge. If a strategy contract
+still needs `account_state`, derive it locally from the snapshot instead of
+letting raw broker account dictionaries flow through the orchestrator.
+
+For order submission, prefer adapting broker submitters to `ExecutionPort`.
+If one broker still needs post-submit polling or alert fan-out, keep that as a
+small edge callback or observer near the adapter instead of pushing broker
+order-monitoring details back into the execution orchestrator.
+Polling code should emit structured order lifecycle events, with rendering and
+Telegram delivery handled by the notification publisher side.
+When one platform has several related edge callbacks, prefer grouping them in a
+small local adapter-builder module instead of scattering helper closures across
+`main.py`.
+The same rule applies to broker adapter glue such as market-data normalization,
+portfolio snapshot loading, and execution-port binding: keep those builders in
+one local adapter module instead of mixing them into runtime control flow.
+Token refresh, broker login/context creation, and initial indicator bootstrap
+should follow the same pattern: keep them in a local runtime bootstrap builder
+instead of embedding that startup sequence directly in `main.py`.
+Structured runtime logging, report construction, and report persistence should
+also be grouped in a local reporting builder so the entrypoint keeps only the
+run control flow instead of the logging/report transport details.
+Strategy-side input assembly, benchmark/history selection, and decision-to-plan
+mapping should likewise live in a local strategy adapter builder instead of
+being mixed into the entrypoint's runtime wiring.
+When several local builders already exist, it is reasonable to add one thin
+runtime composer that assembles them into the broker runtime/config objects, so
+`main.py` keeps only environment loading and request/run control flow.
+If tests or local tooling still patch a few top-level helpers in `main.py`,
+keep those helpers as thin delegators into the local builders or composer
+rather than letting orchestration logic drift back into the entrypoint.
+
+This keeps runtime-specific sequencing in the deployment repo without forcing
+order-routing, notification formatting, and HTTP/report assembly into the same
+module.
+
 They should **not** try to become:
 
 - a giant shared package for every broker
@@ -105,8 +174,11 @@ This is acceptable because each platform still has different runtime constraints
 Do **not** try to prematurely centralize:
 
 - all runtime env parsing
-- all notification wording
 - all strategy execution entrypoints
+
+Notification delivery and renderer extraction inside one platform repo is still
+worth doing. The warning here is specifically about forcing all brokers to share
+one wording/template layer before their execution payloads have converged.
 
 That kind of refactor usually makes the code harder to read before there is enough real sharing to justify it.
 
@@ -122,6 +194,10 @@ If a piece of code answers:
 
 - **what is reusable strategy logic independent of one platform's runtime wiring?**
   - that is a future strategy-repository candidate
+
+- **how should this platform publish logs / Telegram / runtime reports for one cycle?**
+  - keep the transport and final wording in the platform repo, but feed it with
+    structured strategy diagnostics instead of parsing human-readable strings
 
 ## Current recommended next step
 

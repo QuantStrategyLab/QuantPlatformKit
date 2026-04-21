@@ -21,6 +21,15 @@ def build_account_state_from_portfolio_snapshot(
     strategy_symbols: Iterable[str] = (),
     liquid_cash: float | None = None,
 ) -> dict[str, Any]:
+    metadata = getattr(snapshot, "metadata", {}) or {}
+    raw_sellable_quantities = metadata.get("sellable_quantities") if isinstance(metadata, Mapping) else None
+    resolved_sellable_quantities: dict[str, int] = {}
+    if isinstance(raw_sellable_quantities, Mapping):
+        resolved_sellable_quantities = {
+            str(symbol).strip().upper(): int(quantity)
+            for symbol, quantity in raw_sellable_quantities.items()
+            if str(symbol).strip()
+        }
     normalized_symbols = _normalize_symbols(strategy_symbols)
     filter_enabled = bool(normalized_symbols)
 
@@ -44,12 +53,11 @@ def build_account_state_from_portfolio_snapshot(
 
         quantity = int(position.quantity)
         quantities[symbol] = quantity
-        sellable_quantities[symbol] = quantity
+        sellable_quantities[symbol] = int(resolved_sellable_quantities.get(symbol, quantity))
         market_values[symbol] = float(position.market_value)
 
     resolved_liquid_cash = liquid_cash
     if resolved_liquid_cash is None:
-        metadata = getattr(snapshot, "metadata", {}) or {}
         resolved_liquid_cash = metadata.get("cash_available_for_trading")
     if resolved_liquid_cash is None:
         resolved_liquid_cash = getattr(snapshot, "buying_power", None)
@@ -58,13 +66,21 @@ def build_account_state_from_portfolio_snapshot(
     if resolved_liquid_cash is None:
         resolved_liquid_cash = 0.0
 
-    return {
+    account_state = {
         "available_cash": float(resolved_liquid_cash),
         "market_values": market_values,
         "quantities": quantities,
         "sellable_quantities": sellable_quantities,
         "total_strategy_equity": float(snapshot.total_equity),
     }
+    raw_cash_by_currency = metadata.get("cash_by_currency") if isinstance(metadata, Mapping) else None
+    if isinstance(raw_cash_by_currency, Mapping):
+        account_state["cash_by_currency"] = {
+            str(currency).strip().upper(): float(amount)
+            for currency, amount in raw_cash_by_currency.items()
+            if str(currency).strip()
+        }
+    return account_state
 
 
 def build_portfolio_snapshot_from_account_state(
@@ -97,6 +113,7 @@ def build_portfolio_snapshot_from_account_state(
     snapshot_metadata = dict(metadata or {})
     if normalized_symbols:
         snapshot_metadata.setdefault("strategy_symbols", normalized_symbols)
+    snapshot_metadata.setdefault("cash_available_for_trading", available_cash)
     raw_cash_by_currency = account_state.get("cash_by_currency")
     if isinstance(raw_cash_by_currency, Mapping):
         cash_by_currency = {
@@ -106,6 +123,15 @@ def build_portfolio_snapshot_from_account_state(
         }
         if cash_by_currency:
             snapshot_metadata.setdefault("cash_by_currency", cash_by_currency)
+    raw_sellable_quantities = account_state.get("sellable_quantities")
+    if isinstance(raw_sellable_quantities, Mapping):
+        sellable_quantities = {
+            str(symbol).strip().upper(): int(quantity)
+            for symbol, quantity in raw_sellable_quantities.items()
+            if str(symbol).strip()
+        }
+        if sellable_quantities:
+            snapshot_metadata.setdefault("sellable_quantities", sellable_quantities)
     return PortfolioSnapshot(
         as_of=as_of or datetime.now(timezone.utc),
         total_equity=float(account_state["total_strategy_equity"]),

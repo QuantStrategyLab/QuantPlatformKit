@@ -32,6 +32,14 @@ def build_value_target_portfolio_inputs_from_snapshot(
     include_sellable_quantities: bool = False,
     liquid_cash: float | None = None,
 ) -> ValueTargetPortfolioInputs:
+    metadata = getattr(snapshot, "metadata", {}) or {}
+    raw_sellable_quantities = metadata.get("sellable_quantities") if isinstance(metadata, Mapping) else None
+    resolved_sellable_quantities: dict[str, int] = {}
+    if isinstance(raw_sellable_quantities, Mapping):
+        resolved_sellable_quantities = {
+            str(symbol): int(quantity)
+            for symbol, quantity in raw_sellable_quantities.items()
+        }
     market_values: dict[str, float] = {}
     quantities: dict[str, int] = {}
     sellable_quantities: dict[str, int] | None = (
@@ -43,7 +51,7 @@ def build_value_target_portfolio_inputs_from_snapshot(
         market_values[symbol] = float(position.market_value)
         quantities[symbol] = quantity
         if sellable_quantities is not None:
-            sellable_quantities[symbol] = quantity
+            sellable_quantities[symbol] = int(resolved_sellable_quantities.get(symbol, quantity))
 
     resolved_liquid_cash = liquid_cash
     if resolved_liquid_cash is None:
