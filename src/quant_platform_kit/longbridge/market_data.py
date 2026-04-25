@@ -4,6 +4,10 @@ from typing import Any
 
 import pandas as pd
 
+from quant_platform_kit.common.runtime_inputs import (
+    build_semiconductor_rotation_indicators_from_history,
+)
+
 
 def fetch_last_price(q_ctx: Any, symbol: str) -> float | None:
     quotes = q_ctx.quote([symbol])
@@ -31,19 +35,8 @@ def calculate_rotation_indicators(
     if len(df_soxl) < trend_window or len(df_soxx) < trend_window:
         return None
 
-    df_soxl["ma_trend"] = df_soxl["close"].rolling(trend_window).mean()
-    df_soxx["ma_trend"] = df_soxx["close"].rolling(trend_window).mean()
-    df_soxx["ma20"] = df_soxx["close"].rolling(20).mean()
-    df_soxx["ma20_slope"] = df_soxx["ma20"].diff()
-    return {
-        "soxl": {
-            "price": float(df_soxl["close"].iloc[-1]),
-            "ma_trend": float(df_soxl["ma_trend"].iloc[-1]),
-        },
-        "soxx": {
-            "price": float(df_soxx["close"].iloc[-1]),
-            "ma_trend": float(df_soxx["ma_trend"].iloc[-1]),
-            "ma20": float(df_soxx["ma20"].iloc[-1]),
-            "ma20_slope": float(df_soxx["ma20_slope"].iloc[-1]),
-        },
-    }
+    return build_semiconductor_rotation_indicators_from_history(
+        soxl_history=df_soxl["close"],
+        soxx_history=df_soxx["close"],
+        trend_ma_window=trend_window,
+    )

@@ -28,6 +28,20 @@ def _normalize_numeric_history(
     return normalized.astype(float)
 
 
+def _compute_rsi(close: pd.Series, *, window: int = 14) -> pd.Series:
+    delta = close.diff()
+    gains = delta.clip(lower=0.0)
+    losses = -delta.clip(upper=0.0)
+    avg_gain = gains.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
+    avg_loss = losses.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
+    rs = avg_gain / avg_loss.replace(0.0, pd.NA)
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+    rsi = rsi.mask((avg_loss == 0.0) & (avg_gain > 0.0), 100.0)
+    rsi = rsi.mask((avg_gain == 0.0) & (avg_loss > 0.0), 0.0)
+    rsi = rsi.mask((avg_gain == 0.0) & (avg_loss == 0.0), 50.0)
+    return rsi
+
+
 def build_semiconductor_rotation_indicators_from_history(
     *,
     soxl_history: Iterable[float] | pd.Series,
@@ -47,6 +61,9 @@ def build_semiconductor_rotation_indicators_from_history(
     soxx_ma_trend = float(soxx_close.rolling(window).mean().iloc[-1])
     soxx_ma20 = float(soxx_close.rolling(20).mean().iloc[-1])
     soxx_ma20_slope = float(soxx_close.rolling(20).mean().diff().iloc[-1])
+    soxx_rsi14 = float(_compute_rsi(soxx_close, window=14).iloc[-1])
+    soxx_bb_mid = float(soxx_close.rolling(20).mean().iloc[-1])
+    soxx_bb_std = float(soxx_close.rolling(20).std(ddof=0).iloc[-1])
     return {
         "soxl": {
             "price": float(soxl_close.iloc[-1]),
@@ -57,6 +74,10 @@ def build_semiconductor_rotation_indicators_from_history(
             "ma_trend": soxx_ma_trend,
             "ma20": soxx_ma20,
             "ma20_slope": soxx_ma20_slope,
+            "rsi14": soxx_rsi14,
+            "bb_mid": soxx_bb_mid,
+            "bb_upper": soxx_bb_mid + 2.0 * soxx_bb_std,
+            "bb_lower": soxx_bb_mid - 2.0 * soxx_bb_std,
         },
     }
 
