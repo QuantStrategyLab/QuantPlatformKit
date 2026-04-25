@@ -111,6 +111,9 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
             sum(200.0 + idx for idx in range(150, 170)) / 20,
         )
         self.assertGreater(indicators["soxx"]["ma20_slope"], 0.0)
+        self.assertEqual(indicators["soxx"]["rsi14"], 100.0)
+        self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
+        self.assertLess(indicators["soxx"]["bb_lower"], indicators["soxx"]["price"])
 
     def test_build_semiconductor_rotation_indicators_from_history_is_generic(self) -> None:
         indicators = build_semiconductor_rotation_indicators_from_history(
@@ -129,6 +132,8 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
             indicators["soxx"]["ma_trend"],
             sum(200.0 + idx for idx in range(30, 170)) / 140,
         )
+        self.assertEqual(indicators["soxx"]["rsi14"], 100.0)
+        self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
         wrapped = build_semiconductor_rotation_inputs_from_history(
             soxl_history=[100.0 + idx for idx in range(170)],
             soxx_history=[200.0 + idx for idx in range(170)],
@@ -155,6 +160,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(payload["derived_indicators"]["soxl"]["price"], 100.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["price"], 200.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["ma20"], 200.0)
+        self.assertEqual(payload["derived_indicators"]["soxx"]["rsi14"], 50.0)
 
     def test_build_semiconductor_rotation_indicators_requires_sufficient_history(self) -> None:
         def fake_loader(_ib, symbol, duration="2 Y", bar_size="1 day"):

@@ -46,6 +46,9 @@ class LongBridgeMarketDataTests(unittest.TestCase):
         self.assertEqual(indicators["soxx"]["price"], 419.0)
         self.assertAlmostEqual(indicators["soxx"]["ma20"], sum(200.0 + i for i in range(200, 220)) / 20)
         self.assertGreater(indicators["soxx"]["ma20_slope"], 0.0)
+        self.assertEqual(indicators["soxx"]["rsi14"], 100.0)
+        self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
+        self.assertLess(indicators["soxx"]["bb_lower"], indicators["soxx"]["price"])
 
 
 if __name__ == "__main__":
