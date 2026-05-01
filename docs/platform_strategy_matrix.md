@@ -50,10 +50,7 @@ Important limitation:
 
 Configurable runtime-enabled profiles in `us_equity`:
 
-- `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
-- `mega_cap_leader_rotation_aggressive`
-- `mega_cap_leader_rotation_dynamic_top20`
 - `mega_cap_leader_rotation_top50_balanced`
 - `russell_1000_multi_factor_defensive`
 - `soxl_soxx_trend_income`

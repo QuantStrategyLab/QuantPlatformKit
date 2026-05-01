@@ -50,10 +50,7 @@ _核对时间：2026-04-18_
 
 当前 `us_equity` 域里已经启用的 runtime profile 有：
 
-- `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
-- `mega_cap_leader_rotation_aggressive`
-- `mega_cap_leader_rotation_dynamic_top20`
 - `mega_cap_leader_rotation_top50_balanced`
 - `russell_1000_multi_factor_defensive`
 - `tqqq_growth_income`

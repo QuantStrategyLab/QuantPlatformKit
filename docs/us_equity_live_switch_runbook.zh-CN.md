@@ -13,10 +13,7 @@
 
 可配置美股 profile：
 
-- `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
-- `mega_cap_leader_rotation_aggressive`
-- `mega_cap_leader_rotation_dynamic_top20`
 - `mega_cap_leader_rotation_top50_balanced`
 - `russell_1000_multi_factor_defensive`
 - `soxl_soxx_trend_income`
@@ -31,7 +28,7 @@
 - `schwab`
 - `longbridge`
 
-对当前这 9 条策略来说，三个平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，在这些受支持 profile 之间切换主要是运维切换，不再是契约迁移。
+对当前这 6 条策略来说，三个券商平台现在都已经是 `eligible=true` 且 `enabled=true`。也就是说，在这些受支持 profile 之间切换主要是运维切换，不再是契约迁移。
 
 ## 运维分组
 
@@ -42,9 +39,6 @@
   - `tqqq_growth_income`
   - `soxl_soxx_trend_income`
 - **snapshot 驱动策略**
-  - `dynamic_mega_leveraged_pullback`
-  - `mega_cap_leader_rotation_aggressive`
-  - `mega_cap_leader_rotation_dynamic_top20`
   - `mega_cap_leader_rotation_top50_balanced`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
@@ -122,10 +116,7 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 
 | 策略 | 除了 `STRATEGY_PROFILE` 之外还需要的输入 |
 | --- | --- |
-| `dynamic_mega_leveraged_pullback` | feature snapshot 路径 + manifest 路径 |
 | `global_etf_rotation` | 无 |
-| `mega_cap_leader_rotation_aggressive` | feature snapshot 路径 + manifest 路径 |
-| `mega_cap_leader_rotation_dynamic_top20` | feature snapshot 路径 + manifest 路径 |
 | `mega_cap_leader_rotation_top50_balanced` | feature snapshot 路径 + manifest 路径 |
 | `russell_1000_multi_factor_defensive` | feature snapshot 路径 |
 | `soxl_soxx_trend_income` | 无 |
@@ -136,7 +127,6 @@ PYTHONPATH=/Users/lisiyi/Projects/QuantPlatformKit/src:/Users/lisiyi/Projects/Us
 
 - `tech_communication_pullback_enhancement` 在 IBKR 上如果还要留对账产物，可以继续配 reconciliation output path。
 - `tech_communication_pullback_enhancement` 现在是 `config_source_policy=bundled_or_env`，默认使用策略包里的 canonical config，只有显式覆盖时才配 env path。
-- `dynamic_mega_leveraged_pullback` 还会用到 market history、benchmark history 和 portfolio snapshot，但这些由平台运行时从券商/行情侧供应，不是额外 artifact env。
 - `russell_1000_multi_factor_defensive` 目前只强制 snapshot 路径，不强制 manifest 路径。
 - 如果从 feature-snapshot 策略切回普通策略，要把旧的 snapshot/config env 一起删掉，不要留脏状态。
 
@@ -376,27 +366,6 @@ gcloud run services describe longbridge-quant-sg-service \
 
 - 非 snapshot 策略不需要 feature-snapshot artifact 链
 - SG 是否 dry-run 是运维选择，不是策略本身要求
-
-### 示例 E：把 LongBridge SG dry-run 切到 `dynamic_mega_leveraged_pullback`
-
-保留：
-
-- `ACCOUNT_PREFIX=SG`
-- `ACCOUNT_REGION=SG`
-- `LONGPORT_SECRET_NAME`
-- `LONGPORT_APP_KEY_SECRET_NAME`
-- `LONGPORT_APP_SECRET_SECRET_NAME`
-
-设置：
-
-- `STRATEGY_PROFILE=dynamic_mega_leveraged_pullback`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `LONGBRIDGE_DRY_RUN_ONLY=true`
-
-如果还留着，就删掉：
-
-- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
 
 原因：
 
