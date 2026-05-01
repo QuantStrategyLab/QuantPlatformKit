@@ -250,11 +250,7 @@ allowlist 只影响 `enabled`，不要再手写一堆“这个策略天生只能
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
 - `tech_communication_pullback_enhancement`
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
-- `mega_cap_leader_rotation_aggressive`
+- `mega_cap_leader_rotation_top50_balanced`
   - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
-- `mega_cap_leader_rotation_dynamic_top20`
-  - 通过标准化 `feature_snapshot` artifact contract 实现跨平台
-- `dynamic_mega_leveraged_pullback`
-  - 通过标准化 `feature_snapshot` artifact contract，加标准 market、benchmark 和 portfolio 输入实现跨平台
 
 以后新策略应该直接朝这个目标写，不要再新增一堆一次性的运行时契约。

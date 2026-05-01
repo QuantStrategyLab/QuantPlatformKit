@@ -10,10 +10,7 @@ Do **not** use it to justify switching a profile that is not already supported b
 
 Configurable US equity profiles:
 
-- `dynamic_mega_leveraged_pullback`
 - `global_etf_rotation`
-- `mega_cap_leader_rotation_aggressive`
-- `mega_cap_leader_rotation_dynamic_top20`
 - `mega_cap_leader_rotation_top50_balanced`
 - `russell_1000_multi_factor_defensive`
 - `soxl_soxx_trend_income`
@@ -28,7 +25,7 @@ Runtime platforms:
 - `schwab`
 - `longbridge`
 
-For the current nine-profile scope, all three platforms now report the full matrix as `eligible=true` and `enabled=true`. That means switching among these supported profiles is an operational change, not a strategy-contract migration.
+For the current six-profile scope, all three broker platforms report the runtime-enabled matrix as `eligible=true` and `enabled=true`. That means switching among these supported profiles is an operational change, not a strategy-contract migration.
 
 ## Operational profile groups
 
@@ -39,9 +36,6 @@ Treat the profiles as two operational groups:
   - `tqqq_growth_income`
   - `soxl_soxx_trend_income`
 - **Snapshot-backed profiles**
-  - `dynamic_mega_leveraged_pullback`
-  - `mega_cap_leader_rotation_aggressive`
-  - `mega_cap_leader_rotation_dynamic_top20`
   - `mega_cap_leader_rotation_top50_balanced`
   - `russell_1000_multi_factor_defensive`
   - `tech_communication_pullback_enhancement`
@@ -119,10 +113,7 @@ If any of those checks fail, stop. That is a code or rollout problem, not a live
 
 | Profile | Extra runtime inputs beyond `STRATEGY_PROFILE` |
 | --- | --- |
-| `dynamic_mega_leveraged_pullback` | feature snapshot path + snapshot manifest path |
 | `global_etf_rotation` | none |
-| `mega_cap_leader_rotation_aggressive` | feature snapshot path + snapshot manifest path |
-| `mega_cap_leader_rotation_dynamic_top20` | feature snapshot path + snapshot manifest path |
 | `mega_cap_leader_rotation_top50_balanced` | feature snapshot path + snapshot manifest path |
 | `russell_1000_multi_factor_defensive` | feature snapshot path |
 | `soxl_soxx_trend_income` | none |
@@ -133,7 +124,6 @@ Notes:
 
 - `tech_communication_pullback_enhancement` on IBKR may also keep a reconciliation output path when the deployment wants that artifact.
 - `tech_communication_pullback_enhancement` now has `config_source_policy=bundled_or_env`, so the packaged canonical config is used unless an env path is deliberately set.
-- `dynamic_mega_leveraged_pullback` also uses market history, benchmark history, and portfolio snapshot, but the platform runtime supplies those from broker/runtime data, not extra artifact env.
 - `russell_1000_multi_factor_defensive` currently requires the snapshot path but not a manifest path.
 - When switching away from a feature-snapshot profile, remove stale snapshot/config envs from the service instead of leaving them behind.
 
@@ -375,33 +365,6 @@ Why:
 
 - non-snapshot profiles do not need the feature-snapshot artifact chain
 - SG often carries dry-run as an operational choice, not as a profile requirement
-
-### Example E: switch LongBridge SG dry-run to `dynamic_mega_leveraged_pullback`
-
-Keep:
-
-- `ACCOUNT_PREFIX=SG`
-- `ACCOUNT_REGION=SG`
-- `LONGPORT_SECRET_NAME`
-- `LONGPORT_APP_KEY_SECRET_NAME`
-- `LONGPORT_APP_SECRET_SECRET_NAME`
-
-Set:
-
-- `STRATEGY_PROFILE=dynamic_mega_leveraged_pullback`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_PATH`
-- `LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH`
-- `LONGBRIDGE_DRY_RUN_ONLY=true`
-
-Remove if present:
-
-- `LONGBRIDGE_STRATEGY_CONFIG_PATH`
-
-Why:
-
-- the strategy uses a feature snapshot for the dynamic mega-cap pool
-- the daily market, benchmark, and portfolio inputs are supplied by the platform runtime
-- dry-run is a deployment choice, not part of the strategy contract
 
 ## Rollback rules
 
