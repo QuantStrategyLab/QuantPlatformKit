@@ -7,6 +7,9 @@ from pathlib import Path
 from quant_platform_kit.common.runtime_config import (
     first_non_empty,
     resolve_bool_value,
+    resolve_float_env,
+    resolve_optional_float_env,
+    resolve_quantity_step_env,
     resolve_strategy_config_path,
     resolve_strategy_runtime_path_settings,
 )
@@ -28,6 +31,33 @@ class RuntimeConfigTests(unittest.TestCase):
             self.assertEqual(first_non_empty("", None, "  value  "), "value")
             self.assertIs(resolve_bool_value("yes"), True)
             self.assertIs(resolve_bool_value("0"), False)
+            env = {
+                "DEFAULT_MIN_NOTIONAL": "25",
+                "EMPTY_MIN_NOTIONAL": "",
+                "FRACTIONAL_ENABLED": "true",
+                "FORCED_STEP": "1",
+            }
+            self.assertEqual(resolve_optional_float_env(env, "DEFAULT_MIN_NOTIONAL"), 25.0)
+            self.assertIsNone(resolve_optional_float_env(env, "EMPTY_MIN_NOTIONAL"))
+            self.assertEqual(resolve_float_env(env, "MISSING", default=50.0), 50.0)
+            self.assertEqual(
+                resolve_quantity_step_env(
+                    env,
+                    step_env="MISSING_STEP",
+                    fractional_env="FRACTIONAL_ENABLED",
+                    fractional_default=False,
+                ),
+                0.000001,
+            )
+            self.assertEqual(
+                resolve_quantity_step_env(
+                    env,
+                    step_env="FORCED_STEP",
+                    fractional_env="FRACTIONAL_ENABLED",
+                    fractional_default=True,
+                ),
+                1.0,
+            )
             self.assertEqual(
                 resolve_strategy_config_path(
                     explicit_path=" /tmp/live.json ",

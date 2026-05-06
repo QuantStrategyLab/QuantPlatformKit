@@ -39,6 +39,45 @@ def resolve_bool_value(raw_value: str | None) -> bool:
     return str(raw_value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def resolve_optional_float_env(
+    env: Mapping[str, str | None],
+    name: str,
+) -> float | None:
+    raw_value = env.get(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return None
+    return float(raw_value)
+
+
+def resolve_float_env(
+    env: Mapping[str, str | None],
+    name: str,
+    *,
+    default: float,
+) -> float:
+    value = resolve_optional_float_env(env, name)
+    return float(default) if value is None else value
+
+
+def resolve_quantity_step_env(
+    env: Mapping[str, str | None],
+    *,
+    step_env: str,
+    fractional_env: str,
+    fractional_default: bool,
+) -> float:
+    explicit_step = resolve_optional_float_env(env, step_env)
+    if explicit_step is not None:
+        return explicit_step
+    raw_enabled = env.get(fractional_env)
+    fractional_enabled = (
+        fractional_default
+        if raw_enabled is None
+        else resolve_bool_value(raw_enabled)
+    )
+    return 0.000001 if fractional_enabled else 1.0
+
+
 def resolve_strategy_config_path(
     *,
     explicit_path: str | None,
