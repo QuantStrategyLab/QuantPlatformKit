@@ -20,10 +20,10 @@ from .strategy_contracts import (
 @dataclass(frozen=True)
 class ValueTargetPortfolioInputs:
     market_values: Mapping[str, float]
-    quantities: Mapping[str, int]
+    quantities: Mapping[str, float]
     total_equity: float
     liquid_cash: float
-    sellable_quantities: Mapping[str, int] | None = None
+    sellable_quantities: Mapping[str, float] | None = None
 
 
 def build_value_target_portfolio_inputs_from_snapshot(
@@ -34,24 +34,24 @@ def build_value_target_portfolio_inputs_from_snapshot(
 ) -> ValueTargetPortfolioInputs:
     metadata = getattr(snapshot, "metadata", {}) or {}
     raw_sellable_quantities = metadata.get("sellable_quantities") if isinstance(metadata, Mapping) else None
-    resolved_sellable_quantities: dict[str, int] = {}
+    resolved_sellable_quantities: dict[str, float] = {}
     if isinstance(raw_sellable_quantities, Mapping):
         resolved_sellable_quantities = {
-            str(symbol): int(quantity)
+            str(symbol): float(quantity)
             for symbol, quantity in raw_sellable_quantities.items()
         }
     market_values: dict[str, float] = {}
-    quantities: dict[str, int] = {}
-    sellable_quantities: dict[str, int] | None = (
+    quantities: dict[str, float] = {}
+    sellable_quantities: dict[str, float] | None = (
         {} if include_sellable_quantities else None
     )
     for position in getattr(snapshot, "positions", ()) or ():
         symbol = str(position.symbol)
-        quantity = int(position.quantity)
+        quantity = float(position.quantity)
         market_values[symbol] = float(position.market_value)
         quantities[symbol] = quantity
         if sellable_quantities is not None:
-            sellable_quantities[symbol] = int(resolved_sellable_quantities.get(symbol, quantity))
+            sellable_quantities[symbol] = float(resolved_sellable_quantities.get(symbol, quantity))
 
     resolved_liquid_cash = liquid_cash
     if resolved_liquid_cash is None:
@@ -77,7 +77,7 @@ def build_value_target_portfolio_inputs_from_account_state(
     sellable_quantities = None
     if isinstance(raw_sellable_quantities, Mapping):
         sellable_quantities = {
-            str(symbol): int(quantity)
+            str(symbol): float(quantity)
             for symbol, quantity in raw_sellable_quantities.items()
         }
 
@@ -87,7 +87,7 @@ def build_value_target_portfolio_inputs_from_account_state(
             for symbol, value in dict(account_state["market_values"]).items()
         },
         quantities={
-            str(symbol): int(quantity)
+            str(symbol): float(quantity)
             for symbol, quantity in dict(account_state["quantities"]).items()
         },
         total_equity=float(account_state["total_strategy_equity"]),

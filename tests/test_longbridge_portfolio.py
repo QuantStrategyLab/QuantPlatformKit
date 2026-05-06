@@ -77,6 +77,36 @@ class LongBridgePortfolioTests(unittest.TestCase):
         self.assertEqual(state["sellable_quantities"], {"SOXL": 3, "QQQI": 1})
         self.assertEqual(state["total_strategy_equity"], 1190.0)
 
+    def test_fetch_strategy_account_state_preserves_fractional_position_quantity(self) -> None:
+        class FractionalPositionsResponse:
+            def __init__(self):
+                self.channels = [FakeChannel([FakePosition("SOXL.US", 1.999999)])]
+
+        class FractionalTradeContext(FakeTradeContext):
+            def stock_positions(self):
+                return FractionalPositionsResponse()
+
+        position_logs = []
+        state = fetch_strategy_account_state(
+            FakeQuoteContext(),
+            FractionalTradeContext(),
+            ["SOXL"],
+            position_log_fn=position_logs.append,
+        )
+
+        self.assertEqual(state["quantities"]["SOXL"], 1.999999)
+        self.assertEqual(state["sellable_quantities"]["SOXL"], 1.999999)
+        self.assertAlmostEqual(state["market_values"]["SOXL"], 99.99995)
+        self.assertEqual(
+            position_logs,
+            [
+                "[position_snapshot] raw symbol=SOXL full_symbol=SOXL.US quantity=1.999999 "
+                "available_quantity=1.999999",
+                "[position_snapshot] aggregate symbol=SOXL quantity=1.999999 "
+                "sellable_quantity=1.999999 market_value=100.00",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

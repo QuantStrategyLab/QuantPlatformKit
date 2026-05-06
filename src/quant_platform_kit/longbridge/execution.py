@@ -12,7 +12,7 @@ def estimate_max_purchase_quantity(
     *,
     order_kind: str,
     ref_price: float,
-) -> int:
+) -> float:
     from longport.openapi import OrderSide, OrderType
 
     order_type = OrderType.LO if order_kind == "limit" else OrderType.MO
@@ -23,7 +23,7 @@ def estimate_max_purchase_quantity(
         price=Decimal(str(ref_price)),
     )
     cash_max_qty = getattr(response, "cash_max_qty", 0)
-    return max(0, int(Decimal(str(cash_max_qty or "0"))))
+    return max(0.0, float(Decimal(str(cash_max_qty or "0"))))
 
 
 def submit_order(
@@ -32,7 +32,7 @@ def submit_order(
     *,
     order_kind: str,
     side: str,
-    quantity: int,
+    quantity: float,
     submitted_price: float | None = None,
 ) -> ExecutionReport:
     from longport.openapi import OrderSide, OrderType, TimeInForceType
