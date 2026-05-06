@@ -105,10 +105,10 @@ def build_account_state_from_portfolio_snapshot(
 ) -> dict[str, Any]:
     metadata = getattr(snapshot, "metadata", {}) or {}
     raw_sellable_quantities = metadata.get("sellable_quantities") if isinstance(metadata, Mapping) else None
-    resolved_sellable_quantities: dict[str, int] = {}
+    resolved_sellable_quantities: dict[str, float] = {}
     if isinstance(raw_sellable_quantities, Mapping):
         resolved_sellable_quantities = {
-            str(symbol).strip().upper(): int(quantity)
+            str(symbol).strip().upper(): float(quantity)
             for symbol, quantity in raw_sellable_quantities.items()
             if str(symbol).strip()
         }
@@ -117,12 +117,12 @@ def build_account_state_from_portfolio_snapshot(
 
     if filter_enabled:
         market_values = {symbol: 0.0 for symbol in normalized_symbols}
-        quantities = {symbol: 0 for symbol in normalized_symbols}
-        sellable_quantities = {symbol: 0 for symbol in normalized_symbols}
+        quantities = {symbol: 0.0 for symbol in normalized_symbols}
+        sellable_quantities = {symbol: 0.0 for symbol in normalized_symbols}
     else:
         market_values: dict[str, float] = {}
-        quantities: dict[str, int] = {}
-        sellable_quantities: dict[str, int] = {}
+        quantities: dict[str, float] = {}
+        sellable_quantities: dict[str, float] = {}
 
     for position in getattr(snapshot, "positions", ()) or ():
         symbol = str(position.symbol).strip().upper()
@@ -130,12 +130,12 @@ def build_account_state_from_portfolio_snapshot(
             continue
         if symbol not in market_values:
             market_values[symbol] = 0.0
-            quantities[symbol] = 0
-            sellable_quantities[symbol] = 0
+            quantities[symbol] = 0.0
+            sellable_quantities[symbol] = 0.0
 
-        quantity = int(position.quantity)
+        quantity = float(position.quantity)
         quantities[symbol] = quantity
-        sellable_quantities[symbol] = int(resolved_sellable_quantities.get(symbol, quantity))
+        sellable_quantities[symbol] = float(resolved_sellable_quantities.get(symbol, quantity))
         market_values[symbol] = float(position.market_value)
 
     resolved_liquid_cash = liquid_cash
@@ -179,7 +179,7 @@ def build_portfolio_snapshot_from_account_state(
 
     positions: list[Position] = []
     for symbol in symbols:
-        quantity = int(quantities.get(symbol, 0))
+        quantity = float(quantities.get(symbol, 0.0))
         market_value = float(market_values.get(symbol, 0.0))
         if quantity <= 0 and market_value <= 0.0:
             continue
@@ -208,7 +208,7 @@ def build_portfolio_snapshot_from_account_state(
     raw_sellable_quantities = account_state.get("sellable_quantities")
     if isinstance(raw_sellable_quantities, Mapping):
         sellable_quantities = {
-            str(symbol).strip().upper(): int(quantity)
+            str(symbol).strip().upper(): float(quantity)
             for symbol, quantity in raw_sellable_quantities.items()
             if str(symbol).strip()
         }

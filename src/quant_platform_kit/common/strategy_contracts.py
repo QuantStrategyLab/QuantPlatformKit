@@ -99,8 +99,8 @@ class ValueTargetPortfolioPlan:
     strategy_symbols: tuple[str, ...]
     portfolio_rows: tuple[tuple[str, ...], ...]
     market_values: Mapping[str, float]
-    quantities: Mapping[str, int]
-    sellable_quantities: Mapping[str, int] | None
+    quantities: Mapping[str, float]
+    sellable_quantities: Mapping[str, float] | None
     total_equity: float
     liquid_cash: float
     cash_sweep_symbol: str | None = None
@@ -791,10 +791,10 @@ def build_value_target_portfolio_plan(
     execution_plan: ValueTargetExecutionPlan,
     *,
     market_values: Mapping[str, float],
-    quantities: Mapping[str, int],
+    quantities: Mapping[str, float],
     total_equity: float,
     liquid_cash: float,
-    sellable_quantities: Mapping[str, int] | None = None,
+    sellable_quantities: Mapping[str, float] | None = None,
     strategy_symbols_order: str = "risk_safe_income",
     portfolio_rows_layout: tuple[str, ...] = ("risk_safe", "income"),
 ) -> ValueTargetPortfolioPlan:
@@ -838,14 +838,14 @@ def build_value_target_portfolio_plan(
         for symbol in strategy_symbols
     }
     normalized_quantities = {
-        symbol: int(quantities.get(symbol, 0))
+        symbol: float(quantities.get(symbol, 0.0))
         for symbol in strategy_symbols
     }
     normalized_sellable_quantities = (
         None
         if sellable_quantities is None
         else {
-            symbol: int(sellable_quantities.get(symbol, 0))
+            symbol: float(sellable_quantities.get(symbol, 0.0))
             for symbol in strategy_symbols
         }
     )
