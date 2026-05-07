@@ -68,6 +68,28 @@ class LongBridgeExecutionTests(unittest.TestCase):
         self.assertEqual(report.status, "submitted")
         self.assertEqual(report.broker_order_id, "OID-1")
 
+    def test_submit_order_rejects_quantity_below_one_before_api_call(self) -> None:
+        longport_module = types.ModuleType("longport")
+        openapi_module = types.ModuleType("longport.openapi")
+        openapi_module.OrderSide = types.SimpleNamespace(Buy="Buy", Sell="Sell")
+        openapi_module.OrderType = types.SimpleNamespace(LO="LO", MO="MO")
+        openapi_module.TimeInForceType = types.SimpleNamespace(Day="Day")
+
+        ctx = FakeTradeContext()
+        with patch.dict(sys.modules, {"longport": longport_module, "longport.openapi": openapi_module}):
+            report = submit_order(
+                ctx,
+                "SOXX.US",
+                order_kind="limit",
+                side="buy",
+                quantity=0.4326,
+                submitted_price=495.91,
+            )
+
+        self.assertEqual(report.status, "rejected")
+        self.assertIn("at least 1 share", report.raw_payload["detail"])
+        self.assertFalse(hasattr(ctx, "submit_args"))
+
     def test_fetch_order_status(self) -> None:
         status = fetch_order_status(FakeTradeContext(), "OID-1")
 

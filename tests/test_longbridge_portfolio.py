@@ -37,9 +37,16 @@ class FakePositionsResponse:
 
 
 class FakeQuoteContext:
+    def __init__(self):
+        self.quote_calls = []
+
     def quote(self, symbols):
+        self.quote_calls.append(tuple(symbols))
         prices = {"SOXL.US": 50.0, "QQQI.US": 20.0}
-        return [type("Quote", (), {"last_done": prices[symbols[0]]})()]
+        return [
+            type("Quote", (), {"symbol": symbol, "last_done": prices[symbol]})()
+            for symbol in symbols
+        ]
 
 
 class FakeTradeContext:
@@ -52,8 +59,9 @@ class FakeTradeContext:
 
 class LongBridgePortfolioTests(unittest.TestCase):
     def test_fetch_strategy_account_state(self) -> None:
+        quote_context = FakeQuoteContext()
         state = fetch_strategy_account_state(
-            FakeQuoteContext(),
+            quote_context,
             FakeTradeContext(),
             ["SOXL", "QQQI", "SPYI"],
         )
@@ -64,6 +72,7 @@ class LongBridgePortfolioTests(unittest.TestCase):
         self.assertEqual(state["quantities"]["QQQI"], 2)
         self.assertEqual(state["sellable_quantities"]["QQQI"], 1)
         self.assertEqual(state["total_strategy_equity"], 1190.0)
+        self.assertEqual(quote_context.quote_calls, [("SOXL.US", "QQQI.US")])
 
     def test_fetch_strategy_account_state_includes_all_positions_when_assets_empty(self) -> None:
         state = fetch_strategy_account_state(

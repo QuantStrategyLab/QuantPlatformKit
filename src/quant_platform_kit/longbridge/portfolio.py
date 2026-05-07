@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable
 
-from .market_data import fetch_last_price
+from .market_data import fetch_last_prices
 
 
 def fetch_strategy_account_state(
@@ -31,11 +31,14 @@ def fetch_strategy_account_state(
     sellable_quantities = {symbol: 0.0 for symbol in assets}
     filter_enabled = bool(assets)
 
+    position_rows: list[tuple[str, str, Any, Any]] = []
     positions_response = t_ctx.stock_positions()
     if positions_response and hasattr(positions_response, "channels"):
         for channel in positions_response.channels:
             for position in getattr(channel, "positions", []):
-                full_symbol = getattr(position, "symbol", "")
+                full_symbol = str(getattr(position, "symbol", "") or "").strip().upper()
+                if not full_symbol:
+                    continue
                 root_symbol = full_symbol.split(".")[0].strip().upper()
                 if filter_enabled and root_symbol not in market_values:
                     continue
@@ -57,15 +60,19 @@ def fetch_strategy_account_state(
                         f"quantity={raw_quantity} available_quantity={raw_available_quantity}"
                     )
 
-                last_price = fetch_last_price(q_ctx, full_symbol)
-                if last_price is None:
-                    continue
+                position_rows.append((root_symbol, full_symbol, raw_quantity, raw_available_quantity))
 
-                quantity = float(raw_quantity)
-                available_quantity = float(raw_available_quantity)
-                market_values[root_symbol] += quantity * last_price
-                quantities[root_symbol] += quantity
-                sellable_quantities[root_symbol] += available_quantity
+    prices = fetch_last_prices(q_ctx, [full_symbol for _root_symbol, full_symbol, _quantity, _available in position_rows])
+    for root_symbol, full_symbol, raw_quantity, raw_available_quantity in position_rows:
+        last_price = prices.get(full_symbol)
+        if last_price is None:
+            continue
+
+        quantity = float(raw_quantity)
+        available_quantity = float(raw_available_quantity)
+        market_values[root_symbol] += quantity * last_price
+        quantities[root_symbol] += quantity
+        sellable_quantities[root_symbol] += available_quantity
 
     if position_log_fn is not None:
         for symbol in assets or tuple(sorted(quantities)):

@@ -39,6 +39,21 @@ def submit_order(
 
     order_type = OrderType.LO if order_kind == "limit" else OrderType.MO
     order_side = OrderSide.Buy if side == "buy" else OrderSide.Sell
+    submitted_quantity = Decimal(str(quantity))
+    if submitted_quantity < Decimal("1"):
+        return ExecutionReport(
+            symbol=symbol.split(".")[0],
+            side=side,
+            quantity=float(quantity),
+            status="rejected",
+            raw_payload={
+                "detail": (
+                    "LongBridge submitted_quantity must be at least 1 share; "
+                    f"got {submitted_quantity}."
+                ),
+                "order_kind": order_kind,
+            },
+        )
 
     kwargs: dict[str, Any] = {}
     if submitted_price is not None:
@@ -48,7 +63,7 @@ def submit_order(
         symbol,
         order_type,
         order_side,
-        Decimal(str(quantity)),
+        submitted_quantity,
         TimeInForceType.Day,
         **kwargs,
     )
