@@ -44,7 +44,7 @@ class LongBridgeFractionalOrderApiProbeTests(unittest.TestCase):
         self.trade_context = TradeContext(config)
 
     def _submit_limit_buy(self, quantity: Decimal):
-        from longport.openapi import OrderSide, OrderType, TimeInForceType
+        from longport.openapi import OrderSide, OrderType, OutsideRTH, TimeInForceType
 
         return self.trade_context.submit_order(
             self.symbol,
@@ -53,6 +53,7 @@ class LongBridgeFractionalOrderApiProbeTests(unittest.TestCase):
             quantity,
             TimeInForceType.Day,
             submitted_price=self.limit_price,
+            outside_rth=OutsideRTH.AnyTime,
             remark="qpk-fractional-api-probe",
         )
 
