@@ -12,7 +12,6 @@ def estimate_max_purchase_quantity(
     *,
     order_kind: str,
     ref_price: float,
-    fractional_shares: bool = False,
 ) -> float:
     from longport.openapi import OrderSide, OrderType
 
@@ -22,7 +21,6 @@ def estimate_max_purchase_quantity(
         order_type=order_type,
         side=OrderSide.Buy,
         price=Decimal(str(ref_price)),
-        fractional_shares=bool(fractional_shares),
     )
     cash_max_qty = getattr(response, "cash_max_qty", 0)
     return max(0.0, float(Decimal(str(cash_max_qty or "0"))))
@@ -42,7 +40,7 @@ def submit_order(
     order_type = OrderType.LO if order_kind == "limit" else OrderType.MO
     order_side = OrderSide.Buy if side == "buy" else OrderSide.Sell
     submitted_quantity = Decimal(str(quantity))
-    if submitted_quantity < Decimal("1"):
+    if submitted_quantity < Decimal("1") or submitted_quantity != submitted_quantity.to_integral_value():
         return ExecutionReport(
             symbol=symbol.split(".")[0],
             side=side,
@@ -50,7 +48,8 @@ def submit_order(
             status="rejected",
             raw_payload={
                 "detail": (
-                    "LongBridge submitted_quantity must be at least 1 share; "
+                    "LongBridge submitted_quantity must be a whole-share quantity "
+                    "of at least 1 share; "
                     f"got {submitted_quantity}."
                 ),
                 "order_kind": order_kind,
