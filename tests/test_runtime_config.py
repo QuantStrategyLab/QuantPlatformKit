@@ -47,7 +47,17 @@ class RuntimeConfigTests(unittest.TestCase):
                     fractional_env="FRACTIONAL_ENABLED",
                     fractional_default=False,
                 ),
-                0.000001,
+                0.0001,
+            )
+            self.assertEqual(
+                resolve_quantity_step_env(
+                    env,
+                    step_env="MISSING_STEP",
+                    fractional_env="FRACTIONAL_ENABLED",
+                    fractional_default=False,
+                    fractional_step=0.001,
+                ),
+                0.001,
             )
             self.assertEqual(
                 resolve_quantity_step_env(

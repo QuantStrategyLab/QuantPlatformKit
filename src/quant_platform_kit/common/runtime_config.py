@@ -65,6 +65,7 @@ def resolve_quantity_step_env(
     step_env: str,
     fractional_env: str,
     fractional_default: bool,
+    fractional_step: float = 0.0001,
 ) -> float:
     explicit_step = resolve_optional_float_env(env, step_env)
     if explicit_step is not None:
@@ -75,7 +76,7 @@ def resolve_quantity_step_env(
         if raw_enabled is None
         else resolve_bool_value(raw_enabled)
     )
-    return 0.000001 if fractional_enabled else 1.0
+    return float(fractional_step) if fractional_enabled else 1.0
 
 
 def resolve_strategy_config_path(
