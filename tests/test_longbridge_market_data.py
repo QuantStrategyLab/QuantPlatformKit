@@ -5,11 +5,12 @@ import types
 import unittest
 from unittest.mock import patch
 
-from quant_platform_kit.longbridge.market_data import calculate_rotation_indicators, fetch_last_price
+from quant_platform_kit.longbridge.market_data import calculate_rotation_indicators, fetch_last_price, fetch_last_prices
 
 
 class FakeQuote:
-    def __init__(self, last_done):
+    def __init__(self, symbol, last_done):
+        self.symbol = symbol
         self.last_done = last_done
 
 
@@ -20,7 +21,8 @@ class FakeBar:
 
 class FakeQuoteContext:
     def quote(self, symbols):
-        return [FakeQuote(123.45)]
+        prices = {"SOXL.US": 123.45, "SOXX.US": 234.56}
+        return [FakeQuote(symbol, prices[symbol]) for symbol in symbols]
 
     def candlesticks(self, symbol, period, count, adjust_type):
         if symbol == "SOXL.US":
@@ -31,6 +33,33 @@ class FakeQuoteContext:
 class LongBridgeMarketDataTests(unittest.TestCase):
     def test_fetch_last_price(self) -> None:
         self.assertEqual(fetch_last_price(FakeQuoteContext(), "SOXL.US"), 123.45)
+
+    def test_fetch_last_prices_batches_symbols(self) -> None:
+        self.assertEqual(
+            fetch_last_prices(FakeQuoteContext(), ["SOXL.US", "SOXX.US", "SOXL.US"]),
+            {"SOXL.US": 123.45, "SOXX.US": 234.56},
+        )
+
+    def test_fetch_last_price_retries_rate_limit(self) -> None:
+        class RateLimitError(Exception):
+            code = 301606
+
+        class RateLimitedQuoteContext(FakeQuoteContext):
+            def __init__(self):
+                self.calls = 0
+
+            def quote(self, symbols):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RateLimitError("request rate limit")
+                return super().quote(symbols)
+
+        quote_context = RateLimitedQuoteContext()
+        with patch("quant_platform_kit.longbridge.market_data.time.sleep") as sleep_mock:
+            self.assertEqual(fetch_last_price(quote_context, "SOXL.US"), 123.45)
+
+        self.assertEqual(quote_context.calls, 2)
+        sleep_mock.assert_called_once_with(1.0)
 
     def test_calculate_rotation_indicators(self) -> None:
         longport_module = types.ModuleType("longport")

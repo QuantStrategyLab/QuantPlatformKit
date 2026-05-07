@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import pandas as pd
@@ -9,11 +10,64 @@ from quant_platform_kit.common.runtime_inputs import (
 )
 
 
+def _normalize_symbol(symbol: str) -> str:
+    return str(symbol or "").strip().upper()
+
+
+def _is_rate_limit_exception(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    if str(code) == "301606":
+        return True
+    message = str(exc).lower()
+    return "301606" in message or "request rate limit" in message
+
+
+def _quote_with_retry(
+    q_ctx: Any,
+    symbols: list[str],
+    *,
+    max_attempts: int = 3,
+    initial_delay_sec: float = 1.0,
+) -> list[Any]:
+    for attempt in range(max(1, max_attempts)):
+        try:
+            return list(q_ctx.quote(symbols) or [])
+        except Exception as exc:
+            if attempt >= max_attempts - 1 or not _is_rate_limit_exception(exc):
+                raise
+            time.sleep(initial_delay_sec * (2**attempt))
+    return []
+
+
 def fetch_last_price(q_ctx: Any, symbol: str) -> float | None:
-    quotes = q_ctx.quote([symbol])
-    if not quotes:
-        return None
-    return float(quotes[0].last_done)
+    return fetch_last_prices(q_ctx, [symbol]).get(_normalize_symbol(symbol))
+
+
+def fetch_last_prices(q_ctx: Any, symbols: list[str] | tuple[str, ...]) -> dict[str, float]:
+    normalized_symbols = []
+    for symbol in symbols:
+        normalized_symbol = _normalize_symbol(symbol)
+        if normalized_symbol:
+            normalized_symbols.append(normalized_symbol)
+    normalized_symbols = list(dict.fromkeys(normalized_symbols))
+    if not normalized_symbols:
+        return {}
+
+    quotes = _quote_with_retry(q_ctx, normalized_symbols)
+    prices: dict[str, float] = {}
+    for index, quote in enumerate(quotes):
+        fallback_symbol = normalized_symbols[index] if index < len(normalized_symbols) else ""
+        quoted_symbol = _normalize_symbol(getattr(quote, "symbol", "") or fallback_symbol)
+        if not quoted_symbol:
+            continue
+        last_done = getattr(quote, "last_done", None)
+        if last_done is None:
+            continue
+        try:
+            prices[quoted_symbol] = float(last_done)
+        except (TypeError, ValueError):
+            continue
+    return prices
 
 
 def calculate_rotation_indicators(
