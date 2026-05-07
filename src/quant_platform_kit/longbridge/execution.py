@@ -12,6 +12,7 @@ def estimate_max_purchase_quantity(
     *,
     order_kind: str,
     ref_price: float,
+    fractional_shares: bool = False,
 ) -> float:
     from longport.openapi import OrderSide, OrderType
 
@@ -21,6 +22,7 @@ def estimate_max_purchase_quantity(
         order_type=order_type,
         side=OrderSide.Buy,
         price=Decimal(str(ref_price)),
+        fractional_shares=bool(fractional_shares),
     )
     cash_max_qty = getattr(response, "cash_max_qty", 0)
     return max(0.0, float(Decimal(str(cash_max_qty or "0"))))
