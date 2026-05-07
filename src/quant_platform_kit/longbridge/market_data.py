@@ -21,10 +21,11 @@ def calculate_rotation_indicators(
     *,
     trend_window: int,
     lookback: int | None = None,
+    dynamic_rsi_quantile_window: int = 252,
 ) -> dict[str, dict[str, float]] | None:
     from longport.openapi import AdjustType, Period
 
-    effective_lookback = lookback if lookback is not None else max(220, trend_window + 20)
+    effective_lookback = lookback if lookback is not None else max(280, trend_window + 20, dynamic_rsi_quantile_window + 28)
     soxl_bars = q_ctx.candlesticks("SOXL.US", Period.Day, effective_lookback, AdjustType.ForwardAdjust)
     soxx_bars = q_ctx.candlesticks("SOXX.US", Period.Day, effective_lookback, AdjustType.ForwardAdjust)
     if not soxl_bars or not soxx_bars:
@@ -39,4 +40,5 @@ def calculate_rotation_indicators(
         soxl_history=df_soxl["close"],
         soxx_history=df_soxx["close"],
         trend_ma_window=trend_window,
+        dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
     )

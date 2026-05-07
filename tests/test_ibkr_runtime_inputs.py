@@ -94,8 +94,8 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
             trend_ma_window=140,
         )
 
-        self.assertEqual(observed[0], ("SOXL", "220 D", "1 day"))
-        self.assertEqual(observed[1], ("SOXX", "220 D", "1 day"))
+        self.assertEqual(observed[0], ("SOXL", "420 D", "1 day"))
+        self.assertEqual(observed[1], ("SOXX", "420 D", "1 day"))
         self.assertEqual(indicators["soxl"]["price"], 269.0)
         self.assertAlmostEqual(
             indicators["soxl"]["ma_trend"],
@@ -112,6 +112,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         )
         self.assertGreater(indicators["soxx"]["ma20_slope"], 0.0)
         self.assertEqual(indicators["soxx"]["rsi14"], 100.0)
+        self.assertGreaterEqual(indicators["soxx"]["rsi14_dynamic_threshold"], 70.0)
         self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
         self.assertLess(indicators["soxx"]["bb_lower"], indicators["soxx"]["price"])
 
@@ -133,6 +134,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
             sum(200.0 + idx for idx in range(30, 170)) / 140,
         )
         self.assertEqual(indicators["soxx"]["rsi14"], 100.0)
+        self.assertGreaterEqual(indicators["soxx"]["rsi14_dynamic_threshold"], 70.0)
         self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
         wrapped = build_semiconductor_rotation_inputs_from_history(
             soxl_history=[100.0 + idx for idx in range(170)],
@@ -161,6 +163,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(payload["derived_indicators"]["soxx"]["price"], 200.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["ma20"], 200.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["rsi14"], 50.0)
+        self.assertEqual(payload["derived_indicators"]["soxx"]["rsi14_dynamic_threshold"], 70.0)
 
     def test_build_semiconductor_rotation_indicators_requires_sufficient_history(self) -> None:
         def fake_loader(_ib, symbol, duration="2 Y", bar_size="1 day"):
