@@ -144,6 +144,16 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(set(wrapped), {"derived_indicators"})
         self.assertEqual(wrapped["derived_indicators"]["soxl"]["price"], 269.0)
 
+    def test_build_semiconductor_rotation_indicators_accepts_short_dynamic_rsi_window(self) -> None:
+        indicators = build_semiconductor_rotation_indicators_from_history(
+            soxl_history=[100.0 + idx for idx in range(170)],
+            soxx_history=[200.0 + idx for idx in range(170)],
+            trend_ma_window=140,
+            dynamic_rsi_quantile_window=20,
+        )
+
+        self.assertEqual(indicators["soxx"]["rsi14_dynamic_threshold"], 100.0)
+
     def test_build_semiconductor_rotation_inputs_wraps_derived_indicators(self) -> None:
         def fake_loader(_ib, symbol, duration="2 Y", bar_size="1 day"):
             if symbol == "SOXL":

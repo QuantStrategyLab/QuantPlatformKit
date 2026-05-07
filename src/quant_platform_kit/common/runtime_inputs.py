@@ -75,7 +75,7 @@ def build_semiconductor_rotation_indicators_from_history(
     rsi_threshold_history = (
         soxx_rsi_history.rolling(
             rsi_quantile_window,
-            min_periods=max(60, min(rsi_quantile_window, 126) // 2),
+            min_periods=min(rsi_quantile_window, max(60, min(rsi_quantile_window, 126) // 2)),
         )
         .quantile(rsi_quantile)
         .shift(1)
