@@ -74,8 +74,13 @@ def build_semiconductor_rotation_indicators(
     *,
     trend_ma_window: int = 140,
     lookback_buffer: int = 20,
+    dynamic_rsi_quantile_window: int = 252,
 ) -> dict[str, dict[str, float]]:
-    effective_lookback = max(220, int(trend_ma_window) + int(lookback_buffer))
+    effective_lookback = max(
+        420,
+        int(trend_ma_window) + int(lookback_buffer),
+        int(dynamic_rsi_quantile_window) + int(lookback_buffer) + 90,
+    )
     soxl_history = historical_close_loader(
         ib,
         "SOXL",
@@ -92,6 +97,7 @@ def build_semiconductor_rotation_indicators(
         soxl_history=soxl_history,
         soxx_history=soxx_history,
         trend_ma_window=trend_ma_window,
+        dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
     )
 
 
@@ -101,6 +107,7 @@ def build_semiconductor_rotation_inputs(
     *,
     trend_ma_window: int = 140,
     lookback_buffer: int = 20,
+    dynamic_rsi_quantile_window: int = 252,
 ) -> dict[str, dict[str, dict[str, float]]]:
     return {
         "derived_indicators": build_semiconductor_rotation_indicators(
@@ -108,5 +115,6 @@ def build_semiconductor_rotation_inputs(
             historical_close_loader,
             trend_ma_window=trend_ma_window,
             lookback_buffer=lookback_buffer,
+            dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
         )
     }

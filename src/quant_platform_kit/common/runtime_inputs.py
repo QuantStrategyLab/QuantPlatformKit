@@ -47,10 +47,19 @@ def build_semiconductor_rotation_indicators_from_history(
     soxl_history: Iterable[float] | pd.Series,
     soxx_history: Iterable[float] | pd.Series,
     trend_ma_window: int = 140,
+    dynamic_rsi_quantile_window: int = 252,
+    dynamic_rsi_quantile: float = 0.90,
+    dynamic_rsi_floor: float = 70.0,
 ) -> dict[str, dict[str, float]]:
     window = int(trend_ma_window)
     if window <= 0:
         raise ValueError("trend_ma_window must be positive")
+    rsi_quantile_window = int(dynamic_rsi_quantile_window)
+    if rsi_quantile_window <= 0:
+        raise ValueError("dynamic_rsi_quantile_window must be positive")
+    rsi_quantile = float(dynamic_rsi_quantile)
+    if not 0.0 < rsi_quantile < 1.0:
+        raise ValueError("dynamic_rsi_quantile must be between 0 and 1")
 
     soxl_close = _normalize_numeric_history(soxl_history, label="SOXL")
     soxx_close = _normalize_numeric_history(soxx_history, label="SOXX")
@@ -61,7 +70,26 @@ def build_semiconductor_rotation_indicators_from_history(
     soxx_ma_trend = float(soxx_close.rolling(window).mean().iloc[-1])
     soxx_ma20 = float(soxx_close.rolling(20).mean().iloc[-1])
     soxx_ma20_slope = float(soxx_close.rolling(20).mean().diff().iloc[-1])
-    soxx_rsi14 = float(_compute_rsi(soxx_close, window=14).iloc[-1])
+    soxx_rsi_history = _compute_rsi(soxx_close, window=14)
+    soxx_rsi14 = float(soxx_rsi_history.iloc[-1])
+    rsi_threshold_history = (
+        soxx_rsi_history.rolling(
+            rsi_quantile_window,
+            min_periods=min(rsi_quantile_window, max(60, min(rsi_quantile_window, 126) // 2)),
+        )
+        .quantile(rsi_quantile)
+        .shift(1)
+    )
+    soxx_dynamic_rsi_threshold = float(
+        max(
+            float(dynamic_rsi_floor),
+            (
+                rsi_threshold_history.iloc[-1]
+                if pd.notna(rsi_threshold_history.iloc[-1])
+                else float(dynamic_rsi_floor)
+            ),
+        )
+    )
     soxx_bb_mid = float(soxx_close.rolling(20).mean().iloc[-1])
     soxx_bb_std = float(soxx_close.rolling(20).std(ddof=0).iloc[-1])
     return {
@@ -75,6 +103,7 @@ def build_semiconductor_rotation_indicators_from_history(
             "ma20": soxx_ma20,
             "ma20_slope": soxx_ma20_slope,
             "rsi14": soxx_rsi14,
+            "rsi14_dynamic_threshold": soxx_dynamic_rsi_threshold,
             "bb_mid": soxx_bb_mid,
             "bb_upper": soxx_bb_mid + 2.0 * soxx_bb_std,
             "bb_lower": soxx_bb_mid - 2.0 * soxx_bb_std,
@@ -87,12 +116,18 @@ def build_semiconductor_rotation_inputs_from_history(
     soxl_history: Iterable[float] | pd.Series,
     soxx_history: Iterable[float] | pd.Series,
     trend_ma_window: int = 140,
+    dynamic_rsi_quantile_window: int = 252,
+    dynamic_rsi_quantile: float = 0.90,
+    dynamic_rsi_floor: float = 70.0,
 ) -> dict[str, dict[str, dict[str, float]]]:
     return {
         "derived_indicators": build_semiconductor_rotation_indicators_from_history(
             soxl_history=soxl_history,
             soxx_history=soxx_history,
             trend_ma_window=trend_ma_window,
+            dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
+            dynamic_rsi_quantile=dynamic_rsi_quantile,
+            dynamic_rsi_floor=dynamic_rsi_floor,
         )
     }
 

@@ -42,11 +42,12 @@ class LongBridgeMarketDataTests(unittest.TestCase):
             indicators = calculate_rotation_indicators(FakeQuoteContext(), trend_window=150)
 
         self.assertIsNotNone(indicators)
-        self.assertEqual(indicators["soxl"]["price"], 319.0)
-        self.assertEqual(indicators["soxx"]["price"], 419.0)
-        self.assertAlmostEqual(indicators["soxx"]["ma20"], sum(200.0 + i for i in range(200, 220)) / 20)
+        self.assertEqual(indicators["soxl"]["price"], 379.0)
+        self.assertEqual(indicators["soxx"]["price"], 479.0)
+        self.assertAlmostEqual(indicators["soxx"]["ma20"], sum(200.0 + i for i in range(260, 280)) / 20)
         self.assertGreater(indicators["soxx"]["ma20_slope"], 0.0)
         self.assertEqual(indicators["soxx"]["rsi14"], 100.0)
+        self.assertGreaterEqual(indicators["soxx"]["rsi14_dynamic_threshold"], 70.0)
         self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
         self.assertLess(indicators["soxx"]["bb_lower"], indicators["soxx"]["price"])
 
