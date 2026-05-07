@@ -127,6 +127,21 @@ class LongBridgeExecutionTests(unittest.TestCase):
         self.assertIn("whole-share quantity of at least 1 share", report.raw_payload["detail"])
         self.assertFalse(hasattr(ctx, "submit_args"))
 
+    def test_submit_order_rejects_fractional_sell_before_api_call(self) -> None:
+        longport_module = types.ModuleType("longport")
+        openapi_module = types.ModuleType("longport.openapi")
+        openapi_module.OrderSide = types.SimpleNamespace(Buy="Buy", Sell="Sell")
+        openapi_module.OrderType = types.SimpleNamespace(LO="LO", MO="MO")
+        openapi_module.TimeInForceType = types.SimpleNamespace(Day="Day")
+
+        ctx = FakeTradeContext()
+        with patch.dict(sys.modules, {"longport": longport_module, "longport.openapi": openapi_module}):
+            report = submit_order(ctx, "BOXX.US", order_kind="market", side="sell", quantity=4.6177)
+
+        self.assertEqual(report.status, "rejected")
+        self.assertIn("whole-share quantity of at least 1 share", report.raw_payload["detail"])
+        self.assertFalse(hasattr(ctx, "submit_args"))
+
     def test_fetch_order_status(self) -> None:
         status = fetch_order_status(FakeTradeContext(), "OID-1")
 
