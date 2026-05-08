@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Collection, Iterable, Mapping
 from datetime import datetime, timezone
+from math import isnan, sqrt
 from typing import Any, Callable
-
-import pandas as pd
 
 from .models import PortfolioSnapshot, Position
 
@@ -18,34 +17,109 @@ def _normalize_symbols(strategy_symbols: Iterable[str]) -> tuple[str, ...]:
 
 
 def _normalize_numeric_history(
-    history: Iterable[float] | pd.Series,
+    history: Iterable[float],
     *,
     label: str,
-) -> pd.Series:
-    normalized = pd.to_numeric(pd.Series(history), errors="coerce").dropna()
-    if normalized.empty:
+) -> tuple[float, ...]:
+    normalized: list[float] = []
+    for value in history:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            continue
+        if isnan(numeric):
+            continue
+        normalized.append(numeric)
+    if not normalized:
         raise ValueError(f"Semiconductor rotation inputs require non-empty {label} history")
-    return normalized.astype(float)
+    return tuple(normalized)
 
 
-def _compute_rsi(close: pd.Series, *, window: int = 14) -> pd.Series:
-    delta = close.diff()
-    gains = delta.clip(lower=0.0)
-    losses = -delta.clip(upper=0.0)
-    avg_gain = gains.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
-    avg_loss = losses.ewm(alpha=1 / window, adjust=False, min_periods=window).mean()
-    rs = avg_gain / avg_loss.replace(0.0, pd.NA)
-    rsi = 100.0 - (100.0 / (1.0 + rs))
-    rsi = rsi.mask((avg_loss == 0.0) & (avg_gain > 0.0), 100.0)
-    rsi = rsi.mask((avg_gain == 0.0) & (avg_loss > 0.0), 0.0)
-    rsi = rsi.mask((avg_gain == 0.0) & (avg_loss == 0.0), 50.0)
-    return rsi
+def _mean(values: Iterable[float]) -> float:
+    values = tuple(values)
+    if not values:
+        raise ValueError("mean requires at least one value")
+    return float(sum(values) / len(values))
+
+
+def _std(values: Iterable[float]) -> float:
+    values = tuple(values)
+    if not values:
+        raise ValueError("std requires at least one value")
+    mean_value = _mean(values)
+    variance = sum((value - mean_value) ** 2 for value in values) / len(values)
+    return float(sqrt(variance))
+
+
+def _tail_mean(values: tuple[float, ...], window: int) -> float:
+    if len(values) < window:
+        raise ValueError("insufficient history for rolling mean")
+    return _mean(values[-window:])
+
+
+def _tail_std(values: tuple[float, ...], window: int) -> float:
+    if len(values) < window:
+        raise ValueError("insufficient history for rolling std")
+    return _std(values[-window:])
+
+
+def _compute_rsi(values: tuple[float, ...], *, window: int = 14) -> tuple[float, ...]:
+    if len(values) < window + 1:
+        raise ValueError("insufficient history for RSI")
+    rsis = [50.0] * len(values)
+    gains = 0.0
+    losses = 0.0
+    for index in range(1, window + 1):
+        delta = values[index] - values[index - 1]
+        gains += max(delta, 0.0)
+        losses += max(-delta, 0.0)
+    avg_gain = gains / window
+    avg_loss = losses / window
+
+    def _rsi_from_avg(avg_gain_value: float, avg_loss_value: float) -> float:
+        if avg_gain_value == 0.0 and avg_loss_value == 0.0:
+            return 50.0
+        if avg_loss_value == 0.0:
+            return 100.0
+        if avg_gain_value == 0.0:
+            return 0.0
+        rs = avg_gain_value / avg_loss_value
+        return 100.0 - (100.0 / (1.0 + rs))
+
+    rsis[window] = _rsi_from_avg(avg_gain, avg_loss)
+    alpha = 1.0 / window
+    for index in range(window + 1, len(values)):
+        delta = values[index] - values[index - 1]
+        gain = max(delta, 0.0)
+        loss = max(-delta, 0.0)
+        avg_gain = (1.0 - alpha) * avg_gain + alpha * gain
+        avg_loss = (1.0 - alpha) * avg_loss + alpha * loss
+        rsis[index] = _rsi_from_avg(avg_gain, avg_loss)
+    return tuple(rsis)
+
+
+def _rolling_quantile(values: tuple[float, ...], *, window: int, quantile: float) -> tuple[float | None, ...]:
+    if window <= 0:
+        raise ValueError("window must be positive")
+    if not 0.0 < quantile < 1.0:
+        raise ValueError("quantile must be between 0 and 1")
+    result: list[float | None] = [None] * len(values)
+    for index in range(window - 1, len(values)):
+        chunk = sorted(values[index - window + 1 : index + 1])
+        if not chunk:
+            continue
+        position = (len(chunk) - 1) * quantile
+        lower_index = int(position)
+        upper_index = min(lower_index + 1, len(chunk) - 1)
+        fraction = position - lower_index
+        result[index] = chunk[lower_index] * (1.0 - fraction) + chunk[upper_index] * fraction
+    return tuple(result)
 
 
 def build_semiconductor_rotation_indicators_from_history(
     *,
-    soxl_history: Iterable[float] | pd.Series,
-    soxx_history: Iterable[float] | pd.Series,
+    soxl_history: Iterable[float],
+    soxx_history: Iterable[float],
     trend_ma_window: int = 140,
     dynamic_rsi_quantile_window: int = 252,
     dynamic_rsi_quantile: float = 0.90,
@@ -66,39 +140,34 @@ def build_semiconductor_rotation_indicators_from_history(
     if len(soxl_close) < window or len(soxx_close) < window:
         raise ValueError("Semiconductor rotation inputs require sufficient SOXL/SOXX history")
 
-    soxl_ma_trend = float(soxl_close.rolling(window).mean().iloc[-1])
-    soxx_ma_trend = float(soxx_close.rolling(window).mean().iloc[-1])
-    soxx_ma20 = float(soxx_close.rolling(20).mean().iloc[-1])
-    soxx_ma20_slope = float(soxx_close.rolling(20).mean().diff().iloc[-1])
+    soxl_ma_trend = _tail_mean(soxl_close, window)
+    soxx_ma_trend = _tail_mean(soxx_close, window)
+    soxx_ma20 = _tail_mean(soxx_close, 20)
+    soxx_ma20_prev = _tail_mean(soxx_close[:-1], 20)
+    soxx_ma20_slope = float(soxx_ma20 - soxx_ma20_prev)
     soxx_rsi_history = _compute_rsi(soxx_close, window=14)
-    soxx_rsi14 = float(soxx_rsi_history.iloc[-1])
-    rsi_threshold_history = (
-        soxx_rsi_history.rolling(
-            rsi_quantile_window,
-            min_periods=min(rsi_quantile_window, max(60, min(rsi_quantile_window, 126) // 2)),
-        )
-        .quantile(rsi_quantile)
-        .shift(1)
+    soxx_rsi14 = float(soxx_rsi_history[-1])
+    rsi_threshold_history = _rolling_quantile(
+        soxx_rsi_history,
+        window=rsi_quantile_window,
+        quantile=rsi_quantile,
     )
+    previous_threshold = rsi_threshold_history[-2] if len(rsi_threshold_history) >= 2 else None
     soxx_dynamic_rsi_threshold = float(
         max(
             float(dynamic_rsi_floor),
-            (
-                rsi_threshold_history.iloc[-1]
-                if pd.notna(rsi_threshold_history.iloc[-1])
-                else float(dynamic_rsi_floor)
-            ),
+            float(previous_threshold) if previous_threshold is not None else float(dynamic_rsi_floor),
         )
     )
-    soxx_bb_mid = float(soxx_close.rolling(20).mean().iloc[-1])
-    soxx_bb_std = float(soxx_close.rolling(20).std(ddof=0).iloc[-1])
+    soxx_bb_mid = _tail_mean(soxx_close, 20)
+    soxx_bb_std = _tail_std(soxx_close, 20)
     return {
         "soxl": {
-            "price": float(soxl_close.iloc[-1]),
+            "price": float(soxl_close[-1]),
             "ma_trend": soxl_ma_trend,
         },
         "soxx": {
-            "price": float(soxx_close.iloc[-1]),
+            "price": float(soxx_close[-1]),
             "ma_trend": soxx_ma_trend,
             "ma20": soxx_ma20,
             "ma20_slope": soxx_ma20_slope,
@@ -113,8 +182,8 @@ def build_semiconductor_rotation_indicators_from_history(
 
 def build_semiconductor_rotation_inputs_from_history(
     *,
-    soxl_history: Iterable[float] | pd.Series,
-    soxx_history: Iterable[float] | pd.Series,
+    soxl_history: Iterable[float],
+    soxx_history: Iterable[float],
     trend_ma_window: int = 140,
     dynamic_rsi_quantile_window: int = 252,
     dynamic_rsi_quantile: float = 0.90,

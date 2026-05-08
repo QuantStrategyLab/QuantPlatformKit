@@ -4,7 +4,7 @@
 
 - `QuantPlatformKit` remains the shared platform package and is **not deployed as a runtime service**.
 - The current runtime repositories (`InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `BinancePlatform`) are the **transitional deployment units**.
-- The **target state** is one deployment repository per broker platform, with strategy behavior selected by configuration such as `STRATEGY_PROFILE`.
+- The **target state** is one deployment repository per broker platform, with strategy behavior selected through `RuntimeTarget` / `RUNTIME_TARGET_JSON` and compatibility selectors such as `STRATEGY_PROFILE`.
 - Strategy or platform repositories should always depend on a fixed `QuantPlatformKit` Git tag instead of `main`.
 
 For the live runtime inventory across repositories, projects, services, schedulers, runtime identities, and current secret names, see [`platform_runtime_inventory.md`](./platform_runtime_inventory.md).
@@ -12,6 +12,8 @@ For the live runtime inventory across repositories, projects, services, schedule
 For a cleaner split between shared package code, platform runtime repositories, and future strategy repositories, see [`platform_repo_boundaries.md`](./platform_repo_boundaries.md).
 
 For the platform / strategy-domain / configurable-profile matrix, see [`platform_strategy_matrix.md`](./platform_strategy_matrix.md).
+
+For the runtime-target-first control-plane design, see [`runtime_target_architecture.md`](./runtime_target_architecture.md).
 
 ## Current state vs target state
 
@@ -149,10 +151,12 @@ Within one broker platform repository, selecting a strategy by configuration is 
 
 Recommended selector:
 
-- `STRATEGY_PROFILE`
+- `RUNTIME_TARGET_JSON` for structured runtime identity
+- `STRATEGY_PROFILE` for compatibility with existing strategy routing
 
 Good examples:
 
+- `RUNTIME_TARGET_JSON={"platform_id":"longbridge",...}`
 - `STRATEGY_PROFILE=rotation`
 - `STRATEGY_PROFILE=income`
 - `STRATEGY_PROFILE=hybrid`
@@ -171,6 +175,7 @@ IBKR should support multiple accounts or account groups under one platform repos
 
 Recommended configuration boundary:
 
+- `RUNTIME_TARGET_JSON`
 - `STRATEGY_PROFILE`
 - `ACCOUNT_GROUP` or `IB_ACCOUNT_SET`
 - `IB_CLIENT_ID` or a deterministic `IB_CLIENT_ID_BASE`
@@ -196,6 +201,7 @@ LongBridge should keep:
 
 The split should always be defined by runtime configuration:
 
+- `RUNTIME_TARGET_JSON`
 - `ACCOUNT_REGION=HK|SG`
 - `ACCOUNT_PREFIX`
 - `SERVICE_NAME`
@@ -213,7 +219,8 @@ Charles Schwab can stay simpler:
 
 - one platform repository
 - one or more services only when strategy profiles truly differ
-- `STRATEGY_PROFILE` is already part of the current runtime shape
+- `RUNTIME_TARGET_JSON` is part of the current runtime shape
+- `STRATEGY_PROFILE` remains the compatibility selector
 
 ### Binance
 
@@ -230,7 +237,7 @@ If you rename a repository or move it under a different owner, Cloud Build and C
 Recommended migration order:
 
 1. align every runtime repository to the same `QuantPlatformKit` tag
-2. finish the platform runtime configuration shape (`STRATEGY_PROFILE`, `ACCOUNT_GROUP`, `ACCOUNT_REGION`, `SERVICE_NAME`)
+2. finish the platform runtime configuration shape (`RUNTIME_TARGET_JSON`, `STRATEGY_PROFILE`, `ACCOUNT_GROUP`, `ACCOUNT_REGION`, `SERVICE_NAME`)
 3. create or update the new trigger against the target repository
 4. confirm the branch is still `main`
 5. confirm the target service and region
@@ -262,6 +269,6 @@ Rename affects:
 
 - platform code lives in `QuantPlatformKit`
 - one broker platform should map to one deployable runtime repository
-- strategy selection can happen inside one broker platform via config like `STRATEGY_PROFILE`
+- strategy selection can happen inside one broker platform via config like `RUNTIME_TARGET_JSON` and `STRATEGY_PROFILE`
 - LongBridge HK/SG and IBKR multi-account should be modeled as service or trigger splits, not broker-mixing logic
 - versions are managed with fixed tags

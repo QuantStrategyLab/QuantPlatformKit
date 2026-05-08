@@ -18,19 +18,19 @@ For strategy behavior, research status, and archived backtest evidence, see
 - There are currently two strategy domains:
   - `us_equity`
   - `crypto`
-- Runtime repositories already expose `STRATEGY_PROFILE`, but this is **not** a full multi-strategy marketplace yet.
+- Runtime repositories now expose `RUNTIME_TARGET_JSON` plus `STRATEGY_PROFILE`; this is **not** a full multi-strategy marketplace yet.
 - Today, each US equity platform can switch among the `runtime_enabled` `us_equity` profiles published by `UsEquityStrategies`, subject to each platform's rollout configuration.
 - Platform runtime adapters are generated from strategy input/target-mode declarations plus platform capabilities, so new in-contract profiles should not need per-platform allowlist edits.
 - The shared contract is in `QuantPlatformKit`; real `us_equity` strategy implementations now live in `UsEquityStrategies`, while platform repositories own runtime adapters and broker execution.
 
 ## Platform matrix
 
-| Platform | Repo | Strategy domain | Configurable profile scope | Runtime model | Real switching today? |
-|---|---|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | Yes - controlled by platform rollout config |
-| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | Yes - controlled by platform rollout config |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per regional service | Cloud Run | Yes - controlled by platform rollout config |
-| Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
+| Platform | Repo | Strategy domain | Runtime identity | Configurable profile scope | Runtime model | Real switching today? |
+|---|---|---|---|---|---|---|
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `RUNTIME_TARGET_JSON` + `ACCOUNT_GROUP` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | Yes - controlled by platform rollout config |
+| Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `RUNTIME_TARGET_JSON` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | Yes - controlled by platform rollout config |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `RUNTIME_TARGET_JSON` + `ACCOUNT_REGION` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per regional service | Cloud Run | Yes - controlled by platform rollout config |
+| Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `RUNTIME_TARGET_JSON` (workflow-local) | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
 
 ## What this means right now
 

@@ -3,6 +3,7 @@
 _Verified snapshot: 2026-04-16_
 
 This checklist describes how a new `us_equity` strategy becomes available on the three US equity broker platforms without adding a manual allowlist entry in each platform repository.
+The runtime identity is carried by `RuntimeTarget` / `RUNTIME_TARGET_JSON`; `STRATEGY_PROFILE` remains the compatibility selector for the strategy implementation.
 
 It applies to:
 
@@ -14,7 +15,7 @@ It applies to:
 
 ## Target operating model
 
-`UsEquityStrategies` is the source of truth for live strategy profiles. The three platform repositories derive their runtime allowlists from `get_runtime_enabled_profiles()`.
+`UsEquityStrategies` is the source of truth for live strategy profiles. The three platform repositories derive their runtime allowlists from `get_runtime_enabled_profiles()`, while the platform runtime identity comes from `RuntimeTarget`.
 
 A new strategy should become selectable on a platform only after these are true:
 
@@ -26,6 +27,7 @@ A new strategy should become selectable on a platform only after these are true:
 6. Platform runtime adapters are derived from that spec plus platform native target mode.
 7. The platform capability matrix says the platform can supply the declared `required_inputs`.
 8. The relevant platform status script reports `eligible=true` and `enabled=true`.
+9. The selected runtime target matches the intended platform / account / mode combination.
 
 Do not add a second per-platform rollout allowlist for live US equity profiles.
 
@@ -103,6 +105,7 @@ The three US equity platform repositories should stay thin:
 The platform registry should derive live profiles from `UsEquityStrategies.get_runtime_enabled_profiles()`.
 
 Platform repositories should not hard-code strategy symbol pools, private strategy constants, or manual live profile allowlists.
+They should also not treat `STRATEGY_PROFILE` as the only source of runtime identity.
 
 Platform repositories may change when a new broker capability is needed, such as a new market-data input builder. They should not change their core execution flow just to accommodate a strategy-private parameter.
 
@@ -132,6 +135,7 @@ Profiles with `config_source_policy="bundled_or_env"` use the packaged canonical
 6. Run strategy contract governance and entrypoint tests, then verify `describe_platform_runtime_requirements()`.
 7. Run each platform status or switch-plan script and confirm eligible/enabled state plus artifact env requirements come from the adapter.
 8. Modify platform core flow only when a new broker data source or execution capability is required.
+9. Ensure the platform emits the structured runtime target that matches the selected service / account identity.
 
 ## Test gates
 

@@ -6,6 +6,8 @@ Use this after the shared package and platform code is already deployed.
 
 Do **not** use it to justify switching a profile that is not already supported by the platform status matrix.
 
+The current control plane carries `RuntimeTarget` / `RUNTIME_TARGET_JSON` for service identity, while `STRATEGY_PROFILE` remains the compatibility selector for strategy routing.
+
 ## Scope
 
 Configurable US equity profiles:
@@ -109,9 +111,9 @@ Required result:
 
 If any of those checks fail, stop. That is a code or rollout problem, not a live switch problem.
 
-## Step 2: know which extra envs the profile needs
+## Step 2: know which extra envs the selected runtime still needs
 
-| Profile | Extra runtime inputs beyond `STRATEGY_PROFILE` |
+| Profile | Extra runtime inputs beyond `RUNTIME_TARGET_JSON` / `STRATEGY_PROFILE` |
 | --- | --- |
 | `global_etf_rotation` | none |
 | `mega_cap_leader_rotation_top50_balanced` | feature snapshot path + snapshot manifest path |
@@ -133,11 +135,13 @@ Preferred operational path:
 
 - update GitHub repository variables or environment variables
 - let `.github/workflows/sync-cloud-run-env.yml` apply the change
+- keep `RUNTIME_TARGET_JSON` aligned with the selected service, region, and account identity
 
 ### IBKR
 
 Required:
 
+- `RUNTIME_TARGET_JSON`
 - `STRATEGY_PROFILE`
 - `ACCOUNT_GROUP`
 - `IB_ACCOUNT_GROUP_CONFIG_SECRET_NAME`
@@ -163,6 +167,7 @@ Remove when not needed:
 
 Required:
 
+- `RUNTIME_TARGET_JSON`
 - `STRATEGY_PROFILE`
 
 Optional:
@@ -185,6 +190,7 @@ Remove when not needed:
 
 Required:
 
+- `RUNTIME_TARGET_JSON`
 - `STRATEGY_PROFILE`
 - `ACCOUNT_PREFIX`
 - `ACCOUNT_REGION`

@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .runtime_target import RuntimeTarget
+
 RUNTIME_REPORT_SCHEMA_VERSION = "runtime_report.v1"
 
 
@@ -24,10 +26,14 @@ def build_runtime_report_base(
     strategy_profile: str,
     run_id: str,
     run_source: str,
+    runtime_target: RuntimeTarget | Mapping[str, Any] | None = None,
     strategy_domain: str | None = None,
     account_scope: str | None = None,
     account_group: str | None = None,
     account_region: str | None = None,
+    project_id: str | None = None,
+    instance_name: str | None = None,
+    extra_context_fields: Mapping[str, Any] | None = None,
     dry_run: bool = False,
     status: str = "started",
     started_at: datetime | str | None = None,
@@ -42,6 +48,7 @@ def build_runtime_report_base(
         "deploy_target": str(deploy_target),
         "service_name": str(service_name),
         "strategy_profile": str(strategy_profile),
+        "runtime_target": _normalize_runtime_target(runtime_target),
         "strategy_domain": _optional_string(strategy_domain),
         "account_scope": _resolve_account_scope(
             account_scope=account_scope,
@@ -50,12 +57,15 @@ def build_runtime_report_base(
         ),
         "account_group": _optional_string(account_group),
         "account_region": _optional_string(account_region),
+        "project_id": _optional_string(project_id),
+        "instance_name": _optional_string(instance_name),
         "run_id": str(run_id),
         "run_source": str(run_source),
         "status": str(status),
         "dry_run": bool(dry_run),
         "started_at": _normalize_datetime(started_at),
         "finished_at": _normalize_datetime(finished_at),
+        **_normalize_mapping(extra_context_fields),
         "summary": _normalize_mapping(summary),
         "diagnostics": _normalize_mapping(diagnostics),
         "artifacts": _normalize_mapping(artifacts),
@@ -265,6 +275,14 @@ def _normalize_mapping(mapping: Mapping[str, Any] | None) -> dict[str, Any]:
     if not mapping:
         return {}
     return {str(key): _normalize_value(value) for key, value in mapping.items()}
+
+
+def _normalize_runtime_target(value: RuntimeTarget | Mapping[str, Any] | None) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, RuntimeTarget):
+        return _normalize_mapping(value.to_dict())
+    return _normalize_mapping(value)
 
 
 def _normalize_value(value: Any) -> Any:

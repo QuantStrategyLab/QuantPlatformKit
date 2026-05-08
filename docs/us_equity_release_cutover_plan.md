@@ -11,7 +11,7 @@ This document is the operational follow-up to:
 It focuses on one thing only:
 
 - how to release the shared packages safely
-- how to move the live platform services to the intended strategy profiles
+- how to move the live platform services to the intended runtime target and compatible strategy profile
 
 It does **not** redefine strategy formulas.
 
@@ -180,22 +180,23 @@ git push origin HEAD
 
 If any repo still has unrelated local edits, split or stash them before creating the release commit.
 
-## Strategy selector cutover pattern
+## Runtime-target cutover pattern
 
-This public runbook does not pin any account or service to a current strategy profile. Choose the target profile from the supported platform matrix, then apply the matching input mode below.
+This public runbook does not pin any account or service to a current strategy profile. Choose the target runtime target first, then apply the matching compatible profile and input mode below.
 
-| Service family | Strategy selector | Direct-runtime profile inputs | Snapshot-backed profile inputs |
-| --- | --- | --- | --- |
-| Schwab Cloud Run service | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | market / benchmark history and portfolio snapshot from the runtime | feature snapshot path, manifest path, and optional strategy config path |
-| IBKR Cloud Run service | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | market / benchmark history and portfolio snapshot from the runtime | feature snapshot path, manifest path, optional strategy config path, and reconciliation output path |
-| LongBridge regional service | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | market / benchmark history and portfolio snapshot from the runtime | feature snapshot path, manifest path, and optional strategy config path |
+| Service family | Runtime identity | Compatible strategy selector | Direct-runtime profile inputs | Snapshot-backed profile inputs |
+| --- | --- | --- | --- | --- |
+| Schwab Cloud Run service | `RUNTIME_TARGET_JSON` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | market / benchmark history and portfolio snapshot from the runtime | feature snapshot path, manifest path, and optional strategy config path |
+| IBKR Cloud Run service | `RUNTIME_TARGET_JSON` + `ACCOUNT_GROUP` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | market / benchmark history and portfolio snapshot from the runtime | feature snapshot path, manifest path, optional strategy config path, and reconciliation output path |
+| LongBridge regional service | `RUNTIME_TARGET_JSON` + `ACCOUNT_REGION` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | market / benchmark history and portfolio snapshot from the runtime | feature snapshot path, manifest path, and optional strategy config path |
 
 ## Cutover env changes
 
 ### Direct-runtime profile
 
-Set:
+Set the runtime identity first, then:
 
+- `RUNTIME_TARGET_JSON`
 - `STRATEGY_PROFILE=<direct-runtime profile>`
 
 Remove stale snapshot envs if present:
@@ -209,8 +210,9 @@ Keep execution-mode or dry-run flags unchanged unless the rollout decision expli
 
 ### Snapshot-backed profile
 
-Set:
+Set the runtime identity first, then:
 
+- `RUNTIME_TARGET_JSON`
 - `STRATEGY_PROFILE=<snapshot-backed profile>`
 - `<PLATFORM>_FEATURE_SNAPSHOT_PATH`
 - `<PLATFORM>_FEATURE_SNAPSHOT_MANIFEST_PATH`
@@ -225,6 +227,7 @@ Reason:
 
 Set per regional service:
 
+- `RUNTIME_TARGET_JSON`
 - `ACCOUNT_PREFIX=HK|SG`
 - `ACCOUNT_REGION=HK|SG`
 - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`

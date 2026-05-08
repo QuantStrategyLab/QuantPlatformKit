@@ -102,13 +102,15 @@ class FeatureSnapshotRuntimeTests(unittest.TestCase):
         )
 
         self.assertEqual(observed["path"], "gs://bucket/snapshot.csv")
-        self.assertEqual(observed["kwargs"]["run_as_of"], as_of)
+        self.assertIsNone(observed["kwargs"]["run_as_of"].tzinfo)
+        self.assertEqual(observed["kwargs"]["run_as_of"].date(), as_of.date())
         self.assertEqual(
             observed["kwargs"]["manifest_path"],
             "gs://bucket/snapshot.csv.manifest.json",
         )
         self.assertEqual(result.decision.positions[0].symbol, "AAPL")
-        self.assertEqual(result.decision.diagnostics["run_as_of"], as_of)
+        self.assertIsNone(result.decision.diagnostics["run_as_of"].tzinfo)
+        self.assertEqual(result.decision.diagnostics["run_as_of"].date(), as_of.date())
         self.assertEqual(result.metadata["managed_symbols"], ("AAPL", "BOXX"))
         self.assertEqual(result.metadata["status_icon"], "🧲")
         self.assertIs(result.metadata["dry_run_only"], True)

@@ -88,8 +88,11 @@ def evaluate_feature_snapshot_strategy(
     profile = entrypoint.manifest.profile
     evaluation_as_of = as_of if as_of is not None else datetime.now(timezone.utc)
     runtime_config = dict(runtime_config)
+    run_as_of = runtime_config.get("run_as_of", evaluation_as_of)
+    if getattr(run_as_of, "tzinfo", None) is not None:
+        run_as_of = run_as_of.replace(tzinfo=None)
     if set_run_as_of:
-        runtime_config.setdefault("run_as_of", evaluation_as_of)
+        runtime_config.setdefault("run_as_of", run_as_of)
     _apply_runtime_policy(runtime_config, runtime_adapter)
 
     runtime_config_name = str(
@@ -135,7 +138,7 @@ def evaluate_feature_snapshot_strategy(
 
     guard_result = snapshot_loader(
         runtime_settings.feature_snapshot_path,
-        run_as_of=evaluation_as_of,
+        run_as_of=run_as_of,
         required_columns=runtime_adapter.required_feature_columns,
         snapshot_date_columns=tuple(runtime_adapter.snapshot_date_columns),
         max_snapshot_month_lag=int(runtime_adapter.max_snapshot_month_lag),

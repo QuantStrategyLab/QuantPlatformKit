@@ -1,11 +1,9 @@
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta
 from dataclasses import dataclass, field
-from importlib import import_module
 from typing import Any, Callable, Mapping, Protocol
 import math
-
-import pandas as pd
 
 
 class StrategyContractValidationError(ValueError):
@@ -226,47 +224,39 @@ _CONFIG_SOURCE_POLICIES = frozenset(
 _RECONCILIATION_OUTPUT_POLICIES = frozenset({"none", "optional", "required"})
 
 
-def _load_nyse_calendar():
-    try:
-        module = import_module("pandas_market_calendars")
-    except Exception:
-        return None
-    try:
-        return module.get_calendar("NYSE")
-    except Exception:
-        return None
-
-
-def _normalize_as_of_date(as_of: Any) -> pd.Timestamp:
-    timestamp = pd.Timestamp(as_of)
-    if timestamp.tzinfo is not None:
-        timestamp = timestamp.tz_convert(None)
-    return timestamp.normalize()
+def _normalize_as_of_date(as_of: Any) -> date:
+    if isinstance(as_of, datetime):
+        return as_of.date()
+    if isinstance(as_of, date):
+        return as_of
+    to_pydatetime = getattr(as_of, "to_pydatetime", None)
+    if callable(to_pydatetime):
+        candidate = to_pydatetime()
+        if isinstance(candidate, datetime):
+            return candidate.date()
+        if isinstance(candidate, date):
+            return candidate
+    if isinstance(as_of, str):
+        try:
+            return datetime.fromisoformat(as_of).date()
+        except ValueError:
+            return date.fromisoformat(as_of)
+    return datetime.fromisoformat(str(as_of)).date()
 
 
 def _next_trading_days(
-    start_date: pd.Timestamp,
+    start_date: date,
     *,
     count: int,
-) -> tuple[tuple[pd.Timestamp, ...], str]:
+) -> tuple[tuple[date, ...], str]:
     normalized_start = _normalize_as_of_date(start_date)
-    calendar = _load_nyse_calendar()
-    if calendar is not None:
-        schedule = calendar.schedule(
-            start_date=normalized_start + pd.Timedelta(days=1),
-            end_date=normalized_start + pd.Timedelta(days=max(10, count * 10)),
-        )
-        if not schedule.empty:
-            days = tuple(pd.Timestamp(index).tz_localize(None).normalize() for index in schedule.index[:count])
-            if len(days) == count:
-                return days, "pandas_market_calendars"
-    fallback_days = tuple(
-        pd.bdate_range(
-            start=normalized_start + pd.Timedelta(days=1),
-            periods=max(1, count),
-        ).normalize()
-    )
-    return fallback_days[:count], "business_day_fallback"
+    days: list[date] = []
+    current = normalized_start
+    while len(days) < max(1, count):
+        current += timedelta(days=1)
+        if current.weekday() < 5:
+            days.append(current)
+    return tuple(days[:count]), "business_day_fallback"
 
 
 def build_execution_timing_metadata(
@@ -276,7 +266,7 @@ def build_execution_timing_metadata(
 ) -> dict[str, Any]:
     resolved_signal_date = _normalize_as_of_date(signal_date)
     metadata: dict[str, Any] = {
-        "signal_date": resolved_signal_date.date().isoformat(),
+        "signal_date": resolved_signal_date.isoformat(),
     }
     if signal_effective_after_trading_days is None:
         return metadata
@@ -284,7 +274,7 @@ def build_execution_timing_metadata(
     delay = int(signal_effective_after_trading_days)
     metadata["signal_effective_after_trading_days"] = delay
     if delay == 0:
-        metadata["effective_date"] = resolved_signal_date.date().isoformat()
+        metadata["effective_date"] = resolved_signal_date.isoformat()
         metadata["execution_timing_contract"] = "same_trading_day"
         metadata["execution_calendar_source"] = "signal_date"
         return metadata
@@ -294,7 +284,7 @@ def build_execution_timing_metadata(
         count=delay,
     )
     effective_date = trading_days[-1] if trading_days else resolved_signal_date
-    metadata["effective_date"] = effective_date.date().isoformat()
+    metadata["effective_date"] = effective_date.isoformat()
     metadata["execution_timing_contract"] = (
         "next_trading_day" if delay == 1 else f"next_{delay}_trading_days"
     )

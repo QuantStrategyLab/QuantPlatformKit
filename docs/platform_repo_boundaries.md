@@ -14,6 +14,8 @@ The codebase is in a transitional state, so this document is meant to answer a s
 
 For the platform / strategy-domain / configurable-profile matrix, see [`platform_strategy_matrix.md`](./platform_strategy_matrix.md).
 
+For the runtime-target-first architecture and the Bridge / Adapter split, see [`runtime_target_architecture.md`](./runtime_target_architecture.md).
+
 ## 1. `QuantPlatformKit`
 
 `QuantPlatformKit` is the shared dependency.
@@ -28,6 +30,7 @@ It should own:
   - strategy domain
   - strategy profile definition
   - platform compatibility rules
+  - `RuntimeTarget` / `RuntimeAssembly` bridge objects
 
 It should **not** own:
 
@@ -75,7 +78,9 @@ When a runtime already has a controlled cutover window, prefer removing the old
 flat callable entrypoint entirely instead of carrying both shapes in parallel.
 Keeping `runtime/config` and legacy one-off call signatures alive at the same
 time usually leaks compatibility branches back into execution and notification
-code.
+code. The shared `RuntimeTarget` / `RuntimeAssembly` bridge exists so
+entrypoints can stay thin while runtime identity still flows through logs,
+reports, and deployment metadata.
 
 When a dependency already matches a shared interface, entrypoints should adapt
 it to the shared port first, for example:

@@ -16,7 +16,8 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - GitHub Variables remain the control plane for:
   - service names
   - regions
-  - strategy selectors such as `STRATEGY_PROFILE`
+  - structured runtime selectors such as `RUNTIME_TARGET_JSON`
+  - compatibility strategy selectors such as `STRATEGY_PROFILE`
   - secret selector variables such as `*_SECRET_NAME`
 - Secret Manager is the runtime source of truth for sensitive values that Cloud Run services actually consume.
 - The US equity Cloud Run env-sync workflows use GitHub OIDC + Workload Identity Federation. `GCP_SA_KEY` is not required for those workflows.
@@ -24,12 +25,12 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 
 ## Runtime inventory
 
-| Platform | Repo | Strategy domain | Strategy selector | Runtime model | Project / backend | Runtime unit |
-|---|---|---:|---|---|---|---|
-| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
-| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-service` |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
-| Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `STRATEGY_PROFILE=crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
+| Platform | Repo | Strategy domain | Runtime identity | Strategy selector | Runtime model | Project / backend | Runtime unit |
+|---|---|---:|---|---|---|---|---|
+| IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `RUNTIME_TARGET_JSON` + `ACCOUNT_GROUP` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+| Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `RUNTIME_TARGET_JSON` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | `charlesschwabquant` | `charles-schwab-quant-service` |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `RUNTIME_TARGET_JSON` + `ACCOUNT_REGION` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | configurable |
+| Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `RUNTIME_TARGET_JSON` (workflow-local) | `STRATEGY_PROFILE=crypto_leader_rotation` | Oracle Cloud + self-hosted runner | `binancequant` only for Firestore / GCP credentials | GitHub Actions `workflow_dispatch` + self-hosted runner |
 
 ## Platform details
 

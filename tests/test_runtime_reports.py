@@ -28,6 +28,7 @@ class RuntimeReportsTests(unittest.TestCase):
             strategy_domain="us_equity",
             run_id="run-001",
             run_source="cloud_run",
+            runtime_target={"platform_id": "charles_schwab", "strategy_profile": "tqqq_growth_income"},
             account_region="US",
             started_at=datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc),
             summary={"managed_symbols": ("TQQQ", "BOXX")},
@@ -35,6 +36,7 @@ class RuntimeReportsTests(unittest.TestCase):
 
         self.assertEqual(report["schema_version"], RUNTIME_REPORT_SCHEMA_VERSION)
         self.assertEqual(report["platform"], "charles_schwab")
+        self.assertEqual(report["runtime_target"]["platform_id"], "charles_schwab")
         self.assertEqual(report["account_scope"], "US")
         self.assertEqual(report["status"], "started")
         self.assertEqual(report["summary"]["managed_symbols"], ["TQQQ", "BOXX"])
