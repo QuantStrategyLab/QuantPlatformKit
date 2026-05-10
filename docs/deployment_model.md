@@ -4,7 +4,7 @@
 
 - `QuantPlatformKit` remains the shared platform package and is **not deployed as a runtime service**.
 - The current runtime repositories (`InteractiveBrokersPlatform`, `CharlesSchwabPlatform`, `LongBridgePlatform`, `BinancePlatform`) are the **transitional deployment units**.
-- The **target state** is one deployment repository per broker platform, with strategy behavior selected through `RuntimeTarget` / `RUNTIME_TARGET_JSON` and compatibility selectors such as `STRATEGY_PROFILE`.
+- The **target state** is one deployment repository per broker platform, with structured runtime identity carried through `RuntimeTarget` / `RUNTIME_TARGET_JSON` and `STRATEGY_PROFILE` retained only as a compatibility routing selector.
 - Strategy or platform repositories should always depend on a fixed `QuantPlatformKit` Git tag instead of `main`.
 
 For the live runtime inventory across repositories, projects, services, schedulers, runtime identities, and current secret names, see [`platform_runtime_inventory.md`](./platform_runtime_inventory.md).
@@ -152,7 +152,7 @@ Within one broker platform repository, selecting a strategy by configuration is 
 Recommended selector:
 
 - `RUNTIME_TARGET_JSON` for structured runtime identity
-- `STRATEGY_PROFILE` for compatibility with existing strategy routing
+- `STRATEGY_PROFILE` only for compatibility with existing strategy routing
 
 Good examples:
 

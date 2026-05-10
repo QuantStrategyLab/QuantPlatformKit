@@ -18,7 +18,7 @@ _核对时间：2026-04-18_
 - 当前只有两个策略大类：
   - `us_equity`
   - `crypto`
-- 各个平台仓库现在都已经保留了 `STRATEGY_PROFILE` 入口，但这**还不是**真正的多策略平台。
+- 各个平台仓库现在都已经保留了 `RUNTIME_TARGET_JSON` 结构化运行身份，`STRATEGY_PROFILE` 只作为兼容路由入口，但这**还不是**真正的多策略平台。
 - 现在每个美股平台仓库都可以在 `UsEquityStrategies` 发布的 `runtime_enabled` `us_equity` profile 之间切换，前提是对应平台 rollout 配置已经放开。
 - 平台 runtime adapter 会根据策略输入、target mode 和平台 capability 自动生成；规范内的新 profile 不应该再需要三个平台分别手写 allowlist。
 - 共享契约在 `QuantPlatformKit`；真实的 `us_equity` 策略实现现在放在 `UsEquityStrategies`，平台仓库负责运行时适配和券商执行。

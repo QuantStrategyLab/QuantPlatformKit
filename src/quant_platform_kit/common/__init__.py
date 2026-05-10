@@ -15,11 +15,8 @@ from .runtime_assembly import RuntimeAssembly, build_runtime_assembly
 from .runtime_target import (
     build_runtime_context_fields,
     RuntimeTarget,
-    ResolvedRuntimeIdentity,
     build_runtime_target,
-    resolve_runtime_identity_from_env,
     resolve_runtime_target_from_env,
-    resolve_runtime_target_strategy_profile_from_env,
 )
 from .strategy_plugins import (
     PLUGIN_MODE_SHADOW,
@@ -40,7 +37,6 @@ __all__ = [
     "SUPPORTED_STRATEGY_PLUGIN_MODES",
     "localize_notification_text",
     "RuntimeTarget",
-    "ResolvedRuntimeIdentity",
     "build_runtime_context_fields",
     "build_run_id",
     "emit_runtime_log",
@@ -56,9 +52,7 @@ __all__ = [
     "load_strategy_plugin_signal",
     "normalize_strategy_plugin_mode",
     "parse_strategy_plugin_mounts",
-    "resolve_runtime_identity_from_env",
     "resolve_runtime_target_from_env",
-    "resolve_runtime_target_strategy_profile_from_env",
     "translator_uses_zh",
     "validate_strategy_plugin_signal_payload",
 ]
