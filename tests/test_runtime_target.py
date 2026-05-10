@@ -53,13 +53,6 @@ class RuntimeTargetTests(unittest.TestCase):
                     '"execution_mode":"paper"}'
                 )
             },
-            platform_id="longbridge",
-            strategy_profile="fallback_profile",
-            dry_run_only=False,
-            deployment_selector="SG",
-            account_selector=("SG",),
-            account_scope="SG",
-            service_name="fallback-service",
         )
 
         self.assertEqual(target.platform_id, "longbridge")
@@ -78,12 +71,10 @@ class RuntimeTargetTests(unittest.TestCase):
                     "RUNTIME_TARGET_JSON": (
                         '{"platform_id":"schwab","strategy_profile":"tqqq_growth_income",'
                         '"dry_run_only":false,"execution_mode":"paper"}'
-                    )
-                },
-                platform_id="schwab",
-                strategy_profile="tqqq_growth_income",
-                dry_run_only=False,
-            )
+                )
+            },
+            expected_platform_id="schwab",
+        )
 
     def test_resolve_runtime_target_from_env_rejects_mismatched_platform(self) -> None:
         with self.assertRaisesRegex(
@@ -95,12 +86,14 @@ class RuntimeTargetTests(unittest.TestCase):
                     "RUNTIME_TARGET_JSON": (
                         '{"platform_id":"ibkr","strategy_profile":"global_etf_rotation",'
                         '"dry_run_only":false}'
-                    )
-                },
-                platform_id="longbridge",
-                strategy_profile="global_etf_rotation",
-                dry_run_only=False,
+                )
+            },
+                expected_platform_id="longbridge",
             )
+
+    def test_resolve_runtime_target_from_env_requires_structured_json(self) -> None:
+        with self.assertRaisesRegex(EnvironmentError, "RUNTIME_TARGET_JSON is required"):
+            resolve_runtime_target_from_env(env={})
 
     def test_build_runtime_context_fields_merges_runtime_target_without_overwriting_fields(self) -> None:
         target = build_runtime_target(

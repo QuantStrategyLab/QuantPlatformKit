@@ -91,25 +91,27 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Cloud Run project**
   - `longbridgequant`
 - **Services**
-  - HK: `longbridge-quant-hk-service`
+  - PAPER: `longbridge-quant-paper-service`
+  - HK: reserved / not yet wired
   - SG: `longbridge-quant-sg-service`
 - **Runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **Schedulers**
-  - `longbridge-quant-hk-service-scheduler` in `asia-east2`
+  - `longbridge-quant-paper-service-scheduler` in `asia-east2`
+  - HK: reserved / not yet wired
   - `longbridge-quant-sg-service-scheduler` in `asia-southeast1`
 - **Core runtime selectors**
-  - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per regional service
-  - `ACCOUNT_REGION=HK|SG`
-  - `LONGPORT_SECRET_NAME=<region token secret>`
+  - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per account service
+  - `ACCOUNT_REGION=PAPER|HK|SG`
+  - `LONGPORT_SECRET_NAME=<account token secret>`
 - **Runtime secrets**
   - Secret Manager refs for LongPort app key / app secret
-  - region token secrets selected by `LONGPORT_SECRET_NAME`
+  - account token secrets selected by `LONGPORT_SECRET_NAME`
   - runtime Telegram token secret
 - **Runtime notes**
-  - HK and SG keep two independent Cloud Run services, two triggers, and two GitHub Environments.
+  - PAPER and SG are live today; HK keeps the same deployment pattern when it is added. Each account identity gets its own Cloud Run service, trigger, and GitHub Environment.
   - Snapshot-backed profiles require feature snapshot path / manifest envs; direct-runtime profiles do not.
-  - App key / secret are region-specific Secret Manager refs; Telegram token is shared inside the LongBridge project.
+  - App key / secret are account-specific Secret Manager refs; Telegram token is shared inside the LongBridge project.
   - `SERVICE_NAME` should use the full runtime-facing service names above, not older short prefixes.
 
 ### Binance

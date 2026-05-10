@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
 from collections.abc import Iterable
+from dataclasses import dataclass, asdict
 from typing import Any, Mapping
 
 
@@ -24,12 +24,6 @@ class RuntimeTarget:
         payload = asdict(self)
         payload["execution_mode"] = self.execution_mode
         return payload
-
-
-@dataclass(frozen=True)
-class ResolvedRuntimeIdentity:
-    strategy_profile: str
-    runtime_target: RuntimeTarget
 
 
 def build_runtime_context_fields(
@@ -105,25 +99,11 @@ def _coerce_optional_bool(value: object) -> bool | None:
 def resolve_runtime_target_from_env(
     *,
     env: Mapping[str, str | None],
-    platform_id: str,
-    strategy_profile: str,
-    dry_run_only: bool,
-    deployment_selector: str | None = None,
-    account_selector: Iterable[str] | str | None = None,
-    account_scope: str | None = None,
-    service_name: str | None = None,
+    expected_platform_id: str | None = None,
 ) -> RuntimeTarget:
     raw_payload = _normalize_optional_string(env.get("RUNTIME_TARGET_JSON"))
     if raw_payload is None:
-        return build_runtime_target(
-            platform_id=platform_id,
-            strategy_profile=strategy_profile,
-            dry_run_only=dry_run_only,
-            deployment_selector=deployment_selector,
-            account_selector=account_selector,
-            account_scope=account_scope,
-            service_name=service_name,
-        )
+        raise EnvironmentError("RUNTIME_TARGET_JSON is required")
 
     try:
         payload = json.loads(raw_payload)
@@ -135,15 +115,19 @@ def resolve_runtime_target_from_env(
 
     resolved_platform_id = _normalize_optional_string(payload.get("platform_id"))
     if resolved_platform_id is None:
-        resolved_platform_id = platform_id
-    elif resolved_platform_id != platform_id:
+        raise ValueError("RUNTIME_TARGET_JSON.platform_id is required")
+    if expected_platform_id is not None and resolved_platform_id != expected_platform_id:
         raise ValueError(
             "RUNTIME_TARGET_JSON.platform_id does not match the runtime platform"
         )
-    resolved_strategy_profile = payload.get("strategy_profile", strategy_profile)
+    resolved_strategy_profile = _normalize_optional_string(
+        payload.get("strategy_profile")
+    )
+    if resolved_strategy_profile is None:
+        raise ValueError("RUNTIME_TARGET_JSON.strategy_profile is required")
     resolved_dry_run_only = _coerce_optional_bool(payload.get("dry_run_only"))
     if resolved_dry_run_only is None:
-        resolved_dry_run_only = dry_run_only
+        raise ValueError("RUNTIME_TARGET_JSON.dry_run_only is required")
 
     execution_mode = payload.get("execution_mode")
     if execution_mode is not None and str(execution_mode).strip():
@@ -157,63 +141,8 @@ def resolve_runtime_target_from_env(
         platform_id=resolved_platform_id,
         strategy_profile=resolved_strategy_profile,
         dry_run_only=resolved_dry_run_only,
-        deployment_selector=payload.get("deployment_selector", deployment_selector),
-        account_selector=payload.get("account_selector", account_selector),
-        account_scope=payload.get("account_scope", account_scope),
-        service_name=payload.get("service_name", service_name),
-    )
-
-
-def resolve_runtime_target_strategy_profile_from_env(
-    env: Mapping[str, str | None],
-    *,
-    default_strategy_profile: str | None,
-) -> str | None:
-    raw_payload = _normalize_optional_string(env.get("RUNTIME_TARGET_JSON"))
-    if raw_payload is None:
-        return _normalize_optional_string(default_strategy_profile)
-
-    try:
-        payload = json.loads(raw_payload)
-    except json.JSONDecodeError as exc:
-        raise ValueError("RUNTIME_TARGET_JSON must contain valid JSON") from exc
-
-    if not isinstance(payload, dict):
-        raise ValueError("RUNTIME_TARGET_JSON must decode to an object")
-
-    resolved_strategy_profile = _normalize_optional_string(
-        payload.get("strategy_profile")
-    )
-    return resolved_strategy_profile or _normalize_optional_string(default_strategy_profile)
-
-
-def resolve_runtime_identity_from_env(
-    env: Mapping[str, str | None],
-    *,
-    platform_id: str,
-    default_strategy_profile: str | None,
-    dry_run_only: bool,
-    deployment_selector: str | None = None,
-    account_selector: Iterable[str] | str | None = None,
-    account_scope: str | None = None,
-    service_name: str | None = None,
-) -> ResolvedRuntimeIdentity:
-    strategy_profile = resolve_runtime_target_strategy_profile_from_env(
-        env,
-        default_strategy_profile=default_strategy_profile,
-    )
-    if strategy_profile is None:
-        raise EnvironmentError("STRATEGY_PROFILE is required")
-    return ResolvedRuntimeIdentity(
-        strategy_profile=strategy_profile,
-        runtime_target=resolve_runtime_target_from_env(
-            env=env,
-            platform_id=platform_id,
-            strategy_profile=strategy_profile,
-            dry_run_only=dry_run_only,
-            deployment_selector=deployment_selector,
-            account_selector=account_selector,
-            account_scope=account_scope,
-            service_name=service_name,
-        ),
+        deployment_selector=payload.get("deployment_selector"),
+        account_selector=payload.get("account_selector"),
+        account_scope=payload.get("account_scope"),
+        service_name=payload.get("service_name"),
     )

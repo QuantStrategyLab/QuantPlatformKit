@@ -4,6 +4,7 @@
 
 - `QuantPlatformKit` 是共享平台代码仓库，**不单独部署**。
 - `InteractiveBrokersPlatform`、`CharlesSchwabPlatform`、`LongBridgePlatform`、`BinancePlatform` 这些仓库才是实际运行单元。
+- 目标状态是每个平台一个部署仓库，结构化运行身份通过 `RuntimeTarget` / `RUNTIME_TARGET_JSON` 传递，`STRATEGY_PROFILE` 只作为兼容路由选择器保留。
 - 策略仓库应该固定依赖某个 Git tag，不要直接依赖 `main`。
 
 如果要看公开 runtime 接线清单，包括仓库、项目、服务、scheduler、runtime identity、selector 和 secret 入口，见 [`platform_runtime_inventory.zh-CN.md`](./platform_runtime_inventory.zh-CN.md)。
@@ -122,6 +123,7 @@ Cloud Run 继续只部署运行仓库，不部署 `QuantPlatformKit`。
 
 可以参数化的：
 
+- `RUNTIME_TARGET_JSON`
 - `IB_GATEWAY_MODE`
 - `ACCOUNT_PREFIX`
 - `SERVICE_NAME`
@@ -195,4 +197,5 @@ Cloud Run 继续只部署运行仓库，不部署 `QuantPlatformKit`。
 - 平台共享代码进 `QuantPlatformKit`
 - 平台运行仓库继续作为部署单元
 - GCP / VPS 只部署平台运行仓库
+- 运行身份优先看 `RUNTIME_TARGET_JSON`，`STRATEGY_PROFILE` 只保留兼容路由
 - 版本靠固定 tag 管理

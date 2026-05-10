@@ -72,7 +72,8 @@ Do not change service names as part of a strategy switch.
 | --- | --- | --- |
 | IBKR | `interactive-brokers-quant-service` | `ACCOUNT_GROUP` |
 | Schwab | `charles-schwab-quant-service` | single service |
-| LongBridge HK | `longbridge-quant-hk-service` | `ACCOUNT_REGION=HK` |
+| LongBridge PAPER | `longbridge-quant-paper-service` | `ACCOUNT_REGION=PAPER` |
+| LongBridge HK | reserved / not yet wired | `ACCOUNT_REGION=HK` |
 | LongBridge SG | `longbridge-quant-sg-service` | `ACCOUNT_REGION=SG` |
 
 ## Step 1: verify the target profile before touching env
@@ -265,7 +266,7 @@ Do not stop at Cloud Run env.
 Verify the first heartbeat or execution notification shows:
 
 - the expected display name
-- the expected account prefix (`[HK]` / `[SG]` for LongBridge)
+- the expected account prefix (`[PAPER]` / `[HK]` / `[SG]` for LongBridge)
 - no stale strategy-specific service-name suffix in the LongBridge notification prefix
 
 If the profile uses feature snapshots, also verify:
@@ -319,12 +320,12 @@ Why:
 - `tech_communication_pullback_enhancement` is a feature-snapshot profile
 - the strategy has a packaged canonical config; set the env path only when overriding it
 
-### Example C: switch LongBridge HK to `russell_1000_multi_factor_defensive`
+### Example C: switch LongBridge PAPER to `russell_1000_multi_factor_defensive`
 
 Keep:
 
-- `ACCOUNT_PREFIX=HK`
-- `ACCOUNT_REGION=HK`
+- `ACCOUNT_PREFIX=PAPER`
+- `ACCOUNT_REGION=PAPER`
 - `LONGPORT_SECRET_NAME`
 - `LONGPORT_APP_KEY_SECRET_NAME`
 - `LONGPORT_APP_SECRET_SECRET_NAME`
