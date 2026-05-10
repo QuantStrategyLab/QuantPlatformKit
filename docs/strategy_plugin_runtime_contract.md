@@ -17,7 +17,7 @@ artifacts, such as the Crisis Response plugin produced by
 
 Platform config should only decide which plugin artifacts are mounted for a
 strategy. It must not select the plugin mode. The mode lives inside the plugin
-artifact and is the single behavior contract.
+artifact and is fixed to notification-only `shadow`.
 
 Suggested environment variable name: `STRATEGY_PLUGIN_MOUNTS_JSON`.
 
@@ -53,9 +53,9 @@ or reinterpret the mode:
 }
 ```
 
-Do not put `mode` in the platform mount config. If the artifact says `paper`,
-the platform implements `paper`; if it says `live`, the platform implements
-`live` subject to risk checks and kill switches.
+Do not put `mode` in the platform mount config. `expected_mode` may be used only
+as a fail-closed guard and should be `shadow` when present. Artifacts declaring
+`paper`, `advisory`, or `live` are rejected.
 
 ## Runtime Loader
 
@@ -80,8 +80,7 @@ The loader validates:
 
 - the artifact is a JSON object
 - `strategy` and `plugin` match the configured mount
-- `mode`, `configured_mode`, and `effective_mode` are one of `shadow`, `paper`,
-  `advisory`, or `live`
+- `mode`, `configured_mode`, and `effective_mode` are `shadow`
 - optional `expected_mode` matches `effective_mode`
 - duplicate platform mounts are rejected
 - platform mount config does not set `mode`
@@ -91,11 +90,6 @@ The loader validates:
 For `shadow`, platform runtimes should only add logs, runtime report fields, and
 notification context.
 
-For `paper`, platform runtimes may maintain a simulated plugin ledger, but must
-not mutate real allocations.
-
-For `advisory`, platform runtimes may surface a recommendation that requires
-human confirmation.
-
-For `live`, platform runtimes may allow execution only through explicit platform
-risk budgets, kill switches, and data-freshness checks.
+`paper`, `advisory`, and `live` plugin modes are not supported by the shared
+contract. Platforms should not maintain plugin ledgers or execute plugin-driven
+allocation changes from this sidecar path.

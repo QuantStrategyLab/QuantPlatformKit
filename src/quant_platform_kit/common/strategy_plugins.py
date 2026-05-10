@@ -11,12 +11,7 @@ from pathlib import Path
 from typing import Any
 
 PLUGIN_MODE_SHADOW = "shadow"
-PLUGIN_MODE_PAPER = "paper"
-PLUGIN_MODE_ADVISORY = "advisory"
-PLUGIN_MODE_LIVE = "live"
-SUPPORTED_STRATEGY_PLUGIN_MODES = frozenset(
-    {PLUGIN_MODE_SHADOW, PLUGIN_MODE_PAPER, PLUGIN_MODE_ADVISORY, PLUGIN_MODE_LIVE}
-)
+SUPPORTED_STRATEGY_PLUGIN_MODES = frozenset({PLUGIN_MODE_SHADOW})
 DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR = Path(tempfile.gettempdir()) / "quant_strategy_plugin_artifacts"
 
 
