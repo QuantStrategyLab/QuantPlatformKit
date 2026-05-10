@@ -79,7 +79,7 @@ _校验快照日期：2026-04-18_
   - runtime Telegram token secret
 - **运行说明**
   - 运行时敏感配置应使用 Secret Manager 引用，不应放在 Cloud Run 明文 env。
-  - 策略插件是 sidecar：`shadow` 只写日志和通知；`paper`、`advisory`、`live` 的语义由插件执行模式契约统一约束。
+  - 策略插件是 sidecar：只支持 `shadow` 通知模式；插件驱动的 `paper`、`advisory`、`live` 执行模式不属于共享契约。
   - token refresher 不在这个仓库里，而是在：
     - `QuantStrategyLab/SchwabTokenAutoRefresher`
 
