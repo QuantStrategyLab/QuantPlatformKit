@@ -51,6 +51,15 @@ def _std(values: Iterable[float]) -> float:
     return float(sqrt(variance))
 
 
+def _sample_std(values: Iterable[float]) -> float:
+    values = tuple(values)
+    if len(values) < 2:
+        raise ValueError("sample std requires at least two values")
+    mean_value = _mean(values)
+    variance = sum((value - mean_value) ** 2 for value in values) / (len(values) - 1)
+    return float(sqrt(variance))
+
+
 def _tail_mean(values: tuple[float, ...], window: int) -> float:
     if len(values) < window:
         raise ValueError("insufficient history for rolling mean")
@@ -61,6 +70,18 @@ def _tail_std(values: tuple[float, ...], window: int) -> float:
     if len(values) < window:
         raise ValueError("insufficient history for rolling std")
     return _std(values[-window:])
+
+
+def _tail_realized_volatility(values: tuple[float, ...], window: int) -> float:
+    if len(values) < window + 1:
+        raise ValueError("insufficient history for realized volatility")
+    tail_values = values[-(window + 1):]
+    returns: list[float] = []
+    for previous, current in zip(tail_values, tail_values[1:]):
+        if previous == 0.0:
+            raise ValueError("realized volatility requires non-zero prices")
+        returns.append((current / previous) - 1.0)
+    return float(_sample_std(returns) * sqrt(252))
 
 
 def _compute_rsi(values: tuple[float, ...], *, window: int = 14) -> tuple[float, ...]:
@@ -161,6 +182,7 @@ def build_semiconductor_rotation_indicators_from_history(
     )
     soxx_bb_mid = _tail_mean(soxx_close, 20)
     soxx_bb_std = _tail_std(soxx_close, 20)
+    soxx_realized_volatility_20 = _tail_realized_volatility(soxx_close, 20)
     return {
         "soxl": {
             "price": float(soxl_close[-1]),
@@ -176,6 +198,8 @@ def build_semiconductor_rotation_indicators_from_history(
             "bb_mid": soxx_bb_mid,
             "bb_upper": soxx_bb_mid + 2.0 * soxx_bb_std,
             "bb_lower": soxx_bb_mid - 2.0 * soxx_bb_std,
+            "realized_volatility": soxx_realized_volatility_20,
+            "realized_volatility_20": soxx_realized_volatility_20,
         },
     }
 

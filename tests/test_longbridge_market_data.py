@@ -79,6 +79,11 @@ class LongBridgeMarketDataTests(unittest.TestCase):
         self.assertGreaterEqual(indicators["soxx"]["rsi14_dynamic_threshold"], 70.0)
         self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
         self.assertLess(indicators["soxx"]["bb_lower"], indicators["soxx"]["price"])
+        self.assertIn("realized_volatility_20", indicators["soxx"])
+        self.assertEqual(
+            indicators["soxx"]["realized_volatility"],
+            indicators["soxx"]["realized_volatility_20"],
+        )
 
 
 if __name__ == "__main__":
