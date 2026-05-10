@@ -80,7 +80,7 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
   - runtime Telegram token secret
 - **Runtime notes**
   - Runtime-sensitive envs should use Secret Manager refs, not plain Cloud Run env values.
-  - Strategy plugins are sidecars: `shadow` logs and notifies only; `paper`, `advisory`, and `live` semantics are governed by the plugin execution mode contract.
+  - Strategy plugins are sidecars: only `shadow` notification mode is supported; plugin-driven paper, advisory, and live execution modes are not part of the shared contract.
   - The token refresher lives outside this repo:
     - `QuantStrategyLab/SchwabTokenAutoRefresher`
 

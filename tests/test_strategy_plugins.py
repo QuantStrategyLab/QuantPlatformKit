@@ -4,7 +4,6 @@ import unittest
 from pathlib import Path
 
 from quant_platform_kit.common.strategy_plugins import (
-    PLUGIN_MODE_PAPER,
     PLUGIN_MODE_SHADOW,
     build_strategy_plugin_report_payload,
     load_configured_strategy_plugin_signals,
@@ -27,8 +26,8 @@ def _signal_payload(*, strategy="tqqq_growth_income", plugin="crisis_response_sh
         "suggested_action": "watch_only",
         "would_trade_if_enabled": False,
         "execution_controls": {
-            "broker_order_allowed": mode == "live",
-            "live_allocation_mutation_allowed": mode == "live",
+            "broker_order_allowed": False,
+            "live_allocation_mutation_allowed": False,
             "repository_broker_write_allowed": False,
             "repository_allocation_mutation_allowed": False,
         },
@@ -79,18 +78,18 @@ class StrategyPluginsTests(unittest.TestCase):
     def test_load_strategy_plugin_signal_validates_identity_and_mode(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             signal_path = Path(tmp_dir) / "latest_signal.json"
-            signal_path.write_text(json.dumps(_signal_payload(mode=PLUGIN_MODE_PAPER)), encoding="utf-8")
+            signal_path.write_text(json.dumps(_signal_payload(mode=PLUGIN_MODE_SHADOW)), encoding="utf-8")
 
             signal = load_strategy_plugin_signal(
                 str(signal_path),
                 expected_strategy="tqqq_growth_income",
                 expected_plugin="crisis_response_shadow",
-                expected_mode=PLUGIN_MODE_PAPER,
+                expected_mode=PLUGIN_MODE_SHADOW,
             )
 
         self.assertEqual(signal.strategy, "tqqq_growth_income")
         self.assertEqual(signal.plugin, "crisis_response_shadow")
-        self.assertEqual(signal.effective_mode, PLUGIN_MODE_PAPER)
+        self.assertEqual(signal.effective_mode, PLUGIN_MODE_SHADOW)
         self.assertFalse(signal.execution_controls["repository_broker_write_allowed"])
         self.assertEqual(signal.local_path, str(signal_path))
 
@@ -139,11 +138,18 @@ class StrategyPluginsTests(unittest.TestCase):
 
         self.assertEqual([signal.plugin for signal in signals], ["crisis_response_shadow"])
 
-    def test_validate_strategy_plugin_signal_payload_rejects_expected_mode_mismatch(self):
-        with self.assertRaisesRegex(ValueError, "mode mismatch"):
+    def test_validate_strategy_plugin_signal_payload_rejects_non_shadow_artifact_mode(self):
+        with self.assertRaisesRegex(ValueError, "mode must be one of shadow"):
+            validate_strategy_plugin_signal_payload(
+                _signal_payload(mode="paper"),
+                expected_mode=PLUGIN_MODE_SHADOW,
+            )
+
+    def test_validate_strategy_plugin_signal_payload_rejects_non_shadow_expected_mode(self):
+        with self.assertRaisesRegex(ValueError, "expected_mode must be one of shadow"):
             validate_strategy_plugin_signal_payload(
                 _signal_payload(mode=PLUGIN_MODE_SHADOW),
-                expected_mode=PLUGIN_MODE_PAPER,
+                expected_mode="live",
             )
 
     def test_build_strategy_plugin_report_payload_uses_compact_summary(self):
