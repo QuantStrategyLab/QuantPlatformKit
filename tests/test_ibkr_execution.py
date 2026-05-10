@@ -87,6 +87,32 @@ class IbkrExecutionTests(unittest.TestCase):
         self.assertEqual(report.raw_payload["time_in_force"], "DAY")
         self.assertEqual(ib.orders[0][1].tif, "DAY")
 
+    def test_submit_order_intent_sets_account_when_provided(self) -> None:
+        ib = FakeIB()
+        report = submit_order_intent(
+            ib,
+            OrderIntent(symbol="SPY", side="buy", quantity=5, account_id="U18308207"),
+            wait_seconds=0,
+            stock_factory=FakeContract,
+            market_order_factory=FakeMarketOrder,
+        )
+
+        self.assertEqual(ib.orders[0][1].account, "U18308207")
+        self.assertEqual(report.raw_payload["account_id"], "U18308207")
+
+    def test_submit_order_intent_rejects_conflicting_account_id(self) -> None:
+        ib = FakeIB()
+
+        with self.assertRaises(ValueError):
+            submit_order_intent(
+                ib,
+                OrderIntent(symbol="SPY", side="buy", quantity=5, account_id="U18308207"),
+                account_id="U15998061",
+                wait_seconds=0,
+                stock_factory=FakeContract,
+                market_order_factory=FakeMarketOrder,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

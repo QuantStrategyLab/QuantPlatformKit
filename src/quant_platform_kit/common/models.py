@@ -42,6 +42,7 @@ class Position:
     market_value: float
     average_cost: float | None = None
     currency: str = "USD"
+    account_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,7 @@ class OrderIntent:
     order_type: str = "market"
     limit_price: float | None = None
     time_in_force: str | None = None
+    account_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

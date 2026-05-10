@@ -1,56 +1,66 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from types import SimpleNamespace
 import unittest
 
 from quant_platform_kit.ibkr.portfolio import fetch_portfolio_snapshot
 
 
-@dataclass
-class FakeContract:
-    symbol: str
-
-
-@dataclass
-class FakePosition:
-    contract: FakeContract
-    position: int
-    avgCost: float
-
-
-@dataclass
-class FakeAccountValue:
-    tag: str
-    currency: str
-    value: str
-
-
 class FakeIB:
+    def __init__(self):
+        self.req_positions_called = False
+
     def reqPositions(self):
-        self.positions_requested = True
+        self.req_positions_called = True
 
     def positions(self):
         return [
-            FakePosition(contract=FakeContract("SPY"), position=10, avgCost=99.0),
-            FakePosition(contract=FakeContract("AGG"), position=0, avgCost=100.0),
+            SimpleNamespace(
+                account="U18308207",
+                contract=SimpleNamespace(symbol="TQQQ"),
+                position=3,
+                avgCost=100.0,
+            ),
+            SimpleNamespace(
+                account="U15998061",
+                contract=SimpleNamespace(symbol="AAPL"),
+                position=5,
+                avgCost=200.0,
+            ),
         ]
 
     def accountValues(self):
         return [
-            FakeAccountValue(tag="NetLiquidation", currency="USD", value="100000"),
-            FakeAccountValue(tag="AvailableFunds", currency="USD", value="25000"),
+            SimpleNamespace(account="U18308207", tag="NetLiquidation", currency="USD", value="1000"),
+            SimpleNamespace(account="U18308207", tag="AvailableFunds", currency="USD", value="250"),
+            SimpleNamespace(account="U15998061", tag="NetLiquidation", currency="USD", value="2000"),
+            SimpleNamespace(account="U15998061", tag="AvailableFunds", currency="USD", value="500"),
         ]
 
 
 class IbkrPortfolioTests(unittest.TestCase):
-    def test_fetch_portfolio_snapshot_returns_equity_and_positions(self) -> None:
-        snapshot = fetch_portfolio_snapshot(FakeIB(), wait_seconds=0)
+    def test_fetch_portfolio_snapshot_filters_by_account_id(self) -> None:
+        ib = FakeIB()
 
-        self.assertEqual(snapshot.total_equity, 100000.0)
-        self.assertEqual(snapshot.buying_power, 25000.0)
-        self.assertEqual(len(snapshot.positions), 1)
-        self.assertEqual(snapshot.positions[0].symbol, "SPY")
-        self.assertEqual(snapshot.positions[0].market_value, 990.0)
+        snapshot = fetch_portfolio_snapshot(ib, account_ids=("U18308207",), wait_seconds=0)
+
+        self.assertTrue(ib.req_positions_called)
+        self.assertEqual(snapshot.total_equity, 1000.0)
+        self.assertEqual(snapshot.buying_power, 250.0)
+        self.assertEqual(tuple(position.symbol for position in snapshot.positions), ("TQQQ",))
+        self.assertEqual(snapshot.positions[0].account_id, "U18308207")
+        self.assertEqual(snapshot.metadata["account_ids"], ("U18308207",))
+
+    def test_fetch_portfolio_snapshot_sums_selected_accounts(self) -> None:
+        snapshot = fetch_portfolio_snapshot(
+            FakeIB(),
+            account_ids=("U18308207", "U15998061"),
+            wait_seconds=0,
+        )
+
+        self.assertEqual(snapshot.total_equity, 3000.0)
+        self.assertEqual(snapshot.buying_power, 750.0)
+        self.assertEqual(tuple(position.symbol for position in snapshot.positions), ("TQQQ", "AAPL"))
 
 
 if __name__ == "__main__":
