@@ -5,6 +5,11 @@ from typing import Any, Callable
 from quant_platform_kit.common.models import ExecutionReport, OrderIntent
 
 
+def _normalize_account_id(value: str | None) -> str | None:
+    text = str(value or "").strip()
+    return text or None
+
+
 def _build_stock_contract(
     symbol: str,
     *,
@@ -23,6 +28,7 @@ def submit_order_intent(
     ib: Any,
     order_intent: OrderIntent,
     *,
+    account_id: str | None = None,
     wait_seconds: float = 1.0,
     stock_factory: Callable[..., Any] | None = None,
     market_order_factory: Callable[..., Any] | None = None,
@@ -55,6 +61,16 @@ def submit_order_intent(
     else:
         raise ValueError(f"Unsupported IBKR order type: {order_intent.order_type!r}")
 
+    intent_account_id = _normalize_account_id(order_intent.account_id)
+    explicit_account_id = _normalize_account_id(account_id)
+    if intent_account_id and explicit_account_id and intent_account_id != explicit_account_id:
+        raise ValueError(
+            "OrderIntent.account_id conflicts with submit_order_intent(account_id=...)."
+        )
+    resolved_account_id = intent_account_id or explicit_account_id
+    if resolved_account_id:
+        order.account = resolved_account_id
+
     trade = ib.placeOrder(contract, order)
     if wait_seconds:
         import time as time_module
@@ -73,5 +89,6 @@ def submit_order_intent(
         raw_payload={
             "order_type": order_type,
             "time_in_force": getattr(order, "tif", None),
+            "account_id": resolved_account_id,
         },
     )
