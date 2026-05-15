@@ -29,7 +29,7 @@ For strategy behavior, research status, and archived backtest evidence, see
 |---|---|---|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `RUNTIME_TARGET_JSON` + `ACCOUNT_GROUP` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | Yes - controlled by platform rollout config |
 | Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `RUNTIME_TARGET_JSON` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | Yes - controlled by platform rollout config |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `RUNTIME_TARGET_JSON` + `ACCOUNT_REGION` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per account service | Cloud Run | Yes - paper and SG today; HK later |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | `RUNTIME_TARGET_JSON` + `ACCOUNT_REGION` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per account service | Cloud Run | Yes - controlled by per-account rollout config |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `RUNTIME_TARGET_JSON` (workflow-local) | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | No - only this profile is supported today |
 
 ## What this means right now
@@ -42,7 +42,7 @@ Platforms currently in this domain:
 - `CharlesSchwabPlatform`
 - `LongBridgePlatform`
 
-LongBridge account identities are modeled as `paper`, `HK`, and `SG`; today the live services use `paper` and `SG`, and `HK` follows the same contract when it is introduced.
+LongBridge account identities are modeled as `paper`, `HK`, and `SG`; each account service follows the same contract, with deployment-specific rollout control deciding which ones are active.
 
 Important limitation:
 

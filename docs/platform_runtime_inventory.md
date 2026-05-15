@@ -1,6 +1,6 @@
 # Platform Runtime Inventory
 
-_Verified snapshot: 2026-04-18_
+_Verified snapshot: 2026-05-14_
 
 This document records the public runtime wiring inventory across platform repositories and deployment projects. It is meant to answer one question quickly:
 
@@ -45,7 +45,12 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **Scheduler**
-  - `interactive-brokers-quant-service-scheduler`
+  - `interactive-brokers-live-slot-a-precheck-scheduler`
+  - `interactive-brokers-live-slot-a-probe-scheduler`
+  - `interactive-brokers-live-slot-a-scheduler`
+  - `interactive-brokers-live-slot-b-precheck-scheduler`
+  - `interactive-brokers-live-slot-b-probe-scheduler`
+  - `interactive-brokers-live-slot-b-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
   - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
@@ -69,6 +74,8 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **Scheduler**
+  - `charles-schwab-quant-service-precheck-scheduler`
+  - `charles-schwab-quant-service-probe-scheduler`
   - `charles-schwab-quant-service-scheduler`
   - region: `us-central1`
 - **Core runtime selectors**
@@ -97,11 +104,17 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
 - **Runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **Schedulers**
+  - `longbridge-quant-paper-service-precheck-scheduler` in `asia-east2`
+  - `longbridge-quant-paper-service-probe-scheduler` in `asia-east2`
   - `longbridge-quant-paper-service-scheduler` in `asia-east2`
-  - HK: reserved / not yet wired
+  - `longbridge-quant-hk-service-precheck-scheduler` in `asia-east2`
+  - `longbridge-quant-hk-service-probe-scheduler` in `asia-east2`
+  - `longbridge-quant-hk-service-scheduler` in `asia-east2`
+  - `longbridge-quant-sg-service-precheck-scheduler` in `asia-southeast1`
+  - `longbridge-quant-sg-service-probe-scheduler` in `asia-southeast1`
   - `longbridge-quant-sg-service-scheduler` in `asia-southeast1`
 - **Core runtime selectors**
-  - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per account service
+- `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` per account service
   - `ACCOUNT_REGION=PAPER|HK|SG`
   - `LONGPORT_SECRET_NAME=<account token secret>`
 - **Runtime secrets**
@@ -109,7 +122,9 @@ For the platform / strategy-domain / configurable-profile matrix, see [`platform
   - account token secrets selected by `LONGPORT_SECRET_NAME`
   - runtime Telegram token secret
 - **Runtime notes**
-  - PAPER and SG are live today; HK keeps the same deployment pattern when it is added. Each account identity gets its own Cloud Run service, trigger, and GitHub Environment.
+  - Each account identity gets its own Cloud Run service, trigger, and GitHub Environment. HK can keep the same deployment pattern when it is promoted; rollout state is controlled outside the public docs.
+- Each live account identity now has three Cloud Scheduler triggers: `precheck` after the open window, `probe` at open+30 minutes, and the root execution trigger near the close window.
+- For Cloud Scheduler HTTP targets, keep the OIDC audience on the Cloud Run service root URL; do not append `precheck` or `probe` to the audience.
   - Snapshot-backed profiles require feature snapshot path / manifest envs; direct-runtime profiles do not.
   - App key / secret are account-specific Secret Manager refs; Telegram token is shared inside the LongBridge project.
   - `SERVICE_NAME` should use the full runtime-facing service names above, not older short prefixes.

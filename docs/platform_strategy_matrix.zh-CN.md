@@ -29,7 +29,7 @@ _核对时间：2026-04-18_
 |---|---|---|---|---|---|
 | IBKR | `QuantStrategyLab/InteractiveBrokersPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | 可以，按平台 rollout 配置启用 |
 | Charles Schwab | `QuantStrategyLab/CharlesSchwabPlatform` | `us_equity` | `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | 可以，按平台 rollout 配置启用 |
-| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | 每个区域服务配置 `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | 可以，按平台 rollout 配置启用 |
+| LongBridge | `QuantStrategyLab/LongBridgePlatform` | `us_equity` | 每个区域服务配置 `STRATEGY_PROFILE=<runtime_enabled us_equity profile>` | Cloud Run | 可以，按账户服务 rollout 配置启用 |
 | Binance | `QuantStrategyLab/BinancePlatform` | `crypto` | `crypto_leader_rotation` | Oracle Cloud + self-hosted runner | 当前只支持这个 crypto profile |
 
 ## 这张表现在该怎么理解

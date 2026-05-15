@@ -15,6 +15,7 @@ class RuntimeTarget:
     account_selector: tuple[str, ...] = ()
     account_scope: str | None = None
     service_name: str | None = None
+    execution_windows: dict[str, Any] | None = None
 
     @property
     def execution_mode(self) -> str:
@@ -67,6 +68,7 @@ def build_runtime_target(
     account_selector: Iterable[str] | str | None = None,
     account_scope: str | None = None,
     service_name: str | None = None,
+    execution_windows: Mapping[str, Any] | None = None,
 ) -> RuntimeTarget:
     return RuntimeTarget(
         platform_id=str(platform_id).strip(),
@@ -76,6 +78,7 @@ def build_runtime_target(
         account_selector=_normalize_account_selector(account_selector),
         account_scope=_normalize_optional_string(account_scope),
         service_name=_normalize_optional_string(service_name),
+        execution_windows=dict(execution_windows) if execution_windows is not None else None,
     )
 
 
@@ -137,6 +140,10 @@ def resolve_runtime_target_from_env(
                 "RUNTIME_TARGET_JSON.execution_mode does not match dry_run_only"
             )
 
+    execution_windows = payload.get("execution_windows")
+    if execution_windows is not None and not isinstance(execution_windows, dict):
+        raise ValueError("RUNTIME_TARGET_JSON.execution_windows must be an object when present")
+
     return build_runtime_target(
         platform_id=resolved_platform_id,
         strategy_profile=resolved_strategy_profile,
@@ -145,4 +152,5 @@ def resolve_runtime_target_from_env(
         account_selector=payload.get("account_selector"),
         account_scope=payload.get("account_scope"),
         service_name=payload.get("service_name"),
+        execution_windows=execution_windows,
     )
