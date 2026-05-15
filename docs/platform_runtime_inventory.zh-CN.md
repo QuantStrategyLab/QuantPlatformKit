@@ -1,6 +1,6 @@
 # 平台运行接线清单
 
-_校验快照日期：2026-04-18_
+_校验快照日期：2026-05-14_
 
 这份文档记录公开仓库里可以保留的 runtime 接线信息，用来快速回答一个问题：
 
@@ -44,7 +44,12 @@ _校验快照日期：2026-04-18_
 - **runtime service account**
   - `ibkr-platform-runtime@interactivebrokersquant.iam.gserviceaccount.com`
 - **Scheduler**
-  - `interactive-brokers-quant-service-scheduler`
+  - `interactive-brokers-live-slot-a-precheck-scheduler`
+  - `interactive-brokers-live-slot-a-probe-scheduler`
+  - `interactive-brokers-live-slot-a-scheduler`
+  - `interactive-brokers-live-slot-b-precheck-scheduler`
+  - `interactive-brokers-live-slot-b-probe-scheduler`
+  - `interactive-brokers-live-slot-b-scheduler`
   - region：`us-central1`
 - **核心运行选择器**
   - `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
@@ -68,6 +73,8 @@ _校验快照日期：2026-04-18_
 - **runtime service account**
   - `schwab-platform-runtime@charlesschwabquant.iam.gserviceaccount.com`
 - **Scheduler**
+  - `charles-schwab-quant-service-precheck-scheduler`
+  - `charles-schwab-quant-service-probe-scheduler`
   - `charles-schwab-quant-service-scheduler`
   - region：`us-central1`
 - **核心运行选择器**
@@ -95,7 +102,14 @@ _校验快照日期：2026-04-18_
 - **runtime service account**
   - `longbridge-platform-runtime@longbridgequant.iam.gserviceaccount.com`
 - **Scheduler**
+  - `longbridge-quant-paper-service-precheck-scheduler`（`asia-east2`）
+  - `longbridge-quant-paper-service-probe-scheduler`（`asia-east2`）
+  - `longbridge-quant-paper-service-scheduler`（`asia-east2`）
+  - `longbridge-quant-hk-service-precheck-scheduler`（`asia-east2`）
+  - `longbridge-quant-hk-service-probe-scheduler`（`asia-east2`）
   - `longbridge-quant-hk-service-scheduler`（`asia-east2`）
+  - `longbridge-quant-sg-service-precheck-scheduler`（`asia-southeast1`）
+  - `longbridge-quant-sg-service-probe-scheduler`（`asia-southeast1`）
   - `longbridge-quant-sg-service-scheduler`（`asia-southeast1`）
 - **核心运行选择器**
   - 每个区域服务设置 `STRATEGY_PROFILE=<runtime_enabled us_equity profile>`
@@ -106,7 +120,7 @@ _校验快照日期：2026-04-18_
   - 由 `LONGPORT_SECRET_NAME` 选择的区域 token secret
   - runtime Telegram token secret
 - **运行说明**
-  - HK / SG 继续保持两个 Cloud Run 服务、两个 trigger、两个 GitHub Environment。
+  - 每个账户身份都对应自己的 Cloud Run 服务、trigger 和 GitHub Environment；公开文档不记录当前哪几个账户处于实盘。每个账户都有三条 Cloud Scheduler 触发：开盘后 `precheck`，开盘后 `probe`（+30 分钟），临近收盘执行。Scheduler 的 OIDC audience 也要指向 Cloud Run 服务根 URL，不要拼到 `precheck` 或 `probe` 路径。
   - snapshot 驱动策略需要 feature snapshot path / manifest env；直接运行输入策略不需要。
   - App key / secret 使用分区域的 Secret Manager 引用；Telegram token 在 LongBridge 项目内共享。
   - `SERVICE_NAME` 应使用上面的完整运行时服务名，不再使用旧短前缀。

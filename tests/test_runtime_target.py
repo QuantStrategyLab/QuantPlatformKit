@@ -19,6 +19,10 @@ class RuntimeTargetTests(unittest.TestCase):
             account_selector=(" U123 ", "", None),
             account_scope=" hk ",
             service_name=" longbridge-quant-hk-service ",
+            execution_windows={
+                "precheck": {"enabled": True, "offset_minutes": 15, "mode": "notify_only"},
+                "execution": {"enabled": True, "offset_minutes": 15, "mode": "paper"},
+            },
         )
 
         self.assertEqual(target.platform_id, "longbridge")
@@ -28,6 +32,8 @@ class RuntimeTargetTests(unittest.TestCase):
         self.assertEqual(target.account_selector, ("U123",))
         self.assertEqual(target.account_scope, "hk")
         self.assertEqual(target.service_name, "longbridge-quant-hk-service")
+        self.assertEqual(target.execution_windows["precheck"]["offset_minutes"], 15)
+        self.assertEqual(target.execution_windows["execution"]["mode"], "paper")
 
     def test_build_runtime_target_supports_live_mode_without_account_selector(self) -> None:
         target = build_runtime_target(
@@ -50,7 +56,9 @@ class RuntimeTargetTests(unittest.TestCase):
                     '{"platform_id":"longbridge","strategy_profile":"global_etf_rotation",'
                     '"dry_run_only":true,"deployment_selector":"HK","account_selector":["HK"],'
                     '"account_scope":"HK","service_name":"longbridge-quant-hk-service",'
-                    '"execution_mode":"paper"}'
+                    '"execution_mode":"paper","execution_windows":{"precheck":{"enabled":true,'
+                    '"offset_minutes":15,"mode":"notify_only"},"execution":{"enabled":true,'
+                    '"offset_minutes":15,"mode":"paper"}}}'
                 )
             },
         )
@@ -63,6 +71,8 @@ class RuntimeTargetTests(unittest.TestCase):
         self.assertEqual(target.account_selector, ("HK",))
         self.assertEqual(target.account_scope, "HK")
         self.assertEqual(target.service_name, "longbridge-quant-hk-service")
+        self.assertTrue(target.execution_windows["precheck"]["enabled"])
+        self.assertEqual(target.execution_windows["execution"]["offset_minutes"], 15)
 
     def test_resolve_runtime_target_from_env_rejects_mismatched_execution_mode(self) -> None:
         with self.assertRaisesRegex(ValueError, "execution_mode does not match dry_run_only"):
@@ -101,6 +111,10 @@ class RuntimeTargetTests(unittest.TestCase):
             strategy_profile="soxl_soxx_trend_income",
             dry_run_only=True,
             service_name="longbridge-platform",
+            execution_windows={
+                "precheck": {"enabled": True, "offset_minutes": 15, "mode": "notify_only"},
+                "execution": {"enabled": True, "offset_minutes": 15, "mode": "paper"},
+            },
         )
 
         fields = build_runtime_context_fields(
@@ -115,3 +129,4 @@ class RuntimeTargetTests(unittest.TestCase):
         self.assertEqual(fields["account_scope"], "HK")
         self.assertEqual(fields["runtime_target"]["platform_id"], "longbridge")
         self.assertEqual(fields["runtime_target"]["execution_mode"], "paper")
+        self.assertEqual(fields["runtime_target"]["execution_windows"]["precheck"]["enabled"], True)
