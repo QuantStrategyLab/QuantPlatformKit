@@ -27,10 +27,10 @@ class FakeClient:
         return FakeResponse(
             {
                 "securitiesAccount": {
-                    "currentBalances": {
-                        "cashAvailableForTrading": 1000.0,
-                        "cashAvailableForWithdrawal": 800.0,
-                    },
+                        "currentBalances": {
+                            "cashAvailableForTrading": 1000.0,
+                            "cashAvailableForWithdrawal": 800.0,
+                        },
                     "positions": [
                         {
                             "instrument": {"symbol": "TQQQ"},
@@ -63,7 +63,10 @@ class SchwabPortfolioTests(unittest.TestCase):
 
         self.assertEqual(snapshot.metadata["account_hash"], "abc123")
         self.assertEqual(snapshot.total_equity, 1200.0)
-        self.assertEqual(snapshot.buying_power, 800.0)
+        self.assertEqual(snapshot.buying_power, 1000.0)
+        self.assertEqual(snapshot.cash_balance, 1000.0)
+        self.assertEqual(snapshot.metadata["cash_available_for_trading"], 1000.0)
+        self.assertEqual(snapshot.metadata["cash_available_for_withdrawal"], 800.0)
         self.assertEqual(len(snapshot.positions), 1)
         self.assertEqual(snapshot.positions[0].symbol, "TQQQ")
 

@@ -8,6 +8,9 @@ from typing import Any, Callable
 from .models import PortfolioSnapshot, Position
 
 
+DEFAULT_SEMICONDUCTOR_ROTATION_HISTORY_LOOKBACK = 420
+
+
 def _normalize_symbols(strategy_symbols: Iterable[str]) -> tuple[str, ...]:
     return tuple(
         str(symbol).strip().upper()
@@ -202,6 +205,19 @@ def build_semiconductor_rotation_indicators_from_history(
             "realized_volatility_20": soxx_realized_volatility_20,
         },
     }
+
+
+def required_semiconductor_rotation_history_lookback(
+    *,
+    trend_ma_window: int = 140,
+    dynamic_rsi_quantile_window: int = 252,
+    minimum_lookback: int = DEFAULT_SEMICONDUCTOR_ROTATION_HISTORY_LOOKBACK,
+) -> int:
+    return max(
+        int(minimum_lookback),
+        int(trend_ma_window) + 20,
+        int(dynamic_rsi_quantile_window) + 28,
+    )
 
 
 def build_semiconductor_rotation_inputs_from_history(

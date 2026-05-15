@@ -7,6 +7,7 @@ import pandas as pd
 
 from quant_platform_kit.common.runtime_inputs import (
     build_semiconductor_rotation_indicators_from_history,
+    required_semiconductor_rotation_history_lookback,
 )
 
 
@@ -79,7 +80,14 @@ def calculate_rotation_indicators(
 ) -> dict[str, dict[str, float]] | None:
     from longport.openapi import AdjustType, Period
 
-    effective_lookback = lookback if lookback is not None else max(280, trend_window + 20, dynamic_rsi_quantile_window + 28)
+    effective_lookback = (
+        lookback
+        if lookback is not None
+        else required_semiconductor_rotation_history_lookback(
+            trend_ma_window=trend_window,
+            dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
+        )
+    )
     soxl_bars = q_ctx.candlesticks("SOXL.US", Period.Day, effective_lookback, AdjustType.ForwardAdjust)
     soxx_bars = q_ctx.candlesticks("SOXX.US", Period.Day, effective_lookback, AdjustType.ForwardAdjust)
     if not soxl_bars or not soxx_bars:
