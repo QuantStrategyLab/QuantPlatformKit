@@ -25,7 +25,7 @@ def fetch_account_snapshot(
     balances = account.get("currentBalances", {})
     cash_for_equity = float(balances.get("cashAvailableForTrading", 0.0))
     raw_withdrawable = float(balances.get("cashAvailableForWithdrawal", 0.0))
-    buying_power = max(0.0, raw_withdrawable)
+    buying_power = max(0.0, cash_for_equity)
 
     allowed_symbols = set(strategy_symbols)
     positions = []
@@ -47,9 +47,11 @@ def fetch_account_snapshot(
         as_of=datetime.utcnow(),
         total_equity=total_equity,
         buying_power=buying_power,
+        cash_balance=cash_for_equity,
         positions=tuple(positions),
         metadata={
             "account_hash": account_hash,
             "cash_available_for_trading": cash_for_equity,
+            "cash_available_for_withdrawal": raw_withdrawable,
         },
     )

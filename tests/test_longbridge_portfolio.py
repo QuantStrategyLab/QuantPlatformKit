@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from unittest.mock import patch
 import unittest
 
 from quant_platform_kit.longbridge.portfolio import fetch_strategy_account_state
@@ -13,6 +14,7 @@ class FakeCashInfo:
 
 class FakeBalanceAccount:
     def __init__(self):
+        self.buy_power = 1000.0
         self.cash_infos = [
             FakeCashInfo("USD", 1000.0),
             FakeCashInfo("SGD", 350.0),
@@ -115,6 +117,83 @@ class LongBridgePortfolioTests(unittest.TestCase):
                 "sellable_quantity=1.999999 market_value=100.00",
             ],
         )
+
+    def test_fetch_strategy_account_state_falls_back_when_account_balance_fails(self) -> None:
+        class BalanceFailingTradeContext(FakeTradeContext):
+            def account_balance(self):
+                raise RuntimeError("boom")
+
+        warnings = []
+        state = fetch_strategy_account_state(
+            FakeQuoteContext(),
+            BalanceFailingTradeContext(),
+            ["SOXL", "QQQI", "SPYI"],
+            warning_log_fn=warnings.append,
+        )
+
+        self.assertEqual(state["available_cash"], 0.0)
+        self.assertEqual(state["cash_by_currency"], {})
+        self.assertEqual(state["market_values"]["SOXL"], 150.0)
+        self.assertEqual(state["quantities"]["QQQI"], 2)
+        self.assertEqual(state["sellable_quantities"]["QQQI"], 1)
+        self.assertEqual(state["total_strategy_equity"], 190.0)
+        self.assertTrue(any("longbridge_account_balance_failed" in warning for warning in warnings))
+
+    def test_fetch_strategy_account_state_uses_currency_retry_when_unfiltered_balance_fails(self) -> None:
+        class RetryTradeContext(FakeTradeContext):
+            def account_balance(self, currency=None):
+                if currency is None:
+                    raise RuntimeError("boom")
+                if currency == "USD":
+                    return [FakeBalanceAccount()]
+                return []
+
+        warnings = []
+        state = fetch_strategy_account_state(
+            FakeQuoteContext(),
+            RetryTradeContext(),
+            ["SOXL", "QQQI", "SPYI"],
+            warning_log_fn=warnings.append,
+        )
+
+        self.assertEqual(state["available_cash"], 1000.0)
+        self.assertEqual(state["cash_by_currency"], {"USD": 1000.0, "SGD": 350.0})
+        self.assertTrue(any("longbridge_account_balance_retry_succeeded" in warning for warning in warnings))
+
+    def test_fetch_strategy_account_state_retries_transient_balance_and_position_errors(self) -> None:
+        class FlakyTradeContext(FakeTradeContext):
+            def __init__(self):
+                self.balance_calls = 0
+                self.position_calls = 0
+
+            def account_balance(self, currency=None):
+                self.balance_calls += 1
+                if self.balance_calls == 1:
+                    raise RuntimeError("temporary balance failure")
+                if currency is None:
+                    return [FakeBalanceAccount()]
+                if currency == "USD":
+                    return [FakeBalanceAccount()]
+                return []
+
+            def stock_positions(self):
+                self.position_calls += 1
+                if self.position_calls == 1:
+                    raise RuntimeError("temporary position failure")
+                return FakeTradeContext().stock_positions()
+
+        warnings = []
+        with patch("quant_platform_kit.longbridge.portfolio.time.sleep", lambda _seconds: None):
+            state = fetch_strategy_account_state(
+                FakeQuoteContext(),
+                FlakyTradeContext(),
+                ["SOXL", "QQQI", "SPYI"],
+                warning_log_fn=warnings.append,
+            )
+
+        self.assertEqual(state["available_cash"], 1000.0)
+        self.assertEqual(state["market_values"]["SOXL"], 150.0)
+        self.assertGreaterEqual(len([warning for warning in warnings if "retrying" in warning]), 1)
 
 
 if __name__ == "__main__":

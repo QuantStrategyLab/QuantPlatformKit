@@ -11,6 +11,7 @@ from quant_platform_kit.strategy_contracts import (
 )
 from quant_platform_kit.common.runtime_inputs import (
     build_semiconductor_rotation_indicators_from_history,
+    required_semiconductor_rotation_history_lookback,
 )
 
 
@@ -73,13 +74,11 @@ def build_semiconductor_rotation_indicators(
     historical_close_loader: Callable[..., Any],
     *,
     trend_ma_window: int = 140,
-    lookback_buffer: int = 20,
     dynamic_rsi_quantile_window: int = 252,
 ) -> dict[str, dict[str, float]]:
-    effective_lookback = max(
-        420,
-        int(trend_ma_window) + int(lookback_buffer),
-        int(dynamic_rsi_quantile_window) + int(lookback_buffer) + 90,
+    effective_lookback = required_semiconductor_rotation_history_lookback(
+        trend_ma_window=trend_ma_window,
+        dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
     )
     soxl_history = historical_close_loader(
         ib,
@@ -106,7 +105,6 @@ def build_semiconductor_rotation_inputs(
     historical_close_loader: Callable[..., Any],
     *,
     trend_ma_window: int = 140,
-    lookback_buffer: int = 20,
     dynamic_rsi_quantile_window: int = 252,
 ) -> dict[str, dict[str, dict[str, float]]]:
     return {
@@ -114,7 +112,6 @@ def build_semiconductor_rotation_inputs(
             ib,
             historical_close_loader,
             trend_ma_window=trend_ma_window,
-            lookback_buffer=lookback_buffer,
             dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
         )
     }
