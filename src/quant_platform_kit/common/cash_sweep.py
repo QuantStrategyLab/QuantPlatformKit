@@ -41,3 +41,36 @@ def estimate_cash_sweep_sale_quantity_to_fund_buy(
         )
     return 0
 
+
+def should_sell_cash_sweep_to_fund_whole_share_buy(
+    max_quantity: float,
+    cash_sweep_price: float,
+    base_buying_power: float,
+    funding_needs: Iterable[tuple[float, float]],
+) -> bool:
+    """Return whether selling the full cash sweep position can fund a whole-share buy.
+
+    The helper is intentionally conservative: it only returns True when the current
+    buying power is insufficient for at least one whole-share candidate, but selling
+    the whole cash sweep position would cover that whole-share purchase.
+    """
+    if max_quantity <= 0:
+        return False
+    sweep_price = float(cash_sweep_price or 0.0)
+    if sweep_price <= 0.0:
+        return False
+    current_buying_power = max(0.0, float(base_buying_power or 0.0))
+    sweep_capacity = float(max_quantity) * sweep_price
+    if sweep_capacity <= 0.0:
+        return False
+
+    for underweight_value, ask_price in funding_needs:
+        _ = underweight_value
+        quote_price = float(ask_price or 0.0)
+        if quote_price <= 0.0:
+            continue
+        if current_buying_power >= quote_price:
+            return False
+        if current_buying_power + sweep_capacity >= quote_price:
+            return True
+    return False
