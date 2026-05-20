@@ -2,12 +2,13 @@
 
 ## Goal
 
-All US equity strategies should be written once and be portable across the three
+All US equity strategies should be written once and be portable across the
 current broker runtimes:
 
 - `ibkr`
 - `schwab`
 - `longbridge`
+- `firstrade`
 
 This document defines the contract new strategies must follow, and the migration
 target existing strategies should converge to.
@@ -115,6 +116,7 @@ execution style:
 - `ibkr`: native `weight`
 - `schwab`: native `value`
 - `longbridge`: native `value`
+- `firstrade`: native `value`
 
 Strategies must not implement broker-specific execution transforms themselves.
 
@@ -183,13 +185,14 @@ The platform runtime owns:
 
 The strategy layer must not assume broker-local files or service-specific paths.
 
-## Three-platform support rule
+## Broker-platform support rule
 
 For new US equity strategy profiles, the default expectation is:
 
 - `ibkr` adapter present
 - `schwab` adapter present
 - `longbridge` adapter present
+- `firstrade` adapter present
 
 If one platform is intentionally unsupported, the PR must include an explicit
 reason and the profile must remain `eligible=false` there until the gap is

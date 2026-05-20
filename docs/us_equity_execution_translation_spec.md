@@ -20,12 +20,14 @@ Current native preferences are:
 - `ibkr`: `weight`
 - `schwab`: `value`
 - `longbridge`: `value`
+- `firstrade`: `value`
 
 That means platform runtimes must support these translation paths:
 
 - `weight -> value`
   - needed for `schwab`
   - needed for `longbridge`
+  - needed for `firstrade`
 - `value -> weight`
   - needed for `ibkr`
 
@@ -146,7 +148,7 @@ The blocked reason should appear in platform diagnostics or runtime reports.
 
 - `global_etf_rotation`
   - strategy contract is now `market_history` + `target_mode=weight`
-  - `schwab` / `longbridge` need `weight -> value`
+  - `schwab` / `longbridge` / `firstrade` need `weight -> value`
 - `tqqq_growth_income`
   - strategy contract is now canonical `value`
   - `ibkr` needs `value -> weight`
