@@ -2,13 +2,6 @@
 
 from .email import parse_email_recipients, send_smtp_email
 from .events import NotificationPublisher, RenderedNotification, publish_rendered_notification
-from .strategy_plugin_email import (
-    StrategyPluginEmailAlertDelivery,
-    StrategyPluginEmailAlertMarkerStore,
-    StrategyPluginEmailAlertPublishResult,
-    StrategyPluginEmailSettings,
-    publish_strategy_plugin_email_alerts,
-)
 from .strategy_plugin_google_voice import (
     StrategyPluginGoogleVoiceAlertDelivery,
     StrategyPluginGoogleVoiceAlertMarkerStore,
@@ -21,10 +14,6 @@ from .strategy_plugin_google_voice import (
 __all__ = [
     "NotificationPublisher",
     "RenderedNotification",
-    "StrategyPluginEmailAlertDelivery",
-    "StrategyPluginEmailAlertMarkerStore",
-    "StrategyPluginEmailAlertPublishResult",
-    "StrategyPluginEmailSettings",
     "StrategyPluginGoogleVoiceAlertDelivery",
     "StrategyPluginGoogleVoiceAlertMarkerStore",
     "StrategyPluginGoogleVoiceAlertPublishResult",
@@ -32,7 +21,6 @@ __all__ = [
     "build_strategy_plugin_alert_context_label",
     "parse_email_recipients",
     "publish_rendered_notification",
-    "publish_strategy_plugin_email_alerts",
     "publish_strategy_plugin_google_voice_alerts",
     "send_smtp_email",
 ]

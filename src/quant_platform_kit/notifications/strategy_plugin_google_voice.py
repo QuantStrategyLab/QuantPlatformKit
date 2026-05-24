@@ -37,15 +37,8 @@ class StrategyPluginGoogleVoiceSettings:
         return cls(
             smtp_host=_get_value(value, "crisis_alert_smtp_host"),
             smtp_port=int(_get_value(value, "crisis_alert_smtp_port", 587) or 587),
-            sender=_first_non_empty(
-                _get_value(value, "crisis_alert_smtp_from"),
-                _get_value(value, "crisis_alert_google_voice_from"),
-                _get_value(value, "crisis_alert_email_from"),
-            ),
-            recipients=_merge_recipients(
-                _get_value(value, "crisis_alert_google_voice_to", ()),
-                _get_value(value, "crisis_alert_email_to", ()),
-            ),
+            sender=_first_non_empty(_get_value(value, "crisis_alert_smtp_from")),
+            recipients=tuple(parse_email_recipients(_get_value(value, "crisis_alert_google_voice_to", ()))),
             username=_get_value(value, "crisis_alert_smtp_username"),
             password=_get_value(value, "crisis_alert_smtp_password"),
             use_starttls=_coerce_bool(_get_value(value, "crisis_alert_smtp_starttls", True), default=True),
@@ -57,9 +50,9 @@ class StrategyPluginGoogleVoiceSettings:
         if not str(self.smtp_host or "").strip():
             missing.append("CRISIS_ALERT_SMTP_HOST")
         if not str(self.sender or "").strip():
-            missing.append("CRISIS_ALERT_SMTP_FROM/CRISIS_ALERT_EMAIL_FROM")
+            missing.append("CRISIS_ALERT_SMTP_FROM")
         if not parse_email_recipients(self.recipients):
-            missing.append("CRISIS_ALERT_GOOGLE_VOICE_TO/CRISIS_ALERT_EMAIL_TO")
+            missing.append("CRISIS_ALERT_GOOGLE_VOICE_TO")
         return tuple(missing)
 
     @property
@@ -124,16 +117,13 @@ class StrategyPluginGoogleVoiceAlertMarkerStore:
     gcs_prefix_uri: str | None = None
     gcp_project_id: str | None = None
     namespace: str = "strategy_plugin_google_voice_alerts"
-    legacy_namespaces: tuple[str, ...] = ("strategy_plugin_email_alerts",)
     client_factory: Any = None
 
     def has_alert(self, alert_key: str) -> bool:
-        for candidate_key in _alert_key_candidates(alert_key):
-            for namespace in (self.namespace, *self.legacy_namespaces):
-                if self.gcs_prefix_uri and self._gcs_blob(candidate_key, namespace=namespace).exists():
-                    return True
-                if self.local_dir and self._local_path(candidate_key, namespace=namespace).exists():
-                    return True
+        if self.gcs_prefix_uri and self._gcs_blob(alert_key, namespace=self.namespace).exists():
+            return True
+        if self.local_dir and self._local_path(alert_key, namespace=self.namespace).exists():
+            return True
         return False
 
     def record_alert(
@@ -377,18 +367,6 @@ def _first_non_empty(*values: Any) -> str | None:
     return None
 
 
-def _merge_recipients(*values: Any) -> tuple[str, ...]:
-    recipients: list[str] = []
-    seen = set()
-    for value in values:
-        for recipient in parse_email_recipients(value):
-            if recipient in seen:
-                continue
-            recipients.append(recipient)
-            seen.add(recipient)
-    return tuple(recipients)
-
-
 def _coerce_bool(value: Any, *, default: bool) -> bool:
     if value is None:
         return default
@@ -402,18 +380,6 @@ def _coerce_bool(value: Any, *, default: bool) -> bool:
 
 def _fallback_alert_key(message: StrategyPluginAlertMessage) -> str:
     return "strategy_plugin_google_voice_alert/" + _clean_relative_key(message.subject or "unknown")
-
-
-def _alert_key_candidates(alert_key: str) -> tuple[str, ...]:
-    key = str(alert_key or "")
-    legacy_key = key.replace(
-        "strategy_plugin_google_voice_alert/",
-        "strategy_plugin_email_alert/",
-        1,
-    )
-    if legacy_key != key:
-        return (key, legacy_key)
-    return (key,)
 
 
 def _clean_relative_key(value: str) -> str:
