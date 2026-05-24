@@ -8,11 +8,13 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 PLUGIN_MODE_SHADOW = "shadow"
 SUPPORTED_STRATEGY_PLUGIN_MODES = frozenset({PLUGIN_MODE_SHADOW})
 DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR = Path(tempfile.gettempdir()) / "quant_strategy_plugin_artifacts"
+STRATEGY_PLUGIN_NON_ALERT_ROUTES = frozenset({"no_action"})
+STRATEGY_PLUGIN_ALERT_ACTIONS = frozenset({"defend", "blocked"})
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,12 @@ class StrategyPluginSignal:
             "source_uri": self.source_uri,
             "local_path": self.local_path,
         }
+
+
+@dataclass(frozen=True)
+class StrategyPluginAlertMessage:
+    subject: str
+    body: str
 
 
 def normalize_strategy_plugin_mode(value: Any, *, field_name: str = "mode") -> str:
@@ -229,6 +237,121 @@ def build_strategy_plugin_report_payload(signals: Sequence[StrategyPluginSignal]
     }
 
 
+def translate_strategy_plugin_value(
+    category: str,
+    raw_value: str | None,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str:
+    value = str(raw_value or "").strip() or "unknown"
+    if translator is None:
+        return value
+    key = f"strategy_plugin_{category}_{value}"
+    translated = translator(key)
+    return translated if translated != key else value
+
+
+def build_strategy_plugin_notification_lines(
+    signals: Sequence[StrategyPluginSignal],
+    *,
+    translator: Callable[..., str] | None = None,
+) -> tuple[str, ...]:
+    lines: list[str] = []
+    for signal in signals:
+        route = getattr(signal, "canonical_route", None) or "unknown_route"
+        action = getattr(signal, "suggested_action", None) or "unknown_action"
+        lines.append(
+            _translate(
+                translator,
+                "strategy_plugin_line",
+                fallback="Plugin: {plugin} | status: {route} | notice: {action}",
+                plugin=translate_strategy_plugin_value("name", getattr(signal, "plugin", None), translator=translator),
+                mode=translate_strategy_plugin_value("mode", getattr(signal, "effective_mode", None), translator=translator),
+                route=translate_strategy_plugin_value("route", route, translator=translator),
+                action=translate_strategy_plugin_value("action", action, translator=translator),
+            )
+        )
+    return tuple(lines)
+
+
+def should_alert_strategy_plugin_signal(signal: StrategyPluginSignal) -> bool:
+    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
+    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
+    return (
+        bool(getattr(signal, "would_trade_if_enabled", False))
+        or route not in STRATEGY_PLUGIN_NON_ALERT_ROUTES
+        or action in STRATEGY_PLUGIN_ALERT_ACTIONS
+    )
+
+
+def build_strategy_plugin_alert_messages(
+    signals: Sequence[StrategyPluginSignal],
+    *,
+    translator: Callable[..., str] | None = None,
+    strategy_label: str | None = None,
+) -> tuple[StrategyPluginAlertMessage, ...]:
+    messages: list[StrategyPluginAlertMessage] = []
+    for signal in signals:
+        if not should_alert_strategy_plugin_signal(signal):
+            continue
+        route = getattr(signal, "canonical_route", None) or "unknown_route"
+        action = getattr(signal, "suggested_action", None) or "unknown_action"
+        plugin = translate_strategy_plugin_value("name", getattr(signal, "plugin", None), translator=translator)
+        translated_route = translate_strategy_plugin_value("route", route, translator=translator)
+        translated_action = translate_strategy_plugin_value("action", action, translator=translator)
+        strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip() or "unknown"
+        subject = _translate(
+            translator,
+            "strategy_plugin_alert_subject",
+            fallback="Strategy plugin alert: {plugin} | {route}",
+            strategy=strategy,
+            plugin=plugin,
+            route=translated_route,
+        )
+        body_lines = [
+            _translate(translator, "strategy_plugin_alert_title", fallback="Strategy Plugin Alert"),
+            _translate(
+                translator,
+                "strategy_plugin_line",
+                fallback="Plugin: {plugin} | status: {route} | notice: {action}",
+                plugin=plugin,
+                mode=translate_strategy_plugin_value("mode", getattr(signal, "effective_mode", None), translator=translator),
+                route=translated_route,
+                action=translated_action,
+            ),
+            _translate(
+                translator,
+                "strategy_plugin_alert_strategy",
+                fallback="Strategy: {strategy}",
+                strategy=strategy,
+            ),
+            _translate(
+                translator,
+                "strategy_plugin_alert_as_of",
+                fallback="Signal as-of: {as_of}",
+                as_of=getattr(signal, "as_of", None) or "unknown",
+            ),
+            _translate(
+                translator,
+                "strategy_plugin_alert_would_trade",
+                fallback="Would trade if enabled: {value}",
+                value=str(bool(getattr(signal, "would_trade_if_enabled", False))).lower(),
+            ),
+        ]
+        source = getattr(signal, "source_uri", None) or getattr(signal, "local_path", None)
+        if source:
+            body_lines.append(
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_source",
+                    fallback="Source: {source}",
+                    source=source,
+                )
+            )
+        messages.append(StrategyPluginAlertMessage(subject=subject, body="\n".join(body_lines)))
+    return tuple(messages)
+
+
 def _materialize_artifact_path(reference: str, *, client_factory: Any = None) -> tuple[Path, dict[str, str | None]]:
     raw_reference = _required_string(reference, field_name="reference")
     if not raw_reference.startswith("gs://"):
@@ -281,6 +404,23 @@ def _optional_string(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _normalize_strategy_plugin_field(value: str | None) -> str:
+    return str(value or "").strip().lower() or "unknown"
+
+
+def _translate(
+    translator: Callable[..., str] | None,
+    key: str,
+    *,
+    fallback: str,
+    **kwargs: Any,
+) -> str:
+    if translator is None:
+        return fallback.format(**kwargs)
+    translated = translator(key, **kwargs)
+    return translated if translated != key else fallback.format(**kwargs)
 
 
 def _required_string(value: Any, *, field_name: str) -> str:
