@@ -107,10 +107,13 @@ when any of the following is true:
 - `suggested_action` is `defend` or `blocked`
 - `would_trade_if_enabled` is `true`
 
-Platforms may still choose their delivery sinks, but SMTP escalation should use
-`quant_platform_kit.notifications.strategy_plugin_email.publish_strategy_plugin_email_alerts()`.
+Platforms may still choose their delivery sinks, but Google Voice escalation over
+SMTP should use
+`quant_platform_kit.notifications.strategy_plugin_google_voice.publish_strategy_plugin_google_voice_alerts()`.
 The publisher builds the shared subject/body, prefixes platform context, returns
 structured sent/skipped/failed diagnostics, and can use
-`StrategyPluginEmailAlertMarkerStore` to skip alert keys that were already sent.
+`StrategyPluginGoogleVoiceAlertMarkerStore` to skip alert keys that were already
+sent. The older `strategy_plugin_email` module remains as a compatibility alias
+for deployed platforms.
 This keeps the Crisis Response plugin behavior consistent across IBKR, Schwab,
 LongBridge, Firstrade, and future platform runtimes.
