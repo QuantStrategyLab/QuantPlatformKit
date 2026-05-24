@@ -5,10 +5,13 @@ from pathlib import Path
 
 from quant_platform_kit.common.strategy_plugins import (
     PLUGIN_MODE_SHADOW,
+    build_strategy_plugin_alert_messages,
+    build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
     load_configured_strategy_plugin_signals,
     load_strategy_plugin_signal,
     parse_strategy_plugin_mounts,
+    should_alert_strategy_plugin_signal,
     validate_strategy_plugin_signal_payload,
 )
 
@@ -163,6 +166,68 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertEqual(report_payload["strategy_plugins"][0]["strategy"], "tqqq_growth_income")
         self.assertEqual(report_payload["strategy_plugins"][0]["plugin"], "crisis_response_shadow")
         self.assertNotIn("payload", report_payload["strategy_plugins"][0])
+
+    def test_strategy_plugin_notification_lines_use_translator_when_available(self):
+        signal = validate_strategy_plugin_signal_payload(_signal_payload())
+        translations = {
+            "strategy_plugin_line": "plugin={plugin}|mode={mode}|route={route}|action={action}",
+            "strategy_plugin_name_crisis_response_shadow": "Crisis",
+            "strategy_plugin_mode_shadow": "shadow",
+            "strategy_plugin_route_no_action": "no action",
+            "strategy_plugin_action_watch_only": "watch only",
+        }
+
+        lines = build_strategy_plugin_notification_lines(
+            [signal],
+            translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+            if kwargs
+            else translations.get(key, key),
+        )
+
+        self.assertEqual(lines, ("plugin=Crisis|mode=shadow|route=no action|action=watch only",))
+
+    def test_strategy_plugin_no_action_signal_does_not_escalate_alert(self):
+        signal = validate_strategy_plugin_signal_payload(_signal_payload())
+
+        self.assertFalse(should_alert_strategy_plugin_signal(signal))
+        self.assertEqual(build_strategy_plugin_alert_messages([signal]), ())
+
+    def test_strategy_plugin_true_crisis_builds_generic_alert_message(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(),
+                "canonical_route": "true_crisis",
+                "suggested_action": "defend",
+                "would_trade_if_enabled": True,
+            },
+            source_uri="gs://bucket/latest_signal.json",
+        )
+        translations = {
+            "strategy_plugin_alert_subject": "alert:{strategy}:{plugin}:{route}",
+            "strategy_plugin_alert_title": "alert title",
+            "strategy_plugin_line": "plugin={plugin}|mode={mode}|route={route}|action={action}",
+            "strategy_plugin_alert_strategy": "strategy={strategy}",
+            "strategy_plugin_alert_as_of": "as_of={as_of}",
+            "strategy_plugin_alert_would_trade": "would_trade={value}",
+            "strategy_plugin_alert_source": "source={source}",
+            "strategy_plugin_name_crisis_response_shadow": "Crisis",
+            "strategy_plugin_mode_shadow": "shadow",
+            "strategy_plugin_route_true_crisis": "true crisis",
+            "strategy_plugin_action_defend": "defend",
+        }
+
+        alerts = build_strategy_plugin_alert_messages(
+            [signal],
+            translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+            if kwargs
+            else translations.get(key, key),
+            strategy_label="TQQQ Growth Income",
+        )
+
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].subject, "alert:TQQQ Growth Income:Crisis:true crisis")
+        self.assertIn("plugin=Crisis|mode=shadow|route=true crisis|action=defend", alerts[0].body)
+        self.assertIn("source=gs://bucket/latest_signal.json", alerts[0].body)
 
 
 if __name__ == "__main__":

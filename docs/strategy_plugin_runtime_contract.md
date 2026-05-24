@@ -63,6 +63,8 @@ Use `quant_platform_kit.common.strategy_plugins`:
 
 ```python
 from quant_platform_kit.common.strategy_plugins import (
+    build_strategy_plugin_alert_messages,
+    build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
     load_configured_strategy_plugin_signals,
     parse_strategy_plugin_mounts,
@@ -74,6 +76,8 @@ signals = load_configured_strategy_plugin_signals(
     strategy_profile=current_strategy_profile,
 )
 report_section = build_strategy_plugin_report_payload(signals)
+notification_lines = build_strategy_plugin_notification_lines(signals)
+alert_messages = build_strategy_plugin_alert_messages(signals)
 ```
 
 The loader validates:
@@ -93,3 +97,18 @@ notification context.
 `paper`, `advisory`, and `live` plugin modes are not supported by the shared
 contract. Platforms should not maintain plugin ledgers or execute plugin-driven
 allocation changes from this sidecar path.
+
+## Escalated Alerts
+
+The shared kit owns the platform-neutral alert policy. A plugin signal escalates
+when any of the following is true:
+
+- `canonical_route` is not `no_action`
+- `suggested_action` is `defend` or `blocked`
+- `would_trade_if_enabled` is `true`
+
+Platforms may still choose their delivery sinks, but should use
+`build_strategy_plugin_alert_messages()` for the subject/body and
+`quant_platform_kit.notifications.email.send_smtp_email()` when SMTP email is
+configured. This keeps the Crisis Response plugin behavior consistent across
+IBKR, Schwab, LongBridge, Firstrade, and future platform runtimes.
