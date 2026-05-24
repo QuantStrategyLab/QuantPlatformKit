@@ -1,10 +1,10 @@
 from types import SimpleNamespace
 
 from quant_platform_kit.notifications.email import parse_email_recipients, send_smtp_email
-from quant_platform_kit.notifications.strategy_plugin_email import (
-    StrategyPluginEmailAlertMarkerStore,
-    StrategyPluginEmailSettings,
-    publish_strategy_plugin_email_alerts,
+from quant_platform_kit.notifications.strategy_plugin_google_voice import (
+    StrategyPluginGoogleVoiceAlertMarkerStore,
+    StrategyPluginGoogleVoiceSettings,
+    publish_strategy_plugin_google_voice_alerts,
 )
 
 
@@ -71,32 +71,32 @@ def _alert_signal():
     )
 
 
-def test_publish_strategy_plugin_email_alerts_skips_missing_config():
+def test_publish_strategy_plugin_google_voice_alerts_skips_missing_config():
     observed = []
 
-    result = publish_strategy_plugin_email_alerts(
+    result = publish_strategy_plugin_google_voice_alerts(
         [_alert_signal()],
-        email_settings=StrategyPluginEmailSettings(),
+        google_voice_settings=StrategyPluginGoogleVoiceSettings(),
         strategy_label="TQQQ",
         context_label="ibkr / paper / tqqq",
-        send_email=lambda **_kwargs: observed.append(_kwargs) or True,
+        send_notification=lambda **_kwargs: observed.append(_kwargs) or True,
         log_message=lambda *_args, **_kwargs: None,
     )
 
     assert result.sent_count == 0
     assert result.skipped_count == 1
-    assert result.deliveries[0].reason == "missing_email_config"
+    assert result.deliveries[0].reason == "missing_google_voice_config"
     assert "CRISIS_ALERT_SMTP_HOST" in result.deliveries[0].error
     assert observed == []
 
 
-def test_publish_strategy_plugin_email_alerts_sends_and_records_marker(tmp_path):
+def test_publish_strategy_plugin_google_voice_alerts_sends_and_records_marker(tmp_path):
     observed = []
-    store = StrategyPluginEmailAlertMarkerStore(local_dir=tmp_path)
+    store = StrategyPluginGoogleVoiceAlertMarkerStore(local_dir=tmp_path)
 
-    result = publish_strategy_plugin_email_alerts(
+    result = publish_strategy_plugin_google_voice_alerts(
         [_alert_signal()],
-        email_settings=StrategyPluginEmailSettings(
+        google_voice_settings=StrategyPluginGoogleVoiceSettings(
             smtp_host="smtp.example.com",
             sender="bot@example.com",
             recipients=("risk@example.com",),
@@ -104,7 +104,7 @@ def test_publish_strategy_plugin_email_alerts_sends_and_records_marker(tmp_path)
         strategy_label="TQQQ",
         context_label="ibkr / paper / tqqq",
         alert_store=store,
-        send_email=lambda **kwargs: observed.append(kwargs) or True,
+        send_notification=lambda **kwargs: observed.append(kwargs) or True,
         log_message=lambda *_args, **_kwargs: None,
     )
 
@@ -115,30 +115,30 @@ def test_publish_strategy_plugin_email_alerts_sends_and_records_marker(tmp_path)
     assert store.has_alert(result.deliveries[0].alert_key)
 
 
-def test_publish_strategy_plugin_email_alerts_skips_duplicate_marker(tmp_path):
-    store = StrategyPluginEmailAlertMarkerStore(local_dir=tmp_path)
-    settings = StrategyPluginEmailSettings(
+def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_path):
+    store = StrategyPluginGoogleVoiceAlertMarkerStore(local_dir=tmp_path)
+    settings = StrategyPluginGoogleVoiceSettings(
         smtp_host="smtp.example.com",
         sender="bot@example.com",
         recipients=("risk@example.com",),
     )
-    first = publish_strategy_plugin_email_alerts(
+    first = publish_strategy_plugin_google_voice_alerts(
         [_alert_signal()],
-        email_settings=settings,
+        google_voice_settings=settings,
         strategy_label="TQQQ",
         context_label="ibkr / paper / tqqq",
         alert_store=store,
-        send_email=lambda **_kwargs: True,
+        send_notification=lambda **_kwargs: True,
         log_message=lambda *_args, **_kwargs: None,
     )
 
-    second = publish_strategy_plugin_email_alerts(
+    second = publish_strategy_plugin_google_voice_alerts(
         [_alert_signal()],
-        email_settings=settings,
+        google_voice_settings=settings,
         strategy_label="TQQQ",
         context_label="ibkr / paper / tqqq",
         alert_store=store,
-        send_email=lambda **_kwargs: True,
+        send_notification=lambda **_kwargs: True,
         log_message=lambda *_args, **_kwargs: None,
     )
 
@@ -146,3 +146,31 @@ def test_publish_strategy_plugin_email_alerts_skips_duplicate_marker(tmp_path):
     assert second.sent_count == 0
     assert second.skipped_count == 1
     assert second.deliveries[0].reason == "duplicate_alert"
+
+
+def test_google_voice_marker_store_reads_legacy_email_namespace(tmp_path):
+    store = StrategyPluginGoogleVoiceAlertMarkerStore(local_dir=tmp_path)
+    legacy_store = StrategyPluginGoogleVoiceAlertMarkerStore(
+        local_dir=tmp_path,
+        namespace="strategy_plugin_email_alerts",
+        legacy_namespaces=(),
+    )
+    legacy_store.record_alert("strategy_plugin_email_alert/example")
+
+    assert store.has_alert("strategy_plugin_google_voice_alert/example")
+
+
+def test_google_voice_settings_read_new_names_and_legacy_email_recipients():
+    settings = StrategyPluginGoogleVoiceSettings.from_object(
+        SimpleNamespace(
+            crisis_alert_smtp_host="smtp.gmail.com",
+            crisis_alert_smtp_from="sender@gmail.com",
+            crisis_alert_google_voice_to="gateway@txt.voice.google.com",
+            crisis_alert_email_to="ops@example.com,gateway@txt.voice.google.com",
+            crisis_alert_smtp_username="sender@gmail.com",
+        )
+    )
+
+    assert settings.sender == "sender@gmail.com"
+    assert settings.recipients == ("gateway@txt.voice.google.com", "ops@example.com")
+    assert settings.missing_fields() == ()
