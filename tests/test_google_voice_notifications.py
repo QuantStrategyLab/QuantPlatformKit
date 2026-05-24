@@ -148,29 +148,16 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_
     assert second.deliveries[0].reason == "duplicate_alert"
 
 
-def test_google_voice_marker_store_reads_legacy_email_namespace(tmp_path):
-    store = StrategyPluginGoogleVoiceAlertMarkerStore(local_dir=tmp_path)
-    legacy_store = StrategyPluginGoogleVoiceAlertMarkerStore(
-        local_dir=tmp_path,
-        namespace="strategy_plugin_email_alerts",
-        legacy_namespaces=(),
-    )
-    legacy_store.record_alert("strategy_plugin_email_alert/example")
-
-    assert store.has_alert("strategy_plugin_google_voice_alert/example")
-
-
-def test_google_voice_settings_read_new_names_and_legacy_email_recipients():
+def test_google_voice_settings_read_google_voice_names_only():
     settings = StrategyPluginGoogleVoiceSettings.from_object(
         SimpleNamespace(
             crisis_alert_smtp_host="smtp.gmail.com",
             crisis_alert_smtp_from="sender@gmail.com",
             crisis_alert_google_voice_to="gateway@txt.voice.google.com",
-            crisis_alert_email_to="ops@example.com,gateway@txt.voice.google.com",
             crisis_alert_smtp_username="sender@gmail.com",
         )
     )
 
     assert settings.sender == "sender@gmail.com"
-    assert settings.recipients == ("gateway@txt.voice.google.com", "ops@example.com")
+    assert settings.recipients == ("gateway@txt.voice.google.com",)
     assert settings.missing_fields() == ()

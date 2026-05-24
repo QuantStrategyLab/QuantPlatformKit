@@ -113,7 +113,7 @@ SMTP should use
 The publisher builds the shared subject/body, prefixes platform context, returns
 structured sent/skipped/failed diagnostics, and can use
 `StrategyPluginGoogleVoiceAlertMarkerStore` to skip alert keys that were already
-sent. The older `strategy_plugin_email` module remains as a compatibility alias
-for deployed platforms.
+sent. Platforms should expose this as Google Voice notification config, not as a
+generic email alert surface.
 This keeps the Crisis Response plugin behavior consistent across IBKR, Schwab,
 LongBridge, Firstrade, and future platform runtimes.
