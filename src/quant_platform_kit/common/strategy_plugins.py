@@ -6,7 +6,7 @@ import hashlib
 import json
 import tempfile
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -65,6 +65,8 @@ class StrategyPluginSignal:
 class StrategyPluginAlertMessage:
     subject: str
     body: str
+    alert_key: str = ""
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 def normalize_strategy_plugin_mode(value: Any, *, field_name: str = "mode") -> str:
@@ -284,13 +286,51 @@ def should_alert_strategy_plugin_signal(signal: StrategyPluginSignal) -> bool:
     )
 
 
+def build_strategy_plugin_alert_key(
+    signal: StrategyPluginSignal,
+    *,
+    strategy_label: str | None = None,
+    context_label: str | None = None,
+    namespace: str = "strategy_plugin_alert",
+) -> str:
+    payload = {
+        "namespace": _optional_key_part(namespace) or "strategy_plugin_alert",
+        "context": _optional_key_part(context_label) or "default",
+        "strategy": _optional_key_part(getattr(signal, "strategy", None)) or _optional_key_part(strategy_label) or "unknown",
+        "plugin": _optional_key_part(getattr(signal, "plugin", None)) or "unknown",
+        "mode": _optional_key_part(getattr(signal, "effective_mode", None)) or "unknown",
+        "as_of": _optional_key_part(getattr(signal, "as_of", None)) or "unknown",
+        "route": _optional_key_part(getattr(signal, "canonical_route", None)) or "unknown",
+        "action": _optional_key_part(getattr(signal, "suggested_action", None)) or "unknown",
+        "would_trade_if_enabled": bool(getattr(signal, "would_trade_if_enabled", False)),
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+    return "/".join(
+        (
+            _sanitize_key_part(payload["namespace"]),
+            _sanitize_key_part(payload["context"]),
+            _sanitize_key_part(payload["strategy"]),
+            _sanitize_key_part(payload["plugin"]),
+            _sanitize_key_part(payload["as_of"]),
+            _sanitize_key_part(payload["route"]),
+            _sanitize_key_part(payload["action"]),
+            digest,
+        )
+    )
+
+
 def build_strategy_plugin_alert_messages(
     signals: Sequence[StrategyPluginSignal],
     *,
     translator: Callable[..., str] | None = None,
     strategy_label: str | None = None,
+    context_label: str | None = None,
+    alert_namespace: str = "strategy_plugin_alert",
 ) -> tuple[StrategyPluginAlertMessage, ...]:
     messages: list[StrategyPluginAlertMessage] = []
+    context = str(context_label or "").strip()
     for signal in signals:
         if not should_alert_strategy_plugin_signal(signal):
             continue
@@ -308,8 +348,22 @@ def build_strategy_plugin_alert_messages(
             plugin=plugin,
             route=translated_route,
         )
+        if context:
+            subject = f"[{context}] {subject}"
         body_lines = [
             _translate(translator, "strategy_plugin_alert_title", fallback="Strategy Plugin Alert"),
+        ]
+        if context:
+            body_lines.append(
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_context",
+                    fallback="Context: {context}",
+                    context=context,
+                )
+            )
+        body_lines.extend(
+            [
             _translate(
                 translator,
                 "strategy_plugin_line",
@@ -337,7 +391,8 @@ def build_strategy_plugin_alert_messages(
                 fallback="Would trade if enabled: {value}",
                 value=str(bool(getattr(signal, "would_trade_if_enabled", False))).lower(),
             ),
-        ]
+            ]
+        )
         source = getattr(signal, "source_uri", None) or getattr(signal, "local_path", None)
         if source:
             body_lines.append(
@@ -348,8 +403,53 @@ def build_strategy_plugin_alert_messages(
                     source=source,
                 )
             )
-        messages.append(StrategyPluginAlertMessage(subject=subject, body="\n".join(body_lines)))
+        metadata = {
+            "strategy": getattr(signal, "strategy", None),
+            "strategy_label": strategy,
+            "plugin": getattr(signal, "plugin", None),
+            "mode": getattr(signal, "effective_mode", None),
+            "as_of": getattr(signal, "as_of", None),
+            "canonical_route": getattr(signal, "canonical_route", None),
+            "suggested_action": getattr(signal, "suggested_action", None),
+            "would_trade_if_enabled": bool(getattr(signal, "would_trade_if_enabled", False)),
+            "context_label": context or None,
+        }
+        messages.append(
+            StrategyPluginAlertMessage(
+                subject=subject,
+                body="\n".join(body_lines),
+                alert_key=build_strategy_plugin_alert_key(
+                    signal,
+                    strategy_label=strategy,
+                    context_label=context,
+                    namespace=alert_namespace,
+                ),
+                metadata=metadata,
+            )
+        )
     return tuple(messages)
+
+
+def _optional_key_part(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _sanitize_key_part(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    chars: list[str] = []
+    previous_dash = False
+    for char in text:
+        if char.isalnum() or char in {"_", "."}:
+            chars.append(char)
+            previous_dash = False
+        elif not previous_dash:
+            chars.append("-")
+            previous_dash = True
+    sanitized = "".join(chars).strip("-._")
+    return sanitized[:80] or "unknown"
 
 
 def _materialize_artifact_path(reference: str, *, client_factory: Any = None) -> tuple[Path, dict[str, str | None]]:

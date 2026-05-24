@@ -226,6 +226,7 @@ class StrategyPluginsTests(unittest.TestCase):
 
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].subject, "alert:TQQQ Growth Income:Crisis:true crisis")
+        self.assertIn("strategy_plugin_alert", alerts[0].alert_key)
         self.assertIn("plugin=Crisis|mode=shadow|route=true crisis|action=defend", alerts[0].body)
         self.assertIn("source=gs://bucket/latest_signal.json", alerts[0].body)
 
