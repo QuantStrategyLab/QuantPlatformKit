@@ -20,6 +20,15 @@ StrategyPluginEmailAlertDelivery = StrategyPluginGoogleVoiceAlertDelivery
 StrategyPluginEmailAlertPublishResult = StrategyPluginGoogleVoiceAlertPublishResult
 StrategyPluginEmailAlertMarkerStore = StrategyPluginGoogleVoiceAlertMarkerStore
 
+__all__ = [
+    "StrategyPluginEmailSettings",
+    "StrategyPluginEmailAlertDelivery",
+    "StrategyPluginEmailAlertPublishResult",
+    "StrategyPluginEmailAlertMarkerStore",
+    "build_strategy_plugin_alert_context_label",
+    "publish_strategy_plugin_email_alerts",
+]
+
 
 def publish_strategy_plugin_email_alerts(
     signals: Sequence[object],
@@ -42,4 +51,3 @@ def publish_strategy_plugin_email_alerts(
         send_notification=send_email,
         log_message=log_message,
     )
-
