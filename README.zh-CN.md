@@ -25,7 +25,7 @@
 - 策略仓库只返回统一的 `StrategyDecision`
 - 平台自己的 decision mapper 再把决策映射成券商订单、通知和运行时状态更新
 
-策略仓库应该暴露 `manifest + evaluate(ctx)`；如果迁移窗口里还需要少量运行时元数据，就放在 `StrategyRuntimeAdapter` 里，不要把券商专属下单顺序或展示布局塞回策略输出。
+策略仓库应该暴露 `manifest + evaluate(ctx)`；如果迁移窗口里还需要少量运行时元数据，就放在 `StrategyRuntimeAdapter` 里，不要把券商专属下单顺序或展示布局塞回策略输出。平台仓库应复用本包里的执行结果和通知 envelope helper，把券商差异限制在适配器、订单 payload 和传输层。
 
 迁移说明和后续约束见 [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md)。
 

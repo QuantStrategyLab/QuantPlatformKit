@@ -37,6 +37,7 @@ The current mainline split is:
 - platform-local decision mappers turn that decision into broker orders, notifications, and runtime state updates
 
 Strategy repositories should expose `manifest + evaluate(ctx)` and keep any migration-window runtime metadata behind `StrategyRuntimeAdapter`. Broker-specific order sequencing and UI layout should stay out of strategy outputs.
+Platform repositories should share common execution outcome and notification envelope helpers from this package so broker-specific differences stay limited to adapters, order payloads, and transport wiring.
 
 Migration details and follow-up guidance live in [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md).
 
