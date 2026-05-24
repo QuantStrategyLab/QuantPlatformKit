@@ -53,6 +53,8 @@ For the stricter end-state rules for new US equity strategies, see:
 - [`docs/us_equity_release_cutover_plan.zh-CN.md`](./docs/us_equity_release_cutover_plan.zh-CN.md)
 - [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
 - [`docs/us_equity_live_switch_runbook.zh-CN.md`](./docs/us_equity_live_switch_runbook.zh-CN.md)
+- [`docs/platform_notification_outcomes.md`](./docs/platform_notification_outcomes.md)
+- [`docs/platform_notification_outcomes.zh-CN.md`](./docs/platform_notification_outcomes.zh-CN.md)
 - [`docs/strategy_plugin_runtime_contract.md`](./docs/strategy_plugin_runtime_contract.md)
 
 ## Package layout
