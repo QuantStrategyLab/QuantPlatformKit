@@ -124,12 +124,15 @@ when any of the following is true:
 - `suggested_action` is `defend` or `blocked`
 - `would_trade_if_enabled` is `true`
 
-Platforms may still choose their delivery sinks, but email escalation can use
-`quant_platform_kit.notifications.strategy_plugin_email.publish_strategy_plugin_email_alerts()`.
-The publisher builds the shared subject/body, prefixes platform context, returns
-structured sent/skipped/failed diagnostics, and can use
-`StrategyPluginEmailAlertMarkerStore` to skip alert keys that were already
-sent.
+Platforms may still choose their delivery sinks, but shared escalation helpers
+are available for email and SMS:
+
+- `quant_platform_kit.notifications.strategy_plugin_email.publish_strategy_plugin_email_alerts()`
+- `quant_platform_kit.notifications.strategy_plugin_sms.publish_strategy_plugin_sms_alerts()`
+
+The publishers build the shared subject/body, prefix platform context, return
+structured sent/skipped/failed diagnostics, and can use marker stores to skip
+alert keys that were already sent for that channel.
 
 Delivery credentials, routes, and transport settings are platform runtime
 configuration. The plugin artifact and strategy code only decide whether an
