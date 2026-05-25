@@ -139,8 +139,16 @@ also surface the Google Voice prompt. The public configuration names should be
 channel specific:
 
 - `CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS`
-- `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER`
-- `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD`
+- `CRISIS_ALERT_GOOGLE_VOICE_SENDER_EMAIL`
+- `CRISIS_ALERT_GOOGLE_VOICE_SENDER_PASSWORD`
+
+By default the transport uses Gmail SMTP (`smtp.gmail.com`, port `465`, SSL),
+but the sender is not part of the Google Voice channel contract. Non-Gmail
+senders can override:
+
+- `CRISIS_ALERT_GOOGLE_VOICE_SMTP_HOST`
+- `CRISIS_ALERT_GOOGLE_VOICE_SMTP_PORT`
+- `CRISIS_ALERT_GOOGLE_VOICE_SMTP_SECURITY` (`ssl`, `starttls`, or `none`)
 
 Future direct email notifications should use a separate namespace such as
 `CRISIS_ALERT_EMAIL_*`.
