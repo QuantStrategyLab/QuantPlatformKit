@@ -3,6 +3,12 @@
 from .email import parse_email_recipients, send_smtp_email
 from .events import NotificationPublisher, RenderedNotification, publish_rendered_notification
 from .sms import normalize_sms_recipient, parse_sms_recipients, send_twilio_sms
+from .strategy_plugin_alerts import (
+    StrategyPluginAlertChannelStores,
+    StrategyPluginAlertPublishResult,
+    StrategyPluginAlertStateSettings,
+    publish_strategy_plugin_alerts,
+)
 from .strategy_plugin_email import (
     StrategyPluginEmailAlertDelivery,
     StrategyPluginEmailAlertMarkerStore,
@@ -22,6 +28,9 @@ from .strategy_plugin_sms import (
 __all__ = [
     "NotificationPublisher",
     "RenderedNotification",
+    "StrategyPluginAlertChannelStores",
+    "StrategyPluginAlertPublishResult",
+    "StrategyPluginAlertStateSettings",
     "StrategyPluginEmailAlertDelivery",
     "StrategyPluginEmailAlertMarkerStore",
     "StrategyPluginEmailAlertPublishResult",
@@ -35,6 +44,7 @@ __all__ = [
     "parse_email_recipients",
     "parse_sms_recipients",
     "publish_rendered_notification",
+    "publish_strategy_plugin_alerts",
     "publish_strategy_plugin_email_alerts",
     "publish_strategy_plugin_sms_alerts",
     "send_smtp_email",
