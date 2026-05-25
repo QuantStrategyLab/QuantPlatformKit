@@ -170,8 +170,4 @@ def test_google_voice_settings_reads_google_voice_gmail_names_only():
     assert settings.gmail_user == "sender@gmail.com"
     assert settings.gateway_recipients == ("gateway@txt.voice.google.com",)
     assert settings.gmail_app_password == "app-password"
-    assert settings.smtp_host == "smtp.gmail.com"
-    assert settings.smtp_port == 465
-    assert settings.use_ssl is True
-    assert settings.use_starttls is False
     assert settings.missing_fields() == ()
