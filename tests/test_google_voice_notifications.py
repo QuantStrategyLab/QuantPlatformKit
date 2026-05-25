@@ -87,8 +87,8 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_missing_config():
     assert result.skipped_count == 1
     assert result.deliveries[0].reason == "missing_google_voice_config"
     assert "CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS" in result.deliveries[0].error
-    assert "CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER" in result.deliveries[0].error
-    assert "CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD" in result.deliveries[0].error
+    assert "CRISIS_ALERT_GOOGLE_VOICE_SENDER_EMAIL" in result.deliveries[0].error
+    assert "CRISIS_ALERT_GOOGLE_VOICE_SENDER_PASSWORD" in result.deliveries[0].error
     assert observed == []
 
 
@@ -100,8 +100,8 @@ def test_publish_strategy_plugin_google_voice_alerts_sends_and_records_marker(tm
         [_alert_signal()],
         google_voice_settings=StrategyPluginGoogleVoiceSettings(
             recipients=("risk@example.com",),
-            gmail_user="bot@example.com",
-            gmail_app_password="app-password",
+            sender_email="bot@example.com",
+            sender_password="app-password",
         ),
         strategy_label="TQQQ",
         context_label="ibkr / paper / tqqq",
@@ -129,8 +129,8 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_
     store = StrategyPluginGoogleVoiceAlertMarkerStore(local_dir=tmp_path)
     settings = StrategyPluginGoogleVoiceSettings(
         recipients=("risk@example.com",),
-        gmail_user="bot@example.com",
-        gmail_app_password="app-password",
+        sender_email="bot@example.com",
+        sender_password="app-password",
     )
     first = publish_strategy_plugin_google_voice_alerts(
         [_alert_signal()],
@@ -158,16 +158,62 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_
     assert second.deliveries[0].reason == "duplicate_alert"
 
 
-def test_google_voice_settings_reads_google_voice_recipient_names_only():
+def test_publish_strategy_plugin_google_voice_alerts_uses_transport_overrides():
+    observed = []
+
+    result = publish_strategy_plugin_google_voice_alerts(
+        [_alert_signal()],
+        google_voice_settings=StrategyPluginGoogleVoiceSettings(
+            recipients=("voice@example.com",),
+            sender_email="bot@example.com",
+            sender_password="secret",
+            smtp_host="smtp.example.com",
+            smtp_port=587,
+            smtp_security="starttls",
+        ),
+        strategy_label="TQQQ",
+        context_label="ibkr / paper / tqqq",
+        send_notification=lambda **kwargs: observed.append(kwargs) or True,
+        log_message=lambda *_args, **_kwargs: None,
+    )
+
+    assert result.sent_count == 1
+    assert observed[0]["smtp_host"] == "smtp.example.com"
+    assert observed[0]["smtp_port"] == 587
+    assert observed[0]["use_starttls"] is True
+    assert observed[0]["use_ssl"] is False
+
+
+def test_google_voice_settings_reads_sender_and_default_transport_names_only():
     settings = StrategyPluginGoogleVoiceSettings.from_object(
         SimpleNamespace(
             crisis_alert_google_voice_recipients="alerts@example.com; voice@example.com",
-            crisis_alert_google_voice_gmail_user="sender@gmail.com",
-            crisis_alert_google_voice_gmail_app_password="app-password",
+            crisis_alert_google_voice_sender_email="sender@example.com",
+            crisis_alert_google_voice_sender_password="app-password",
         )
     )
 
-    assert settings.gmail_user == "sender@gmail.com"
+    assert settings.sender_email == "sender@example.com"
     assert settings.recipients == ("alerts@example.com", "voice@example.com")
-    assert settings.gmail_app_password == "app-password"
+    assert settings.sender_password == "app-password"
+    assert settings.smtp_host == "smtp.gmail.com"
+    assert settings.smtp_port == 465
+    assert settings.smtp_security == "ssl"
     assert settings.missing_fields() == ()
+
+
+def test_google_voice_settings_reads_optional_smtp_transport_overrides():
+    settings = StrategyPluginGoogleVoiceSettings.from_object(
+        SimpleNamespace(
+            crisis_alert_google_voice_recipients="voice@example.com",
+            crisis_alert_google_voice_sender_email="sender@example.com",
+            crisis_alert_google_voice_sender_password="secret",
+            crisis_alert_google_voice_smtp_host="smtp.example.com",
+            crisis_alert_google_voice_smtp_port="587",
+            crisis_alert_google_voice_smtp_security="starttls",
+        )
+    )
+
+    assert settings.smtp_host == "smtp.example.com"
+    assert settings.smtp_port == 587
+    assert settings.smtp_security == "starttls"

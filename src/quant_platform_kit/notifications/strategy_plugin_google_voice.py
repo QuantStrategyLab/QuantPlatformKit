@@ -18,17 +18,27 @@ from quant_platform_kit.common.strategy_plugins import (
 from .email import parse_email_recipients, send_smtp_email
 
 
-_GOOGLE_VOICE_SMTP_HOST = "smtp.gmail.com"
-_GOOGLE_VOICE_SMTP_PORT = 465
-_GOOGLE_VOICE_SMTP_STARTTLS = False
-_GOOGLE_VOICE_SMTP_SSL = True
+_DEFAULT_GOOGLE_VOICE_SMTP_HOST = "smtp.gmail.com"
+_DEFAULT_GOOGLE_VOICE_SMTP_PORT = 465
+_DEFAULT_GOOGLE_VOICE_SMTP_SECURITY = "ssl"
+_SMTP_SECURITY_NONE = "none"
+_SMTP_SECURITY_SSL = "ssl"
+_SMTP_SECURITY_STARTTLS = "starttls"
+_SMTP_SECURITY_VALUES = {
+    _SMTP_SECURITY_NONE,
+    _SMTP_SECURITY_SSL,
+    _SMTP_SECURITY_STARTTLS,
+}
 
 
 @dataclass(frozen=True)
 class StrategyPluginGoogleVoiceSettings:
     recipients: tuple[str, ...] = ()
-    gmail_user: str | None = None
-    gmail_app_password: str | None = field(default=None, repr=False)
+    sender_email: str | None = None
+    sender_password: str | None = field(default=None, repr=False)
+    smtp_host: str = _DEFAULT_GOOGLE_VOICE_SMTP_HOST
+    smtp_port: int = _DEFAULT_GOOGLE_VOICE_SMTP_PORT
+    smtp_security: str = _DEFAULT_GOOGLE_VOICE_SMTP_SECURITY
     timeout: float = 10.0
 
     @classmethod
@@ -39,18 +49,29 @@ class StrategyPluginGoogleVoiceSettings:
             recipients=tuple(
                 parse_email_recipients(_get_value(value, "crisis_alert_google_voice_recipients", ()))
             ),
-            gmail_user=_first_non_empty(_get_value(value, "crisis_alert_google_voice_gmail_user")),
-            gmail_app_password=_get_value(value, "crisis_alert_google_voice_gmail_app_password"),
+            sender_email=_first_non_empty(_get_value(value, "crisis_alert_google_voice_sender_email")),
+            sender_password=_get_value(value, "crisis_alert_google_voice_sender_password"),
+            smtp_host=_first_non_empty(
+                _get_value(value, "crisis_alert_google_voice_smtp_host")
+            )
+            or _DEFAULT_GOOGLE_VOICE_SMTP_HOST,
+            smtp_port=_coerce_int(
+                _get_value(value, "crisis_alert_google_voice_smtp_port"),
+                _DEFAULT_GOOGLE_VOICE_SMTP_PORT,
+            ),
+            smtp_security=_coerce_smtp_security(
+                _get_value(value, "crisis_alert_google_voice_smtp_security")
+            ),
         )
 
     def missing_fields(self) -> tuple[str, ...]:
         missing: list[str] = []
         if not parse_email_recipients(self.recipients):
             missing.append("CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS")
-        if not str(self.gmail_user or "").strip():
-            missing.append("CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER")
-        if not str(self.gmail_app_password or "").strip():
-            missing.append("CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD")
+        if not str(self.sender_email or "").strip():
+            missing.append("CRISIS_ALERT_GOOGLE_VOICE_SENDER_EMAIL")
+        if not str(self.sender_password or "").strip():
+            missing.append("CRISIS_ALERT_GOOGLE_VOICE_SENDER_PASSWORD")
         return tuple(missing)
 
     @property
@@ -278,14 +299,14 @@ def _send_message(
         sent = send_notification(
             subject=message.subject,
             body=message.body,
-            smtp_host=_GOOGLE_VOICE_SMTP_HOST,
-            smtp_port=_GOOGLE_VOICE_SMTP_PORT,
-            sender=settings.gmail_user,
+            smtp_host=settings.smtp_host,
+            smtp_port=settings.smtp_port,
+            sender=settings.sender_email,
             recipients=settings.recipients,
-            username=settings.gmail_user,
-            password=settings.gmail_app_password,
-            use_starttls=_GOOGLE_VOICE_SMTP_STARTTLS,
-            use_ssl=_GOOGLE_VOICE_SMTP_SSL,
+            username=settings.sender_email,
+            password=settings.sender_password,
+            use_starttls=settings.smtp_security == _SMTP_SECURITY_STARTTLS,
+            use_ssl=settings.smtp_security == _SMTP_SECURITY_SSL,
             timeout=settings.timeout,
         )
     except Exception as exc:
@@ -363,6 +384,23 @@ def _first_non_empty(*values: Any) -> str | None:
         if text:
             return text
     return None
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    text = str(value or "").strip()
+    if not text:
+        return default
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_smtp_security(value: Any) -> str:
+    security = str(value or "").strip().lower()
+    if security in _SMTP_SECURITY_VALUES:
+        return security
+    return _DEFAULT_GOOGLE_VOICE_SMTP_SECURITY
 
 
 def _fallback_alert_key(message: StrategyPluginAlertMessage) -> str:
