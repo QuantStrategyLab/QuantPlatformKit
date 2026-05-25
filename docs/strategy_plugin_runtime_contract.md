@@ -124,13 +124,23 @@ when any of the following is true:
 - `suggested_action` is `defend` or `blocked`
 - `would_trade_if_enabled` is `true`
 
-Platforms may still choose their delivery sinks, but Google Voice escalation over
-SMTP should use
+Platforms may still choose their delivery sinks, but Google Voice escalation via
+the Gmail-to-Google-Voice SMS gateway should use
 `quant_platform_kit.notifications.strategy_plugin_google_voice.publish_strategy_plugin_google_voice_alerts()`.
 The publisher builds the shared subject/body, prefixes platform context, returns
 structured sent/skipped/failed diagnostics, and can use
 `StrategyPluginGoogleVoiceAlertMarkerStore` to skip alert keys that were already
-sent. Platforms should expose this as Google Voice notification config, not as a
-generic email alert surface.
+sent.
+
+Platforms should expose this as Google Voice notification config, not as a
+generic email alert surface. The public configuration names should be channel
+specific:
+
+- `CRISIS_ALERT_GOOGLE_VOICE_GATEWAY`
+- `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER`
+- `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD`
+
+Future direct email notifications should use a separate namespace such as
+`CRISIS_ALERT_EMAIL_*`.
 This keeps the Crisis Response plugin behavior consistent across IBKR, Schwab,
 LongBridge, Firstrade, and future platform runtimes.
