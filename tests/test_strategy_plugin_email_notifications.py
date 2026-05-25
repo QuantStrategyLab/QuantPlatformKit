@@ -1,10 +1,10 @@
 from types import SimpleNamespace
 
 from quant_platform_kit.notifications.email import parse_email_recipients, send_smtp_email
-from quant_platform_kit.notifications.strategy_plugin_google_voice import (
-    StrategyPluginGoogleVoiceAlertMarkerStore,
-    StrategyPluginGoogleVoiceSettings,
-    publish_strategy_plugin_google_voice_alerts,
+from quant_platform_kit.notifications.strategy_plugin_email import (
+    StrategyPluginEmailAlertMarkerStore,
+    StrategyPluginEmailSettings,
+    publish_strategy_plugin_email_alerts,
 )
 
 
@@ -71,12 +71,12 @@ def _alert_signal():
     )
 
 
-def test_publish_strategy_plugin_google_voice_alerts_skips_missing_config():
+def test_publish_strategy_plugin_email_alerts_skips_missing_config():
     observed = []
 
-    result = publish_strategy_plugin_google_voice_alerts(
+    result = publish_strategy_plugin_email_alerts(
         [_alert_signal()],
-        google_voice_settings=StrategyPluginGoogleVoiceSettings(),
+        email_settings=StrategyPluginEmailSettings(),
         strategy_label="TQQQ",
         context_label="ibkr / paper / tqqq",
         send_notification=lambda **_kwargs: observed.append(_kwargs) or True,
@@ -85,20 +85,20 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_missing_config():
 
     assert result.sent_count == 0
     assert result.skipped_count == 1
-    assert result.deliveries[0].reason == "missing_google_voice_config"
-    assert "CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS" in result.deliveries[0].error
-    assert "CRISIS_ALERT_GOOGLE_VOICE_SENDER_EMAIL" in result.deliveries[0].error
-    assert "CRISIS_ALERT_GOOGLE_VOICE_SENDER_PASSWORD" in result.deliveries[0].error
+    assert result.deliveries[0].reason == "missing_email_config"
+    assert "CRISIS_ALERT_EMAIL_RECIPIENTS" in result.deliveries[0].error
+    assert "CRISIS_ALERT_EMAIL_SENDER_EMAIL" in result.deliveries[0].error
+    assert "CRISIS_ALERT_EMAIL_SENDER_PASSWORD" in result.deliveries[0].error
     assert observed == []
 
 
-def test_publish_strategy_plugin_google_voice_alerts_sends_and_records_marker(tmp_path):
+def test_publish_strategy_plugin_email_alerts_sends_and_records_marker(tmp_path):
     observed = []
-    store = StrategyPluginGoogleVoiceAlertMarkerStore(local_dir=tmp_path)
+    store = StrategyPluginEmailAlertMarkerStore(local_dir=tmp_path)
 
-    result = publish_strategy_plugin_google_voice_alerts(
+    result = publish_strategy_plugin_email_alerts(
         [_alert_signal()],
-        google_voice_settings=StrategyPluginGoogleVoiceSettings(
+        email_settings=StrategyPluginEmailSettings(
             recipients=("risk@example.com",),
             sender_email="bot@example.com",
             sender_password="app-password",
@@ -125,16 +125,16 @@ def test_publish_strategy_plugin_google_voice_alerts_sends_and_records_marker(tm
     assert store.has_alert(result.deliveries[0].alert_key)
 
 
-def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_path):
-    store = StrategyPluginGoogleVoiceAlertMarkerStore(local_dir=tmp_path)
-    settings = StrategyPluginGoogleVoiceSettings(
+def test_publish_strategy_plugin_email_alerts_skips_duplicate_marker(tmp_path):
+    store = StrategyPluginEmailAlertMarkerStore(local_dir=tmp_path)
+    settings = StrategyPluginEmailSettings(
         recipients=("risk@example.com",),
         sender_email="bot@example.com",
         sender_password="app-password",
     )
-    first = publish_strategy_plugin_google_voice_alerts(
+    first = publish_strategy_plugin_email_alerts(
         [_alert_signal()],
-        google_voice_settings=settings,
+        email_settings=settings,
         strategy_label="TQQQ",
         context_label="ibkr / paper / tqqq",
         alert_store=store,
@@ -142,9 +142,9 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_
         log_message=lambda *_args, **_kwargs: None,
     )
 
-    second = publish_strategy_plugin_google_voice_alerts(
+    second = publish_strategy_plugin_email_alerts(
         [_alert_signal()],
-        google_voice_settings=settings,
+        email_settings=settings,
         strategy_label="TQQQ",
         context_label="ibkr / paper / tqqq",
         alert_store=store,
@@ -158,12 +158,12 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_
     assert second.deliveries[0].reason == "duplicate_alert"
 
 
-def test_publish_strategy_plugin_google_voice_alerts_uses_transport_overrides():
+def test_publish_strategy_plugin_email_alerts_uses_transport_overrides():
     observed = []
 
-    result = publish_strategy_plugin_google_voice_alerts(
+    result = publish_strategy_plugin_email_alerts(
         [_alert_signal()],
-        google_voice_settings=StrategyPluginGoogleVoiceSettings(
+        email_settings=StrategyPluginEmailSettings(
             recipients=("voice@example.com",),
             sender_email="bot@example.com",
             sender_password="secret",
@@ -184,12 +184,12 @@ def test_publish_strategy_plugin_google_voice_alerts_uses_transport_overrides():
     assert observed[0]["use_ssl"] is False
 
 
-def test_google_voice_settings_reads_sender_and_default_transport_names_only():
-    settings = StrategyPluginGoogleVoiceSettings.from_object(
+def test_email_settings_reads_sender_and_default_transport_names_only():
+    settings = StrategyPluginEmailSettings.from_object(
         SimpleNamespace(
-            crisis_alert_google_voice_recipients="alerts@example.com; voice@example.com",
-            crisis_alert_google_voice_sender_email="sender@example.com",
-            crisis_alert_google_voice_sender_password="app-password",
+            crisis_alert_email_recipients="alerts@example.com; voice@example.com",
+            crisis_alert_email_sender_email="sender@example.com",
+            crisis_alert_email_sender_password="app-password",
         )
     )
 
@@ -202,15 +202,15 @@ def test_google_voice_settings_reads_sender_and_default_transport_names_only():
     assert settings.missing_fields() == ()
 
 
-def test_google_voice_settings_reads_optional_smtp_transport_overrides():
-    settings = StrategyPluginGoogleVoiceSettings.from_object(
+def test_email_settings_reads_optional_smtp_transport_overrides():
+    settings = StrategyPluginEmailSettings.from_object(
         SimpleNamespace(
-            crisis_alert_google_voice_recipients="voice@example.com",
-            crisis_alert_google_voice_sender_email="sender@example.com",
-            crisis_alert_google_voice_sender_password="secret",
-            crisis_alert_google_voice_smtp_host="smtp.example.com",
-            crisis_alert_google_voice_smtp_port="587",
-            crisis_alert_google_voice_smtp_security="starttls",
+            crisis_alert_email_recipients="voice@example.com",
+            crisis_alert_email_sender_email="sender@example.com",
+            crisis_alert_email_sender_password="secret",
+            crisis_alert_email_smtp_host="smtp.example.com",
+            crisis_alert_email_smtp_port="587",
+            crisis_alert_email_smtp_security="starttls",
         )
     )
 

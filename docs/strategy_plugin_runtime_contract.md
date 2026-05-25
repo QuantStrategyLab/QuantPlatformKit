@@ -68,7 +68,7 @@ The default registry currently defines:
 
 | Plugin | Supported strategies | Supported mode | Escalated alert channel |
 | --- | --- | --- | --- |
-| `crisis_response_shadow` | `tqqq_growth_income`, `soxl_soxx_trend_income` | `shadow` | `google_voice` |
+| `crisis_response_shadow` | `tqqq_growth_income`, `soxl_soxx_trend_income` | `shadow` | `email` |
 
 To expand a plugin later, update the shared definition or pass an explicit
 definition registry into the parser/loader. This keeps future plugin eligibility
@@ -124,33 +124,30 @@ when any of the following is true:
 - `suggested_action` is `defend` or `blocked`
 - `would_trade_if_enabled` is `true`
 
-Platforms may still choose their delivery sinks, but Google Voice escalation via
-the Gmail-to-Google-Voice SMS gateway should use
-`quant_platform_kit.notifications.strategy_plugin_google_voice.publish_strategy_plugin_google_voice_alerts()`.
+Platforms may still choose their delivery sinks, but email escalation should use
+`quant_platform_kit.notifications.strategy_plugin_email.publish_strategy_plugin_email_alerts()`.
 The publisher builds the shared subject/body, prefixes platform context, returns
 structured sent/skipped/failed diagnostics, and can use
-`StrategyPluginGoogleVoiceAlertMarkerStore` to skip alert keys that were already
+`StrategyPluginEmailAlertMarkerStore` to skip alert keys that were already
 sent.
 
-Platforms should expose this as Google Voice notification config, not as a
-generic email alert surface. The recipient value is still an email-form address:
-a normal mailbox receives an email, while a Google Voice mailbox/address can
-also surface the Google Voice prompt. The public configuration names should be
-channel specific:
+Platforms should expose this as crisis email notification config. The recipient
+value is an email address list: a normal mailbox receives an email, while a
+Google Voice-associated mailbox/address can also surface a Google Voice prompt
+through Google's own forwarding behavior. The public configuration names should
+be channel-neutral:
 
-- `CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS`
-- `CRISIS_ALERT_GOOGLE_VOICE_SENDER_EMAIL`
-- `CRISIS_ALERT_GOOGLE_VOICE_SENDER_PASSWORD`
+- `CRISIS_ALERT_EMAIL_RECIPIENTS`
+- `CRISIS_ALERT_EMAIL_SENDER_EMAIL`
+- `CRISIS_ALERT_EMAIL_SENDER_PASSWORD`
 
 By default the transport uses Gmail SMTP (`smtp.gmail.com`, port `465`, SSL),
-but the sender is not part of the Google Voice channel contract. Non-Gmail
-senders can override:
+but the sender provider is not part of the email channel contract. Non-Gmail
+senders can override the transport:
 
-- `CRISIS_ALERT_GOOGLE_VOICE_SMTP_HOST`
-- `CRISIS_ALERT_GOOGLE_VOICE_SMTP_PORT`
-- `CRISIS_ALERT_GOOGLE_VOICE_SMTP_SECURITY` (`ssl`, `starttls`, or `none`)
+- `CRISIS_ALERT_EMAIL_SMTP_HOST`
+- `CRISIS_ALERT_EMAIL_SMTP_PORT`
+- `CRISIS_ALERT_EMAIL_SMTP_SECURITY` (`ssl`, `starttls`, or `none`)
 
-Future direct email notifications should use a separate namespace such as
-`CRISIS_ALERT_EMAIL_*`.
 This keeps the Crisis Response plugin behavior consistent across IBKR, Schwab,
 LongBridge, Firstrade, and future platform runtimes.
