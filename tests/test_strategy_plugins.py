@@ -11,6 +11,7 @@ from quant_platform_kit.common.strategy_plugins import (
     STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
     STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
     STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+    STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
     StrategyPluginDefinition,
     build_strategy_plugin_alert_messages,
     build_strategy_plugin_notification_lines,
@@ -96,6 +97,7 @@ class StrategyPluginsTests(unittest.TestCase):
                 STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
                 STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
                 STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
             ),
         )
         validate_strategy_plugin_compatibility(

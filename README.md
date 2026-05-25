@@ -14,7 +14,7 @@ It contains:
 - narrow ports for market data, portfolio snapshots, order execution, notifications, and state
 - reusable broker adapter utilities
 - strategy loading, strategy-plugin, and alert-message contracts
-- optional strategy-plugin alert channels for email, SMS, and push providers
+- optional strategy-plugin alert channels for email, SMS, push, and Telegram providers
 - synthetic-data tests for public behavior
 
 It does not contain private runtime wiring or generated strategy outputs.
@@ -49,7 +49,7 @@ Strategy plugins are sidecar artifacts that platform repositories may read when 
 
 Generated plugin artifacts and platform-specific notification routing stay with the producing pipeline or consuming platform repository. Tests in this repository use synthetic price history and synthetic payloads only.
 
-Plugin alert delivery is provider-neutral at the platform boundary. Platform repositories pass runtime settings into `publish_strategy_plugin_alerts`; this repository handles configured `email`, `sms`, and `push` channels without coupling plugin logic to a broker platform.
+Plugin alert delivery is provider-neutral at the platform boundary. Platform repositories pass runtime settings into `publish_strategy_plugin_alerts`; this repository handles configured `email`, `sms`, `push`, and `telegram` channels without coupling plugin logic to a broker platform.
 
 ## Package Layout
 
