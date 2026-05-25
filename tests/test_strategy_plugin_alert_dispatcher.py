@@ -7,6 +7,7 @@ from quant_platform_kit.notifications.strategy_plugin_alerts import (
     publish_strategy_plugin_alerts,
 )
 from quant_platform_kit.notifications.strategy_plugin_email import StrategyPluginEmailSettings
+from quant_platform_kit.notifications.strategy_plugin_push import StrategyPluginPushSettings
 from quant_platform_kit.notifications.strategy_plugin_sms import StrategyPluginSmsSettings
 
 
@@ -30,12 +31,16 @@ class _NotificationSettings:
     crisis_alert_sms_account_id = "AC123"
     crisis_alert_sms_auth_token = "secret"
     crisis_alert_sms_sender = "+15551234567"
+    crisis_alert_push_provider = "ntfy"
+    crisis_alert_push_recipients = "risk-topic"
+    crisis_alert_push_priority = "5"
 
 
 class StrategyPluginAlertDispatcherTests(unittest.TestCase):
     def test_publish_strategy_plugin_alerts_dispatches_enabled_channels(self):
         emails = []
         sms_messages = []
+        push_messages = []
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             result = publish_strategy_plugin_alerts(
@@ -46,17 +51,21 @@ class StrategyPluginAlertDispatcherTests(unittest.TestCase):
                 state_settings=StrategyPluginAlertStateSettings(local_dir=tmp_dir),
                 send_email_notification=lambda **kwargs: emails.append(kwargs) or True,
                 send_sms_notification=lambda **kwargs: sms_messages.append(kwargs) or True,
+                send_push_notification=lambda **kwargs: push_messages.append(kwargs) or True,
                 log_message=lambda *_args, **_kwargs: None,
             )
 
-        self.assertEqual(result.sent_count, 2)
+        self.assertEqual(result.sent_count, 3)
         self.assertEqual(result.failed_count, 0)
         self.assertIsNotNone(result.email_result)
         self.assertIsNotNone(result.sms_result)
+        self.assertIsNotNone(result.push_result)
         self.assertEqual(result.email_result.sent_count, 1)
         self.assertEqual(result.sms_result.sent_count, 1)
+        self.assertEqual(result.push_result.sent_count, 1)
         self.assertEqual(emails[0]["recipients"], ("risk@example.com",))
         self.assertEqual(sms_messages[0]["recipients"], ("+15165480265",))
+        self.assertEqual(push_messages[0]["recipients"], ("risk-topic",))
 
     def test_publish_strategy_plugin_alerts_records_channel_dedupe_independently(self):
         settings = _NotificationSettings()
@@ -71,6 +80,7 @@ class StrategyPluginAlertDispatcherTests(unittest.TestCase):
                 state_settings=state_settings,
                 send_email_notification=lambda **_kwargs: True,
                 send_sms_notification=lambda **_kwargs: True,
+                send_push_notification=lambda **_kwargs: True,
                 log_message=lambda *_args, **_kwargs: None,
             )
             second = publish_strategy_plugin_alerts(
@@ -81,16 +91,19 @@ class StrategyPluginAlertDispatcherTests(unittest.TestCase):
                 state_settings=state_settings,
                 send_email_notification=lambda **_kwargs: True,
                 send_sms_notification=lambda **_kwargs: True,
+                send_push_notification=lambda **_kwargs: True,
                 log_message=lambda *_args, **_kwargs: None,
             )
 
-        self.assertEqual(first.sent_count, 2)
+        self.assertEqual(first.sent_count, 3)
         self.assertEqual(second.sent_count, 0)
-        self.assertEqual(second.skipped_count, 2)
+        self.assertEqual(second.skipped_count, 3)
         self.assertIsNotNone(second.email_result)
         self.assertEqual(second.email_result.deliveries[0].reason, "duplicate_alert")
         self.assertIsNotNone(second.sms_result)
         self.assertEqual(second.sms_result.deliveries[0].reason, "duplicate_alert")
+        self.assertIsNotNone(second.push_result)
+        self.assertEqual(second.push_result.deliveries[0].reason, "duplicate_alert")
 
     def test_publish_strategy_plugin_alerts_can_target_one_channel(self):
         sms_messages = []
@@ -117,6 +130,59 @@ class StrategyPluginAlertDispatcherTests(unittest.TestCase):
         self.assertIsNotNone(result.sms_result)
         self.assertEqual(result.sent_count, 1)
         self.assertTrue(sms_messages)
+
+    def test_publish_strategy_plugin_alerts_can_target_push_channel(self):
+        push_messages = []
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = publish_strategy_plugin_alerts(
+                [_alert_signal()],
+                notification_settings=StrategyPluginPushSettings(
+                    provider="ntfy",
+                    recipients=("risk-topic",),
+                    priority="5",
+                ),
+                channels=("push",),
+                strategy_label="TQQQ",
+                context_label="schwab / tqqq",
+                state_settings=StrategyPluginAlertStateSettings(local_dir=tmp_dir),
+                send_email_notification=lambda **_kwargs: self.fail("email should not run"),
+                send_sms_notification=lambda **_kwargs: self.fail("sms should not run"),
+                send_push_notification=lambda **kwargs: push_messages.append(kwargs) or True,
+                log_message=lambda *_args, **_kwargs: None,
+            )
+
+        self.assertIsNone(result.email_result)
+        self.assertIsNone(result.sms_result)
+        self.assertIsNotNone(result.push_result)
+        self.assertEqual(result.sent_count, 1)
+        self.assertEqual(push_messages[0]["provider"], "ntfy")
+
+    def test_publish_strategy_plugin_alerts_reads_channels_from_settings(self):
+        settings = _NotificationSettings()
+        settings.crisis_alert_channels = "email,push"
+        emails = []
+        push_messages = []
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = publish_strategy_plugin_alerts(
+                [_alert_signal()],
+                notification_settings=settings,
+                strategy_label="TQQQ",
+                context_label="schwab / tqqq",
+                state_settings=StrategyPluginAlertStateSettings(local_dir=tmp_dir),
+                send_email_notification=lambda **kwargs: emails.append(kwargs) or True,
+                send_sms_notification=lambda **_kwargs: self.fail("sms should not run"),
+                send_push_notification=lambda **kwargs: push_messages.append(kwargs) or True,
+                log_message=lambda *_args, **_kwargs: None,
+            )
+
+        self.assertEqual(result.sent_count, 2)
+        self.assertIsNotNone(result.email_result)
+        self.assertIsNone(result.sms_result)
+        self.assertIsNotNone(result.push_result)
+        self.assertEqual(len(emails), 1)
+        self.assertEqual(len(push_messages), 1)
 
     def test_publish_strategy_plugin_alerts_attach_to_report(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

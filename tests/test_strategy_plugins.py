@@ -9,6 +9,8 @@ from quant_platform_kit.common.strategy_plugins import (
     PLUGIN_CRISIS_RESPONSE_SHADOW,
     PLUGIN_MODE_SHADOW,
     STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+    STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+    STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
     StrategyPluginDefinition,
     build_strategy_plugin_alert_messages,
     build_strategy_plugin_notification_lines,
@@ -88,7 +90,14 @@ class StrategyPluginsTests(unittest.TestCase):
         definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[PLUGIN_CRISIS_RESPONSE_SHADOW]
 
         self.assertEqual(definition.supported_strategies, CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES)
-        self.assertEqual(definition.alert_channels, (STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,))
+        self.assertEqual(
+            definition.alert_channels,
+            (
+                STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+            ),
+        )
         validate_strategy_plugin_compatibility(
             strategy="tqqq_growth_income",
             plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
