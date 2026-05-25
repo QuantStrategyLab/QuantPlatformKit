@@ -1,4 +1,4 @@
-"""Google Voice notification helpers for strategy plugin alerts."""
+"""Email notification helpers for strategy plugin alerts."""
 
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ from quant_platform_kit.common.strategy_plugins import (
 from .email import parse_email_recipients, send_smtp_email
 
 
-_DEFAULT_GOOGLE_VOICE_SMTP_HOST = "smtp.gmail.com"
-_DEFAULT_GOOGLE_VOICE_SMTP_PORT = 465
-_DEFAULT_GOOGLE_VOICE_SMTP_SECURITY = "ssl"
+_DEFAULT_EMAIL_SMTP_HOST = "smtp.gmail.com"
+_DEFAULT_EMAIL_SMTP_PORT = 465
+_DEFAULT_EMAIL_SMTP_SECURITY = "ssl"
 _SMTP_SECURITY_NONE = "none"
 _SMTP_SECURITY_SSL = "ssl"
 _SMTP_SECURITY_STARTTLS = "starttls"
@@ -32,46 +32,46 @@ _SMTP_SECURITY_VALUES = {
 
 
 @dataclass(frozen=True)
-class StrategyPluginGoogleVoiceSettings:
+class StrategyPluginEmailSettings:
     recipients: tuple[str, ...] = ()
     sender_email: str | None = None
     sender_password: str | None = field(default=None, repr=False)
-    smtp_host: str = _DEFAULT_GOOGLE_VOICE_SMTP_HOST
-    smtp_port: int = _DEFAULT_GOOGLE_VOICE_SMTP_PORT
-    smtp_security: str = _DEFAULT_GOOGLE_VOICE_SMTP_SECURITY
+    smtp_host: str = _DEFAULT_EMAIL_SMTP_HOST
+    smtp_port: int = _DEFAULT_EMAIL_SMTP_PORT
+    smtp_security: str = _DEFAULT_EMAIL_SMTP_SECURITY
     timeout: float = 10.0
 
     @classmethod
-    def from_object(cls, value: object) -> "StrategyPluginGoogleVoiceSettings":
+    def from_object(cls, value: object) -> "StrategyPluginEmailSettings":
         if isinstance(value, cls):
             return value
         return cls(
             recipients=tuple(
-                parse_email_recipients(_get_value(value, "crisis_alert_google_voice_recipients", ()))
+                parse_email_recipients(_get_value(value, "crisis_alert_email_recipients", ()))
             ),
-            sender_email=_first_non_empty(_get_value(value, "crisis_alert_google_voice_sender_email")),
-            sender_password=_get_value(value, "crisis_alert_google_voice_sender_password"),
+            sender_email=_first_non_empty(_get_value(value, "crisis_alert_email_sender_email")),
+            sender_password=_get_value(value, "crisis_alert_email_sender_password"),
             smtp_host=_first_non_empty(
-                _get_value(value, "crisis_alert_google_voice_smtp_host")
+                _get_value(value, "crisis_alert_email_smtp_host")
             )
-            or _DEFAULT_GOOGLE_VOICE_SMTP_HOST,
+            or _DEFAULT_EMAIL_SMTP_HOST,
             smtp_port=_coerce_int(
-                _get_value(value, "crisis_alert_google_voice_smtp_port"),
-                _DEFAULT_GOOGLE_VOICE_SMTP_PORT,
+                _get_value(value, "crisis_alert_email_smtp_port"),
+                _DEFAULT_EMAIL_SMTP_PORT,
             ),
             smtp_security=_coerce_smtp_security(
-                _get_value(value, "crisis_alert_google_voice_smtp_security")
+                _get_value(value, "crisis_alert_email_smtp_security")
             ),
         )
 
     def missing_fields(self) -> tuple[str, ...]:
         missing: list[str] = []
         if not parse_email_recipients(self.recipients):
-            missing.append("CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS")
+            missing.append("CRISIS_ALERT_EMAIL_RECIPIENTS")
         if not str(self.sender_email or "").strip():
-            missing.append("CRISIS_ALERT_GOOGLE_VOICE_SENDER_EMAIL")
+            missing.append("CRISIS_ALERT_EMAIL_SENDER_EMAIL")
         if not str(self.sender_password or "").strip():
-            missing.append("CRISIS_ALERT_GOOGLE_VOICE_SENDER_PASSWORD")
+            missing.append("CRISIS_ALERT_EMAIL_SENDER_PASSWORD")
         return tuple(missing)
 
     @property
@@ -80,7 +80,7 @@ class StrategyPluginGoogleVoiceSettings:
 
 
 @dataclass(frozen=True)
-class StrategyPluginGoogleVoiceAlertDelivery:
+class StrategyPluginEmailAlertDelivery:
     alert_key: str
     subject: str
     status: str
@@ -101,8 +101,8 @@ class StrategyPluginGoogleVoiceAlertDelivery:
 
 
 @dataclass(frozen=True)
-class StrategyPluginGoogleVoiceAlertPublishResult:
-    deliveries: tuple[StrategyPluginGoogleVoiceAlertDelivery, ...] = ()
+class StrategyPluginEmailAlertPublishResult:
+    deliveries: tuple[StrategyPluginEmailAlertDelivery, ...] = ()
 
     @property
     def attempted_count(self) -> int:
@@ -120,7 +120,7 @@ class StrategyPluginGoogleVoiceAlertPublishResult:
     def failed_count(self) -> int:
         return sum(1 for delivery in self.deliveries if delivery.status == "failed")
 
-    def to_report_fields(self, *, prefix: str = "strategy_plugin_alert_google_voice") -> dict[str, Any]:
+    def to_report_fields(self, *, prefix: str = "strategy_plugin_alert_email") -> dict[str, Any]:
         return {
             f"{prefix}_attempted_count": self.attempted_count,
             f"{prefix}_sent_count": self.sent_count,
@@ -131,11 +131,11 @@ class StrategyPluginGoogleVoiceAlertPublishResult:
 
 
 @dataclass(frozen=True)
-class StrategyPluginGoogleVoiceAlertMarkerStore:
+class StrategyPluginEmailAlertMarkerStore:
     local_dir: str | Path | None = None
     gcs_prefix_uri: str | None = None
     gcp_project_id: str | None = None
-    namespace: str = "strategy_plugin_google_voice_alerts"
+    namespace: str = "strategy_plugin_email_alerts"
     client_factory: Any = None
 
     def has_alert(self, alert_key: str) -> bool:
@@ -152,7 +152,7 @@ class StrategyPluginGoogleVoiceAlertMarkerStore:
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
         payload = {
-            "schema_version": "strategy_plugin_google_voice_alert_marker.v1",
+            "schema_version": "strategy_plugin_email_alert_marker.v1",
             "alert_key": str(alert_key),
             "recorded_at": datetime.now(timezone.utc).isoformat(),
             "metadata": dict(metadata or {}),
@@ -215,26 +215,26 @@ def build_strategy_plugin_alert_context_label(
     return " / ".join(str(part).strip() for part in parts if str(part or "").strip())
 
 
-def publish_strategy_plugin_google_voice_alerts(
+def publish_strategy_plugin_email_alerts(
     signals: Sequence[object],
     *,
-    google_voice_settings: StrategyPluginGoogleVoiceSettings | object,
+    email_settings: StrategyPluginEmailSettings | object,
     translator: Callable[..., str] | None = None,
     strategy_label: str | None = None,
     context_label: str | None = None,
-    alert_store: StrategyPluginGoogleVoiceAlertMarkerStore | object | None = None,
+    alert_store: StrategyPluginEmailAlertMarkerStore | object | None = None,
     send_notification: Callable[..., bool] = send_smtp_email,
     log_message: Callable[..., Any] = print,
-) -> StrategyPluginGoogleVoiceAlertPublishResult:
-    settings = StrategyPluginGoogleVoiceSettings.from_object(google_voice_settings)
+) -> StrategyPluginEmailAlertPublishResult:
+    settings = StrategyPluginEmailSettings.from_object(email_settings)
     messages = build_strategy_plugin_alert_messages(
         signals,
         translator=translator,
         strategy_label=strategy_label,
         context_label=context_label,
-        alert_namespace="strategy_plugin_google_voice_alert",
+        alert_namespace="strategy_plugin_email_alert",
     )
-    deliveries: list[StrategyPluginGoogleVoiceAlertDelivery] = []
+    deliveries: list[StrategyPluginEmailAlertDelivery] = []
     missing_fields = settings.missing_fields()
     if missing_fields:
         for message in messages:
@@ -242,11 +242,11 @@ def publish_strategy_plugin_google_voice_alerts(
                 _delivery(
                     message,
                     status="skipped",
-                    reason="missing_google_voice_config",
+                    reason="missing_email_config",
                     error=",".join(missing_fields),
                 )
             )
-        result = StrategyPluginGoogleVoiceAlertPublishResult(tuple(deliveries))
+        result = StrategyPluginEmailAlertPublishResult(tuple(deliveries))
         _log_publish_result(result, log_message=log_message)
         return result
 
@@ -268,7 +268,7 @@ def publish_strategy_plugin_google_voice_alerts(
         record_error = _store_record_error(alert_store, alert_key, message)
         combined_error = "; ".join(error for error in (store_error, record_error) if error)
         deliveries.append(_delivery(message, status="sent", error=combined_error or None))
-    result = StrategyPluginGoogleVoiceAlertPublishResult(tuple(deliveries))
+    result = StrategyPluginEmailAlertPublishResult(tuple(deliveries))
     _log_publish_result(result, log_message=log_message)
     return result
 
@@ -279,8 +279,8 @@ def _delivery(
     status: str,
     reason: str | None = None,
     error: str | None = None,
-) -> StrategyPluginGoogleVoiceAlertDelivery:
-    return StrategyPluginGoogleVoiceAlertDelivery(
+) -> StrategyPluginEmailAlertDelivery:
+    return StrategyPluginEmailAlertDelivery(
         alert_key=message.alert_key or _fallback_alert_key(message),
         subject=message.subject,
         status=status,
@@ -293,7 +293,7 @@ def _delivery(
 def _send_message(
     send_notification: Callable[..., bool],
     message: StrategyPluginAlertMessage,
-    settings: StrategyPluginGoogleVoiceSettings,
+    settings: StrategyPluginEmailSettings,
 ) -> tuple[bool, str | None]:
     try:
         sent = send_notification(
@@ -347,7 +347,7 @@ def _store_record_error(
 
 
 def _log_publish_result(
-    result: StrategyPluginGoogleVoiceAlertPublishResult,
+    result: StrategyPluginEmailAlertPublishResult,
     *,
     log_message: Callable[..., Any],
 ) -> None:
@@ -356,7 +356,7 @@ def _log_publish_result(
     _call_log_message(
         log_message,
         (
-            "strategy_plugin_alert_google_voice_result "
+            "strategy_plugin_alert_email_result "
             f"attempted={result.attempted_count} "
             f"sent={result.sent_count} "
             f"skipped={result.skipped_count} "
@@ -400,11 +400,11 @@ def _coerce_smtp_security(value: Any) -> str:
     security = str(value or "").strip().lower()
     if security in _SMTP_SECURITY_VALUES:
         return security
-    return _DEFAULT_GOOGLE_VOICE_SMTP_SECURITY
+    return _DEFAULT_EMAIL_SMTP_SECURITY
 
 
 def _fallback_alert_key(message: StrategyPluginAlertMessage) -> str:
-    return "strategy_plugin_google_voice_alert/" + _clean_relative_key(message.subject or "unknown")
+    return "strategy_plugin_email_alert/" + _clean_relative_key(message.subject or "unknown")
 
 
 def _clean_relative_key(value: str) -> str:
