@@ -11,6 +11,7 @@ from typing import Any
 from .email import send_smtp_email
 from .push import send_strategy_plugin_push
 from .sms import send_twilio_sms
+from .telegram import send_strategy_plugin_telegram
 from .strategy_plugin_email import (
     StrategyPluginEmailAlertMarkerStore,
     StrategyPluginEmailAlertPublishResult,
@@ -30,12 +31,19 @@ from .strategy_plugin_push import (
     StrategyPluginPushSettings,
     publish_strategy_plugin_push_alerts,
 )
+from .strategy_plugin_telegram import (
+    StrategyPluginTelegramAlertMarkerStore,
+    StrategyPluginTelegramAlertPublishResult,
+    StrategyPluginTelegramSettings,
+    publish_strategy_plugin_telegram_alerts,
+)
 
 _DEFAULT_ALERT_STATE_DIR = "/tmp/quant_strategy_plugin_alerts"
 _CHANNEL_EMAIL = "email"
 _CHANNEL_SMS = "sms"
 _CHANNEL_PUSH = "push"
-_SUPPORTED_CHANNELS = frozenset({_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH})
+_CHANNEL_TELEGRAM = "telegram"
+_SUPPORTED_CHANNELS = frozenset({_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH, _CHANNEL_TELEGRAM})
 
 
 @dataclass(frozen=True)
@@ -45,6 +53,7 @@ class StrategyPluginAlertChannelStores:
     email: StrategyPluginEmailAlertMarkerStore | object | None = None
     sms: StrategyPluginSmsAlertMarkerStore | object | None = None
     push: StrategyPluginPushAlertMarkerStore | object | None = None
+    telegram: StrategyPluginTelegramAlertMarkerStore | object | None = None
 
     @classmethod
     def from_mapping(
@@ -57,6 +66,7 @@ class StrategyPluginAlertChannelStores:
             email=value.get(_CHANNEL_EMAIL),
             sms=value.get(_CHANNEL_SMS),
             push=value.get(_CHANNEL_PUSH),
+            telegram=value.get(_CHANNEL_TELEGRAM),
         )
 
 
@@ -107,6 +117,12 @@ class StrategyPluginAlertStateSettings:
                 gcp_project_id=self.gcp_project_id,
                 client_factory=self.client_factory,
             ),
+            telegram=StrategyPluginTelegramAlertMarkerStore(
+                local_dir=self.local_dir,
+                gcs_prefix_uri=self.gcs_prefix_uri,
+                gcp_project_id=self.gcp_project_id,
+                client_factory=self.client_factory,
+            ),
         )
 
 
@@ -117,6 +133,7 @@ class StrategyPluginAlertPublishResult:
     email_result: StrategyPluginEmailAlertPublishResult | None = None
     sms_result: StrategyPluginSmsAlertPublishResult | None = None
     push_result: StrategyPluginPushAlertPublishResult | None = None
+    telegram_result: StrategyPluginTelegramAlertPublishResult | None = None
 
     @property
     def attempted_count(self) -> int:
@@ -147,6 +164,8 @@ class StrategyPluginAlertPublishResult:
             fields.update(self.sms_result.to_report_fields())
         if self.push_result is not None:
             fields.update(self.push_result.to_report_fields())
+        if self.telegram_result is not None:
+            fields.update(self.telegram_result.to_report_fields())
         return fields
 
     def to_summary_fields(self) -> dict[str, int]:
@@ -159,6 +178,8 @@ class StrategyPluginAlertPublishResult:
             fields["strategy_plugin_alert_sms_sent_count"] = self.sms_result.sent_count
         if self.push_result is not None:
             fields["strategy_plugin_alert_push_sent_count"] = self.push_result.sent_count
+        if self.telegram_result is not None:
+            fields["strategy_plugin_alert_telegram_sent_count"] = self.telegram_result.sent_count
         return fields
 
     def attach_to_report(self, report: dict[str, Any]) -> None:
@@ -170,12 +191,18 @@ class StrategyPluginAlertPublishResult:
     ) -> tuple[
         StrategyPluginEmailAlertPublishResult
         | StrategyPluginSmsAlertPublishResult
-        | StrategyPluginPushAlertPublishResult,
+        | StrategyPluginPushAlertPublishResult
+        | StrategyPluginTelegramAlertPublishResult,
         ...,
     ]:
         return tuple(
             result
-            for result in (self.email_result, self.sms_result, self.push_result)
+            for result in (
+                self.email_result,
+                self.sms_result,
+                self.push_result,
+                self.telegram_result,
+            )
             if result is not None
         )
 
@@ -187,6 +214,7 @@ def publish_strategy_plugin_alerts(
         StrategyPluginEmailSettings
         | StrategyPluginSmsSettings
         | StrategyPluginPushSettings
+        | StrategyPluginTelegramSettings
         | object
     ),
     translator: Callable[..., str] | None = None,
@@ -198,6 +226,7 @@ def publish_strategy_plugin_alerts(
     send_email_notification: Callable[..., bool] = send_smtp_email,
     send_sms_notification: Callable[..., bool] = send_twilio_sms,
     send_push_notification: Callable[..., bool] = send_strategy_plugin_push,
+    send_telegram_notification: Callable[..., bool] = send_strategy_plugin_telegram,
     log_message: Callable[..., Any] = print,
 ) -> StrategyPluginAlertPublishResult:
     """Publish strategy plugin alerts through the configured notification channels."""
@@ -207,6 +236,7 @@ def publish_strategy_plugin_alerts(
     email_result = None
     sms_result = None
     push_result = None
+    telegram_result = None
     if _CHANNEL_EMAIL in selected_channels:
         email_result = publish_strategy_plugin_email_alerts(
             signals,
@@ -240,10 +270,22 @@ def publish_strategy_plugin_alerts(
             send_notification=send_push_notification,
             log_message=log_message,
         )
+    if _CHANNEL_TELEGRAM in selected_channels:
+        telegram_result = publish_strategy_plugin_telegram_alerts(
+            signals,
+            telegram_settings=notification_settings,
+            translator=translator,
+            strategy_label=strategy_label,
+            context_label=context_label,
+            alert_store=stores.telegram,
+            send_notification=send_telegram_notification,
+            log_message=log_message,
+        )
     return StrategyPluginAlertPublishResult(
         email_result=email_result,
         sms_result=sms_result,
         push_result=push_result,
+        telegram_result=telegram_result,
     )
 
 
@@ -287,7 +329,7 @@ def _resolve_channels(
     if raw_channels is None:
         raw_channels = _get_value(notification_settings, "crisis_alert_channels", None)
     if raw_channels in (None, "", (), []):
-        raw_channels = (_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH)
+        raw_channels = (_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH, _CHANNEL_TELEGRAM)
     return _normalize_channels(raw_channels)
 
 

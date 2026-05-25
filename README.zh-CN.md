@@ -14,7 +14,7 @@
 - 市场数据、持仓快照、订单执行、通知、状态存储等窄接口
 - 可复用的券商适配工具
 - 策略加载、策略插件、告警消息契约
-- 可选的策略插件 email、SMS 和 push 告警通道
+- 可选的策略插件 email、SMS、push 和 Telegram 告警通道
 - 使用合成数据的公开测试
 
 它不包含私有运行时接线和生成的策略输出。
@@ -49,7 +49,7 @@ QuantPlatformKit
 
 生成的插件 artifact 和平台专属通知路由由生成它的 pipeline 或消费它的平台仓库管理。这个仓库的测试只使用合成价格历史和合成 payload。
 
-插件告警发送在平台边界保持 provider-neutral。平台仓库只把 runtime settings 传入 `publish_strategy_plugin_alerts`；这个仓库负责按配置发送 `email`、`sms` 和 `push`，不让插件逻辑耦合某个券商平台。
+插件告警发送在平台边界保持 provider-neutral。平台仓库只把 runtime settings 传入 `publish_strategy_plugin_alerts`；这个仓库负责按配置发送 `email`、`sms`、`push` 和 `telegram`，不让插件逻辑耦合某个券商平台。
 
 ## 目录结构
 
