@@ -20,14 +20,13 @@ from .email import parse_email_recipients, send_smtp_email
 
 @dataclass(frozen=True)
 class StrategyPluginGoogleVoiceSettings:
-    smtp_host: str | None = None
-    smtp_port: int = 587
-    sender: str | None = None
-    recipients: tuple[str, ...] = ()
-    username: str | None = None
-    password: str | None = field(default=None, repr=False)
-    use_starttls: bool = True
-    use_ssl: bool = False
+    gateway_recipients: tuple[str, ...] = ()
+    gmail_user: str | None = None
+    gmail_app_password: str | None = field(default=None, repr=False)
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 465
+    use_starttls: bool = False
+    use_ssl: bool = True
     timeout: float = 10.0
 
     @classmethod
@@ -35,24 +34,21 @@ class StrategyPluginGoogleVoiceSettings:
         if isinstance(value, cls):
             return value
         return cls(
-            smtp_host=_get_value(value, "crisis_alert_smtp_host"),
-            smtp_port=int(_get_value(value, "crisis_alert_smtp_port", 587) or 587),
-            sender=_first_non_empty(_get_value(value, "crisis_alert_smtp_from")),
-            recipients=tuple(parse_email_recipients(_get_value(value, "crisis_alert_google_voice_to", ()))),
-            username=_get_value(value, "crisis_alert_smtp_username"),
-            password=_get_value(value, "crisis_alert_smtp_password"),
-            use_starttls=_coerce_bool(_get_value(value, "crisis_alert_smtp_starttls", True), default=True),
-            use_ssl=_coerce_bool(_get_value(value, "crisis_alert_smtp_ssl", False), default=False),
+            gateway_recipients=tuple(
+                parse_email_recipients(_get_value(value, "crisis_alert_google_voice_gateway", ()))
+            ),
+            gmail_user=_first_non_empty(_get_value(value, "crisis_alert_google_voice_gmail_user")),
+            gmail_app_password=_get_value(value, "crisis_alert_google_voice_gmail_app_password"),
         )
 
     def missing_fields(self) -> tuple[str, ...]:
         missing: list[str] = []
-        if not str(self.smtp_host or "").strip():
-            missing.append("CRISIS_ALERT_SMTP_HOST")
-        if not str(self.sender or "").strip():
-            missing.append("CRISIS_ALERT_SMTP_FROM")
-        if not parse_email_recipients(self.recipients):
-            missing.append("CRISIS_ALERT_GOOGLE_VOICE_TO")
+        if not parse_email_recipients(self.gateway_recipients):
+            missing.append("CRISIS_ALERT_GOOGLE_VOICE_GATEWAY")
+        if not str(self.gmail_user or "").strip():
+            missing.append("CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER")
+        if not str(self.gmail_app_password or "").strip():
+            missing.append("CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD")
         return tuple(missing)
 
     @property
@@ -282,10 +278,10 @@ def _send_message(
             body=message.body,
             smtp_host=settings.smtp_host,
             smtp_port=settings.smtp_port,
-            sender=settings.sender,
-            recipients=settings.recipients,
-            username=settings.username,
-            password=settings.password,
+            sender=settings.gmail_user,
+            recipients=settings.gateway_recipients,
+            username=settings.gmail_user,
+            password=settings.gmail_app_password,
             use_starttls=settings.use_starttls,
             use_ssl=settings.use_ssl,
             timeout=settings.timeout,
@@ -365,17 +361,6 @@ def _first_non_empty(*values: Any) -> str | None:
         if text:
             return text
     return None
-
-
-def _coerce_bool(value: Any, *, default: bool) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if not text:
-        return default
-    return text in {"1", "true", "yes", "y", "on"}
 
 
 def _fallback_alert_key(message: StrategyPluginAlertMessage) -> str:

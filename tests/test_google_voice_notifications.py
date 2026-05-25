@@ -86,7 +86,9 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_missing_config():
     assert result.sent_count == 0
     assert result.skipped_count == 1
     assert result.deliveries[0].reason == "missing_google_voice_config"
-    assert "CRISIS_ALERT_SMTP_HOST" in result.deliveries[0].error
+    assert "CRISIS_ALERT_GOOGLE_VOICE_GATEWAY" in result.deliveries[0].error
+    assert "CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER" in result.deliveries[0].error
+    assert "CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD" in result.deliveries[0].error
     assert observed == []
 
 
@@ -97,9 +99,9 @@ def test_publish_strategy_plugin_google_voice_alerts_sends_and_records_marker(tm
     result = publish_strategy_plugin_google_voice_alerts(
         [_alert_signal()],
         google_voice_settings=StrategyPluginGoogleVoiceSettings(
-            smtp_host="smtp.example.com",
-            sender="bot@example.com",
-            recipients=("risk@example.com",),
+            gateway_recipients=("risk@example.com",),
+            gmail_user="bot@example.com",
+            gmail_app_password="app-password",
         ),
         strategy_label="TQQQ",
         context_label="ibkr / paper / tqqq",
@@ -112,15 +114,23 @@ def test_publish_strategy_plugin_google_voice_alerts_sends_and_records_marker(tm
     assert result.failed_count == 0
     assert result.deliveries[0].alert_key
     assert "[ibkr / paper / tqqq]" in observed[0]["subject"]
+    assert observed[0]["smtp_host"] == "smtp.gmail.com"
+    assert observed[0]["smtp_port"] == 465
+    assert observed[0]["sender"] == "bot@example.com"
+    assert observed[0]["recipients"] == ("risk@example.com",)
+    assert observed[0]["username"] == "bot@example.com"
+    assert observed[0]["password"] == "app-password"
+    assert observed[0]["use_starttls"] is False
+    assert observed[0]["use_ssl"] is True
     assert store.has_alert(result.deliveries[0].alert_key)
 
 
 def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_path):
     store = StrategyPluginGoogleVoiceAlertMarkerStore(local_dir=tmp_path)
     settings = StrategyPluginGoogleVoiceSettings(
-        smtp_host="smtp.example.com",
-        sender="bot@example.com",
-        recipients=("risk@example.com",),
+        gateway_recipients=("risk@example.com",),
+        gmail_user="bot@example.com",
+        gmail_app_password="app-password",
     )
     first = publish_strategy_plugin_google_voice_alerts(
         [_alert_signal()],
@@ -148,16 +158,20 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_
     assert second.deliveries[0].reason == "duplicate_alert"
 
 
-def test_google_voice_settings_read_google_voice_names_only():
+def test_google_voice_settings_reads_google_voice_gmail_names_only():
     settings = StrategyPluginGoogleVoiceSettings.from_object(
         SimpleNamespace(
-            crisis_alert_smtp_host="smtp.gmail.com",
-            crisis_alert_smtp_from="sender@gmail.com",
-            crisis_alert_google_voice_to="gateway@txt.voice.google.com",
-            crisis_alert_smtp_username="sender@gmail.com",
+            crisis_alert_google_voice_gateway="gateway@txt.voice.google.com",
+            crisis_alert_google_voice_gmail_user="sender@gmail.com",
+            crisis_alert_google_voice_gmail_app_password="app-password",
         )
     )
 
-    assert settings.sender == "sender@gmail.com"
-    assert settings.recipients == ("gateway@txt.voice.google.com",)
+    assert settings.gmail_user == "sender@gmail.com"
+    assert settings.gateway_recipients == ("gateway@txt.voice.google.com",)
+    assert settings.gmail_app_password == "app-password"
+    assert settings.smtp_host == "smtp.gmail.com"
+    assert settings.smtp_port == 465
+    assert settings.use_ssl is True
+    assert settings.use_starttls is False
     assert settings.missing_fields() == ()
