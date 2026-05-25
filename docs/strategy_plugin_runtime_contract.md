@@ -57,6 +57,23 @@ Do not put `mode` in the platform mount config. `expected_mode` may be used only
 as a fail-closed guard and should be `shadow` when present. Artifacts declaring
 `paper`, `advisory`, or `live` are rejected.
 
+## Plugin Definitions
+
+The shared kit owns plugin compatibility through a registry-style
+`StrategyPluginDefinition`. Platform repos should not hard-code which strategies
+a plugin supports; they should call the shared parser/loader and let it reject
+unsupported mounts or artifacts.
+
+The default registry currently defines:
+
+| Plugin | Supported strategies | Supported mode | Escalated alert channel |
+| --- | --- | --- | --- |
+| `crisis_response_shadow` | `tqqq_growth_income`, `soxl_soxx_trend_income` | `shadow` | `google_voice` |
+
+To expand a plugin later, update the shared definition or pass an explicit
+definition registry into the parser/loader. This keeps future plugin eligibility
+changes out of platform runtime code.
+
 ## Runtime Loader
 
 Use `quant_platform_kit.common.strategy_plugins`:
