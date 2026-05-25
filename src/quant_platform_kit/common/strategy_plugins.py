@@ -475,9 +475,18 @@ def build_strategy_plugin_alert_messages(
         route = getattr(signal, "canonical_route", None) or "unknown_route"
         action = getattr(signal, "suggested_action", None) or "unknown_action"
         plugin = translate_strategy_plugin_value("name", getattr(signal, "plugin", None), translator=translator)
+        translated_mode = translate_strategy_plugin_value(
+            "mode",
+            getattr(signal, "effective_mode", None),
+            translator=translator,
+        )
         translated_route = translate_strategy_plugin_value("route", route, translator=translator)
         translated_action = translate_strategy_plugin_value("action", action, translator=translator)
         strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip() or "unknown"
+        would_trade = _translate_bool(
+            translator,
+            bool(getattr(signal, "would_trade_if_enabled", False)),
+        )
         subject = _translate(
             translator,
             "strategy_plugin_alert_subject",
@@ -490,6 +499,7 @@ def build_strategy_plugin_alert_messages(
             subject = f"[{context}] {subject}"
         body_lines = [
             _translate(translator, "strategy_plugin_alert_title", fallback="Strategy Plugin Alert"),
+            "",
         ]
         if context:
             body_lines.append(
@@ -502,33 +512,48 @@ def build_strategy_plugin_alert_messages(
             )
         body_lines.extend(
             [
-            _translate(
-                translator,
-                "strategy_plugin_line",
-                fallback="Plugin: {plugin} | status: {route} | notice: {action}",
-                plugin=plugin,
-                mode=translate_strategy_plugin_value("mode", getattr(signal, "effective_mode", None), translator=translator),
-                route=translated_route,
-                action=translated_action,
-            ),
-            _translate(
-                translator,
-                "strategy_plugin_alert_strategy",
-                fallback="Strategy: {strategy}",
-                strategy=strategy,
-            ),
-            _translate(
-                translator,
-                "strategy_plugin_alert_as_of",
-                fallback="Signal as-of: {as_of}",
-                as_of=getattr(signal, "as_of", None) or "unknown",
-            ),
-            _translate(
-                translator,
-                "strategy_plugin_alert_would_trade",
-                fallback="Would trade if enabled: {value}",
-                value=str(bool(getattr(signal, "would_trade_if_enabled", False))).lower(),
-            ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_strategy",
+                    fallback="Strategy: {strategy}",
+                    strategy=strategy,
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_plugin",
+                    fallback="Plugin: {plugin}",
+                    plugin=plugin,
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_status",
+                    fallback="Status: {route}",
+                    route=translated_route,
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_action",
+                    fallback="Notice: {action}",
+                    action=translated_action,
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_mode",
+                    fallback="Mode: {mode}",
+                    mode=translated_mode,
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_as_of",
+                    fallback="Signal as-of: {as_of}",
+                    as_of=getattr(signal, "as_of", None) or "unknown",
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_would_trade",
+                    fallback="Would trade if enabled: {value}",
+                    value=would_trade,
+                ),
             ]
         )
         source = getattr(signal, "source_uri", None) or getattr(signal, "local_path", None)
@@ -659,6 +684,14 @@ def _translate(
         return fallback.format(**kwargs)
     translated = translator(key, **kwargs)
     return translated if translated != key else fallback.format(**kwargs)
+
+
+def _translate_bool(translator: Callable[..., str] | None, value: bool) -> str:
+    return _translate(
+        translator,
+        "strategy_plugin_alert_yes" if value else "strategy_plugin_alert_no",
+        fallback="yes" if value else "no",
+    )
 
 
 def _required_string(value: Any, *, field_name: str) -> str:

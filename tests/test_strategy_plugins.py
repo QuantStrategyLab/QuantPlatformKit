@@ -274,9 +274,14 @@ class StrategyPluginsTests(unittest.TestCase):
             "strategy_plugin_alert_title": "alert title",
             "strategy_plugin_line": "plugin={plugin}|mode={mode}|route={route}|action={action}",
             "strategy_plugin_alert_strategy": "strategy={strategy}",
+            "strategy_plugin_alert_plugin": "plugin={plugin}",
+            "strategy_plugin_alert_status": "status={route}",
+            "strategy_plugin_alert_action": "action={action}",
+            "strategy_plugin_alert_mode": "mode={mode}",
             "strategy_plugin_alert_as_of": "as_of={as_of}",
             "strategy_plugin_alert_would_trade": "would_trade={value}",
             "strategy_plugin_alert_source": "source={source}",
+            "strategy_plugin_alert_yes": "yes",
             "strategy_plugin_name_crisis_response_shadow": "Crisis",
             "strategy_plugin_mode_shadow": "shadow",
             "strategy_plugin_route_true_crisis": "true crisis",
@@ -294,7 +299,11 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0].subject, "alert:TQQQ Growth Income:Crisis:true crisis")
         self.assertIn("strategy_plugin_alert", alerts[0].alert_key)
-        self.assertIn("plugin=Crisis|mode=shadow|route=true crisis|action=defend", alerts[0].body)
+        self.assertIn("plugin=Crisis", alerts[0].body)
+        self.assertIn("status=true crisis", alerts[0].body)
+        self.assertIn("action=defend", alerts[0].body)
+        self.assertIn("mode=shadow", alerts[0].body)
+        self.assertIn("would_trade=yes", alerts[0].body)
         self.assertIn("source=gs://bucket/latest_signal.json", alerts[0].body)
 
 
