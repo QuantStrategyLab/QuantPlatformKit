@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 
 from quant_platform_kit.common.strategy_plugins import (
+    CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
+    DEFAULT_STRATEGY_PLUGIN_DEFINITIONS,
+    PLUGIN_CRISIS_RESPONSE_SHADOW,
     PLUGIN_MODE_SHADOW,
+    STRATEGY_PLUGIN_ALERT_CHANNEL_GOOGLE_VOICE,
+    StrategyPluginDefinition,
     build_strategy_plugin_alert_messages,
     build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
@@ -12,6 +17,7 @@ from quant_platform_kit.common.strategy_plugins import (
     load_strategy_plugin_signal,
     parse_strategy_plugin_mounts,
     should_alert_strategy_plugin_signal,
+    validate_strategy_plugin_compatibility,
     validate_strategy_plugin_signal_payload,
 )
 
@@ -78,6 +84,58 @@ class StrategyPluginsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "must not set mode"):
                 parse_strategy_plugin_mounts(raw)
 
+    def test_default_plugin_definition_limits_crisis_response_to_supported_strategies(self):
+        definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[PLUGIN_CRISIS_RESPONSE_SHADOW]
+
+        self.assertEqual(definition.supported_strategies, CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES)
+        self.assertEqual(definition.alert_channels, (STRATEGY_PLUGIN_ALERT_CHANNEL_GOOGLE_VOICE,))
+        validate_strategy_plugin_compatibility(
+            strategy="tqqq_growth_income",
+            plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
+            mode=PLUGIN_MODE_SHADOW,
+        )
+        validate_strategy_plugin_compatibility(
+            strategy="soxl_soxx_trend_income",
+            plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
+            mode=PLUGIN_MODE_SHADOW,
+        )
+
+    def test_parse_strategy_plugin_mounts_rejects_unsupported_crisis_response_strategy(self):
+        raw = [
+            {
+                "strategy": "global_etf_rotation",
+                "plugin": PLUGIN_CRISIS_RESPONSE_SHADOW,
+                "signal_path": "gs://bucket/latest_signal.json",
+            }
+        ]
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "crisis_response_shadow does not support strategy global_etf_rotation",
+        ):
+            parse_strategy_plugin_mounts(raw)
+
+    def test_plugin_definition_can_extend_future_strategy_support(self):
+        raw = [
+            {
+                "strategy": "global_etf_rotation",
+                "plugin": PLUGIN_CRISIS_RESPONSE_SHADOW,
+                "signal_path": "gs://bucket/latest_signal.json",
+            }
+        ]
+        definitions = {
+            PLUGIN_CRISIS_RESPONSE_SHADOW: StrategyPluginDefinition(
+                plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
+                supported_strategies=frozenset({"global_etf_rotation"}),
+                supported_modes=frozenset({PLUGIN_MODE_SHADOW}),
+                alert_channels=(STRATEGY_PLUGIN_ALERT_CHANNEL_GOOGLE_VOICE,),
+            )
+        }
+
+        mounts = parse_strategy_plugin_mounts(raw, plugin_definitions=definitions)
+
+        self.assertEqual(mounts[0].strategy, "global_etf_rotation")
+
     def test_load_strategy_plugin_signal_validates_identity_and_mode(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             signal_path = Path(tmp_dir) / "latest_signal.json"
@@ -124,7 +182,7 @@ class StrategyPluginsTests(unittest.TestCase):
                         "signal_path": str(signal_path),
                     },
                     {
-                        "strategy": "soxl_growth_income",
+                        "strategy": "soxl_soxx_trend_income",
                         "plugin": "crisis_response_shadow",
                         "signal_path": str(root / "missing.json"),
                     },
@@ -153,6 +211,15 @@ class StrategyPluginsTests(unittest.TestCase):
             validate_strategy_plugin_signal_payload(
                 _signal_payload(mode=PLUGIN_MODE_SHADOW),
                 expected_mode="live",
+            )
+
+    def test_validate_strategy_plugin_signal_payload_rejects_unsupported_crisis_response_strategy(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "crisis_response_shadow does not support strategy global_etf_rotation",
+        ):
+            validate_strategy_plugin_signal_payload(
+                _signal_payload(strategy="global_etf_rotation"),
             )
 
     def test_build_strategy_plugin_report_payload_uses_compact_summary(self):
