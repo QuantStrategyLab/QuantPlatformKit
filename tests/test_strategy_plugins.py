@@ -279,9 +279,6 @@ class StrategyPluginsTests(unittest.TestCase):
             "strategy_plugin_alert_action": "action={action}",
             "strategy_plugin_alert_mode": "mode={mode}",
             "strategy_plugin_alert_as_of": "as_of={as_of}",
-            "strategy_plugin_alert_would_trade": "would_trade={value}",
-            "strategy_plugin_alert_source": "source={source}",
-            "strategy_plugin_alert_yes": "yes",
             "strategy_plugin_name_crisis_response_shadow": "Crisis",
             "strategy_plugin_mode_shadow": "shadow",
             "strategy_plugin_route_true_crisis": "true crisis",
@@ -303,8 +300,9 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertIn("status=true crisis", alerts[0].body)
         self.assertIn("action=defend", alerts[0].body)
         self.assertIn("mode=shadow", alerts[0].body)
-        self.assertIn("would_trade=yes", alerts[0].body)
-        self.assertIn("source=gs://bucket/latest_signal.json", alerts[0].body)
+        self.assertNotIn("would_trade=", alerts[0].body)
+        self.assertNotIn("source=", alerts[0].body)
+        self.assertTrue(alerts[0].metadata["would_trade_if_enabled"])
 
 
 if __name__ == "__main__":
