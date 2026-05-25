@@ -21,8 +21,8 @@ This spec applies to:
 - `UsEquityStrategies`
 - the US equity runtime repositories that consume them
 
-It does **not** define broker authentication, Cloud Run wiring, scheduler
-behavior, or Telegram wording beyond the shared runtime contract.
+It does **not** define broker authentication, platform runtime wiring, schedule
+behavior, or notification wording beyond the shared runtime contract.
 
 ## Design rule
 
@@ -57,23 +57,23 @@ Strategy code must not branch on broker platform.
 
 Platform repositories own runtime and broker integration:
 
-- platform env, secrets, scheduler parameters, and broker sessions
+- runtime configuration and broker sessions
 - market data, account data, holdings, and portfolio snapshots
 - `StrategyContext` assembly from declared contracts
 - mapping `StrategyDecision` to broker orders, notifications, and runtime reports
-- deployment, retries, idempotency, and reconciliation output
+- retries, idempotency, and reconciliation output
 
-The snapshot production pipeline owns artifact publication:
+The snapshot pipeline owns artifact publication:
 
 - snapshot files, manifests, checksums, and contract versions
 - config checksum alignment with profile and config name
-- GCS or local runtime path delivery
+- artifact publication location and retention
 
 Do not introduce reverse coupling:
 
 - strategy code must not import broker SDKs or read platform env vars
 - platform code must not hard-code private strategy symbol pools, snapshot schemas, or config paths by profile name
-- platform workflows must not keep a second list of snapshot profiles and must read derived adapter requirements
+- platform repositories must read derived adapter requirements instead of keeping a second hard-coded list of snapshot profiles
 - live strategy config must not depend on platform `research/` directories
 
 ## Mandatory layers

@@ -1,8 +1,8 @@
 # Strategy Plugin Runtime Contract
 
 This document describes how platform runtimes consume sidecar strategy plugin
-artifacts, such as the Crisis Response plugin produced by
-`UsEquitySnapshotPipelines`.
+artifacts, such as a Crisis Response plugin produced by an upstream snapshot or
+research pipeline.
 
 ## Ownership
 
@@ -29,14 +29,14 @@ Recommended value:
     {
       "strategy": "tqqq_growth_income",
       "plugin": "crisis_response_shadow",
-      "signal_path": "gs://qsl-runtime-logs-interactivebrokersquant/strategy-artifacts/us_equity/tqqq_growth_income/plugins/crisis_response_shadow/latest_signal.json",
+      "signal_path": "/path/to/strategy-artifacts/us_equity/tqqq_growth_income/plugins/crisis_response_shadow/latest_signal.json",
       "enabled": true
     }
   ]
 }
 ```
 
-Use `expected_mode` only as a fail-closed deployment guard. It does not select
+Use `expected_mode` only as a fail-closed runtime guard. It does not select
 or reinterpret the mode:
 
 ```json
@@ -124,30 +124,16 @@ when any of the following is true:
 - `suggested_action` is `defend` or `blocked`
 - `would_trade_if_enabled` is `true`
 
-Platforms may still choose their delivery sinks, but email escalation should use
+Platforms may still choose their delivery sinks, but email escalation can use
 `quant_platform_kit.notifications.strategy_plugin_email.publish_strategy_plugin_email_alerts()`.
 The publisher builds the shared subject/body, prefixes platform context, returns
 structured sent/skipped/failed diagnostics, and can use
 `StrategyPluginEmailAlertMarkerStore` to skip alert keys that were already
 sent.
 
-Platforms should expose this as crisis email notification config. The recipient
-value is an email address list: a normal mailbox receives an email, while a
-Google Voice-associated mailbox/address can also surface a Google Voice prompt
-through Google's own forwarding behavior. The public configuration names should
-be channel-neutral:
-
-- `CRISIS_ALERT_EMAIL_RECIPIENTS`
-- `CRISIS_ALERT_EMAIL_SENDER_EMAIL`
-- `CRISIS_ALERT_EMAIL_SENDER_PASSWORD`
-
-By default the transport uses Gmail SMTP (`smtp.gmail.com`, port `465`, SSL),
-but the sender provider is not part of the email channel contract. Non-Gmail
-senders can override the transport:
-
-- `CRISIS_ALERT_EMAIL_SMTP_HOST`
-- `CRISIS_ALERT_EMAIL_SMTP_PORT`
-- `CRISIS_ALERT_EMAIL_SMTP_SECURITY` (`ssl`, `starttls`, or `none`)
+Delivery credentials, routes, and transport settings are platform runtime
+configuration. The plugin artifact and strategy code only decide whether an
+escalated alert should exist; they do not decide how a platform delivers it.
 
 This keeps the Crisis Response plugin behavior consistent across IBKR, Schwab,
 LongBridge, Firstrade, and future platform runtimes.

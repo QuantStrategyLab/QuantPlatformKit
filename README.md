@@ -1,221 +1,80 @@
 # QuantPlatformKit
 
-Shared broker adapters, domain models, execution ports, and notification utilities for QuantStrategyLab strategies.
+Shared platform contracts, broker adapters, strategy-plugin helpers, and notification primitives for QuantStrategyLab repositories.
 
-[English](#english) | [中文](#中文) | [中文详版](./README.zh-CN.md)
+[中文](./README.zh-CN.md)
 
----
+## What This Repository Is
 
-<a id="english"></a>
-## English
+`QuantPlatformKit` is the public shared platform layer. It keeps cross-repository interfaces stable so strategy repositories and broker platform repositories can evolve without copying runtime glue.
 
-## Scope
+It contains:
 
-This repository is the shared platform layer for QuantStrategyLab strategy services.
+- common domain models and runtime target helpers
+- narrow ports for market data, portfolio snapshots, order execution, notifications, and state
+- reusable broker adapter utilities
+- strategy loading, strategy-plugin, and alert-message contracts
+- synthetic-data tests for public behavior
 
-It is intended to contain:
+It does not contain private runtime wiring or generated strategy outputs.
 
-- common domain models
-- narrow ports for market data, portfolio snapshots, execution, notifications, and state
-- broker-specific adapters
-- small reusable notification utilities
+## Repository Workflow
 
-It is not intended to contain:
+QuantStrategyLab repositories are split by responsibility:
 
-- strategy rules
-- target allocation logic
-- Cloud Run entrypoints
-- scheduler or workflow orchestration specific to one strategy
+- Strategy repositories own strategy metadata, input requirements, and `manifest + evaluate(ctx)` entrypoints.
+- Platform repositories own broker sessions, runtime config loading, runtime entrypoints, decision mapping, and order submission.
+- Snapshot or data pipeline repositories own generated artifacts and their publication process.
+- `QuantPlatformKit` owns the shared contracts and helper APIs used by those repositories.
 
-## Strategy contract boundary
+The normal flow is:
 
-The current mainline split is:
+```text
+Platform repository
+  builds StrategyContext from broker/runtime inputs
+  loads a strategy entrypoint from a strategy repository
+  receives a StrategyDecision
+  maps that decision into broker-specific execution and notifications
 
-- platform repositories assemble `StrategyContext`
-- platform repositories load a strategy entrypoint through `load_strategy_entrypoint(...)`
-- strategy repositories return a unified `StrategyDecision`
-- platform-local decision mappers turn that decision into broker orders, notifications, and runtime state updates
+QuantPlatformKit
+  provides shared contracts, loaders, adapters, and plugin alert helpers
+```
 
-Strategy repositories should expose `manifest + evaluate(ctx)` and keep any migration-window runtime metadata behind `StrategyRuntimeAdapter`. Broker-specific order sequencing and UI layout should stay out of strategy outputs.
-Platform repositories should share common execution outcome and notification envelope helpers from this package so broker-specific differences stay limited to adapters, order payloads, and transport wiring.
+Strategy code should not branch on a broker platform, and platform code should not duplicate strategy rules.
 
-Migration details and follow-up guidance live in [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md).
+## Strategy Plugins
 
-For the stricter end-state rules for new US equity strategies, see:
+Strategy plugins are sidecar artifacts that platform repositories may read when a strategy profile opts in. This repository defines the public plugin contract, compatibility checks, alert-message building, and duplicate-suppression helpers.
 
-- [`docs/us_equity_strategy_onboarding.md`](./docs/us_equity_strategy_onboarding.md)
-- [`docs/us_equity_strategy_onboarding.zh-CN.md`](./docs/us_equity_strategy_onboarding.zh-CN.md)
-- [`docs/us_equity_cross_platform_strategy_spec.md`](./docs/us_equity_cross_platform_strategy_spec.md)
-- [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
-- [`docs/us_equity_execution_translation_spec.md`](./docs/us_equity_execution_translation_spec.md)
-- [`docs/us_equity_execution_translation_spec.zh-CN.md`](./docs/us_equity_execution_translation_spec.zh-CN.md)
-- [`docs/us_equity_release_cutover_plan.md`](./docs/us_equity_release_cutover_plan.md)
-- [`docs/us_equity_release_cutover_plan.zh-CN.md`](./docs/us_equity_release_cutover_plan.zh-CN.md)
-- [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
-- [`docs/us_equity_live_switch_runbook.zh-CN.md`](./docs/us_equity_live_switch_runbook.zh-CN.md)
-- [`docs/platform_notification_outcomes.md`](./docs/platform_notification_outcomes.md)
-- [`docs/platform_notification_outcomes.zh-CN.md`](./docs/platform_notification_outcomes.zh-CN.md)
-- [`docs/strategy_plugin_runtime_contract.md`](./docs/strategy_plugin_runtime_contract.md)
+Generated plugin artifacts and platform-specific notification routing stay with the producing pipeline or consuming platform repository. Tests in this repository use synthetic price history and synthetic payloads only.
 
-## Package layout
+## Package Layout
 
 ```text
 src/quant_platform_kit/
   common/
-    models.py
-    ports.py
-    strategies.py
-    strategy_plugins.py
   ibkr/
-    connection.py
-    market_data.py
-    portfolio.py
-    execution.py
   binance/
-    client.py
-    account.py
-    market_data.py
-    execution.py
   schwab/
-    auth.py
-    market_data.py
-    portfolio.py
-    execution.py
   longbridge/
-    auth.py
-    market_data.py
-    portfolio.py
-    execution.py
   notifications/
-    telegram.py
 tests/
 ```
 
 ## Development
 
-Run tests with:
+Run the public test suite:
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONPATH=src pytest
 ```
 
-## Release and deployment model
-
-`QuantPlatformKit` is a shared dependency, not a runtime service. Strategy repos should pin a fixed Git tag such as:
-
-```text
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.7.1
-```
-
-Cloud Run and self-hosted runner deployments should continue to deploy the strategy repositories only. See [docs/deployment_model.md](./docs/deployment_model.md) for:
-
-- service naming suggestions
-- fixed-tag dependency rules
-- Google Cloud trigger rebind steps after repo rename
-- HK / SG multi-service guidance for `LongBridgePlatform`
-- US equity cross-platform strategy contract rules
-
----
-
-<a id="中文"></a>
-## 中文
-
-`QuantPlatformKit` 是 `QuantStrategyLab` 的共享平台层仓库。
-
-它负责放这些内容：
-
-- 统一领域模型
-- 市场数据、持仓、执行、通知相关的公共接口
-- IBKR / Schwab / LongBridge / Binance 的平台适配层
-- 少量可复用的通知和运行时工具
-
-它不负责放这些内容：
-
-- 具体策略规则
-- 目标仓位和调仓计算
-- Cloud Run 或 VPS 入口
-- 某一个平台仓库自己的调度和部署编排
-
-### 范围
-
-这个仓库是各平台仓库共享的公共依赖。
-
-### 策略契约边界
-
-当前主线边界已经固定为：
-
-- 平台仓库负责组装 `StrategyContext`
-- 平台仓库通过 `load_strategy_entrypoint(...)` 加载策略入口
-- 策略仓库只返回统一的 `StrategyDecision`
-- 平台自己的 decision mapper 再把决策映射成券商订单、通知和运行时状态更新
-
-策略仓库应该暴露 `manifest + evaluate(ctx)`；如果迁移窗口里还需要少量运行时元数据，就放在 `StrategyRuntimeAdapter` 里，不要把券商专属下单顺序或展示布局塞回策略输出。
-
-迁移说明和后续约束见 [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md)。
-
-以后新增美股策略要遵守的更严格跨平台规范见：
-
-- [`docs/us_equity_strategy_onboarding.md`](./docs/us_equity_strategy_onboarding.md)
-- [`docs/us_equity_strategy_onboarding.zh-CN.md`](./docs/us_equity_strategy_onboarding.zh-CN.md)
-- [`docs/us_equity_cross_platform_strategy_spec.md`](./docs/us_equity_cross_platform_strategy_spec.md)
-- [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
-- [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
-- [`docs/us_equity_live_switch_runbook.zh-CN.md`](./docs/us_equity_live_switch_runbook.zh-CN.md)
-- [`docs/strategy_plugin_runtime_contract.md`](./docs/strategy_plugin_runtime_contract.md)
-
-### 目录结构
-
-```text
-src/quant_platform_kit/
-  common/
-    models.py
-    ports.py
-    strategies.py
-    strategy_plugins.py
-  ibkr/
-    connection.py
-    market_data.py
-    portfolio.py
-    execution.py
-  binance/
-    client.py
-    account.py
-    market_data.py
-    execution.py
-  schwab/
-    auth.py
-    market_data.py
-    portfolio.py
-    execution.py
-  longbridge/
-    auth.py
-    market_data.py
-    portfolio.py
-    execution.py
-  notifications/
-    telegram.py
-tests/
-```
-
-### 开发
-
-运行测试：
+Run linting:
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONPATH=src ruff check .
 ```
 
-### 发布和部署
+## License
 
-`QuantPlatformKit` 只作为共享依赖，不单独部署。策略仓库应该固定依赖某个 Git tag，例如：
-
-```text
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.7.1
-```
-
-部署说明见：
-
-- [英文部署说明](./docs/deployment_model.md)
-- [中文部署说明](./docs/deployment_model.zh-CN.md)
-- [美股跨平台策略规范（英文）](./docs/us_equity_cross_platform_strategy_spec.md)
-- [美股跨平台策略规范（中文）](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
+MIT License. See [LICENSE](./LICENSE).

@@ -23,7 +23,7 @@ stages used by platform persistence, API responses, logs, and notifications:
 
 Terminal stages block duplicate live order submission for the same
 account/profile/period. Non-terminal execution blockers can be retried by the
-platform scheduler while the strategy execution window remains open.
+platform runtime while the strategy execution window remains open.
 
 ## Skip Reasons
 
@@ -58,4 +58,3 @@ Platform repositories should:
 - include the resolved stage in persisted run state and API responses
 - render execution blockers consistently in logs and notifications
 - keep broker-specific order payloads, account labels, and transport wiring local
-- avoid documenting deployment-specific live strategy selections in public docs

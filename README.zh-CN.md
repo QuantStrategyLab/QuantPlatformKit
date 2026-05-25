@@ -1,104 +1,80 @@
 # QuantPlatformKit
 
-`QuantPlatformKit` 是 `QuantStrategyLab` 下面的共享平台代码仓库。
+`QuantPlatformKit` 是 QuantStrategyLab 的共享平台契约、券商适配工具、策略插件 helper 和通知基础能力仓库。
 
-它负责放这些内容：
+[English](./README.md)
 
-- 统一领域模型
-- 市场数据、持仓、执行这些窄接口
-- IBKR / Schwab / LongBridge / Binance 的平台适配层
-- Telegram 通知和少量通用工具
+## 这个仓库是什么
 
-它**不负责**放这些内容：
+这是一个公开的共享平台层仓库。它负责稳定跨仓库接口，让策略仓库和券商平台仓库可以各自演进，而不需要复制运行时胶水代码。
 
-- 具体策略规则
-- 调仓参数
-- Cloud Run 入口
-- 某一个策略仓库自己的调度编排
+这个仓库包含：
 
-## 策略契约边界
+- 通用领域模型和运行目标 helper
+- 市场数据、持仓快照、订单执行、通知、状态存储等窄接口
+- 可复用的券商适配工具
+- 策略加载、策略插件、告警消息契约
+- 使用合成数据的公开测试
 
-当前主线边界已经固定为：
+它不包含私有运行时接线和生成的策略输出。
 
-- 平台仓库负责组装 `StrategyContext`
-- 平台仓库通过 `load_strategy_entrypoint(...)` 加载策略入口
-- 策略仓库只返回统一的 `StrategyDecision`
-- 平台自己的 decision mapper 再把决策映射成券商订单、通知和运行时状态更新
+## 和其他仓库如何协作
 
-策略仓库应该暴露 `manifest + evaluate(ctx)`；如果迁移窗口里还需要少量运行时元数据，就放在 `StrategyRuntimeAdapter` 里，不要把券商专属下单顺序或展示布局塞回策略输出。平台仓库应复用本包里的执行结果和通知 envelope helper，把券商差异限制在适配器、订单 payload 和传输层。
+QuantStrategyLab 的仓库按职责拆分：
 
-迁移说明和后续约束见 [`docs/strategy_contract_migration.md`](./docs/strategy_contract_migration.md)。
+- 策略仓库负责策略 metadata、输入需求，以及 `manifest + evaluate(ctx)` 入口。
+- 平台仓库负责券商 session、运行时配置加载、运行入口、决策映射和下单。
+- 快照或数据流水线仓库负责生成 artifact 以及发布流程。
+- `QuantPlatformKit` 负责这些仓库共同使用的契约和 helper API。
 
-以后新增美股策略要遵守的更严格跨平台规范见：
+典型工作流是：
 
-- [`docs/us_equity_cross_platform_strategy_spec.md`](./docs/us_equity_cross_platform_strategy_spec.md)
-- [`docs/us_equity_cross_platform_strategy_spec.zh-CN.md`](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
-- [`docs/us_equity_execution_translation_spec.md`](./docs/us_equity_execution_translation_spec.md)
-- [`docs/us_equity_execution_translation_spec.zh-CN.md`](./docs/us_equity_execution_translation_spec.zh-CN.md)
-- [`docs/us_equity_release_cutover_plan.md`](./docs/us_equity_release_cutover_plan.md)
-- [`docs/us_equity_release_cutover_plan.zh-CN.md`](./docs/us_equity_release_cutover_plan.zh-CN.md)
-- [`docs/us_equity_live_switch_runbook.md`](./docs/us_equity_live_switch_runbook.md)
-- [`docs/us_equity_live_switch_runbook.zh-CN.md`](./docs/us_equity_live_switch_runbook.zh-CN.md)
-- [`docs/platform_notification_outcomes.md`](./docs/platform_notification_outcomes.md)
-- [`docs/platform_notification_outcomes.zh-CN.md`](./docs/platform_notification_outcomes.zh-CN.md)
+```text
+平台仓库
+  从券商/运行时输入构造 StrategyContext
+  从策略仓库加载策略入口
+  得到 StrategyDecision
+  映射为券商专属执行和通知
 
-[English README](./README.md)
+QuantPlatformKit
+  提供共享契约、加载器、适配器和插件告警 helper
+```
+
+策略代码不按券商平台分支；平台代码不复制策略规则。
+
+## 策略插件
+
+策略插件是平台仓库按需读取的 sidecar artifact。这个仓库只定义公开插件契约、兼容性校验、告警消息构造和重复告警抑制 helper。
+
+生成的插件 artifact 和平台专属通知路由由生成它的 pipeline 或消费它的平台仓库管理。这个仓库的测试只使用合成价格历史和合成 payload。
 
 ## 目录结构
 
 ```text
 src/quant_platform_kit/
   common/
-    models.py
-    ports.py
   ibkr/
-    connection.py
-    market_data.py
-    portfolio.py
-    execution.py
   binance/
-    client.py
-    account.py
-    market_data.py
-    execution.py
   schwab/
-    auth.py
-    market_data.py
-    portfolio.py
-    execution.py
   longbridge/
-    auth.py
-    market_data.py
-    portfolio.py
-    execution.py
   notifications/
-    telegram.py
 tests/
 ```
 
 ## 开发
 
-运行测试：
+运行公开测试：
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONPATH=src pytest
 ```
 
-## 发布和部署
+运行 lint：
 
-`QuantPlatformKit` 是共享依赖，不单独部署。策略仓库应该固定依赖某个 Git tag，例如：
-
-```text
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@v0.7.1
+```bash
+PYTHONPATH=src ruff check .
 ```
 
-部署相关说明见：
+## License
 
-- [英文部署说明](./docs/deployment_model.md)
-- [中文部署说明](./docs/deployment_model.zh-CN.md)
-- [美股跨平台策略规范（英文）](./docs/us_equity_cross_platform_strategy_spec.md)
-- [美股跨平台策略规范（中文）](./docs/us_equity_cross_platform_strategy_spec.zh-CN.md)
-- [美股执行翻译规范（英文）](./docs/us_equity_execution_translation_spec.md)
-- [美股执行翻译规范（中文）](./docs/us_equity_execution_translation_spec.zh-CN.md)
-- [美股线上切换与回滚手册（英文）](./docs/us_equity_live_switch_runbook.md)
-- [美股线上切换与回滚手册（中文）](./docs/us_equity_live_switch_runbook.zh-CN.md)
+MIT License. 见 [LICENSE](./LICENSE)。
