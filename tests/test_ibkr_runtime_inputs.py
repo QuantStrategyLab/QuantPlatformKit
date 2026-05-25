@@ -115,6 +115,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertGreaterEqual(indicators["soxx"]["rsi14_dynamic_threshold"], 70.0)
         self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
         self.assertLess(indicators["soxx"]["bb_lower"], indicators["soxx"]["price"])
+        self.assertIn("realized_volatility_10", indicators["soxx"])
         self.assertIn("realized_volatility_20", indicators["soxx"])
         self.assertEqual(
             indicators["soxx"]["realized_volatility"],
@@ -141,6 +142,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(indicators["soxx"]["rsi14"], 100.0)
         self.assertGreaterEqual(indicators["soxx"]["rsi14_dynamic_threshold"], 70.0)
         self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
+        self.assertIn("realized_volatility_10", indicators["soxx"])
         self.assertIn("realized_volatility_20", indicators["soxx"])
         wrapped = build_semiconductor_rotation_inputs_from_history(
             soxl_history=[100.0 + idx for idx in range(170)],
@@ -180,6 +182,7 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(payload["derived_indicators"]["soxx"]["ma20"], 200.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["rsi14"], 50.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["rsi14_dynamic_threshold"], 70.0)
+        self.assertEqual(payload["derived_indicators"]["soxx"]["realized_volatility_10"], 0.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["realized_volatility_20"], 0.0)
 
     def test_build_semiconductor_rotation_indicators_requires_sufficient_history(self) -> None:

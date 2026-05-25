@@ -185,6 +185,7 @@ def build_semiconductor_rotation_indicators_from_history(
     )
     soxx_bb_mid = _tail_mean(soxx_close, 20)
     soxx_bb_std = _tail_std(soxx_close, 20)
+    soxx_realized_volatility_10 = _tail_realized_volatility(soxx_close, 10)
     soxx_realized_volatility_20 = _tail_realized_volatility(soxx_close, 20)
     return {
         "soxl": {
@@ -202,6 +203,7 @@ def build_semiconductor_rotation_indicators_from_history(
             "bb_upper": soxx_bb_mid + 2.0 * soxx_bb_std,
             "bb_lower": soxx_bb_mid - 2.0 * soxx_bb_std,
             "realized_volatility": soxx_realized_volatility_20,
+            "realized_volatility_10": soxx_realized_volatility_10,
             "realized_volatility_20": soxx_realized_volatility_20,
         },
     }
