@@ -18,15 +18,17 @@ from quant_platform_kit.common.strategy_plugins import (
 from .email import parse_email_recipients, send_smtp_email
 
 
+_GOOGLE_VOICE_SMTP_HOST = "smtp.gmail.com"
+_GOOGLE_VOICE_SMTP_PORT = 465
+_GOOGLE_VOICE_SMTP_STARTTLS = False
+_GOOGLE_VOICE_SMTP_SSL = True
+
+
 @dataclass(frozen=True)
 class StrategyPluginGoogleVoiceSettings:
     gateway_recipients: tuple[str, ...] = ()
     gmail_user: str | None = None
     gmail_app_password: str | None = field(default=None, repr=False)
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 465
-    use_starttls: bool = False
-    use_ssl: bool = True
     timeout: float = 10.0
 
     @classmethod
@@ -276,14 +278,14 @@ def _send_message(
         sent = send_notification(
             subject=message.subject,
             body=message.body,
-            smtp_host=settings.smtp_host,
-            smtp_port=settings.smtp_port,
+            smtp_host=_GOOGLE_VOICE_SMTP_HOST,
+            smtp_port=_GOOGLE_VOICE_SMTP_PORT,
             sender=settings.gmail_user,
             recipients=settings.gateway_recipients,
             username=settings.gmail_user,
             password=settings.gmail_app_password,
-            use_starttls=settings.use_starttls,
-            use_ssl=settings.use_ssl,
+            use_starttls=_GOOGLE_VOICE_SMTP_STARTTLS,
+            use_ssl=_GOOGLE_VOICE_SMTP_SSL,
             timeout=settings.timeout,
         )
     except Exception as exc:
