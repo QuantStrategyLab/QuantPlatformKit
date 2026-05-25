@@ -71,7 +71,7 @@ When a `weight` strategy runs on a value-native platform:
 
 1. choose a translation base
    - default: `portfolio_snapshot.total_equity`
-   - if the platform later needs a narrower deployable base, that override must
+   - if the platform later needs a narrower execution base, that override must
      be explicit in platform config
 2. compute target gross dollar value per symbol
    - `target_value = target_weight * translation_base`

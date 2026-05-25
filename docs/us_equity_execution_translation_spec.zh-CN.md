@@ -67,7 +67,7 @@
 
 1. 先确定翻译基数
    - 默认用 `portfolio_snapshot.total_equity`
-   - 如果以后某个平台要改成更窄的 deployable base，必须显式写在平台配置里
+   - 如果以后某个平台要改成更窄的执行基准，必须显式写在平台配置里
 2. 每个 symbol 的目标金额计算为：
    - `target_value = target_weight * translation_base`
 3. 明确为零的目标要保留为零

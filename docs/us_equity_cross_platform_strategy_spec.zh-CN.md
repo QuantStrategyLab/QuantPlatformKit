@@ -2,11 +2,12 @@
 
 ## 目标
 
-所有美股策略都应该做到“一套策略代码，尽量在当前三个券商运行时复用”：
+所有美股策略都应该做到“一套策略代码，尽量在当前券商运行时复用”：
 
 - `ibkr`
 - `schwab`
 - `longbridge`
+- `firstrade`
 
 这份文档定义两件事：
 
@@ -21,8 +22,7 @@
 - `UsEquityStrategies`
 - 消费它们的美股平台仓库
 
-它不负责定义券商鉴权、Cloud Run 部署、调度器配置，也不规定
-Telegram 文案细节。
+它不负责定义券商鉴权、平台运行时接线、调度行为，也不规定通知文案细节。
 
 ## 总原则
 
@@ -56,23 +56,23 @@ Telegram 文案细节。
 
 平台仓库只负责运行时和券商集成：
 
-- 解析平台 env、secrets、调度参数和 broker session
+- 加载运行时配置和 broker session
 - 拉取行情、账户、持仓、portfolio snapshot
 - 按契约组装 `StrategyContext`
 - 把 `StrategyDecision` 映射成券商订单、通知和运行报告
-- 处理平台自己的部署、重试、幂等和 reconciliation 输出
+- 处理平台自己的重试、幂等和 reconciliation 输出
 
-snapshot 生产链负责生成和发布 artifact：
+snapshot 生成链负责生成和发布 artifact：
 
 - snapshot 文件、manifest、checksum、contract version
 - config checksum 与 profile/config name 对齐
-- GCS 或本地运行路径的交付
+- artifact 发布位置和保留策略
 
 禁止反向耦合：
 
 - 策略代码不能 import 券商 SDK，不能读取平台 env。
 - 平台代码不能按 profile 名硬编码策略私有股票池、snapshot schema 或 config 路径。
-- 平台 workflow 不能维护第二套 snapshot profile 名单，必须读取 adapter 派生出来的需求。
+- 平台仓库不能维护第二套 snapshot profile 硬编码名单，必须读取 adapter 派生出来的需求。
 - 策略配置不能散落在平台 `research/` 目录里作为 live 运行依赖。
 
 ## 必须有的四层
@@ -114,6 +114,7 @@ adapter 可以描述：
 - `ibkr`：原生偏 `weight`
 - `schwab`：原生偏 `value`
 - `longbridge`：原生偏 `value`
+- `firstrade`：原生偏 `value`
 
 策略本身不能去做券商专属执行转换。
 
@@ -184,13 +185,14 @@ adapter 可以描述：
 
 策略层不能假设某个平台本地一定有某个文件。
 
-## 三平台支持规则
+## 平台支持规则
 
-以后新增美股策略，默认目标应该是三平台都能接：
+以后新增美股策略，默认目标应该是当前美股平台都能接：
 
 - `ibkr` adapter
 - `schwab` adapter
 - `longbridge` adapter
+- `firstrade` adapter
 
 如果某个平台当前明确不支持，PR 里必须写清原因；
 在问题没补齐前，该平台上应该保持 `eligible=false`。
