@@ -483,10 +483,6 @@ def build_strategy_plugin_alert_messages(
         translated_route = translate_strategy_plugin_value("route", route, translator=translator)
         translated_action = translate_strategy_plugin_value("action", action, translator=translator)
         strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip() or "unknown"
-        would_trade = _translate_bool(
-            translator,
-            bool(getattr(signal, "would_trade_if_enabled", False)),
-        )
         subject = _translate(
             translator,
             "strategy_plugin_alert_subject",
@@ -548,24 +544,8 @@ def build_strategy_plugin_alert_messages(
                     fallback="Signal as-of: {as_of}",
                     as_of=getattr(signal, "as_of", None) or "unknown",
                 ),
-                _translate(
-                    translator,
-                    "strategy_plugin_alert_would_trade",
-                    fallback="Would trade if enabled: {value}",
-                    value=would_trade,
-                ),
             ]
         )
-        source = getattr(signal, "source_uri", None) or getattr(signal, "local_path", None)
-        if source:
-            body_lines.append(
-                _translate(
-                    translator,
-                    "strategy_plugin_alert_source",
-                    fallback="Source: {source}",
-                    source=source,
-                )
-            )
         metadata = {
             "strategy": getattr(signal, "strategy", None),
             "strategy_label": strategy,
@@ -684,14 +664,6 @@ def _translate(
         return fallback.format(**kwargs)
     translated = translator(key, **kwargs)
     return translated if translated != key else fallback.format(**kwargs)
-
-
-def _translate_bool(translator: Callable[..., str] | None, value: bool) -> str:
-    return _translate(
-        translator,
-        "strategy_plugin_alert_yes" if value else "strategy_plugin_alert_no",
-        fallback="yes" if value else "no",
-    )
 
 
 def _required_string(value: Any, *, field_name: str) -> str:
