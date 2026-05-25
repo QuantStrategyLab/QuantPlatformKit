@@ -26,7 +26,7 @@ _GOOGLE_VOICE_SMTP_SSL = True
 
 @dataclass(frozen=True)
 class StrategyPluginGoogleVoiceSettings:
-    gateway_recipients: tuple[str, ...] = ()
+    recipients: tuple[str, ...] = ()
     gmail_user: str | None = None
     gmail_app_password: str | None = field(default=None, repr=False)
     timeout: float = 10.0
@@ -36,8 +36,8 @@ class StrategyPluginGoogleVoiceSettings:
         if isinstance(value, cls):
             return value
         return cls(
-            gateway_recipients=tuple(
-                parse_email_recipients(_get_value(value, "crisis_alert_google_voice_gateway", ()))
+            recipients=tuple(
+                parse_email_recipients(_get_value(value, "crisis_alert_google_voice_recipients", ()))
             ),
             gmail_user=_first_non_empty(_get_value(value, "crisis_alert_google_voice_gmail_user")),
             gmail_app_password=_get_value(value, "crisis_alert_google_voice_gmail_app_password"),
@@ -45,8 +45,8 @@ class StrategyPluginGoogleVoiceSettings:
 
     def missing_fields(self) -> tuple[str, ...]:
         missing: list[str] = []
-        if not parse_email_recipients(self.gateway_recipients):
-            missing.append("CRISIS_ALERT_GOOGLE_VOICE_GATEWAY")
+        if not parse_email_recipients(self.recipients):
+            missing.append("CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS")
         if not str(self.gmail_user or "").strip():
             missing.append("CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER")
         if not str(self.gmail_app_password or "").strip():
@@ -281,7 +281,7 @@ def _send_message(
             smtp_host=_GOOGLE_VOICE_SMTP_HOST,
             smtp_port=_GOOGLE_VOICE_SMTP_PORT,
             sender=settings.gmail_user,
-            recipients=settings.gateway_recipients,
+            recipients=settings.recipients,
             username=settings.gmail_user,
             password=settings.gmail_app_password,
             use_starttls=_GOOGLE_VOICE_SMTP_STARTTLS,

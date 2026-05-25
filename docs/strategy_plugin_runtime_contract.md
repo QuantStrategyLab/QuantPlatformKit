@@ -133,10 +133,12 @@ structured sent/skipped/failed diagnostics, and can use
 sent.
 
 Platforms should expose this as Google Voice notification config, not as a
-generic email alert surface. The public configuration names should be channel
-specific:
+generic email alert surface. The recipient value is still an email-form address:
+a normal mailbox receives an email, while a Google Voice mailbox/address can
+also surface the Google Voice prompt. The public configuration names should be
+channel specific:
 
-- `CRISIS_ALERT_GOOGLE_VOICE_GATEWAY`
+- `CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS`
 - `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER`
 - `CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD`
 

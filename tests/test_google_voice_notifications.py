@@ -86,7 +86,7 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_missing_config():
     assert result.sent_count == 0
     assert result.skipped_count == 1
     assert result.deliveries[0].reason == "missing_google_voice_config"
-    assert "CRISIS_ALERT_GOOGLE_VOICE_GATEWAY" in result.deliveries[0].error
+    assert "CRISIS_ALERT_GOOGLE_VOICE_RECIPIENTS" in result.deliveries[0].error
     assert "CRISIS_ALERT_GOOGLE_VOICE_GMAIL_USER" in result.deliveries[0].error
     assert "CRISIS_ALERT_GOOGLE_VOICE_GMAIL_APP_PASSWORD" in result.deliveries[0].error
     assert observed == []
@@ -99,7 +99,7 @@ def test_publish_strategy_plugin_google_voice_alerts_sends_and_records_marker(tm
     result = publish_strategy_plugin_google_voice_alerts(
         [_alert_signal()],
         google_voice_settings=StrategyPluginGoogleVoiceSettings(
-            gateway_recipients=("risk@example.com",),
+            recipients=("risk@example.com",),
             gmail_user="bot@example.com",
             gmail_app_password="app-password",
         ),
@@ -128,7 +128,7 @@ def test_publish_strategy_plugin_google_voice_alerts_sends_and_records_marker(tm
 def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_path):
     store = StrategyPluginGoogleVoiceAlertMarkerStore(local_dir=tmp_path)
     settings = StrategyPluginGoogleVoiceSettings(
-        gateway_recipients=("risk@example.com",),
+        recipients=("risk@example.com",),
         gmail_user="bot@example.com",
         gmail_app_password="app-password",
     )
@@ -158,16 +158,16 @@ def test_publish_strategy_plugin_google_voice_alerts_skips_duplicate_marker(tmp_
     assert second.deliveries[0].reason == "duplicate_alert"
 
 
-def test_google_voice_settings_reads_google_voice_gmail_names_only():
+def test_google_voice_settings_reads_google_voice_recipient_names_only():
     settings = StrategyPluginGoogleVoiceSettings.from_object(
         SimpleNamespace(
-            crisis_alert_google_voice_gateway="gateway@txt.voice.google.com",
+            crisis_alert_google_voice_recipients="alerts@example.com; voice@example.com",
             crisis_alert_google_voice_gmail_user="sender@gmail.com",
             crisis_alert_google_voice_gmail_app_password="app-password",
         )
     )
 
     assert settings.gmail_user == "sender@gmail.com"
-    assert settings.gateway_recipients == ("gateway@txt.voice.google.com",)
+    assert settings.recipients == ("alerts@example.com", "voice@example.com")
     assert settings.gmail_app_password == "app-password"
     assert settings.missing_fields() == ()
