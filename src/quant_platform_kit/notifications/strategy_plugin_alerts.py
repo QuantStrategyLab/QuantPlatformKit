@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .email import send_smtp_email
+from .push import send_strategy_plugin_push
 from .sms import send_twilio_sms
 from .strategy_plugin_email import (
     StrategyPluginEmailAlertMarkerStore,
@@ -23,11 +24,18 @@ from .strategy_plugin_sms import (
     StrategyPluginSmsSettings,
     publish_strategy_plugin_sms_alerts,
 )
+from .strategy_plugin_push import (
+    StrategyPluginPushAlertMarkerStore,
+    StrategyPluginPushAlertPublishResult,
+    StrategyPluginPushSettings,
+    publish_strategy_plugin_push_alerts,
+)
 
 _DEFAULT_ALERT_STATE_DIR = "/tmp/quant_strategy_plugin_alerts"
 _CHANNEL_EMAIL = "email"
 _CHANNEL_SMS = "sms"
-_SUPPORTED_CHANNELS = frozenset({_CHANNEL_EMAIL, _CHANNEL_SMS})
+_CHANNEL_PUSH = "push"
+_SUPPORTED_CHANNELS = frozenset({_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH})
 
 
 @dataclass(frozen=True)
@@ -36,6 +44,7 @@ class StrategyPluginAlertChannelStores:
 
     email: StrategyPluginEmailAlertMarkerStore | object | None = None
     sms: StrategyPluginSmsAlertMarkerStore | object | None = None
+    push: StrategyPluginPushAlertMarkerStore | object | None = None
 
     @classmethod
     def from_mapping(
@@ -44,7 +53,11 @@ class StrategyPluginAlertChannelStores:
     ) -> "StrategyPluginAlertChannelStores":
         if value is None:
             return cls()
-        return cls(email=value.get(_CHANNEL_EMAIL), sms=value.get(_CHANNEL_SMS))
+        return cls(
+            email=value.get(_CHANNEL_EMAIL),
+            sms=value.get(_CHANNEL_SMS),
+            push=value.get(_CHANNEL_PUSH),
+        )
 
 
 @dataclass(frozen=True)
@@ -88,6 +101,12 @@ class StrategyPluginAlertStateSettings:
                 gcp_project_id=self.gcp_project_id,
                 client_factory=self.client_factory,
             ),
+            push=StrategyPluginPushAlertMarkerStore(
+                local_dir=self.local_dir,
+                gcs_prefix_uri=self.gcs_prefix_uri,
+                gcp_project_id=self.gcp_project_id,
+                client_factory=self.client_factory,
+            ),
         )
 
 
@@ -97,6 +116,7 @@ class StrategyPluginAlertPublishResult:
 
     email_result: StrategyPluginEmailAlertPublishResult | None = None
     sms_result: StrategyPluginSmsAlertPublishResult | None = None
+    push_result: StrategyPluginPushAlertPublishResult | None = None
 
     @property
     def attempted_count(self) -> int:
@@ -125,6 +145,8 @@ class StrategyPluginAlertPublishResult:
             fields.update(self.email_result.to_report_fields())
         if self.sms_result is not None:
             fields.update(self.sms_result.to_report_fields())
+        if self.push_result is not None:
+            fields.update(self.push_result.to_report_fields())
         return fields
 
     def to_summary_fields(self) -> dict[str, int]:
@@ -135,6 +157,8 @@ class StrategyPluginAlertPublishResult:
             fields["strategy_plugin_alert_email_sent_count"] = self.email_result.sent_count
         if self.sms_result is not None:
             fields["strategy_plugin_alert_sms_sent_count"] = self.sms_result.sent_count
+        if self.push_result is not None:
+            fields["strategy_plugin_alert_push_sent_count"] = self.push_result.sent_count
         return fields
 
     def attach_to_report(self, report: dict[str, Any]) -> None:
@@ -143,10 +167,15 @@ class StrategyPluginAlertPublishResult:
 
     def _results(
         self,
-    ) -> tuple[StrategyPluginEmailAlertPublishResult | StrategyPluginSmsAlertPublishResult, ...]:
+    ) -> tuple[
+        StrategyPluginEmailAlertPublishResult
+        | StrategyPluginSmsAlertPublishResult
+        | StrategyPluginPushAlertPublishResult,
+        ...,
+    ]:
         return tuple(
             result
-            for result in (self.email_result, self.sms_result)
+            for result in (self.email_result, self.sms_result, self.push_result)
             if result is not None
         )
 
@@ -154,23 +183,30 @@ class StrategyPluginAlertPublishResult:
 def publish_strategy_plugin_alerts(
     signals: Sequence[object],
     *,
-    notification_settings: StrategyPluginEmailSettings | StrategyPluginSmsSettings | object,
+    notification_settings: (
+        StrategyPluginEmailSettings
+        | StrategyPluginSmsSettings
+        | StrategyPluginPushSettings
+        | object
+    ),
     translator: Callable[..., str] | None = None,
     strategy_label: str | None = None,
     context_label: str | None = None,
-    channels: Sequence[str] | str = (_CHANNEL_EMAIL, _CHANNEL_SMS),
+    channels: Sequence[str] | str | None = None,
     state_settings: StrategyPluginAlertStateSettings | None = None,
     alert_stores: StrategyPluginAlertChannelStores | Mapping[str, object | None] | None = None,
     send_email_notification: Callable[..., bool] = send_smtp_email,
     send_sms_notification: Callable[..., bool] = send_twilio_sms,
+    send_push_notification: Callable[..., bool] = send_strategy_plugin_push,
     log_message: Callable[..., Any] = print,
 ) -> StrategyPluginAlertPublishResult:
     """Publish strategy plugin alerts through the configured notification channels."""
 
-    selected_channels = _normalize_channels(channels)
+    selected_channels = _resolve_channels(channels, notification_settings=notification_settings)
     stores = _resolve_alert_stores(alert_stores=alert_stores, state_settings=state_settings)
     email_result = None
     sms_result = None
+    push_result = None
     if _CHANNEL_EMAIL in selected_channels:
         email_result = publish_strategy_plugin_email_alerts(
             signals,
@@ -193,9 +229,21 @@ def publish_strategy_plugin_alerts(
             send_notification=send_sms_notification,
             log_message=log_message,
         )
+    if _CHANNEL_PUSH in selected_channels:
+        push_result = publish_strategy_plugin_push_alerts(
+            signals,
+            push_settings=notification_settings,
+            translator=translator,
+            strategy_label=strategy_label,
+            context_label=context_label,
+            alert_store=stores.push,
+            send_notification=send_push_notification,
+            log_message=log_message,
+        )
     return StrategyPluginAlertPublishResult(
         email_result=email_result,
         sms_result=sms_result,
+        push_result=push_result,
     )
 
 
@@ -212,7 +260,11 @@ def _resolve_alert_stores(
 
 
 def _normalize_channels(channels: Sequence[str] | str) -> tuple[str, ...]:
-    raw_channels = (channels,) if isinstance(channels, str) else tuple(channels)
+    raw_channels = (
+        channels.replace(";", ",").replace("\n", ",").split(",")
+        if isinstance(channels, str)
+        else tuple(channels)
+    )
     normalized: list[str] = []
     for channel in raw_channels:
         name = str(channel or "").strip().lower()
@@ -224,6 +276,25 @@ def _normalize_channels(channels: Sequence[str] | str) -> tuple[str, ...]:
         if name not in normalized:
             normalized.append(name)
     return tuple(normalized)
+
+
+def _resolve_channels(
+    channels: Sequence[str] | str | None,
+    *,
+    notification_settings: object,
+) -> tuple[str, ...]:
+    raw_channels = channels
+    if raw_channels is None:
+        raw_channels = _get_value(notification_settings, "crisis_alert_channels", None)
+    if raw_channels in (None, "", (), []):
+        raw_channels = (_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH)
+    return _normalize_channels(raw_channels)
+
+
+def _get_value(value: object, name: str, default: Any = None) -> Any:
+    if isinstance(value, Mapping):
+        return value.get(name, default)
+    return getattr(value, name, default)
 
 
 __all__ = [

@@ -13,6 +13,8 @@ from typing import Any, Callable
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
 PLUGIN_MODE_SHADOW = "shadow"
 STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL = "email"
+STRATEGY_PLUGIN_ALERT_CHANNEL_SMS = "sms"
+STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH = "push"
 SUPPORTED_STRATEGY_PLUGIN_MODES = frozenset({PLUGIN_MODE_SHADOW})
 DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR = Path(tempfile.gettempdir()) / "quant_strategy_plugin_artifacts"
 STRATEGY_PLUGIN_NON_ALERT_ROUTES = frozenset({"no_action"})
@@ -67,7 +69,11 @@ DEFAULT_STRATEGY_PLUGIN_DEFINITIONS: Mapping[str, StrategyPluginDefinition] = {
         plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
         supported_strategies=CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
         supported_modes=SUPPORTED_STRATEGY_PLUGIN_MODES,
-        alert_channels=(STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,),
+        alert_channels=(
+            STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+        ),
     )
 }
 
