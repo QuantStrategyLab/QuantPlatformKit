@@ -7,11 +7,13 @@ from quant_platform_kit.common.strategy_plugins import (
     CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
     DEFAULT_STRATEGY_PLUGIN_DEFINITIONS,
     PLUGIN_CRISIS_RESPONSE_SHADOW,
+    PLUGIN_TACO_REBOUND_SHADOW,
     PLUGIN_MODE_SHADOW,
     STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
     STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
     STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
     STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+    TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES,
     StrategyPluginDefinition,
     build_strategy_plugin_alert_messages,
     build_strategy_plugin_notification_lines,
@@ -111,6 +113,34 @@ class StrategyPluginsTests(unittest.TestCase):
             mode=PLUGIN_MODE_SHADOW,
         )
 
+    def test_default_plugin_definition_limits_taco_rebound_to_tqqq_notifications(self):
+        definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[PLUGIN_TACO_REBOUND_SHADOW]
+
+        self.assertEqual(definition.supported_strategies, TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES)
+        self.assertEqual(
+            definition.alert_channels,
+            (
+                STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+            ),
+        )
+        validate_strategy_plugin_compatibility(
+            strategy="tqqq_growth_income",
+            plugin=PLUGIN_TACO_REBOUND_SHADOW,
+            mode=PLUGIN_MODE_SHADOW,
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "taco_rebound_shadow does not support strategy soxl_soxx_trend_income",
+        ):
+            validate_strategy_plugin_compatibility(
+                strategy="soxl_soxx_trend_income",
+                plugin=PLUGIN_TACO_REBOUND_SHADOW,
+                mode=PLUGIN_MODE_SHADOW,
+            )
+
     def test_parse_strategy_plugin_mounts_rejects_unsupported_crisis_response_strategy(self):
         raw = [
             {
@@ -125,6 +155,20 @@ class StrategyPluginsTests(unittest.TestCase):
             "crisis_response_shadow does not support strategy global_etf_rotation",
         ):
             parse_strategy_plugin_mounts(raw)
+
+    def test_parse_strategy_plugin_mounts_accepts_taco_rebound_tqqq_notification(self):
+        mounts = parse_strategy_plugin_mounts(
+            [
+                {
+                    "strategy": "tqqq_growth_income",
+                    "plugin": PLUGIN_TACO_REBOUND_SHADOW,
+                    "signal_path": "gs://bucket/taco/latest_signal.json",
+                }
+            ]
+        )
+
+        self.assertEqual(mounts[0].strategy, "tqqq_growth_income")
+        self.assertEqual(mounts[0].plugin, PLUGIN_TACO_REBOUND_SHADOW)
 
     def test_plugin_definition_can_extend_future_strategy_support(self):
         raw = [
@@ -314,6 +358,26 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertNotIn("would_trade=", alerts[0].body)
         self.assertNotIn("source=", alerts[0].body)
         self.assertTrue(alerts[0].metadata["would_trade_if_enabled"])
+
+    def test_taco_rebound_notification_alerts_without_trade_flag(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_TACO_REBOUND_SHADOW),
+                "schema_version": "taco_rebound_shadow.v2",
+                "canonical_route": "taco_rebound",
+                "suggested_action": "notify_manual_review",
+                "would_trade_if_enabled": False,
+                "manual_review_required": True,
+            },
+            source_uri="gs://bucket/taco/latest_signal.json",
+        )
+
+        self.assertTrue(should_alert_strategy_plugin_signal(signal))
+        alerts = build_strategy_plugin_alert_messages([signal], strategy_label="TQQQ Growth Income")
+
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("taco_rebound_shadow", alerts[0].subject)
+        self.assertFalse(alerts[0].metadata["would_trade_if_enabled"])
 
 
 if __name__ == "__main__":

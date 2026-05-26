@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
+PLUGIN_TACO_REBOUND_SHADOW = "taco_rebound_shadow"
 PLUGIN_MODE_SHADOW = "shadow"
 STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL = "email"
 STRATEGY_PLUGIN_ALERT_CHANNEL_SMS = "sms"
@@ -26,6 +27,7 @@ CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES = frozenset(
         "soxl_soxx_trend_income",
     }
 )
+TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income"})
 
 
 @dataclass(frozen=True)
@@ -76,7 +78,18 @@ DEFAULT_STRATEGY_PLUGIN_DEFINITIONS: Mapping[str, StrategyPluginDefinition] = {
             STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
             STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
         ),
-    )
+    ),
+    PLUGIN_TACO_REBOUND_SHADOW: StrategyPluginDefinition(
+        plugin=PLUGIN_TACO_REBOUND_SHADOW,
+        supported_strategies=TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES,
+        supported_modes=SUPPORTED_STRATEGY_PLUGIN_MODES,
+        alert_channels=(
+            STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+        ),
+    ),
 }
 
 
