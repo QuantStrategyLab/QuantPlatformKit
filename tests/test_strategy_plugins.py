@@ -334,10 +334,14 @@ class StrategyPluginsTests(unittest.TestCase):
             "strategy_plugin_alert_action": "action={action}",
             "strategy_plugin_alert_mode": "mode={mode}",
             "strategy_plugin_alert_as_of": "as_of={as_of}",
+            "strategy_plugin_alert_guidance": "guidance={guidance}",
+            "strategy_plugin_alert_scope_note": "scope={scope_note}",
             "strategy_plugin_name_crisis_response_shadow": "Crisis",
             "strategy_plugin_mode_shadow": "shadow",
             "strategy_plugin_route_true_crisis": "true crisis",
             "strategy_plugin_action_defend": "defend",
+            "strategy_plugin_guidance_crisis_response_shadow_true_crisis_defend": "reduce leverage or move to cash",
+            "strategy_plugin_alert_scope": "manual review only",
         }
 
         alerts = build_strategy_plugin_alert_messages(
@@ -355,9 +359,12 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertIn("status=true crisis", alerts[0].body)
         self.assertIn("action=defend", alerts[0].body)
         self.assertIn("mode=shadow", alerts[0].body)
+        self.assertIn("guidance=reduce leverage or move to cash", alerts[0].body)
+        self.assertIn("scope=manual review only", alerts[0].body)
         self.assertNotIn("would_trade=", alerts[0].body)
         self.assertNotIn("source=", alerts[0].body)
         self.assertTrue(alerts[0].metadata["would_trade_if_enabled"])
+        self.assertEqual(alerts[0].metadata["guidance"], "reduce leverage or move to cash")
 
     def test_taco_rebound_notification_alerts_without_trade_flag(self):
         signal = validate_strategy_plugin_signal_payload(
@@ -377,6 +384,8 @@ class StrategyPluginsTests(unittest.TestCase):
 
         self.assertEqual(len(alerts), 1)
         self.assertIn("taco_rebound_shadow", alerts[0].subject)
+        self.assertIn("small, pre-sized probe", alerts[0].body)
+        self.assertIn("does not place orders", alerts[0].body)
         self.assertFalse(alerts[0].metadata["would_trade_if_enabled"])
 
 

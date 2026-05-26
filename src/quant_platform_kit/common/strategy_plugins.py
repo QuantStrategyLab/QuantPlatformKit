@@ -28,6 +28,35 @@ CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES = frozenset(
     }
 )
 TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income"})
+_DEFAULT_STRATEGY_PLUGIN_ALERT_GUIDANCE: Mapping[tuple[str, str, str], str] = {
+    (
+        PLUGIN_CRISIS_RESPONSE_SHADOW,
+        "true_crisis",
+        "defend",
+    ): (
+        "Consider reducing leveraged exposure, moving to defensive or cash-like positions, "
+        "and pausing new risk additions until the signal de-escalates."
+    ),
+    (
+        PLUGIN_CRISIS_RESPONSE_SHADOW,
+        "no_action",
+        "blocked",
+    ): (
+        "The crisis route was blocked by a guard; review data freshness and context before "
+        "acting on the signal."
+    ),
+    (
+        PLUGIN_TACO_REBOUND_SHADOW,
+        "taco_rebound",
+        "notify_manual_review",
+    ): (
+        "Manual review only: consider a small, pre-sized probe or staged entry with a "
+        "predefined invalidation level; avoid full-size deployment from this alert alone."
+    ),
+}
+_DEFAULT_STRATEGY_PLUGIN_ALERT_SCOPE_NOTE = (
+    "Manual review notice only; the plugin does not place orders or change allocations."
+)
 
 
 @dataclass(frozen=True)
@@ -445,6 +474,64 @@ def should_alert_strategy_plugin_signal(signal: StrategyPluginSignal) -> bool:
     )
 
 
+def build_strategy_plugin_alert_guidance(
+    signal: StrategyPluginSignal,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str | None:
+    plugin = _normalize_strategy_plugin_field(getattr(signal, "plugin", None))
+    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
+    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
+    translated = _translate_first(
+        translator,
+        (
+            f"strategy_plugin_guidance_{plugin}_{route}_{action}",
+            f"strategy_plugin_guidance_{plugin}_{route}",
+            f"strategy_plugin_guidance_{plugin}_{action}",
+            f"strategy_plugin_guidance_{plugin}",
+            f"strategy_plugin_guidance_{route}_{action}",
+            f"strategy_plugin_guidance_{action}",
+        ),
+    )
+    if translated:
+        return translated
+    return _DEFAULT_STRATEGY_PLUGIN_ALERT_GUIDANCE.get((plugin, route, action))
+
+
+def build_strategy_plugin_alert_scope_note(
+    signal: StrategyPluginSignal,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str | None:
+    controls = getattr(signal, "execution_controls", {}) or {}
+    if not isinstance(controls, Mapping):
+        controls = {}
+    notification_profile = str(controls.get("notification_profile") or "").strip().lower()
+    if notification_profile != "shadow_only" and any(
+        _as_bool(controls.get(field), default=False)
+        for field in (
+            "broker_order_allowed",
+            "repository_broker_write_allowed",
+            "live_allocation_mutation_allowed",
+            "repository_allocation_mutation_allowed",
+            "allocation_recommendation_allowed",
+            "position_sizing_allowed",
+            "selection_allowed",
+        )
+    ):
+        return None
+    return (
+        _translate_first(
+            translator,
+            (
+                f"strategy_plugin_alert_scope_{_normalize_strategy_plugin_field(getattr(signal, 'plugin', None))}",
+                "strategy_plugin_alert_scope",
+            ),
+        )
+        or _DEFAULT_STRATEGY_PLUGIN_ALERT_SCOPE_NOTE
+    )
+
+
 def build_strategy_plugin_alert_key(
     signal: StrategyPluginSignal,
     *,
@@ -504,6 +591,8 @@ def build_strategy_plugin_alert_messages(
         translated_route = translate_strategy_plugin_value("route", route, translator=translator)
         translated_action = translate_strategy_plugin_value("action", action, translator=translator)
         strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip() or "unknown"
+        guidance = build_strategy_plugin_alert_guidance(signal, translator=translator)
+        scope_note = build_strategy_plugin_alert_scope_note(signal, translator=translator)
         subject = _translate(
             translator,
             "strategy_plugin_alert_subject",
@@ -567,6 +656,24 @@ def build_strategy_plugin_alert_messages(
                 ),
             ]
         )
+        if guidance:
+            body_lines.append(
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_guidance",
+                    fallback="Manual guidance: {guidance}",
+                    guidance=guidance,
+                )
+            )
+        if scope_note:
+            body_lines.append(
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_scope_note",
+                    fallback="Scope: {scope_note}",
+                    scope_note=scope_note,
+                )
+            )
         metadata = {
             "strategy": getattr(signal, "strategy", None),
             "strategy_label": strategy,
@@ -577,6 +684,8 @@ def build_strategy_plugin_alert_messages(
             "suggested_action": getattr(signal, "suggested_action", None),
             "would_trade_if_enabled": bool(getattr(signal, "would_trade_if_enabled", False)),
             "context_label": context or None,
+            "guidance": guidance,
+            "scope_note": scope_note,
         }
         messages.append(
             StrategyPluginAlertMessage(
@@ -685,6 +794,21 @@ def _translate(
         return fallback.format(**kwargs)
     translated = translator(key, **kwargs)
     return translated if translated != key else fallback.format(**kwargs)
+
+
+def _translate_first(
+    translator: Callable[..., str] | None,
+    keys: Sequence[str],
+) -> str | None:
+    if translator is None:
+        return None
+    for key in keys:
+        translated = translator(key)
+        if translated != key:
+            text = str(translated).strip()
+            if text:
+                return text
+    return None
 
 
 def _required_string(value: Any, *, field_name: str) -> str:
