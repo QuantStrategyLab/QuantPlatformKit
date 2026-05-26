@@ -13,6 +13,7 @@ It contains:
 - common domain models and runtime target helpers
 - narrow ports for market data, portfolio snapshots, order execution, notifications, and state
 - reusable broker adapter utilities
+- QuantConnect Cloud deployment helpers for hybrid hosted/self-hosted runtimes
 - strategy loading, strategy-plugin, and alert-message contracts
 - optional strategy-plugin alert channels for email, SMS, push, and Telegram providers
 - synthetic-data tests for public behavior
@@ -60,9 +61,12 @@ src/quant_platform_kit/
   binance/
   schwab/
   longbridge/
+  quantconnect/
   notifications/
 tests/
 ```
+
+See [docs/quantconnect.md](./docs/quantconnect.md) for the public QuantConnect connector contract and placeholder-only examples.
 
 ## Development
 
