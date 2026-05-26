@@ -68,7 +68,13 @@ The default registry currently defines:
 
 | Plugin | Supported strategies | Supported mode | Escalated alert channel |
 | --- | --- | --- | --- |
-| `crisis_response_shadow` | `tqqq_growth_income`, `soxl_soxx_trend_income` | `shadow` | `email` |
+| `crisis_response_shadow` | `tqqq_growth_income`, `soxl_soxx_trend_income` | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `taco_rebound_shadow` | `tqqq_growth_income` | `shadow` | `email`, `sms`, `push`, `telegram` |
+
+`taco_rebound_shadow` is notification-only. Its artifact may escalate a
+manual-review alert when a TACO-style rebound context is active, but it must not
+recommend position size, mutate live allocation, or imply broker order
+permission.
 
 To expand a plugin later, update the shared definition or pass an explicit
 definition registry into the parser/loader. This keeps future plugin eligibility
