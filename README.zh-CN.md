@@ -13,6 +13,7 @@
 - 通用领域模型和运行目标 helper
 - 市场数据、持仓快照、订单执行、通知、状态存储等窄接口
 - 可复用的券商适配工具
+- 面向混合托管/自托管运行时的 QuantConnect Cloud 部署 helper
 - 策略加载、策略插件、告警消息契约
 - 可选的策略插件 email、SMS、push 和 Telegram 告警通道
 - 使用合成数据的公开测试
@@ -60,9 +61,12 @@ src/quant_platform_kit/
   binance/
   schwab/
   longbridge/
+  quantconnect/
   notifications/
 tests/
 ```
+
+公开的 QuantConnect 连接器契约和仅含占位符的示例见 [docs/quantconnect.md](./docs/quantconnect.md)。
 
 ## 开发
 
