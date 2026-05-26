@@ -85,6 +85,40 @@ class IbkrMarketDataTests(unittest.TestCase):
         self.assertEqual(series.points[-1].close, 101.0)
         self.assertEqual(ib.last_history_contract.symbol, "SPY")
         self.assertEqual(ib.last_history_kwargs["durationStr"], "2 Y")
+        self.assertEqual(ib.last_history_kwargs["whatToShow"], "ADJUSTED_LAST")
+
+    def test_fetch_historical_price_series_converts_long_day_duration_to_years(self) -> None:
+        ib = FakeIB()
+        fetch_historical_price_series(
+            ib,
+            "SOXL",
+            duration="420 D",
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(ib.last_history_kwargs["durationStr"], "2 Y")
+
+    def test_fetch_historical_price_series_falls_back_to_trades_when_adjusted_last_is_empty(self) -> None:
+        class AdjustedLastEmptyIB(FakeIB):
+            def __init__(self):
+                super().__init__()
+                self.history_calls = []
+
+            def reqHistoricalData(self, contract, **kwargs):
+                self.history_calls.append(kwargs)
+                if kwargs["whatToShow"] == "ADJUSTED_LAST":
+                    return []
+                return super().reqHistoricalData(contract, **kwargs)
+
+        ib = AdjustedLastEmptyIB()
+        series = fetch_historical_price_series(
+            ib,
+            "QQQ",
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(series.points[-1].close, 101.0)
+        self.assertEqual([call["whatToShow"] for call in ib.history_calls], ["ADJUSTED_LAST", "TRADES"])
 
     def test_fetch_historical_price_candles_exposes_ohlc_fields(self) -> None:
         ib = FakeIB()

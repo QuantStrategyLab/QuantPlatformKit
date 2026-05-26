@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
+from math import ceil
 from math import isnan
+import re
 from typing import Any, Callable
 
 from quant_platform_kit.common.models import PricePoint, PriceSeries, QuoteSnapshot
@@ -32,6 +34,49 @@ def _build_stock_contract(
     return stock_factory(symbol, exchange, currency)
 
 
+def _normalize_duration_for_ibkr(duration: str) -> str:
+    text = str(duration or "").strip()
+    match = re.fullmatch(r"(\d+)\s*([A-Za-z]+)", text)
+    if not match:
+        return text
+
+    quantity = int(match.group(1))
+    unit = match.group(2).upper()
+    if unit == "D" and quantity > 365:
+        return f"{ceil(quantity / 365)} Y"
+    return f"{quantity} {unit}"
+
+
+def _request_historical_bars(
+    ib: Any,
+    contract: Any,
+    *,
+    duration: str,
+    bar_size: str,
+) -> Any:
+    normalized_duration = _normalize_duration_for_ibkr(duration)
+    last_error: Exception | None = None
+    for what_to_show in ("ADJUSTED_LAST", "TRADES"):
+        try:
+            bars = ib.reqHistoricalData(
+                contract,
+                endDateTime="",
+                durationStr=normalized_duration,
+                barSizeSetting=bar_size,
+                whatToShow=what_to_show,
+                useRTH=True,
+                formatDate=1,
+            )
+        except Exception as exc:  # pragma: no cover - exercised by live broker adapters.
+            last_error = exc
+            continue
+        if bars:
+            return bars
+    if last_error is not None:
+        raise last_error
+    return ()
+
+
 def fetch_historical_price_series(
     ib: Any,
     symbol: str,
@@ -49,14 +94,11 @@ def fetch_historical_price_series(
         stock_factory=stock_factory,
     )
     ib.qualifyContracts(contract)
-    bars = ib.reqHistoricalData(
+    bars = _request_historical_bars(
+        ib,
         contract,
-        endDateTime="",
-        durationStr=duration,
-        barSizeSetting=bar_size,
-        whatToShow="ADJUSTED_LAST",
-        useRTH=True,
-        formatDate=1,
+        duration=duration,
+        bar_size=bar_size,
     )
     points = tuple(
         PricePoint(as_of=_coerce_as_of(bar.date), close=float(bar.close))
@@ -82,14 +124,11 @@ def fetch_historical_price_candles(
         stock_factory=stock_factory,
     )
     ib.qualifyContracts(contract)
-    bars = ib.reqHistoricalData(
+    bars = _request_historical_bars(
+        ib,
         contract,
-        endDateTime="",
-        durationStr=duration,
-        barSizeSetting=bar_size,
-        whatToShow="ADJUSTED_LAST",
-        useRTH=True,
-        formatDate=1,
+        duration=duration,
+        bar_size=bar_size,
     )
     return [
         {
