@@ -253,7 +253,9 @@ def fetch_quote_snapshots(
     attempts_per_data_type = max(int(attempts_per_data_type or 1), 1)
 
     setter = getattr(ib, "reqMarketDataType", None)
-    market_data_types = (1, 2, 4) if callable(setter) else (1,)
+    # Prefer delayed data before live data so accounts without live subscriptions do
+    # not emit noisy IBKR 10089 permission errors before falling back.
+    market_data_types = (3, 4, 1, 2) if callable(setter) else (1,)
 
     try:
         for market_data_type in market_data_types:

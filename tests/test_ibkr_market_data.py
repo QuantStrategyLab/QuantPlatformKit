@@ -237,7 +237,7 @@ class IbkrMarketDataTests(unittest.TestCase):
                 key = (self.market_data_type, contract.symbol)
                 attempt = self.market_data_attempts.get(key, 0)
                 self.market_data_attempts[key] = attempt + 1
-                if self.market_data_type == 1 and attempt == 0:
+                if self.market_data_type == 3 and attempt == 0:
                     return FakeTicker(-1.0, close=float("nan"), bid=None, ask=None)
                 return FakeTicker(101.8, close=101.8, bid=101.7, ask=101.9)
 
@@ -252,7 +252,8 @@ class IbkrMarketDataTests(unittest.TestCase):
         )
 
         self.assertEqual(snapshots["SPY"].last_price, 101.8)
-        self.assertEqual(ib.market_data_attempts[(1, "SPY")], 2)
+        self.assertEqual(ib.market_data_attempts[(3, "SPY")], 2)
+        self.assertEqual(ib.market_data_type_calls, [3, 1])
         self.assertNotIn(2, ib.market_data_type_calls)
         self.assertNotIn(4, ib.market_data_type_calls)
 
@@ -269,9 +270,9 @@ class IbkrMarketDataTests(unittest.TestCase):
 
             def reqMktData(self, contract, *_args):
                 self.last_market_data_contract = contract
-                if self.market_data_type == 1:
+                if self.market_data_type == 3:
                     return FakeTicker(-1.0, close=float("nan"), bid=None, ask=None)
-                if self.market_data_type == 2:
+                if self.market_data_type == 4:
                     return FakeTicker(-1.0, close=float("nan"), bid=None, ask=None)
                 return FakeTicker(-1.0, close=101.8, bid=None, ask=None)
 
@@ -284,7 +285,7 @@ class IbkrMarketDataTests(unittest.TestCase):
         )
 
         self.assertEqual(snapshots["SPY"].last_price, 101.8)
-        self.assertEqual(ib.market_data_type_calls, [1, 2, 4, 1])
+        self.assertEqual(ib.market_data_type_calls, [3, 4, 1, 1])
 
 
 if __name__ == "__main__":
