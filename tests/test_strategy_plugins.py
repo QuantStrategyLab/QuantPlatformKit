@@ -1,8 +1,10 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
+from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.common.strategy_plugins import (
     CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
     DEFAULT_STRATEGY_PLUGIN_DEFINITIONS,
@@ -15,6 +17,7 @@ from quant_platform_kit.common.strategy_plugins import (
     STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
     TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES,
     StrategyPluginDefinition,
+    attach_strategy_plugin_metadata,
     build_strategy_plugin_alert_messages,
     build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
@@ -44,6 +47,7 @@ def _signal_payload(*, strategy="tqqq_growth_income", plugin="crisis_response_sh
             "live_allocation_mutation_allowed": False,
             "repository_broker_write_allowed": False,
             "repository_allocation_mutation_allowed": False,
+            "strategy_runtime_metadata_allowed": False,
         },
     }
 
@@ -289,6 +293,53 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertEqual(report_payload["strategy_plugins"][0]["plugin"], "crisis_response_shadow")
         self.assertNotIn("payload", report_payload["strategy_plugins"][0])
 
+    def test_attach_strategy_plugin_metadata_adds_payloads_to_snapshot(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_TACO_REBOUND_SHADOW),
+                "canonical_route": "taco_rebound",
+                "rebound_context_active": True,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": True,
+                },
+            }
+        )
+        snapshot = PortfolioSnapshot(
+            as_of=datetime(2026, 4, 17, tzinfo=timezone.utc),
+            total_equity=100000.0,
+            metadata={"account_hash": "demo"},
+        )
+
+        enriched = attach_strategy_plugin_metadata(snapshot, (signal,))
+
+        self.assertIsNot(enriched, snapshot)
+        self.assertEqual(enriched.metadata["account_hash"], "demo")
+        self.assertEqual(enriched.metadata[PLUGIN_TACO_REBOUND_SHADOW]["canonical_route"], "taco_rebound")
+        self.assertEqual(
+            enriched.metadata["strategy_plugins"][PLUGIN_TACO_REBOUND_SHADOW]["canonical_route"],
+            "taco_rebound",
+        )
+
+    def test_attach_strategy_plugin_metadata_ignores_shadow_artifact_without_runtime_guard(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_TACO_REBOUND_SHADOW),
+                "canonical_route": "taco_rebound",
+                "rebound_context_active": True,
+            }
+        )
+        snapshot = PortfolioSnapshot(
+            as_of=datetime(2026, 4, 17, tzinfo=timezone.utc),
+            total_equity=100000.0,
+            metadata={"account_hash": "demo"},
+        )
+
+        enriched = attach_strategy_plugin_metadata(snapshot, (signal,))
+
+        self.assertIs(enriched, snapshot)
+        self.assertEqual(enriched.metadata, {"account_hash": "demo"})
+
     def test_strategy_plugin_notification_lines_use_translator_when_available(self):
         signal = validate_strategy_plugin_signal_payload(_signal_payload())
         translations = {
@@ -365,6 +416,33 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertNotIn("source=", alerts[0].body)
         self.assertTrue(alerts[0].metadata["would_trade_if_enabled"])
         self.assertEqual(alerts[0].metadata["guidance"], "reduce leverage or move to cash")
+
+    def test_strategy_plugin_alert_message_includes_ai_audit_note_when_present(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(),
+                "canonical_route": "true_crisis",
+                "suggested_action": "defend",
+                "would_trade_if_enabled": True,
+                "ai_audit": {
+                    "enabled": True,
+                    "status": "ok",
+                    "verdict": "agree",
+                    "route_assessment": "confirm_true_crisis",
+                    "summary": "Evidence is coherent; keep deterministic route unchanged.",
+                    "final_route_unchanged": True,
+                },
+            },
+            source_uri="gs://bucket/latest_signal.json",
+        )
+
+        alerts = build_strategy_plugin_alert_messages([signal], strategy_label="TQQQ Growth Income")
+
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("AI audit: ok", alerts[0].body)
+        self.assertIn("verdict=agree", alerts[0].body)
+        self.assertIn("Evidence is coherent", alerts[0].body)
+        self.assertEqual(alerts[0].metadata["ai_audit"]["final_route_unchanged"], True)
 
     def test_taco_rebound_notification_alerts_without_trade_flag(self):
         signal = validate_strategy_plugin_signal_payload(

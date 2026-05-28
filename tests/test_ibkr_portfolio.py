@@ -22,6 +22,19 @@ class FakeIB:
                 avgCost=100.0,
             ),
             SimpleNamespace(
+                account="U18308207",
+                contract=SimpleNamespace(
+                    symbol="TQQQ",
+                    secType="OPT",
+                    lastTradeDateOrContractMonth="20280121",
+                    right="C",
+                    strike=70.0,
+                    localSymbol="TQQQ  280121C00070000",
+                ),
+                position=2,
+                avgCost=3200.0,
+            ),
+            SimpleNamespace(
                 account="U15998061",
                 contract=SimpleNamespace(symbol="AAPL"),
                 position=5,
@@ -50,6 +63,9 @@ class IbkrPortfolioTests(unittest.TestCase):
         self.assertEqual(tuple(position.symbol for position in snapshot.positions), ("TQQQ",))
         self.assertEqual(snapshot.positions[0].account_id, "U18308207")
         self.assertEqual(snapshot.metadata["account_ids"], ("U18308207",))
+        self.assertEqual(snapshot.metadata["option_positions"][0]["underlier"], "TQQQ")
+        self.assertEqual(snapshot.metadata["option_positions"][0]["right"], "C")
+        self.assertEqual(snapshot.metadata["option_positions"][0]["strike"], 70.0)
 
     def test_fetch_portfolio_snapshot_sums_selected_accounts(self) -> None:
         snapshot = fetch_portfolio_snapshot(
@@ -61,6 +77,7 @@ class IbkrPortfolioTests(unittest.TestCase):
         self.assertEqual(snapshot.total_equity, 3000.0)
         self.assertEqual(snapshot.buying_power, 750.0)
         self.assertEqual(tuple(position.symbol for position in snapshot.positions), ("TQQQ", "AAPL"))
+        self.assertEqual(len(snapshot.metadata["option_positions"]), 1)
 
 
 if __name__ == "__main__":
