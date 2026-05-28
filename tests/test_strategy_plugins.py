@@ -26,6 +26,7 @@ from quant_platform_kit.common.strategy_plugins import (
     build_strategy_plugin_alert_messages,
     build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
+    extract_strategy_plugin_localized_message,
     load_configured_strategy_plugin_signals,
     load_strategy_plugin_signal,
     parse_strategy_plugin_mounts,
@@ -105,7 +106,7 @@ class StrategyPluginsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "must not set mode"):
                 parse_strategy_plugin_mounts(raw)
 
-    def test_default_plugin_definition_limits_crisis_response_to_supported_strategies(self):
+    def test_default_plugin_definition_limits_crisis_response_to_tqqq(self):
         definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[PLUGIN_CRISIS_RESPONSE_SHADOW]
 
         self.assertEqual(definition.supported_strategies, CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES)
@@ -123,11 +124,15 @@ class StrategyPluginsTests(unittest.TestCase):
             plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
             mode=PLUGIN_MODE_SHADOW,
         )
-        validate_strategy_plugin_compatibility(
-            strategy="soxl_soxx_trend_income",
-            plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
-            mode=PLUGIN_MODE_SHADOW,
-        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "crisis_response_shadow does not support strategy soxl_soxx_trend_income",
+        ):
+            validate_strategy_plugin_compatibility(
+                strategy="soxl_soxx_trend_income",
+                plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
+                mode=PLUGIN_MODE_SHADOW,
+            )
 
     def test_default_plugin_definition_limits_taco_rebound_to_tqqq_notifications(self):
         definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[PLUGIN_TACO_REBOUND_SHADOW]
@@ -185,7 +190,7 @@ class StrategyPluginsTests(unittest.TestCase):
                 mode=PLUGIN_MODE_SHADOW,
             )
 
-    def test_default_plugin_definition_supports_market_regime_control_for_tqqq_and_soxl(self):
+    def test_default_plugin_definition_supports_market_regime_control_for_approved_strategies(self):
         definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[PLUGIN_MARKET_REGIME_CONTROL]
 
         self.assertEqual(definition.supported_strategies, MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES)
@@ -201,9 +206,24 @@ class StrategyPluginsTests(unittest.TestCase):
                 STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
             ),
         )
-        for strategy in ("tqqq_growth_income", "soxl_soxx_trend_income"):
+        for strategy in (
+            "tqqq_growth_income",
+            "global_etf_rotation",
+            "russell_1000_multi_factor_defensive",
+            "tech_communication_pullback_enhancement",
+            "mega_cap_leader_rotation_top50_balanced",
+        ):
             validate_strategy_plugin_compatibility(
                 strategy=strategy,
+                plugin=PLUGIN_MARKET_REGIME_CONTROL,
+                mode=PLUGIN_MODE_SHADOW,
+            )
+        with self.assertRaisesRegex(
+            ValueError,
+            "market_regime_control does not support strategy soxl_soxx_trend_income",
+        ):
+            validate_strategy_plugin_compatibility(
+                strategy="soxl_soxx_trend_income",
                 plugin=PLUGIN_MARKET_REGIME_CONTROL,
                 mode=PLUGIN_MODE_SHADOW,
             )
@@ -267,18 +287,33 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertEqual(mounts[0].plugin, PLUGIN_MARKET_REGIME_CONTROL)
         self.assertEqual(mounts[0].expected_schema_version, "market_regime_control.v1")
 
-    def test_parse_strategy_plugin_mounts_accepts_market_regime_control_soxl(self):
+    def test_parse_strategy_plugin_mounts_rejects_market_regime_control_soxl(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "market_regime_control does not support strategy soxl_soxx_trend_income",
+        ):
+            parse_strategy_plugin_mounts(
+                [
+                    {
+                        "strategy": "soxl_soxx_trend_income",
+                        "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                        "signal_path": "gs://bucket/market_regime/latest_signal.json",
+                    }
+                ]
+            )
+
+    def test_parse_strategy_plugin_mounts_accepts_market_regime_control_weight_profile(self):
         mounts = parse_strategy_plugin_mounts(
             [
                 {
-                    "strategy": "soxl_soxx_trend_income",
+                    "strategy": "global_etf_rotation",
                     "plugin": PLUGIN_MARKET_REGIME_CONTROL,
                     "signal_path": "gs://bucket/market_regime/latest_signal.json",
                 }
             ]
         )
 
-        self.assertEqual(mounts[0].strategy, "soxl_soxx_trend_income")
+        self.assertEqual(mounts[0].strategy, "global_etf_rotation")
         self.assertEqual(mounts[0].plugin, PLUGIN_MARKET_REGIME_CONTROL)
 
     def test_plugin_definition_marks_legacy_plugins_deprecated(self):
@@ -375,8 +410,8 @@ class StrategyPluginsTests(unittest.TestCase):
                         "signal_path": str(signal_path),
                     },
                     {
-                        "strategy": "soxl_soxx_trend_income",
-                        "plugin": "crisis_response_shadow",
+                        "strategy": "global_etf_rotation",
+                        "plugin": PLUGIN_MARKET_REGIME_CONTROL,
                         "signal_path": str(root / "missing.json"),
                     },
                     {
@@ -507,6 +542,32 @@ class StrategyPluginsTests(unittest.TestCase):
         )
 
         self.assertEqual(lines, ("plugin=Crisis|mode=shadow|route=no action|action=watch only",))
+
+    def test_strategy_plugin_notification_lines_can_use_artifact_localized_message(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "canonical_route": "risk_reduced",
+                "suggested_action": "delever",
+                "localized_messages": {
+                    "schema_version": "strategy_plugin_messages.v1",
+                    "default_locale": "en-US",
+                    "notification": {
+                        "en-US": "Notification required: risk reduced.",
+                        "zh-CN": "需要通知：市场状态风险降低。",
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(
+            extract_strategy_plugin_localized_message(signal, section="notification", locale="zh-CN"),
+            "需要通知：市场状态风险降低。",
+        )
+        self.assertEqual(
+            build_strategy_plugin_notification_lines([signal], locale="zh-CN"),
+            ("需要通知：市场状态风险降低。",),
+        )
 
     def test_strategy_plugin_no_action_signal_does_not_escalate_alert(self):
         signal = validate_strategy_plugin_signal_payload(_signal_payload())

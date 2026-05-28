@@ -50,6 +50,12 @@ Strategy plugins are sidecar artifacts that platform repositories may read when 
 
 Generated plugin artifacts and platform-specific notification routing stay with the producing pipeline or consuming platform repository. Tests in this repository use synthetic price history and synthetic payloads only.
 
+Plugin artifacts may carry display-only `strategy_plugin_messages.v1` and
+`strategy_plugin_log.v1` localized notification/log text. Platform renderers can
+use those strings, while strategy and platform logic should continue to depend
+on machine fields such as `canonical_route`, `suggested_action`,
+`reason_codes`, and `position_control`.
+
 Plugin alert delivery is provider-neutral at the platform boundary. Platform repositories pass runtime settings into `publish_strategy_plugin_alerts`; this repository handles configured `email`, `sms`, `push`, and `telegram` channels without coupling plugin logic to a broker platform.
 
 ## Package Layout

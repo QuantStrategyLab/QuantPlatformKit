@@ -50,6 +50,9 @@ QuantPlatformKit
 
 生成的插件 artifact 和平台专属通知路由由生成它的 pipeline 或消费它的平台仓库管理。这个仓库的测试只使用合成价格历史和合成 payload。
 
+插件 artifact 可以携带展示层 `strategy_plugin_messages.v1` 和
+`strategy_plugin_log.v1` 中英文通知 / 日志文案。平台 renderer 可以使用这些文案，但策略和平台逻辑应继续依赖 `canonical_route`、`suggested_action`、`reason_codes`、`position_control` 等机器字段。
+
 插件告警发送在平台边界保持 provider-neutral。平台仓库只把 runtime settings 传入 `publish_strategy_plugin_alerts`；这个仓库负责按配置发送 `email`、`sms`、`push` 和 `telegram`，不让插件逻辑耦合某个券商平台。
 
 ## 目录结构
