@@ -52,6 +52,7 @@ from .strategy_plugins import (
     STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
     STRATEGY_PLUGIN_ALERT_ACTIONS,
     STRATEGY_PLUGIN_NON_ALERT_ROUTES,
+    STRATEGY_PLUGIN_SCHEMA_VERSIONS,
     SUPPORTED_STRATEGY_PLUGIN_MODES,
     MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES,
     MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES,
@@ -74,6 +75,7 @@ from .strategy_plugins import (
     should_alert_strategy_plugin_signal,
     translate_strategy_plugin_value,
     validate_strategy_plugin_compatibility,
+    validate_strategy_plugin_schema_version,
     validate_strategy_plugin_signal_payload,
 )
 
@@ -104,6 +106,7 @@ __all__ = [
     "STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM",
     "STRATEGY_PLUGIN_ALERT_ACTIONS",
     "STRATEGY_PLUGIN_NON_ALERT_ROUTES",
+    "STRATEGY_PLUGIN_SCHEMA_VERSIONS",
     "SUPPORTED_STRATEGY_PLUGIN_MODES",
     "MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES",
     "MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES",
@@ -144,5 +147,6 @@ __all__ = [
     "translate_strategy_plugin_value",
     "translator_uses_zh",
     "validate_strategy_plugin_compatibility",
+    "validate_strategy_plugin_schema_version",
     "validate_strategy_plugin_signal_payload",
 ]
