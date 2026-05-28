@@ -8,13 +8,18 @@ from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.common.strategy_plugins import (
     CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
     DEFAULT_STRATEGY_PLUGIN_DEFINITIONS,
+    MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES,
     PLUGIN_CRISIS_RESPONSE_SHADOW,
+    PLUGIN_MARKET_REGIME_CONTROL,
+    PLUGIN_MACRO_RISK_GOVERNOR,
     PLUGIN_TACO_REBOUND_SHADOW,
     PLUGIN_MODE_SHADOW,
     STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
     STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
     STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
     STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+    STRATEGY_PLUGIN_SCHEMA_VERSIONS,
+    MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES,
     TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES,
     StrategyPluginDefinition,
     attach_strategy_plugin_metadata,
@@ -26,11 +31,18 @@ from quant_platform_kit.common.strategy_plugins import (
     parse_strategy_plugin_mounts,
     should_alert_strategy_plugin_signal,
     validate_strategy_plugin_compatibility,
+    validate_strategy_plugin_schema_version,
     validate_strategy_plugin_signal_payload,
 )
 
 
 def _signal_payload(*, strategy="tqqq_growth_income", plugin="crisis_response_shadow", mode=PLUGIN_MODE_SHADOW):
+    schema_versions = {
+        PLUGIN_CRISIS_RESPONSE_SHADOW: "crisis_response_shadow.v1",
+        PLUGIN_MARKET_REGIME_CONTROL: "market_regime_control.v1",
+        PLUGIN_MACRO_RISK_GOVERNOR: "macro_risk_governor.v1",
+        PLUGIN_TACO_REBOUND_SHADOW: "taco_rebound_shadow.v2",
+    }
     return {
         "as_of": "2026-04-17",
         "strategy": strategy,
@@ -38,7 +50,7 @@ def _signal_payload(*, strategy="tqqq_growth_income", plugin="crisis_response_sh
         "mode": mode,
         "configured_mode": mode,
         "effective_mode": mode,
-        "schema_version": "crisis_response_shadow.v1",
+        "schema_version": schema_versions.get(plugin, "crisis_response_shadow.v1"),
         "canonical_route": "no_action",
         "suggested_action": "watch_only",
         "would_trade_if_enabled": False,
@@ -145,6 +157,57 @@ class StrategyPluginsTests(unittest.TestCase):
                 mode=PLUGIN_MODE_SHADOW,
             )
 
+    def test_default_plugin_definition_limits_macro_risk_governor_to_tqqq(self):
+        definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[PLUGIN_MACRO_RISK_GOVERNOR]
+
+        self.assertEqual(definition.supported_strategies, MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES)
+        self.assertEqual(
+            definition.alert_channels,
+            (
+                STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+            ),
+        )
+        validate_strategy_plugin_compatibility(
+            strategy="tqqq_growth_income",
+            plugin=PLUGIN_MACRO_RISK_GOVERNOR,
+            mode=PLUGIN_MODE_SHADOW,
+        )
+        with self.assertRaisesRegex(
+            ValueError,
+            "macro_risk_governor does not support strategy soxl_soxx_trend_income",
+        ):
+            validate_strategy_plugin_compatibility(
+                strategy="soxl_soxx_trend_income",
+                plugin=PLUGIN_MACRO_RISK_GOVERNOR,
+                mode=PLUGIN_MODE_SHADOW,
+            )
+
+    def test_default_plugin_definition_supports_market_regime_control_for_tqqq_and_soxl(self):
+        definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[PLUGIN_MARKET_REGIME_CONTROL]
+
+        self.assertEqual(definition.supported_strategies, MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES)
+        self.assertEqual(definition.supported_schema_versions, STRATEGY_PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL])
+        self.assertEqual(definition.default_schema_version, "market_regime_control.v1")
+        self.assertFalse(definition.deprecated)
+        self.assertEqual(
+            definition.alert_channels,
+            (
+                STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+                STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+            ),
+        )
+        for strategy in ("tqqq_growth_income", "soxl_soxx_trend_income"):
+            validate_strategy_plugin_compatibility(
+                strategy=strategy,
+                plugin=PLUGIN_MARKET_REGIME_CONTROL,
+                mode=PLUGIN_MODE_SHADOW,
+            )
+
     def test_parse_strategy_plugin_mounts_rejects_unsupported_crisis_response_strategy(self):
         raw = [
             {
@@ -173,6 +236,73 @@ class StrategyPluginsTests(unittest.TestCase):
 
         self.assertEqual(mounts[0].strategy, "tqqq_growth_income")
         self.assertEqual(mounts[0].plugin, PLUGIN_TACO_REBOUND_SHADOW)
+
+    def test_parse_strategy_plugin_mounts_accepts_macro_risk_governor_tqqq(self):
+        mounts = parse_strategy_plugin_mounts(
+            [
+                {
+                    "strategy": "tqqq_growth_income",
+                    "plugin": PLUGIN_MACRO_RISK_GOVERNOR,
+                    "signal_path": "gs://bucket/macro/latest_signal.json",
+                }
+            ]
+        )
+
+        self.assertEqual(mounts[0].strategy, "tqqq_growth_income")
+        self.assertEqual(mounts[0].plugin, PLUGIN_MACRO_RISK_GOVERNOR)
+
+    def test_parse_strategy_plugin_mounts_accepts_market_regime_control_tqqq(self):
+        mounts = parse_strategy_plugin_mounts(
+            [
+                {
+                    "strategy": "tqqq_growth_income",
+                    "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                    "signal_path": "gs://bucket/market_regime/latest_signal.json",
+                    "expected_schema_version": "market_regime_control.v1",
+                }
+            ]
+        )
+
+        self.assertEqual(mounts[0].strategy, "tqqq_growth_income")
+        self.assertEqual(mounts[0].plugin, PLUGIN_MARKET_REGIME_CONTROL)
+        self.assertEqual(mounts[0].expected_schema_version, "market_regime_control.v1")
+
+    def test_parse_strategy_plugin_mounts_accepts_market_regime_control_soxl(self):
+        mounts = parse_strategy_plugin_mounts(
+            [
+                {
+                    "strategy": "soxl_soxx_trend_income",
+                    "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                    "signal_path": "gs://bucket/market_regime/latest_signal.json",
+                }
+            ]
+        )
+
+        self.assertEqual(mounts[0].strategy, "soxl_soxx_trend_income")
+        self.assertEqual(mounts[0].plugin, PLUGIN_MARKET_REGIME_CONTROL)
+
+    def test_plugin_definition_marks_legacy_plugins_deprecated(self):
+        for plugin in (
+            PLUGIN_CRISIS_RESPONSE_SHADOW,
+            PLUGIN_MACRO_RISK_GOVERNOR,
+            PLUGIN_TACO_REBOUND_SHADOW,
+        ):
+            definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[plugin]
+            self.assertTrue(definition.deprecated)
+            self.assertEqual(definition.successor_plugin, PLUGIN_MARKET_REGIME_CONTROL)
+
+    def test_parse_strategy_plugin_mounts_rejects_unknown_schema_version(self):
+        with self.assertRaisesRegex(ValueError, "does not support schema_version"):
+            parse_strategy_plugin_mounts(
+                [
+                    {
+                        "strategy": "tqqq_growth_income",
+                        "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                        "signal_path": "gs://bucket/market_regime/latest_signal.json",
+                        "expected_schema_version": "market_regime_control.v99",
+                    }
+                ]
+            )
 
     def test_plugin_definition_can_extend_future_strategy_support(self):
         raw = [
@@ -205,11 +335,15 @@ class StrategyPluginsTests(unittest.TestCase):
                 expected_strategy="tqqq_growth_income",
                 expected_plugin="crisis_response_shadow",
                 expected_mode=PLUGIN_MODE_SHADOW,
+                expected_schema_version="crisis_response_shadow.v1",
             )
 
         self.assertEqual(signal.strategy, "tqqq_growth_income")
         self.assertEqual(signal.plugin, "crisis_response_shadow")
         self.assertEqual(signal.effective_mode, PLUGIN_MODE_SHADOW)
+        self.assertEqual(signal.schema_version, "crisis_response_shadow.v1")
+        self.assertTrue(signal.deprecated_plugin)
+        self.assertEqual(signal.successor_plugin, PLUGIN_MARKET_REGIME_CONTROL)
         self.assertFalse(signal.execution_controls["repository_broker_write_allowed"])
         self.assertEqual(signal.local_path, str(signal_path))
 
@@ -271,6 +405,21 @@ class StrategyPluginsTests(unittest.TestCase):
                 _signal_payload(mode=PLUGIN_MODE_SHADOW),
                 expected_mode="live",
             )
+
+    def test_validate_strategy_plugin_signal_payload_rejects_unknown_schema_version(self):
+        with self.assertRaisesRegex(ValueError, "does not support schema_version"):
+            validate_strategy_plugin_signal_payload(
+                {
+                    **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                    "schema_version": "market_regime_control.v99",
+                }
+            )
+
+    def test_validate_strategy_plugin_schema_version_accepts_known_schema(self):
+        validate_strategy_plugin_schema_version(
+            plugin=PLUGIN_MARKET_REGIME_CONTROL,
+            schema_version="market_regime_control.v1",
+        )
 
     def test_validate_strategy_plugin_signal_payload_rejects_unsupported_crisis_response_strategy(self):
         with self.assertRaisesRegex(

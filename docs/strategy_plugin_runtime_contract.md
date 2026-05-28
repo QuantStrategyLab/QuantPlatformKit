@@ -64,17 +64,21 @@ The shared kit owns plugin compatibility through a registry-style
 a plugin supports; they should call the shared parser/loader and let it reject
 unsupported mounts or artifacts.
 
-The default registry currently defines:
+The default registry currently defines versioned plugin contracts:
 
-| Plugin | Supported strategies | Supported mode | Escalated alert channel |
-| --- | --- | --- | --- |
-| `crisis_response_shadow` | `tqqq_growth_income`, `soxl_soxx_trend_income` | `shadow` | `email`, `sms`, `push`, `telegram` |
-| `taco_rebound_shadow` | `tqqq_growth_income` | `shadow` | `email`, `sms`, `push`, `telegram` |
+| Plugin | Schema versions | Supported strategies | Status | Supported mode | Escalated alert channel |
+| --- | --- | --- | --- | --- | --- |
+| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `soxl_soxx_trend_income` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `crisis_response_shadow` | `crisis_response_shadow.v1` | `tqqq_growth_income`, `soxl_soxx_trend_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `macro_risk_governor` | `macro_risk_governor.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `taco_rebound_shadow` | `taco_rebound_shadow.v2` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 
-`taco_rebound_shadow` is notification-only. Its artifact may escalate a
-manual-review alert when a TACO-style rebound context is active, but it must not
-recommend position size, mutate live allocation, or imply broker order
-permission.
+Deprecated plugins remain loadable for historical backtests and staged rollout.
+New strategy integrations should mount `market_regime_control` and read the
+artifact's `notification` and `position_control` sections. The old TACO artifact
+is notification-only. It may escalate a manual-review alert when a TACO-style
+rebound context is active, but it must not recommend position size, mutate live
+allocation, or imply broker order permission.
 
 To expand a plugin later, update the shared definition or pass an explicit
 definition registry into the parser/loader. This keeps future plugin eligibility

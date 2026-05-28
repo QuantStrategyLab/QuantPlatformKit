@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
+PLUGIN_MARKET_REGIME_CONTROL = "market_regime_control"
+PLUGIN_MACRO_RISK_GOVERNOR = "macro_risk_governor"
 PLUGIN_TACO_REBOUND_SHADOW = "taco_rebound_shadow"
 PLUGIN_MODE_SHADOW = "shadow"
 STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL = "email"
@@ -29,6 +31,14 @@ CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES = frozenset(
     }
 )
 TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income"})
+MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income"})
+MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income", "soxl_soxx_trend_income"})
+STRATEGY_PLUGIN_SCHEMA_VERSIONS: Mapping[str, frozenset[str]] = {
+    PLUGIN_CRISIS_RESPONSE_SHADOW: frozenset({"crisis_response_shadow.v1"}),
+    PLUGIN_MARKET_REGIME_CONTROL: frozenset({"market_regime_control.v1"}),
+    PLUGIN_MACRO_RISK_GOVERNOR: frozenset({"macro_risk_governor.v1"}),
+    PLUGIN_TACO_REBOUND_SHADOW: frozenset({"taco_rebound_shadow.v2"}),
+}
 _DEFAULT_STRATEGY_PLUGIN_ALERT_GUIDANCE: Mapping[tuple[str, str, str], str] = {
     (
         PLUGIN_CRISIS_RESPONSE_SHADOW,
@@ -45,6 +55,54 @@ _DEFAULT_STRATEGY_PLUGIN_ALERT_GUIDANCE: Mapping[tuple[str, str, str], str] = {
     ): (
         "The crisis route was blocked by a guard; review data freshness and context before "
         "acting on the signal."
+    ),
+    (
+        PLUGIN_MACRO_RISK_GOVERNOR,
+        "delever",
+        "delever",
+    ): (
+        "Deterministic macro risk governor suggests reducing leveraged exposure while preserving "
+        "unlevered risk exposure when the strategy opts in."
+    ),
+    (
+        PLUGIN_MACRO_RISK_GOVERNOR,
+        "crisis",
+        "defend",
+    ): (
+        "Deterministic macro risk governor suggests moving the risk sleeve toward defensive or "
+        "cash-like exposure until macro stress de-escalates."
+    ),
+    (
+        PLUGIN_MARKET_REGIME_CONTROL,
+        "risk_off",
+        "defend",
+    ): (
+        "Unified market regime control blocks opportunity overlays and suggests moving risk exposure "
+        "toward defensive or cash-like positions until the deterministic arbiter de-escalates."
+    ),
+    (
+        PLUGIN_MARKET_REGIME_CONTROL,
+        "risk_reduced",
+        "delever",
+    ): (
+        "Unified market regime control suggests reducing leveraged exposure while preserving only the "
+        "risk budget allowed by the strategy policy adapter."
+    ),
+    (
+        PLUGIN_MARKET_REGIME_CONTROL,
+        "opportunity_watch",
+        "notify_manual_review",
+    ): (
+        "Manual review only: the unified arbiter allows the bounded TACO opportunity context, but it "
+        "does not authorize broker orders or live allocation mutation."
+    ),
+    (
+        PLUGIN_MARKET_REGIME_CONTROL,
+        "blocked",
+        "blocked",
+    ): (
+        "Unified market regime control was blocked by data-quality or freshness guards; review source "
+        "artifacts before relying on the signal."
     ),
     (
         PLUGIN_TACO_REBOUND_SHADOW,
@@ -65,6 +123,10 @@ class StrategyPluginDefinition:
     plugin: str
     supported_strategies: frozenset[str] | None = None
     supported_modes: frozenset[str] = field(default_factory=lambda: SUPPORTED_STRATEGY_PLUGIN_MODES)
+    supported_schema_versions: frozenset[str] = field(default_factory=frozenset)
+    default_schema_version: str | None = None
+    deprecated: bool = False
+    successor_plugin: str | None = None
     alert_channels: tuple[str, ...] = ()
 
     def normalized(self) -> "StrategyPluginDefinition":
@@ -80,6 +142,16 @@ class StrategyPluginDefinition:
         )
         if not supported_modes:
             raise ValueError(f"strategy plugin definition for {plugin} must include at least one supported mode")
+        supported_schema_versions = frozenset(
+            _required_string(version, field_name="supported_schema_version")
+            for version in self.supported_schema_versions
+        )
+        default_schema_version = _optional_string(self.default_schema_version)
+        if default_schema_version is not None and supported_schema_versions and default_schema_version not in supported_schema_versions:
+            raise ValueError(
+                f"strategy plugin definition for {plugin} default_schema_version must be listed in supported_schema_versions"
+            )
+        successor_plugin = _optional_string(self.successor_plugin)
         alert_channels = tuple(
             _required_string(channel, field_name="alert_channel")
             for channel in self.alert_channels
@@ -88,6 +160,10 @@ class StrategyPluginDefinition:
             plugin=plugin,
             supported_strategies=supported_strategies,
             supported_modes=supported_modes,
+            supported_schema_versions=supported_schema_versions,
+            default_schema_version=default_schema_version,
+            deprecated=bool(self.deprecated),
+            successor_plugin=successor_plugin,
             alert_channels=alert_channels,
         )
 
@@ -102,6 +178,10 @@ DEFAULT_STRATEGY_PLUGIN_DEFINITIONS: Mapping[str, StrategyPluginDefinition] = {
         plugin=PLUGIN_CRISIS_RESPONSE_SHADOW,
         supported_strategies=CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
         supported_modes=SUPPORTED_STRATEGY_PLUGIN_MODES,
+        supported_schema_versions=STRATEGY_PLUGIN_SCHEMA_VERSIONS[PLUGIN_CRISIS_RESPONSE_SHADOW],
+        default_schema_version="crisis_response_shadow.v1",
+        deprecated=True,
+        successor_plugin=PLUGIN_MARKET_REGIME_CONTROL,
         alert_channels=(
             STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
             STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
@@ -113,6 +193,38 @@ DEFAULT_STRATEGY_PLUGIN_DEFINITIONS: Mapping[str, StrategyPluginDefinition] = {
         plugin=PLUGIN_TACO_REBOUND_SHADOW,
         supported_strategies=TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES,
         supported_modes=SUPPORTED_STRATEGY_PLUGIN_MODES,
+        supported_schema_versions=STRATEGY_PLUGIN_SCHEMA_VERSIONS[PLUGIN_TACO_REBOUND_SHADOW],
+        default_schema_version="taco_rebound_shadow.v2",
+        deprecated=True,
+        successor_plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        alert_channels=(
+            STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+        ),
+    ),
+    PLUGIN_MARKET_REGIME_CONTROL: StrategyPluginDefinition(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        supported_strategies=MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES,
+        supported_modes=SUPPORTED_STRATEGY_PLUGIN_MODES,
+        supported_schema_versions=STRATEGY_PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL],
+        default_schema_version="market_regime_control.v1",
+        alert_channels=(
+            STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+        ),
+    ),
+    PLUGIN_MACRO_RISK_GOVERNOR: StrategyPluginDefinition(
+        plugin=PLUGIN_MACRO_RISK_GOVERNOR,
+        supported_strategies=MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES,
+        supported_modes=SUPPORTED_STRATEGY_PLUGIN_MODES,
+        supported_schema_versions=STRATEGY_PLUGIN_SCHEMA_VERSIONS[PLUGIN_MACRO_RISK_GOVERNOR],
+        default_schema_version="macro_risk_governor.v1",
+        deprecated=True,
+        successor_plugin=PLUGIN_MARKET_REGIME_CONTROL,
         alert_channels=(
             STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
             STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
@@ -130,6 +242,7 @@ class StrategyPluginMountConfig:
     signal_path: str
     enabled: bool = True
     expected_mode: str | None = None
+    expected_schema_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -148,6 +261,9 @@ class StrategyPluginSignal:
     payload: Mapping[str, Any]
     source_uri: str | None = None
     local_path: str | None = None
+    deprecated_plugin: bool = False
+    successor_plugin: str | None = None
+    supported_schema_versions: tuple[str, ...] = ()
 
     def report_summary(self) -> dict[str, Any]:
         return {
@@ -157,6 +273,9 @@ class StrategyPluginSignal:
             "configured_mode": self.configured_mode,
             "effective_mode": self.effective_mode,
             "schema_version": self.schema_version,
+            "deprecated_plugin": self.deprecated_plugin,
+            "successor_plugin": self.successor_plugin,
+            "supported_schema_versions": self.supported_schema_versions,
             "as_of": self.as_of,
             "canonical_route": self.canonical_route,
             "suggested_action": self.suggested_action,
@@ -235,6 +354,34 @@ def validate_strategy_plugin_compatibility(
         )
 
 
+def validate_strategy_plugin_schema_version(
+    *,
+    plugin: str,
+    schema_version: str | None,
+    expected_schema_version: str | None = None,
+    plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
+    source: str = "artifact",
+) -> None:
+    plugin_name = _required_string(plugin, field_name="plugin")
+    normalized_schema_version = _optional_string(schema_version)
+    normalized_expected_schema_version = _optional_string(expected_schema_version)
+    if normalized_expected_schema_version is not None and normalized_schema_version != normalized_expected_schema_version:
+        raise ValueError(
+            "strategy plugin artifact schema_version mismatch: "
+            f"expected {normalized_expected_schema_version}, got {normalized_schema_version or '<missing>'}"
+        )
+    definitions = normalize_strategy_plugin_definitions(plugin_definitions)
+    definition = definitions.get(plugin_name)
+    if definition is None or not definition.supported_schema_versions or normalized_schema_version is None:
+        return
+    if normalized_schema_version not in definition.supported_schema_versions:
+        allowed = ", ".join(sorted(definition.supported_schema_versions))
+        raise ValueError(
+            f"strategy plugin {plugin_name} does not support schema_version {normalized_schema_version} "
+            f"in {source}; supported schema versions: {allowed}"
+        )
+
+
 def parse_strategy_plugin_mounts(
     raw_config: str | Sequence[Mapping[str, Any]] | Mapping[str, Any] | None,
     *,
@@ -277,6 +424,14 @@ def parse_strategy_plugin_mounts(
             if expected_mode is not None
             else None
         )
+        expected_schema_version = _optional_string(item.get("expected_schema_version"))
+        validate_strategy_plugin_schema_version(
+            plugin=plugin,
+            schema_version=expected_schema_version,
+            expected_schema_version=expected_schema_version,
+            plugin_definitions=definitions,
+            source="mount",
+        )
         validate_strategy_plugin_compatibility(
             strategy=strategy,
             plugin=plugin,
@@ -291,6 +446,7 @@ def parse_strategy_plugin_mounts(
                 signal_path=signal_path,
                 enabled=_as_bool(item.get("enabled"), default=True),
                 expected_mode=normalized_expected_mode,
+                expected_schema_version=expected_schema_version,
             )
         )
     return tuple(mounts)
@@ -324,6 +480,7 @@ def load_configured_strategy_plugin_signals(
                 expected_strategy=mount.strategy,
                 expected_plugin=mount.plugin,
                 expected_mode=mount.expected_mode,
+                expected_schema_version=mount.expected_schema_version,
                 client_factory=client_factory,
                 plugin_definitions=definitions,
             )
@@ -337,6 +494,7 @@ def load_strategy_plugin_signal(
     expected_strategy: str | None = None,
     expected_plugin: str | None = None,
     expected_mode: str | None = None,
+    expected_schema_version: str | None = None,
     client_factory: Any = None,
     plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
 ) -> StrategyPluginSignal:
@@ -351,6 +509,7 @@ def load_strategy_plugin_signal(
         expected_strategy=expected_strategy,
         expected_plugin=expected_plugin,
         expected_mode=expected_mode,
+        expected_schema_version=expected_schema_version,
         source_uri=metadata.get("source_uri"),
         local_path=str(local_path),
         plugin_definitions=plugin_definitions,
@@ -363,6 +522,7 @@ def validate_strategy_plugin_signal_payload(
     expected_strategy: str | None = None,
     expected_plugin: str | None = None,
     expected_mode: str | None = None,
+    expected_schema_version: str | None = None,
     source_uri: str | None = None,
     local_path: str | None = None,
     plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
@@ -399,6 +559,16 @@ def validate_strategy_plugin_signal_payload(
         plugin_definitions=plugin_definitions,
         source="artifact",
     )
+    schema_version = _optional_string(payload.get("schema_version")) or ""
+    definitions = normalize_strategy_plugin_definitions(plugin_definitions)
+    definition = definitions.get(plugin)
+    validate_strategy_plugin_schema_version(
+        plugin=plugin,
+        schema_version=schema_version,
+        expected_schema_version=expected_schema_version,
+        plugin_definitions=definitions,
+        source="artifact",
+    )
 
     execution_controls = payload.get("execution_controls") or {}
     if not isinstance(execution_controls, Mapping):
@@ -410,7 +580,7 @@ def validate_strategy_plugin_signal_payload(
         mode=mode,
         configured_mode=configured_mode,
         effective_mode=effective_mode,
-        schema_version=_optional_string(payload.get("schema_version")) or "",
+        schema_version=schema_version,
         as_of=_optional_string(payload.get("as_of")) or "",
         canonical_route=_optional_string(payload.get("canonical_route")),
         suggested_action=_optional_string(payload.get("suggested_action")),
@@ -419,6 +589,9 @@ def validate_strategy_plugin_signal_payload(
         payload=dict(payload),
         source_uri=_optional_string(source_uri),
         local_path=_optional_string(local_path),
+        deprecated_plugin=bool(definition.deprecated) if definition is not None else False,
+        successor_plugin=definition.successor_plugin if definition is not None else None,
+        supported_schema_versions=tuple(sorted(definition.supported_schema_versions)) if definition is not None else (),
     )
 
 
