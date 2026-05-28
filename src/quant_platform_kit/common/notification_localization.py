@@ -6,6 +6,31 @@ NotificationTranslator = Callable[..., str]
 NotificationReplacement = tuple[str, str]
 
 
+PRICE_SOURCE_LABELS: dict[str, tuple[str, str]] = {
+    "longbridge_candlesticks": ("LongBridge 日线K线", "LongBridge daily candlesticks"),
+    "schwab_daily_history_with_live_quote_overlay": (
+        "Schwab 日线历史 + 实时报价覆盖",
+        "Schwab daily history + live quote overlay",
+    ),
+    "firstrade_ohlc_with_live_quote_overlay": (
+        "Firstrade OHLC + 实时报价覆盖",
+        "Firstrade OHLC + live quote overlay",
+    ),
+    "market_quote": ("实时行情报价", "market quote"),
+    "mixed_market_quote_snapshot_close": (
+        "实时行情报价 + 快照收盘价回补",
+        "market quote + snapshot close fallback",
+    ),
+    "mixed_market_quote_historical_close": (
+        "实时行情报价 + 历史收盘价回补",
+        "market quote + historical close fallback",
+    ),
+    "snapshot_close": ("快照收盘价", "snapshot close"),
+    "historical_close": ("历史收盘价", "historical close"),
+    "market_data": ("市场数据", "market data"),
+}
+
+
 COMMON_ZH_NOTIFICATION_REPLACEMENTS: tuple[NotificationReplacement, ...] = (
     ("feature snapshot guard blocked execution", "特征快照校验阻止执行"),
     ("feature snapshot required", "需要特征快照"),
@@ -81,6 +106,41 @@ COMMON_ZH_NOTIFICATION_REPLACEMENTS: tuple[NotificationReplacement, ...] = (
 def translator_uses_zh(translator: NotificationTranslator) -> bool:
     sample = str(translator("no_trades"))
     return any("\u4e00" <= ch <= "\u9fff" for ch in sample)
+
+
+def locale_uses_zh(locale: str | None) -> bool:
+    return str(locale or "").strip().lower().startswith("zh")
+
+
+def localize_price_source_label(
+    value: object,
+    *,
+    translator: NotificationTranslator | None = None,
+    locale: str | None = None,
+) -> str:
+    source = str(value or "").strip()
+    use_zh = translator_uses_zh(translator) if translator is not None else locale_uses_zh(locale)
+    unknown = "未知" if use_zh else "unknown"
+    if not source:
+        return unknown
+    label = PRICE_SOURCE_LABELS.get(source)
+    if label is not None:
+        return label[0] if use_zh else label[1]
+    return source.replace("_", " ")
+
+
+def localize_quote_overlay_state(
+    value: object,
+    *,
+    translator: NotificationTranslator | None = None,
+    locale: str | None = None,
+) -> str:
+    use_zh = translator_uses_zh(translator) if translator is not None else locale_uses_zh(locale)
+    if value is True:
+        return "是" if use_zh else "yes"
+    if value is False:
+        return "否" if use_zh else "no"
+    return "未知" if use_zh else "unknown"
 
 
 def localize_notification_text(
