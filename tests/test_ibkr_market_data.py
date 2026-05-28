@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from types import SimpleNamespace
 import unittest
 
 from quant_platform_kit.ibkr.market_data import (
     fetch_historical_price_candles,
     fetch_historical_price_series,
+    fetch_option_chain_snapshot,
     fetch_quote_snapshots,
 )
 
@@ -14,6 +16,16 @@ from quant_platform_kit.ibkr.market_data import (
 @dataclass
 class FakeContract:
     symbol: str
+    exchange: str
+    currency: str
+
+
+@dataclass
+class FakeOptionContract:
+    symbol: str
+    lastTradeDateOrContractMonth: str
+    strike: float
+    right: str
     exchange: str
     currency: str
 
@@ -286,6 +298,51 @@ class IbkrMarketDataTests(unittest.TestCase):
 
         self.assertEqual(snapshots["SPY"].last_price, 101.8)
         self.assertEqual(ib.market_data_type_calls, [3, 4, 1, 1])
+
+    def test_fetch_option_chain_snapshot_returns_bounded_contract_rows(self) -> None:
+        class OptionChainIB(FakeIB):
+            def qualifyContracts(self, contract):
+                self.qualified.append(contract)
+                if not hasattr(contract, "right"):
+                    contract.conId = 12345
+                return [contract]
+
+            def reqSecDefOptParams(self, symbol, fut_fop_exchange, sec_type, con_id):
+                self.option_params_request = (symbol, fut_fop_exchange, sec_type, con_id)
+                return [
+                    SimpleNamespace(
+                        exchange="SMART",
+                        expirations={"20280121"},
+                        strikes={50.0, 70.0, 90.0, 150.0},
+                    )
+                ]
+
+            def reqMktData(self, contract, *_args):
+                if hasattr(contract, "right"):
+                    ticker = FakeTicker(-1.0, close=float("nan"), bid=29.0, ask=31.0)
+                    ticker.modelGreeks = SimpleNamespace(delta=0.74)
+                    return ticker
+                return FakeTicker(102.5, close=101.8, bid=102.4, ask=102.6)
+
+        ib = OptionChainIB()
+        snapshot = fetch_option_chain_snapshot(
+            ib,
+            "TQQQ",
+            rights=("C",),
+            min_dte=540,
+            max_dte=930,
+            target_dte=730,
+            wait_seconds=0,
+            stock_factory=FakeContract,
+            option_factory=FakeOptionContract,
+        )
+
+        self.assertEqual(snapshot["underlier"], "TQQQ")
+        self.assertEqual(snapshot["spot"], 102.5)
+        self.assertEqual(snapshot["contracts"][0]["right"], "C")
+        self.assertEqual(snapshot["contracts"][0]["delta"], 0.74)
+        self.assertEqual(snapshot["contracts"][0]["mid"], 30.0)
+        self.assertEqual(ib.option_params_request, ("TQQQ", "", "STK", 12345))
 
 
 if __name__ == "__main__":

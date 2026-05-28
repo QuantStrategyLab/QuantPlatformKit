@@ -7,6 +7,7 @@ import json
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -427,6 +428,52 @@ def build_strategy_plugin_report_payload(signals: Sequence[StrategyPluginSignal]
     }
 
 
+def build_strategy_plugin_metadata(signals: Sequence[StrategyPluginSignal]) -> dict[str, Any]:
+    """Build portfolio-snapshot metadata consumed by deterministic strategies."""
+    plugin_payloads: dict[str, Any] = {}
+    summaries: dict[str, Any] = {}
+    for signal in signals:
+        execution_controls = getattr(signal, "execution_controls", {}) or {}
+        if not isinstance(execution_controls, Mapping) or not _as_bool(
+            execution_controls.get("strategy_runtime_metadata_allowed"),
+            default=False,
+        ):
+            continue
+        plugin = str(getattr(signal, "plugin", "") or "").strip()
+        if not plugin:
+            continue
+        payload = dict(getattr(signal, "payload", {}) or {})
+        plugin_payloads[plugin] = payload
+        summaries[plugin] = signal.report_summary()
+    if not plugin_payloads:
+        return {}
+    metadata: dict[str, Any] = {
+        "strategy_plugins": plugin_payloads,
+        "strategy_plugin_summaries": summaries,
+    }
+    metadata.update(plugin_payloads)
+    return metadata
+
+
+def attach_strategy_plugin_metadata(snapshot: Any, signals: Sequence[StrategyPluginSignal]) -> Any:
+    """Return a snapshot copy with plugin payloads attached to metadata."""
+    plugin_metadata = build_strategy_plugin_metadata(signals)
+    if not plugin_metadata:
+        return snapshot
+    current_metadata = getattr(snapshot, "metadata", {}) or {}
+    if not isinstance(current_metadata, Mapping):
+        current_metadata = {}
+    merged_metadata = {**dict(current_metadata), **plugin_metadata}
+    try:
+        return dataclass_replace(snapshot, metadata=merged_metadata)
+    except TypeError:
+        try:
+            snapshot.metadata = merged_metadata
+        except Exception:
+            return snapshot
+        return snapshot
+
+
 def translate_strategy_plugin_value(
     category: str,
     raw_value: str | None,
@@ -532,6 +579,41 @@ def build_strategy_plugin_alert_scope_note(
     )
 
 
+def build_strategy_plugin_ai_audit_note(
+    signal: StrategyPluginSignal,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str | None:
+    payload = getattr(signal, "payload", {}) or {}
+    if not isinstance(payload, Mapping):
+        return None
+    ai_audit = payload.get("ai_audit")
+    if not isinstance(ai_audit, Mapping) or not _as_bool(ai_audit.get("enabled"), default=False):
+        return None
+    status = _normalize_strategy_plugin_field(_optional_string(ai_audit.get("status")))
+    if status == "ok":
+        verdict = _optional_string(ai_audit.get("verdict")) or "unknown"
+        assessment = _optional_string(ai_audit.get("route_assessment")) or "unknown"
+        summary = _optional_string(ai_audit.get("summary")) or "no summary"
+        return _translate(
+            translator,
+            "strategy_plugin_alert_ai_audit",
+            fallback="AI audit: {status} | verdict={verdict} | assessment={assessment} | {summary}",
+            status=status,
+            verdict=verdict,
+            assessment=assessment,
+            summary=summary,
+        )
+    reason = _optional_string(ai_audit.get("skip_reason")) or _optional_string(ai_audit.get("error")) or "no detail"
+    return _translate(
+        translator,
+        "strategy_plugin_alert_ai_audit_status",
+        fallback="AI audit: {status} | {reason}",
+        status=status,
+        reason=reason,
+    )
+
+
 def build_strategy_plugin_alert_key(
     signal: StrategyPluginSignal,
     *,
@@ -593,6 +675,7 @@ def build_strategy_plugin_alert_messages(
         strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip() or "unknown"
         guidance = build_strategy_plugin_alert_guidance(signal, translator=translator)
         scope_note = build_strategy_plugin_alert_scope_note(signal, translator=translator)
+        ai_audit_note = build_strategy_plugin_ai_audit_note(signal, translator=translator)
         subject = _translate(
             translator,
             "strategy_plugin_alert_subject",
@@ -665,6 +748,8 @@ def build_strategy_plugin_alert_messages(
                     guidance=guidance,
                 )
             )
+        if ai_audit_note:
+            body_lines.append(ai_audit_note)
         if scope_note:
             body_lines.append(
                 _translate(
@@ -686,6 +771,9 @@ def build_strategy_plugin_alert_messages(
             "context_label": context or None,
             "guidance": guidance,
             "scope_note": scope_note,
+            "ai_audit": getattr(signal, "payload", {}).get("ai_audit")
+            if isinstance(getattr(signal, "payload", {}), Mapping)
+            else None,
         }
         messages.append(
             StrategyPluginAlertMessage(

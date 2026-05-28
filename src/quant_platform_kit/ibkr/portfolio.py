@@ -41,17 +41,34 @@ def fetch_portfolio_snapshot(
         time_module.sleep(wait_seconds)
 
     positions = []
+    option_positions = []
     for raw_position in ib.positions():
         account_id = str(getattr(raw_position, "account", "") or "").strip() or None
         if not _matches_account(account_id, selected_account_ids):
             continue
         if raw_position.position == 0:
             continue
+        contract = raw_position.contract
         quantity = float(raw_position.position)
         average_cost = float(raw_position.avgCost)
+        if str(getattr(contract, "secType", "") or "").strip().upper() == "OPT":
+            option_positions.append(
+                {
+                    "underlier": str(getattr(contract, "symbol", "") or "").strip().upper(),
+                    "local_symbol": str(getattr(contract, "localSymbol", "") or "").strip(),
+                    "expiration": str(getattr(contract, "lastTradeDateOrContractMonth", "") or "").strip(),
+                    "right": str(getattr(contract, "right", "") or "").strip().upper(),
+                    "strike": float(getattr(contract, "strike", 0.0) or 0.0),
+                    "quantity": quantity,
+                    "average_cost": average_cost,
+                    "cost_basis": abs(quantity * average_cost),
+                    "account_id": account_id,
+                }
+            )
+            continue
         positions.append(
             Position(
-                symbol=raw_position.contract.symbol,
+                symbol=contract.symbol,
                 quantity=quantity,
                 market_value=quantity * average_cost,
                 average_cost=average_cost,
@@ -78,5 +95,8 @@ def fetch_portfolio_snapshot(
         total_equity=total_equity,
         buying_power=buying_power,
         positions=tuple(positions),
-        metadata={"account_ids": selected_account_ids},
+        metadata={
+            "account_ids": selected_account_ids,
+            "option_positions": tuple(option_positions),
+        },
     )

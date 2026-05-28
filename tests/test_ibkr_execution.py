@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 import unittest
 
 from quant_platform_kit.common.models import OrderIntent
@@ -10,6 +11,16 @@ from quant_platform_kit.ibkr.execution import submit_order_intent
 @dataclass
 class FakeContract:
     symbol: str
+    exchange: str
+    currency: str
+
+
+@dataclass
+class FakeOptionContract:
+    symbol: str
+    lastTradeDateOrContractMonth: str
+    strike: float
+    right: str
     exchange: str
     currency: str
 
@@ -27,6 +38,14 @@ class FakeLimitOrder:
         self.quantity = quantity
         self.limit_price = limit_price
         self.tif = None
+
+
+class FakeComboLeg:
+    def __init__(self, conId, ratio, action, exchange):
+        self.conId = conId
+        self.ratio = ratio
+        self.action = action
+        self.exchange = exchange
 
 
 class FakeTrade:
@@ -112,6 +131,100 @@ class IbkrExecutionTests(unittest.TestCase):
                 stock_factory=FakeContract,
                 market_order_factory=FakeMarketOrder,
             )
+
+    def test_submit_order_intent_builds_single_leg_option_contract(self) -> None:
+        ib = FakeIB()
+
+        report = submit_order_intent(
+            ib,
+            OrderIntent(
+                symbol="TQQQ",
+                side="buy_to_open",
+                quantity=2,
+                order_type="limit",
+                limit_price=32.5,
+                time_in_force="DAY",
+                metadata={
+                    "asset_class": "option",
+                    "intent_type": "single_leg_option",
+                    "underlier": "TQQQ",
+                    "right": "C",
+                    "expiration": "2028-01-21",
+                    "strike": 70.0,
+                },
+            ),
+            wait_seconds=0,
+            option_factory=FakeOptionContract,
+            limit_order_factory=FakeLimitOrder,
+        )
+
+        contract, order = ib.orders[0]
+        self.assertEqual(contract.symbol, "TQQQ")
+        self.assertEqual(contract.lastTradeDateOrContractMonth, "20280121")
+        self.assertEqual(contract.right, "C")
+        self.assertEqual(contract.strike, 70.0)
+        self.assertEqual(order.side, "BUY")
+        self.assertEqual(report.raw_payload["asset_class"], "option")
+
+    def test_submit_order_intent_builds_option_combo_contract(self) -> None:
+        class ComboIB(FakeIB):
+            def __init__(self):
+                super().__init__()
+                self.next_con_id = 100
+
+            def qualifyContracts(self, contract):
+                if hasattr(contract, "right"):
+                    contract.conId = self.next_con_id
+                    self.next_con_id += 1
+                self.qualified_contract = contract
+                return [contract]
+
+        ib = ComboIB()
+        report = submit_order_intent(
+            ib,
+            OrderIntent(
+                symbol="SOXX",
+                side="sell",
+                quantity=1,
+                order_type="limit",
+                limit_price=1.25,
+                time_in_force="DAY",
+                metadata={
+                    "asset_class": "option",
+                    "intent_type": "multi_leg_option",
+                    "underlier": "SOXX",
+                    "expiration": "2026-07-17",
+                    "legs": (
+                        {
+                            "action": "sell_to_open",
+                            "right": "P",
+                            "expiration": "2026-07-17",
+                            "strike": 200.0,
+                            "ratio": 1,
+                        },
+                        {
+                            "action": "buy_to_open",
+                            "right": "P",
+                            "expiration": "2026-07-17",
+                            "strike": 180.0,
+                            "ratio": 1,
+                        },
+                    ),
+                },
+            ),
+            wait_seconds=0,
+            option_factory=FakeOptionContract,
+            combo_contract_factory=SimpleNamespace,
+            combo_leg_factory=FakeComboLeg,
+            limit_order_factory=FakeLimitOrder,
+        )
+
+        contract, order = ib.orders[0]
+        self.assertEqual(contract.secType, "BAG")
+        self.assertEqual(contract.symbol, "SOXX")
+        self.assertEqual([leg.action for leg in contract.comboLegs], ["SELL", "BUY"])
+        self.assertEqual(order.side, "SELL")
+        self.assertEqual(report.raw_payload["intent_type"], "multi_leg_option")
 
 
 if __name__ == "__main__":

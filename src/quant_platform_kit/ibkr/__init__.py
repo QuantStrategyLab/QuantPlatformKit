@@ -3,6 +3,7 @@ from .execution import submit_order_intent
 from .market_data import (
     fetch_historical_price_candles,
     fetch_historical_price_series,
+    fetch_option_chain_snapshot,
     fetch_quote_snapshots,
 )
 from .portfolio import fetch_portfolio_snapshot
@@ -23,6 +24,7 @@ __all__ = [
     "connect_ib",
     "ensure_event_loop",
     "fetch_historical_price_candles",
+    "fetch_option_chain_snapshot",
     "submit_order_intent",
     "fetch_historical_price_series",
     "fetch_quote_snapshots",
