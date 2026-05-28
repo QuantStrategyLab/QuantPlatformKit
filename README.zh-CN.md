@@ -52,6 +52,8 @@ QuantPlatformKit
 
 插件 artifact 可以携带展示层 `strategy_plugin_messages.v1` 和
 `strategy_plugin_log.v1` 中英文通知 / 日志文案。平台 renderer 可以使用这些文案，但策略和平台逻辑应继续依赖 `canonical_route`、`suggested_action`、`reason_codes`、`position_control` 等机器字段。
+通用通知 artifact 通过 `notification_targets` 加载，不再通过 synthetic strategy
+挂载；它们可以触发告警，但永远不会把仓位控制附加到策略 runtime。
 
 插件告警发送在平台边界保持 provider-neutral。平台仓库只把 runtime settings 传入 `publish_strategy_plugin_alerts`；这个仓库负责按配置发送 `email`、`sms`、`push` 和 `telegram`，不让插件逻辑耦合某个券商平台。
 

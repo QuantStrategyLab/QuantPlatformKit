@@ -55,6 +55,9 @@ Plugin artifacts may carry display-only `strategy_plugin_messages.v1` and
 use those strings, while strategy and platform logic should continue to depend
 on machine fields such as `canonical_route`, `suggested_action`,
 `reason_codes`, and `position_control`.
+General notification artifacts are loaded through `notification_targets`, not
+through synthetic strategy mounts; they can trigger alerts but never attach
+position controls to a strategy runtime.
 
 Plugin alert delivery is provider-neutral at the platform boundary. Platform repositories pass runtime settings into `publish_strategy_plugin_alerts`; this repository handles configured `email`, `sms`, `push`, and `telegram` channels without coupling plugin logic to a broker platform.
 

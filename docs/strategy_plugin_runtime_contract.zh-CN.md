@@ -79,8 +79,9 @@ artifact 内，并固定为通知/观察用途的 `shadow`。
 registry 给 parser / loader。这样平台运行时代码不用承载未来插件资格变更。
 
 SOXL/SOXX 故意不列入 `market_regime_control` 的运行时挂载清单。SOXL
-相关宏观和危机信号应通过通用通知 artifact 分发，并由人工复核；除非未来
-回测证明策略级 opt-in 有优势，否则不默认自动消费仓位控制。
+相关宏观和危机信号应通过通用
+`notification_targets.market_regime_notification` artifact 分发，并由人工复核；
+除非未来回测证明策略级 opt-in 有优势，否则不默认自动消费仓位控制。
 
 ## Runtime Loader
 
@@ -103,6 +104,24 @@ signals = load_configured_strategy_plugin_signals(
 report_section = build_strategy_plugin_report_payload(signals)
 notification_lines = build_strategy_plugin_notification_lines(signals, locale="zh-CN")
 alert_messages = build_strategy_plugin_alert_messages(signals)
+```
+
+通用通知 artifact 使用 `notification_targets`，不是 synthetic strategy。它们
+可以复用同一套通知和告警 builder，但不会附加到策略 runtime metadata，也不能
+授权仓位变化：
+
+```python
+from quant_platform_kit.common.strategy_plugins import (
+    load_configured_strategy_plugin_notification_target_signals,
+    parse_strategy_plugin_notification_targets,
+)
+
+targets = parse_strategy_plugin_notification_targets(raw_json_config)
+notification_signals = load_configured_strategy_plugin_notification_target_signals(targets)
+notification_lines = build_strategy_plugin_notification_lines(
+    notification_signals,
+    locale="zh-CN",
+)
 ```
 
 loader 会校验：
