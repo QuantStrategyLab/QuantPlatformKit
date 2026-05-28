@@ -73,6 +73,10 @@ tests/
 ```
 
 See [docs/quantconnect.md](./docs/quantconnect.md) for the public QuantConnect connector contract and placeholder-only examples.
+See [docs/strategy_plugin_runtime_contract.md](./docs/strategy_plugin_runtime_contract.md)
+for the strategy-plugin runtime contract and
+[docs/strategy_plugin_runtime_contract.zh-CN.md](./docs/strategy_plugin_runtime_contract.zh-CN.md)
+for the Chinese version.
 
 ## Development
 
