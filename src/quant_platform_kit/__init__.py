@@ -4,7 +4,7 @@ Keep the package import lightweight while preserving compatibility exports
 used by older strategy repositories.
 """
 
-__version__ = "0.7.34"
+__version__ = "0.7.35"
 
 from .common.models import (
     ExecutionReport,

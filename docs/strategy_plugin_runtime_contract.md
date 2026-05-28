@@ -68,8 +68,8 @@ The default registry currently defines versioned plugin contracts:
 
 | Plugin | Schema versions | Supported strategies | Status | Supported mode | Escalated alert channel |
 | --- | --- | --- | --- | --- | --- |
-| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `soxl_soxx_trend_income` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
-| `crisis_response_shadow` | `crisis_response_shadow.v1` | `tqqq_growth_income`, `soxl_soxx_trend_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `global_etf_rotation`, `russell_1000_multi_factor_defensive`, `tech_communication_pullback_enhancement`, `mega_cap_leader_rotation_top50_balanced` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `crisis_response_shadow` | `crisis_response_shadow.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `macro_risk_governor` | `macro_risk_governor.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `taco_rebound_shadow` | `taco_rebound_shadow.v2` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 
@@ -83,6 +83,11 @@ allocation, or imply broker order permission.
 To expand a plugin later, update the shared definition or pass an explicit
 definition registry into the parser/loader. This keeps future plugin eligibility
 changes out of platform runtime code.
+
+SOXL/SOXX is intentionally not listed as a `market_regime_control` runtime
+mount. Broad macro and crisis signals for SOXL should be delivered through a
+general notification artifact and reviewed manually unless a future backtest
+promotes an explicit strategy-level opt-in.
 
 ## Runtime Loader
 
@@ -103,7 +108,7 @@ signals = load_configured_strategy_plugin_signals(
     strategy_profile=current_strategy_profile,
 )
 report_section = build_strategy_plugin_report_payload(signals)
-notification_lines = build_strategy_plugin_notification_lines(signals)
+notification_lines = build_strategy_plugin_notification_lines(signals, locale="zh-CN")
 alert_messages = build_strategy_plugin_alert_messages(signals)
 ```
 
@@ -120,6 +125,17 @@ The loader validates:
 
 For `shadow`, platform runtimes should only add logs, runtime report fields, and
 notification context.
+
+Artifacts may include display-only i18n fields:
+
+- `localized_messages.schema_version = strategy_plugin_messages.v1`
+- `localized_messages.notification.en-US` / `localized_messages.notification.zh-CN`
+- `localized_messages.log.en-US` / `localized_messages.log.zh-CN`
+- `log_record.schema_version = strategy_plugin_log.v1`
+
+Platform renderers may use these fields for notification and log text. Trading
+logic must continue to read machine fields such as `schema_version`,
+`canonical_route`, `suggested_action`, `reason_codes`, and `position_control`.
 
 `paper`, `advisory`, and `live` plugin modes are not supported by the shared
 contract. Platforms should not maintain plugin ledgers or execute plugin-driven

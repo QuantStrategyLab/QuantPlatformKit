@@ -27,12 +27,19 @@ STRATEGY_PLUGIN_ALERT_ACTIONS = frozenset({"defend", "blocked"})
 CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES = frozenset(
     {
         "tqqq_growth_income",
-        "soxl_soxx_trend_income",
     }
 )
 TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income"})
 MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income"})
-MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income", "soxl_soxx_trend_income"})
+MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES = frozenset(
+    {
+        "tqqq_growth_income",
+        "global_etf_rotation",
+        "russell_1000_multi_factor_defensive",
+        "tech_communication_pullback_enhancement",
+        "mega_cap_leader_rotation_top50_balanced",
+    }
+)
 STRATEGY_PLUGIN_SCHEMA_VERSIONS: Mapping[str, frozenset[str]] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: frozenset({"crisis_response_shadow.v1"}),
     PLUGIN_MARKET_REGIME_CONTROL: frozenset({"market_regime_control.v1"}),
@@ -661,13 +668,65 @@ def translate_strategy_plugin_value(
     return translated if translated != key else value
 
 
+def extract_strategy_plugin_localized_message(
+    signal: StrategyPluginSignal,
+    *,
+    section: str,
+    locale: str,
+) -> str | None:
+    payload = getattr(signal, "payload", {}) or {}
+    if not isinstance(payload, Mapping):
+        return None
+    normalized_section = str(section or "").strip()
+    normalized_locale = str(locale or "").strip()
+    if not normalized_section or not normalized_locale:
+        return None
+
+    localized_messages = payload.get("localized_messages")
+    if isinstance(localized_messages, Mapping):
+        section_messages = localized_messages.get(normalized_section)
+        if isinstance(section_messages, Mapping):
+            localized = _optional_string(section_messages.get(normalized_locale))
+            if localized:
+                return localized
+            default_locale = _optional_string(localized_messages.get("default_locale"))
+            if default_locale:
+                localized = _optional_string(section_messages.get(default_locale))
+                if localized:
+                    return localized
+
+    if normalized_section == "notification":
+        notification = payload.get("notification")
+        if isinstance(notification, Mapping):
+            notification_messages = notification.get("localized_messages")
+            if isinstance(notification_messages, Mapping):
+                localized = _optional_string(notification_messages.get(normalized_locale))
+                if localized:
+                    return localized
+                default_locale = _optional_string(notification.get("default_locale"))
+                if default_locale:
+                    localized = _optional_string(notification_messages.get(default_locale))
+                    if localized:
+                        return localized
+    return None
+
+
 def build_strategy_plugin_notification_lines(
     signals: Sequence[StrategyPluginSignal],
     *,
     translator: Callable[..., str] | None = None,
+    locale: str | None = None,
 ) -> tuple[str, ...]:
     lines: list[str] = []
     for signal in signals:
+        localized_line = (
+            extract_strategy_plugin_localized_message(signal, section="notification", locale=locale)
+            if locale is not None
+            else None
+        )
+        if localized_line:
+            lines.append(localized_line)
+            continue
         route = getattr(signal, "canonical_route", None) or "unknown_route"
         action = getattr(signal, "suggested_action", None) or "unknown_action"
         lines.append(
