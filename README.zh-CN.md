@@ -70,6 +70,9 @@ tests/
 ```
 
 公开的 QuantConnect 连接器契约和仅含占位符的示例见 [docs/quantconnect.md](./docs/quantconnect.md)。
+策略插件运行时契约见
+[docs/strategy_plugin_runtime_contract.zh-CN.md](./docs/strategy_plugin_runtime_contract.zh-CN.md)，
+英文版见 [docs/strategy_plugin_runtime_contract.md](./docs/strategy_plugin_runtime_contract.md)。
 
 ## 开发
 

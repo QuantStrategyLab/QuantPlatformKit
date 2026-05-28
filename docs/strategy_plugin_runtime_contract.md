@@ -1,5 +1,7 @@
 # Strategy Plugin Runtime Contract
 
+[简体中文](./strategy_plugin_runtime_contract.zh-CN.md)
+
 This document describes how platform runtimes consume sidecar strategy plugin
 artifacts, such as a Crisis Response plugin produced by an upstream snapshot or
 research pipeline.
