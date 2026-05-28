@@ -15,6 +15,7 @@ PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
 PLUGIN_MARKET_REGIME_CONTROL = "market_regime_control"
 PLUGIN_MACRO_RISK_GOVERNOR = "macro_risk_governor"
 PLUGIN_TACO_REBOUND_SHADOW = "taco_rebound_shadow"
+GENERAL_MARKET_REGIME_NOTIFICATION_TARGET = "market_regime_notification"
 PLUGIN_MODE_SHADOW = "shadow"
 STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL = "email"
 STRATEGY_PLUGIN_ALERT_CHANNEL_SMS = "sms"
@@ -40,6 +41,9 @@ MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES = frozenset(
         "mega_cap_leader_rotation_top50_balanced",
     }
 )
+STRATEGY_PLUGIN_NOTIFICATION_TARGETS: Mapping[str, frozenset[str]] = {
+    PLUGIN_MARKET_REGIME_CONTROL: frozenset({GENERAL_MARKET_REGIME_NOTIFICATION_TARGET}),
+}
 STRATEGY_PLUGIN_SCHEMA_VERSIONS: Mapping[str, frozenset[str]] = {
     PLUGIN_CRISIS_RESPONSE_SHADOW: frozenset({"crisis_response_shadow.v1"}),
     PLUGIN_MARKET_REGIME_CONTROL: frozenset({"market_regime_control.v1"}),
@@ -253,6 +257,16 @@ class StrategyPluginMountConfig:
 
 
 @dataclass(frozen=True)
+class StrategyPluginNotificationTargetConfig:
+    notification_target: str
+    plugin: str
+    signal_path: str
+    enabled: bool = True
+    expected_mode: str | None = None
+    expected_schema_version: str | None = None
+
+
+@dataclass(frozen=True)
 class StrategyPluginSignal:
     strategy: str
     plugin: str
@@ -271,10 +285,14 @@ class StrategyPluginSignal:
     deprecated_plugin: bool = False
     successor_plugin: str | None = None
     supported_schema_versions: tuple[str, ...] = ()
+    target_type: str = "strategy"
+    notification_target: str = ""
 
     def report_summary(self) -> dict[str, Any]:
         return {
             "strategy": self.strategy,
+            "target_type": self.target_type,
+            "notification_target": self.notification_target,
             "plugin": self.plugin,
             "mode": self.mode,
             "configured_mode": self.configured_mode,
@@ -358,6 +376,23 @@ def validate_strategy_plugin_compatibility(
         raise ValueError(
             f"strategy plugin {plugin_name} does not support mode {mode_name} "
             f"in {source}; supported modes: {allowed_modes}"
+        )
+
+
+def validate_strategy_plugin_notification_target(
+    *,
+    notification_target: str,
+    plugin: str,
+    source: str = "plugin",
+) -> None:
+    target_name = _required_string(notification_target, field_name="notification_target")
+    plugin_name = _required_string(plugin, field_name="plugin")
+    allowed_targets = STRATEGY_PLUGIN_NOTIFICATION_TARGETS.get(plugin_name, frozenset())
+    if target_name not in allowed_targets:
+        allowed = ", ".join(sorted(allowed_targets)) or "(none)"
+        raise ValueError(
+            f"strategy plugin {plugin_name} does not support notification target {target_name} "
+            f"in {source}; supported notification targets: {allowed}"
         )
 
 
@@ -459,6 +494,76 @@ def parse_strategy_plugin_mounts(
     return tuple(mounts)
 
 
+def parse_strategy_plugin_notification_targets(
+    raw_config: str | Sequence[Mapping[str, Any]] | Mapping[str, Any] | None,
+    *,
+    plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
+) -> tuple[StrategyPluginNotificationTargetConfig, ...]:
+    if raw_config is None or raw_config == "":
+        return ()
+    definitions = normalize_strategy_plugin_definitions(plugin_definitions)
+    payload: Any
+    if isinstance(raw_config, str):
+        payload = json.loads(raw_config)
+    else:
+        payload = raw_config
+
+    if isinstance(payload, Mapping):
+        payload = payload.get("notification_targets", ())
+    if not isinstance(payload, Sequence) or isinstance(payload, (str, bytes)):
+        raise ValueError("strategy plugin notification target config must be a JSON list or object with notification_targets")
+
+    targets: list[StrategyPluginNotificationTargetConfig] = []
+    seen: set[tuple[str, str]] = set()
+    for item in payload:
+        if not isinstance(item, Mapping):
+            raise ValueError("each strategy plugin notification target must be an object")
+        if "mode" in item:
+            raise ValueError("notification target config must not set mode; read mode from the plugin artifact")
+        notification_target = _required_string(item.get("notification_target"), field_name="notification_target")
+        plugin = _required_string(item.get("plugin"), field_name="plugin")
+        signal_path = _required_string(
+            item.get("signal_path") or item.get("latest_signal_path") or item.get("path"),
+            field_name="signal_path",
+        )
+        key = (notification_target, plugin)
+        if key in seen:
+            raise ValueError(
+                f"duplicate strategy plugin notification target: notification_target={notification_target} plugin={plugin}"
+            )
+        seen.add(key)
+        expected_mode = item.get("expected_mode")
+        normalized_expected_mode = (
+            normalize_strategy_plugin_mode(expected_mode, field_name="expected_mode")
+            if expected_mode is not None
+            else None
+        )
+        expected_schema_version = _optional_string(item.get("expected_schema_version"))
+        validate_strategy_plugin_schema_version(
+            plugin=plugin,
+            schema_version=expected_schema_version,
+            expected_schema_version=expected_schema_version,
+            plugin_definitions=definitions,
+            source="notification_target",
+        )
+        validate_strategy_plugin_notification_target(
+            notification_target=notification_target,
+            plugin=plugin,
+            source="notification_target",
+        )
+        targets.append(
+            StrategyPluginNotificationTargetConfig(
+                notification_target=notification_target,
+                plugin=plugin,
+                signal_path=signal_path,
+                enabled=_as_bool(item.get("enabled"), default=True),
+                expected_mode=normalized_expected_mode,
+                expected_schema_version=expected_schema_version,
+            )
+        )
+    return tuple(targets)
+
+
 def load_configured_strategy_plugin_signals(
     mounts: Sequence[StrategyPluginMountConfig],
     *,
@@ -495,10 +600,45 @@ def load_configured_strategy_plugin_signals(
     return tuple(signals)
 
 
+def load_configured_strategy_plugin_notification_target_signals(
+    targets: Sequence[StrategyPluginNotificationTargetConfig],
+    *,
+    notification_target: str | None = None,
+    client_factory: Any = None,
+    plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
+) -> tuple[StrategyPluginSignal, ...]:
+    selected_target = _optional_string(notification_target)
+    definitions = normalize_strategy_plugin_definitions(plugin_definitions)
+    signals: list[StrategyPluginSignal] = []
+    for target in targets:
+        if not target.enabled:
+            continue
+        if selected_target is not None and target.notification_target != selected_target:
+            continue
+        validate_strategy_plugin_notification_target(
+            notification_target=target.notification_target,
+            plugin=target.plugin,
+            source="notification_target",
+        )
+        signals.append(
+            load_strategy_plugin_signal(
+                target.signal_path,
+                expected_notification_target=target.notification_target,
+                expected_plugin=target.plugin,
+                expected_mode=target.expected_mode,
+                expected_schema_version=target.expected_schema_version,
+                client_factory=client_factory,
+                plugin_definitions=definitions,
+            )
+        )
+    return tuple(signals)
+
+
 def load_strategy_plugin_signal(
     reference: str,
     *,
     expected_strategy: str | None = None,
+    expected_notification_target: str | None = None,
     expected_plugin: str | None = None,
     expected_mode: str | None = None,
     expected_schema_version: str | None = None,
@@ -514,6 +654,7 @@ def load_strategy_plugin_signal(
     return validate_strategy_plugin_signal_payload(
         payload,
         expected_strategy=expected_strategy,
+        expected_notification_target=expected_notification_target,
         expected_plugin=expected_plugin,
         expected_mode=expected_mode,
         expected_schema_version=expected_schema_version,
@@ -527,6 +668,7 @@ def validate_strategy_plugin_signal_payload(
     payload: Mapping[str, Any],
     *,
     expected_strategy: str | None = None,
+    expected_notification_target: str | None = None,
     expected_plugin: str | None = None,
     expected_mode: str | None = None,
     expected_schema_version: str | None = None,
@@ -534,7 +676,17 @@ def validate_strategy_plugin_signal_payload(
     local_path: str | None = None,
     plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
 ) -> StrategyPluginSignal:
-    strategy = _required_string(payload.get("strategy"), field_name="strategy")
+    target_type = _optional_string(payload.get("target_type")) or (
+        "notification_target" if _optional_string(payload.get("notification_target")) else "strategy"
+    )
+    if target_type not in {"strategy", "notification_target"}:
+        raise ValueError(f"strategy plugin signal target_type must be strategy or notification_target; got {target_type!r}")
+    if target_type == "notification_target":
+        notification_target = _required_string(payload.get("notification_target"), field_name="notification_target")
+        strategy = _optional_string(payload.get("strategy")) or ""
+    else:
+        strategy = _required_string(payload.get("strategy"), field_name="strategy")
+        notification_target = _optional_string(payload.get("notification_target")) or ""
     plugin = _required_string(payload.get("plugin"), field_name="plugin")
     mode = normalize_strategy_plugin_mode(payload.get("mode"), field_name="mode")
     configured_mode = normalize_strategy_plugin_mode(
@@ -547,9 +699,25 @@ def validate_strategy_plugin_signal_payload(
     )
 
     expected_strategy = _optional_string(expected_strategy)
+    expected_notification_target = _optional_string(expected_notification_target)
     expected_plugin = _optional_string(expected_plugin)
+    if expected_strategy is not None and target_type != "strategy":
+        raise ValueError(
+            "strategy plugin artifact target mismatch: "
+            f"expected strategy {expected_strategy}, got notification target {notification_target}"
+        )
     if expected_strategy is not None and strategy != expected_strategy:
         raise ValueError(f"strategy plugin artifact strategy mismatch: expected {expected_strategy}, got {strategy}")
+    if expected_notification_target is not None and target_type != "notification_target":
+        raise ValueError(
+            "strategy plugin artifact target mismatch: "
+            f"expected notification target {expected_notification_target}, got strategy {strategy}"
+        )
+    if expected_notification_target is not None and notification_target != expected_notification_target:
+        raise ValueError(
+            "strategy plugin artifact notification_target mismatch: "
+            f"expected {expected_notification_target}, got {notification_target}"
+        )
     if expected_plugin is not None and plugin != expected_plugin:
         raise ValueError(f"strategy plugin artifact plugin mismatch: expected {expected_plugin}, got {plugin}")
     if expected_mode is not None:
@@ -559,13 +727,20 @@ def validate_strategy_plugin_signal_payload(
                 "strategy plugin artifact mode mismatch: "
                 f"expected {normalized_expected_mode}, got {effective_mode}"
             )
-    validate_strategy_plugin_compatibility(
-        strategy=strategy,
-        plugin=plugin,
-        mode=effective_mode,
-        plugin_definitions=plugin_definitions,
-        source="artifact",
-    )
+    if target_type == "strategy":
+        validate_strategy_plugin_compatibility(
+            strategy=strategy,
+            plugin=plugin,
+            mode=effective_mode,
+            plugin_definitions=plugin_definitions,
+            source="artifact",
+        )
+    else:
+        validate_strategy_plugin_notification_target(
+            notification_target=notification_target,
+            plugin=plugin,
+            source="artifact",
+        )
     schema_version = _optional_string(payload.get("schema_version")) or ""
     definitions = normalize_strategy_plugin_definitions(plugin_definitions)
     definition = definitions.get(plugin)
@@ -599,6 +774,8 @@ def validate_strategy_plugin_signal_payload(
         deprecated_plugin=bool(definition.deprecated) if definition is not None else False,
         successor_plugin=definition.successor_plugin if definition is not None else None,
         supported_schema_versions=tuple(sorted(definition.supported_schema_versions)) if definition is not None else (),
+        target_type=target_type,
+        notification_target=notification_target,
     )
 
 
@@ -853,10 +1030,17 @@ def build_strategy_plugin_alert_key(
     context_label: str | None = None,
     namespace: str = "strategy_plugin_alert",
 ) -> str:
+    target_label = (
+        _optional_key_part(getattr(signal, "strategy", None))
+        or _optional_key_part(getattr(signal, "notification_target", None))
+        or _optional_key_part(strategy_label)
+        or "unknown"
+    )
     payload = {
         "namespace": _optional_key_part(namespace) or "strategy_plugin_alert",
         "context": _optional_key_part(context_label) or "default",
-        "strategy": _optional_key_part(getattr(signal, "strategy", None)) or _optional_key_part(strategy_label) or "unknown",
+        "target_type": _optional_key_part(getattr(signal, "target_type", None)) or "strategy",
+        "target": target_label,
         "plugin": _optional_key_part(getattr(signal, "plugin", None)) or "unknown",
         "mode": _optional_key_part(getattr(signal, "effective_mode", None)) or "unknown",
         "as_of": _optional_key_part(getattr(signal, "as_of", None)) or "unknown",
@@ -871,7 +1055,7 @@ def build_strategy_plugin_alert_key(
         (
             _sanitize_key_part(payload["namespace"]),
             _sanitize_key_part(payload["context"]),
-            _sanitize_key_part(payload["strategy"]),
+            _sanitize_key_part(payload["target"]),
             _sanitize_key_part(payload["plugin"]),
             _sanitize_key_part(payload["as_of"]),
             _sanitize_key_part(payload["route"]),
@@ -904,7 +1088,11 @@ def build_strategy_plugin_alert_messages(
         )
         translated_route = translate_strategy_plugin_value("route", route, translator=translator)
         translated_action = translate_strategy_plugin_value("action", action, translator=translator)
-        strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip() or "unknown"
+        target_type = str(getattr(signal, "target_type", None) or "strategy").strip()
+        strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip()
+        notification_target = str(getattr(signal, "notification_target", None) or "").strip()
+        target_label = strategy or notification_target or "unknown"
+        target_name = "Notification target" if target_type == "notification_target" else "Strategy"
         guidance = build_strategy_plugin_alert_guidance(signal, translator=translator)
         scope_note = build_strategy_plugin_alert_scope_note(signal, translator=translator)
         ai_audit_note = build_strategy_plugin_ai_audit_note(signal, translator=translator)
@@ -912,7 +1100,7 @@ def build_strategy_plugin_alert_messages(
             translator,
             "strategy_plugin_alert_subject",
             fallback="Strategy plugin alert: {plugin} | {route}",
-            strategy=strategy,
+            strategy=target_label,
             plugin=plugin,
             route=translated_route,
         )
@@ -935,9 +1123,10 @@ def build_strategy_plugin_alert_messages(
             [
                 _translate(
                     translator,
-                    "strategy_plugin_alert_strategy",
-                    fallback="Strategy: {strategy}",
-                    strategy=strategy,
+                    "strategy_plugin_alert_target",
+                    fallback="{target_name}: {target}",
+                    target_name=target_name,
+                    target=target_label,
                 ),
                 _translate(
                     translator,
@@ -992,8 +1181,11 @@ def build_strategy_plugin_alert_messages(
                 )
             )
         metadata = {
+            "target_type": target_type,
+            "target": target_label,
             "strategy": getattr(signal, "strategy", None),
-            "strategy_label": strategy,
+            "strategy_label": strategy or None,
+            "notification_target": notification_target or None,
             "plugin": getattr(signal, "plugin", None),
             "mode": getattr(signal, "effective_mode", None),
             "as_of": getattr(signal, "as_of", None),
@@ -1013,7 +1205,7 @@ def build_strategy_plugin_alert_messages(
                 body="\n".join(body_lines),
                 alert_key=build_strategy_plugin_alert_key(
                     signal,
-                    strategy_label=strategy,
+                    strategy_label=target_label,
                     context_label=context,
                     namespace=alert_namespace,
                 ),

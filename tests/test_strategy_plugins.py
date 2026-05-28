@@ -8,6 +8,7 @@ from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.common.strategy_plugins import (
     CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
     DEFAULT_STRATEGY_PLUGIN_DEFINITIONS,
+    GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
     MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES,
     PLUGIN_CRISIS_RESPONSE_SHADOW,
     PLUGIN_MARKET_REGIME_CONTROL,
@@ -18,6 +19,7 @@ from quant_platform_kit.common.strategy_plugins import (
     STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
     STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
     STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+    STRATEGY_PLUGIN_NOTIFICATION_TARGETS,
     STRATEGY_PLUGIN_SCHEMA_VERSIONS,
     MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES,
     TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES,
@@ -27,11 +29,14 @@ from quant_platform_kit.common.strategy_plugins import (
     build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
     extract_strategy_plugin_localized_message,
+    load_configured_strategy_plugin_notification_target_signals,
     load_configured_strategy_plugin_signals,
     load_strategy_plugin_signal,
+    parse_strategy_plugin_notification_targets,
     parse_strategy_plugin_mounts,
     should_alert_strategy_plugin_signal,
     validate_strategy_plugin_compatibility,
+    validate_strategy_plugin_notification_target,
     validate_strategy_plugin_schema_version,
     validate_strategy_plugin_signal_payload,
 )
@@ -194,6 +199,10 @@ class StrategyPluginsTests(unittest.TestCase):
         definition = DEFAULT_STRATEGY_PLUGIN_DEFINITIONS[PLUGIN_MARKET_REGIME_CONTROL]
 
         self.assertEqual(definition.supported_strategies, MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES)
+        self.assertEqual(
+            STRATEGY_PLUGIN_NOTIFICATION_TARGETS[PLUGIN_MARKET_REGIME_CONTROL],
+            frozenset({GENERAL_MARKET_REGIME_NOTIFICATION_TARGET}),
+        )
         self.assertEqual(definition.supported_schema_versions, STRATEGY_PLUGIN_SCHEMA_VERSIONS[PLUGIN_MARKET_REGIME_CONTROL])
         self.assertEqual(definition.default_schema_version, "market_regime_control.v1")
         self.assertFalse(definition.deprecated)
@@ -226,6 +235,40 @@ class StrategyPluginsTests(unittest.TestCase):
                 strategy="soxl_soxx_trend_income",
                 plugin=PLUGIN_MARKET_REGIME_CONTROL,
                 mode=PLUGIN_MODE_SHADOW,
+            )
+        validate_strategy_plugin_notification_target(
+            notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+            plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        )
+
+    def test_parse_strategy_plugin_notification_targets_accepts_general_market_regime(self):
+        targets = parse_strategy_plugin_notification_targets(
+            {
+                "notification_targets": [
+                    {
+                        "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+                        "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                        "signal_path": "gs://bucket/market_regime_notification/latest_signal.json",
+                        "expected_schema_version": "market_regime_control.v1",
+                    }
+                ]
+            }
+        )
+
+        self.assertEqual(targets[0].notification_target, GENERAL_MARKET_REGIME_NOTIFICATION_TARGET)
+        self.assertEqual(targets[0].plugin, PLUGIN_MARKET_REGIME_CONTROL)
+        self.assertEqual(targets[0].expected_schema_version, "market_regime_control.v1")
+
+    def test_parse_strategy_plugin_notification_targets_rejects_strategy_only_target(self):
+        with self.assertRaisesRegex(ValueError, "does not support notification target"):
+            parse_strategy_plugin_notification_targets(
+                [
+                    {
+                        "notification_target": "soxl_soxx_trend_income",
+                        "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                        "signal_path": "gs://bucket/market_regime/latest_signal.json",
+                    }
+                ]
             )
 
     def test_parse_strategy_plugin_mounts_rejects_unsupported_crisis_response_strategy(self):
@@ -568,6 +611,50 @@ class StrategyPluginsTests(unittest.TestCase):
             build_strategy_plugin_notification_lines([signal], locale="zh-CN"),
             ("需要通知：市场状态风险降低。",),
         )
+
+    def test_notification_target_signal_loads_without_strategy(self):
+        payload = {
+            **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+            "target_type": "notification_target",
+            "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+        }
+        payload.pop("strategy", None)
+
+        signal = validate_strategy_plugin_signal_payload(
+            payload,
+            expected_notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+            expected_plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        )
+
+        self.assertEqual(signal.strategy, "")
+        self.assertEqual(signal.target_type, "notification_target")
+        self.assertEqual(signal.notification_target, GENERAL_MARKET_REGIME_NOTIFICATION_TARGET)
+        self.assertEqual(signal.report_summary()["notification_target"], GENERAL_MARKET_REGIME_NOTIFICATION_TARGET)
+
+    def test_load_configured_strategy_plugin_notification_target_signals(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            signal_path = Path(tmp_dir) / "latest_signal.json"
+            payload = {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "target_type": "notification_target",
+                "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+            }
+            payload.pop("strategy", None)
+            signal_path.write_text(json.dumps(payload), encoding="utf-8")
+            targets = parse_strategy_plugin_notification_targets(
+                [
+                    {
+                        "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+                        "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                        "signal_path": str(signal_path),
+                    }
+                ]
+            )
+
+            signals = load_configured_strategy_plugin_notification_target_signals(targets)
+
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].notification_target, GENERAL_MARKET_REGIME_NOTIFICATION_TARGET)
 
     def test_strategy_plugin_no_action_signal_does_not_escalate_alert(self):
         signal = validate_strategy_plugin_signal_payload(_signal_payload())

@@ -88,8 +88,8 @@ changes out of platform runtime code.
 
 SOXL/SOXX is intentionally not listed as a `market_regime_control` runtime
 mount. Broad macro and crisis signals for SOXL should be delivered through a
-general notification artifact and reviewed manually unless a future backtest
-promotes an explicit strategy-level opt-in.
+general `notification_targets.market_regime_notification` artifact and reviewed
+manually unless a future backtest promotes an explicit strategy-level opt-in.
 
 ## Runtime Loader
 
@@ -112,6 +112,25 @@ signals = load_configured_strategy_plugin_signals(
 report_section = build_strategy_plugin_report_payload(signals)
 notification_lines = build_strategy_plugin_notification_lines(signals, locale="zh-CN")
 alert_messages = build_strategy_plugin_alert_messages(signals)
+```
+
+General notification artifacts use `notification_targets`, not synthetic
+strategy names. They can be loaded and sent through the same notification and
+alert builders, but they are not attached to strategy runtime metadata and
+cannot authorize position changes:
+
+```python
+from quant_platform_kit.common.strategy_plugins import (
+    load_configured_strategy_plugin_notification_target_signals,
+    parse_strategy_plugin_notification_targets,
+)
+
+targets = parse_strategy_plugin_notification_targets(raw_json_config)
+notification_signals = load_configured_strategy_plugin_notification_target_signals(targets)
+notification_lines = build_strategy_plugin_notification_lines(
+    notification_signals,
+    locale="zh-CN",
+)
 ```
 
 The loader validates:
