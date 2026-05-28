@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
+PLUGIN_MARKET_REGIME_CONTROL = "market_regime_control"
+PLUGIN_MACRO_RISK_GOVERNOR = "macro_risk_governor"
 PLUGIN_TACO_REBOUND_SHADOW = "taco_rebound_shadow"
 PLUGIN_MODE_SHADOW = "shadow"
 STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL = "email"
@@ -29,6 +31,8 @@ CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES = frozenset(
     }
 )
 TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income"})
+MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income"})
+MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES = frozenset({"tqqq_growth_income"})
 _DEFAULT_STRATEGY_PLUGIN_ALERT_GUIDANCE: Mapping[tuple[str, str, str], str] = {
     (
         PLUGIN_CRISIS_RESPONSE_SHADOW,
@@ -45,6 +49,54 @@ _DEFAULT_STRATEGY_PLUGIN_ALERT_GUIDANCE: Mapping[tuple[str, str, str], str] = {
     ): (
         "The crisis route was blocked by a guard; review data freshness and context before "
         "acting on the signal."
+    ),
+    (
+        PLUGIN_MACRO_RISK_GOVERNOR,
+        "delever",
+        "delever",
+    ): (
+        "Deterministic macro risk governor suggests reducing leveraged exposure while preserving "
+        "unlevered risk exposure when the strategy opts in."
+    ),
+    (
+        PLUGIN_MACRO_RISK_GOVERNOR,
+        "crisis",
+        "defend",
+    ): (
+        "Deterministic macro risk governor suggests moving the risk sleeve toward defensive or "
+        "cash-like exposure until macro stress de-escalates."
+    ),
+    (
+        PLUGIN_MARKET_REGIME_CONTROL,
+        "risk_off",
+        "defend",
+    ): (
+        "Unified market regime control blocks opportunity overlays and suggests moving risk exposure "
+        "toward defensive or cash-like positions until the deterministic arbiter de-escalates."
+    ),
+    (
+        PLUGIN_MARKET_REGIME_CONTROL,
+        "risk_reduced",
+        "delever",
+    ): (
+        "Unified market regime control suggests reducing leveraged exposure while preserving only the "
+        "risk budget allowed by the strategy policy adapter."
+    ),
+    (
+        PLUGIN_MARKET_REGIME_CONTROL,
+        "opportunity_watch",
+        "notify_manual_review",
+    ): (
+        "Manual review only: the unified arbiter allows the bounded TACO opportunity context, but it "
+        "does not authorize broker orders or live allocation mutation."
+    ),
+    (
+        PLUGIN_MARKET_REGIME_CONTROL,
+        "blocked",
+        "blocked",
+    ): (
+        "Unified market regime control was blocked by data-quality or freshness guards; review source "
+        "artifacts before relying on the signal."
     ),
     (
         PLUGIN_TACO_REBOUND_SHADOW,
@@ -112,6 +164,28 @@ DEFAULT_STRATEGY_PLUGIN_DEFINITIONS: Mapping[str, StrategyPluginDefinition] = {
     PLUGIN_TACO_REBOUND_SHADOW: StrategyPluginDefinition(
         plugin=PLUGIN_TACO_REBOUND_SHADOW,
         supported_strategies=TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES,
+        supported_modes=SUPPORTED_STRATEGY_PLUGIN_MODES,
+        alert_channels=(
+            STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+        ),
+    ),
+    PLUGIN_MARKET_REGIME_CONTROL: StrategyPluginDefinition(
+        plugin=PLUGIN_MARKET_REGIME_CONTROL,
+        supported_strategies=MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES,
+        supported_modes=SUPPORTED_STRATEGY_PLUGIN_MODES,
+        alert_channels=(
+            STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_SMS,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_PUSH,
+            STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM,
+        ),
+    ),
+    PLUGIN_MACRO_RISK_GOVERNOR: StrategyPluginDefinition(
+        plugin=PLUGIN_MACRO_RISK_GOVERNOR,
+        supported_strategies=MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES,
         supported_modes=SUPPORTED_STRATEGY_PLUGIN_MODES,
         alert_channels=(
             STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL,
