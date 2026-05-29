@@ -8,14 +8,8 @@ NotificationReplacement = tuple[str, str]
 
 PRICE_SOURCE_LABELS: dict[str, tuple[str, str]] = {
     "longbridge_candlesticks": ("LongBridge 日线K线", "LongBridge daily candlesticks"),
-    "schwab_daily_history_with_live_quote_overlay": (
-        "Schwab 日线历史 + 实时报价覆盖",
-        "Schwab daily history + live quote overlay",
-    ),
-    "firstrade_ohlc_with_live_quote_overlay": (
-        "Firstrade OHLC + 实时报价覆盖",
-        "Firstrade OHLC + live quote overlay",
-    ),
+    "schwab_daily_history_with_live_quote_overlay": ("Schwab 日线历史", "Schwab daily history"),
+    "firstrade_ohlc_with_live_quote_overlay": ("Firstrade OHLC", "Firstrade OHLC"),
     "market_quote": ("实时行情报价", "market quote"),
     "mixed_market_quote_snapshot_close": (
         "实时行情报价 + 快照收盘价回补",
@@ -127,20 +121,6 @@ def localize_price_source_label(
     if label is not None:
         return label[0] if use_zh else label[1]
     return source.replace("_", " ")
-
-
-def localize_quote_overlay_state(
-    value: object,
-    *,
-    translator: NotificationTranslator | None = None,
-    locale: str | None = None,
-) -> str:
-    use_zh = translator_uses_zh(translator) if translator is not None else locale_uses_zh(locale)
-    if value is True:
-        return "是" if use_zh else "yes"
-    if value is False:
-        return "否" if use_zh else "no"
-    return "未知" if use_zh else "unknown"
 
 
 def localize_notification_text(

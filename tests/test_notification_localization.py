@@ -5,7 +5,6 @@ import unittest
 from quant_platform_kit.common.notification_localization import (
     COMMON_ZH_NOTIFICATION_REPLACEMENTS,
     localize_price_source_label,
-    localize_quote_overlay_state,
     localize_notification_text,
     translator_uses_zh,
 )
@@ -64,7 +63,7 @@ class NotificationLocalizationTests(unittest.TestCase):
                 "schwab_daily_history_with_live_quote_overlay",
                 translator=_translator_factory("无需交易"),
             ),
-            "Schwab 日线历史 + 实时报价覆盖",
+            "Schwab 日线历史",
         )
         self.assertEqual(
             localize_price_source_label(
@@ -73,11 +72,6 @@ class NotificationLocalizationTests(unittest.TestCase):
             ),
             "LongBridge daily candlesticks",
         )
-
-    def test_localize_quote_overlay_state_supports_locale_without_translator(self):
-        self.assertEqual(localize_quote_overlay_state(True, locale="zh-CN"), "是")
-        self.assertEqual(localize_quote_overlay_state(False, locale="en-US"), "no")
-        self.assertEqual(localize_quote_overlay_state(None, locale="zh"), "未知")
 
 
 if __name__ == "__main__":
