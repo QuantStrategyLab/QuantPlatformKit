@@ -1,5 +1,14 @@
 # 平台通知与执行结果语义
 
+
+## English summary
+
+- Full English version: [`platform_notification_outcomes.md`](platform_notification_outcomes.md). This summary keeps an English entry point in the Chinese file.
+- Purpose: this document covers `平台通知与执行结果语义` for `QuantPlatformKit`.
+- Main topics: `执行 Stage`, `跳过原因`, `通知 Envelope`, `平台仓库职责`.
+- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
+- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
+- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
 平台运行时应复用 `quant_platform_kit` 里的共享执行结果和通知 envelope
 helper，不要在每个仓库里各自定义一套 stage 或通知投递语义。
 
