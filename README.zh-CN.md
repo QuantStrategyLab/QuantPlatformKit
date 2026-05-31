@@ -1,5 +1,7 @@
 # QuantPlatformKit
 
+> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+
 `QuantPlatformKit` 是 QuantStrategyLab 的共享平台契约、券商适配工具、策略插件 helper 和通知基础能力仓库。
 
 [English](./README.md)

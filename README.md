@@ -1,5 +1,7 @@
 # QuantPlatformKit
 
+> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+
 Shared platform contracts, broker adapters, strategy-plugin helpers, and notification primitives for QuantStrategyLab repositories.
 
 [中文](./README.zh-CN.md)
