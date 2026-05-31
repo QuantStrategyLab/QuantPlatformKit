@@ -2,6 +2,16 @@
 
 > ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
 
+
+## English summary
+
+- Full English version: [`README.md`](README.md). This summary keeps an English entry point in the Chinese file.
+- Purpose: this document covers `QuantPlatformKit` for `QuantPlatformKit`.
+- Main topics: `这个仓库是什么`, `和其他仓库如何协作`, `策略插件`, `目录结构`, `开发`.
+- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
+- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
+- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
+
 `QuantPlatformKit` 是 QuantStrategyLab 的共享平台契约、券商适配工具、策略插件 helper 和通知基础能力仓库。
 
 [English](./README.md)
