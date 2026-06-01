@@ -17,6 +17,17 @@ DEFAULT_SNAPSHOT_DATE_COLUMNS = ("as_of", "snapshot_date")
 DEFAULT_MAX_SNAPSHOT_MONTH_LAG = 1
 DEFAULT_SNAPSHOT_MANIFEST_SUFFIX = ".manifest.json"
 DEFAULT_ARTIFACT_CACHE_DIR = Path(tempfile.gettempdir()) / "quant_strategy_artifacts"
+_MANIFEST_DIAGNOSTIC_FIELDS = (
+    "price_as_of",
+    "universe_as_of",
+    "source_input_status",
+    "source_input_fallback_used",
+    "source_input_fallback_reason",
+    "source_input_fallback_streak",
+    "source_input_manifest_path",
+    "source_refresh_run_id",
+    "source_refresh_generated_at",
+)
 
 
 def _normalize_strategy_profile_label(value: object) -> str:
@@ -193,6 +204,25 @@ def _load_manifest_payload(manifest_path: Path) -> dict[str, object]:
     return _normalize_manifest_payload(payload)
 
 
+def _manifest_diagnostic_metadata(payload: dict[str, object] | None) -> dict[str, object]:
+    if not payload:
+        return {}
+    return {
+        f"snapshot_manifest_{field}": payload.get(field)
+        for field in _MANIFEST_DIAGNOSTIC_FIELDS
+        if payload.get(field) not in (None, "")
+    }
+
+
+def _load_optional_manifest_payload(manifest_path: Path) -> dict[str, object] | None:
+    if not manifest_path.exists():
+        return None
+    try:
+        return _load_manifest_payload(manifest_path)
+    except Exception:
+        return None
+
+
 def load_feature_snapshot(path: str) -> pd.DataFrame:
     raw_path = str(path or "").strip()
     if not raw_path:
@@ -308,12 +338,13 @@ def load_feature_snapshot_guarded(
 
     snapshot_path = Path(raw_path)
     manifest_file = _resolve_manifest_path(snapshot_path, manifest_path)
+    manifest_exists = manifest_file.exists()
     file_timestamp = None
     if snapshot_path.exists():
         stat = snapshot_path.stat()
         file_timestamp = pd.Timestamp(stat.st_mtime, unit="s", tz=timezone.utc).isoformat()
     manifest_file_timestamp = None
-    if manifest_file.exists():
+    if manifest_exists:
         manifest_stat = manifest_file.stat()
         manifest_file_timestamp = pd.Timestamp(
             manifest_stat.st_mtime,
@@ -430,6 +461,7 @@ def load_feature_snapshot_guarded(
     if run_date is None:
         raise ValueError("run_as_of is required for guarded feature snapshot loading")
 
+    manifest_payload_for_diagnostics = _load_optional_manifest_payload(manifest_file)
     age_days = int((run_date - snapshot_as_of).days)
     if age_days < 0:
         return FeatureSnapshotGuardResult(
@@ -443,9 +475,10 @@ def load_feature_snapshot_guarded(
                 file_timestamp=file_timestamp,
                 age_days=age_days,
                 snapshot_manifest_path=str(manifest_file),
-                snapshot_manifest_exists=manifest_file.exists(),
+                snapshot_manifest_exists=manifest_exists,
                 snapshot_manifest_file_timestamp=manifest_file_timestamp,
                 fail_reason=f"feature_snapshot_future_as_of:{snapshot_as_of.date()}",
+                **_manifest_diagnostic_metadata(manifest_payload_for_diagnostics),
             ),
         )
 
@@ -461,20 +494,20 @@ def load_feature_snapshot_guarded(
                 file_timestamp=file_timestamp,
                 age_days=age_days,
                 snapshot_manifest_path=str(manifest_file),
-                snapshot_manifest_exists=manifest_file.exists(),
+                snapshot_manifest_exists=manifest_exists,
                 snapshot_manifest_file_timestamp=manifest_file_timestamp,
                 fail_reason=(
                     "feature_snapshot_stale:"
                     f"snapshot_as_of={snapshot_as_of.date()} run_as_of={run_date.date()} "
                     f"max_month_lag={int(max_snapshot_month_lag)}"
                 ),
+                **_manifest_diagnostic_metadata(manifest_payload_for_diagnostics),
             ),
         )
 
     actual_snapshot_sha256 = None
     actual_config_sha256 = None
     manifest_payload: dict[str, object] | None = None
-    manifest_exists = manifest_file.exists()
     if require_manifest:
         if not manifest_exists:
             return FeatureSnapshotGuardResult(
@@ -727,6 +760,7 @@ def load_feature_snapshot_guarded(
             snapshot_manifest_config_path=(manifest_payload or {}).get("config_path"),
             snapshot_manifest_snapshot_sha256=(manifest_payload or {}).get("snapshot_sha256"),
             snapshot_manifest_config_sha256=(manifest_payload or {}).get("config_sha256"),
+            **_manifest_diagnostic_metadata(manifest_payload),
             expected_strategy_profile=expected_strategy_profile,
             expected_config_name=expected_config_name,
             expected_config_path=expected_config_path,
