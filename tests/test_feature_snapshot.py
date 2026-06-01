@@ -50,6 +50,11 @@ class FeatureSnapshotGuardAliasTests(unittest.TestCase):
                         "contract_version": "tech_pullback_cash_buffer.feature_snapshot.v1",
                         "snapshot_sha256": snapshot_sha256,
                         "config_sha256": config_sha256,
+                        "price_as_of": "2026-04-01",
+                        "universe_as_of": "2026-03-31",
+                        "source_input_status": "fresh",
+                        "source_input_fallback_used": False,
+                        "source_refresh_run_id": "12345",
                     }
                 ),
                 encoding="utf-8",
@@ -68,6 +73,56 @@ class FeatureSnapshotGuardAliasTests(unittest.TestCase):
             self.assertIsNotNone(result.frame)
             self.assertEqual(result.metadata["snapshot_guard_decision"], "proceed")
             self.assertEqual(result.metadata["snapshot_manifest_strategy_profile"], "tech_pullback_cash_buffer")
+            self.assertEqual(result.metadata["snapshot_manifest_price_as_of"], "2026-04-01")
+            self.assertEqual(result.metadata["snapshot_manifest_universe_as_of"], "2026-03-31")
+            self.assertEqual(result.metadata["snapshot_manifest_source_input_status"], "fresh")
+            self.assertEqual(result.metadata["snapshot_manifest_source_refresh_run_id"], "12345")
+
+    def test_guard_includes_manifest_diagnostics_when_stale(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            snapshot_path = tmp_path / "snapshot.csv"
+            manifest_path = tmp_path / "snapshot.csv.manifest.json"
+            snapshot_path.write_text(
+                "as_of,symbol,close\n2026-04-01,QQQ,500\n",
+                encoding="utf-8",
+            )
+            snapshot_sha256 = hashlib.sha256(snapshot_path.read_bytes()).hexdigest()
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "snapshot_as_of": "2026-04-01",
+                        "strategy_profile": "feature_snapshot_strategy",
+                        "config_name": "feature_snapshot_strategy",
+                        "contract_version": "feature_snapshot_strategy.feature_snapshot.v1",
+                        "snapshot_sha256": snapshot_sha256,
+                        "config_sha256": "abc",
+                        "price_as_of": "2026-04-01",
+                        "universe_as_of": "2026-03-31",
+                        "source_input_status": "universe_fallback",
+                        "source_input_fallback_used": True,
+                        "source_input_fallback_reason": "RuntimeError: upstream returned HTML",
+                        "source_input_fallback_streak": 1,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = load_feature_snapshot_guarded(
+                str(snapshot_path),
+                run_as_of="2026-06-01",
+                required_columns=("as_of", "symbol", "close"),
+                manifest_path=str(manifest_path),
+                require_manifest=True,
+                expected_strategy_profile="feature_snapshot_strategy",
+                expected_config_name="feature_snapshot_strategy",
+            )
+
+            self.assertIsNone(result.frame)
+            self.assertEqual(result.metadata["snapshot_guard_decision"], "fail_closed")
+            self.assertEqual(result.metadata["snapshot_manifest_source_input_status"], "universe_fallback")
+            self.assertIs(result.metadata["snapshot_manifest_source_input_fallback_used"], True)
+            self.assertEqual(result.metadata["snapshot_manifest_source_input_fallback_streak"], 1)
 
 
 if __name__ == "__main__":
