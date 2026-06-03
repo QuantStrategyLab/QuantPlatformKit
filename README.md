@@ -42,6 +42,12 @@ python -m pytest -q
 - [`docs/strategy_plugin_runtime_contract.zh-CN.md`](docs/strategy_plugin_runtime_contract.zh-CN.md)
 - [`docs/us_equity_cross_platform_strategy_spec.md`](docs/us_equity_cross_platform_strategy_spec.md)
 
+## Community and security
+
+- See [CONTRIBUTING.md](CONTRIBUTING.md) for pull request scope, local verification, and documentation expectations.
+- Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for maintainer and contributor conduct.
+- Report credential, automation, broker, exchange, or cloud-resource vulnerabilities through [SECURITY.md](SECURITY.md); do not open public issues for secrets or live-execution risk.
+
 ## License
 
 See [LICENSE](LICENSE).
