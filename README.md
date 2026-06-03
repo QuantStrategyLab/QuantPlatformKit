@@ -1,5 +1,36 @@
 # QuantPlatformKit
 
+<!-- qsl-doc-overview:start -->
+
+> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+> ⚠️ Investing involves risk. This project does not provide investment advice and is for educational and research purposes only.
+
+## Open-source overview / 开源项目入口
+
+| Item | Description |
+| --- | --- |
+| Project type | shared runtime kit |
+| What it does | Shared broker adapters, strategy contracts, runtime interfaces and notification utilities used across QuantStrategyLab platforms. |
+| 中文说明 | 共享运行时工具包，提供券商适配、策略契约、组件加载和通知工具。 |
+| Current status | Library/infrastructure. It does not own strategy alpha or backtest performance. |
+
+### Quick start
+
+- `python -m pip install -e '.[test]'`
+- `python -m pytest -q`
+
+### Deploy / operate safely
+
+Publish through package/version pins consumed by downstream repos; verify compatibility before bumping platform dependencies.
+
+### Strategy performance / evidence boundary
+
+No standalone strategy performance. Validate behavior through downstream strategy and platform tests.
+
+> Detailed runbooks, migration notes, workflow internals, and historical decisions are kept below. Start with this overview before using the lower-level operational sections.
+
+<!-- qsl-doc-overview:end -->
+
 > ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
 
 
