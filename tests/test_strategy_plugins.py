@@ -219,11 +219,19 @@ class StrategyPluginsTests(unittest.TestCase):
             "tqqq_growth_income",
             "global_etf_rotation",
             "russell_1000_multi_factor_defensive",
-            "tech_communication_pullback_enhancement",
             "mega_cap_leader_rotation_top50_balanced",
         ):
             validate_strategy_plugin_compatibility(
                 strategy=strategy,
+                plugin=PLUGIN_MARKET_REGIME_CONTROL,
+                mode=PLUGIN_MODE_SHADOW,
+            )
+        with self.assertRaisesRegex(
+            ValueError,
+            "market_regime_control does not support strategy tech_communication_pullback_enhancement",
+        ):
+            validate_strategy_plugin_compatibility(
+                strategy="tech_communication_pullback_enhancement",
                 plugin=PLUGIN_MARKET_REGIME_CONTROL,
                 mode=PLUGIN_MODE_SHADOW,
             )

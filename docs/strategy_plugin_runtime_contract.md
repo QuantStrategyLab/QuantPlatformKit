@@ -79,7 +79,7 @@ The default registry currently defines versioned plugin contracts:
 
 | Plugin | Schema versions | Supported strategies | Status | Supported mode | Escalated alert channel |
 | --- | --- | --- | --- | --- | --- |
-| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `global_etf_rotation`, `russell_1000_multi_factor_defensive`, `tech_communication_pullback_enhancement`, `mega_cap_leader_rotation_top50_balanced` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `global_etf_rotation`, `russell_1000_multi_factor_defensive`, `mega_cap_leader_rotation_top50_balanced` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `crisis_response_shadow` | `crisis_response_shadow.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `macro_risk_governor` | `macro_risk_governor.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `taco_rebound_shadow` | `taco_rebound_shadow.v2` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
@@ -94,6 +94,9 @@ allocation, or imply broker order permission.
 To expand a plugin later, update the shared definition or pass an explicit
 definition registry into the parser/loader. This keeps future plugin eligibility
 changes out of platform runtime code.
+
+Tech/Communication Pullback Enhancement is also not listed because it is a research-only
+profile and should not appear in current configurable plugin mounts.
 
 SOXL/SOXX is intentionally not listed as a `market_regime_control` runtime
 mount. Broad macro and crisis signals for SOXL should be delivered through a

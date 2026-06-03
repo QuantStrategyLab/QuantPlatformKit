@@ -74,7 +74,7 @@ artifact 内，并固定为通知/观察用途的 `shadow`。
 
 | 插件 | Schema versions | 支持策略 | 状态 | 支持模式 | 升级告警通道 |
 | --- | --- | --- | --- | --- | --- |
-| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `global_etf_rotation`, `russell_1000_multi_factor_defensive`, `tech_communication_pullback_enhancement`, `mega_cap_leader_rotation_top50_balanced` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `global_etf_rotation`, `russell_1000_multi_factor_defensive`, `mega_cap_leader_rotation_top50_balanced` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `crisis_response_shadow` | `crisis_response_shadow.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `macro_risk_governor` | `macro_risk_governor.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `taco_rebound_shadow` | `taco_rebound_shadow.v2` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
@@ -87,6 +87,9 @@ artifact 内，并固定为通知/观察用途的 `shadow`。
 
 如果未来扩展插件支持范围，应更新共享 definition，或显式传入 definition
 registry 给 parser / loader。这样平台运行时代码不用承载未来插件资格变更。
+
+Tech/Communication Pullback Enhancement 也不列入当前挂载清单，因为它已经降级为研究侧 profile，
+不应出现在当前可配置插件 profile 中。
 
 SOXL/SOXX 故意不列入 `market_regime_control` 的运行时挂载清单。SOXL
 相关宏观和危机信号应通过通用
