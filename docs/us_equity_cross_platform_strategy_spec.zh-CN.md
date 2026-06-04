@@ -1,14 +1,6 @@
 # 美股策略跨平台设计规范
 
-
-## English summary
-
-- Full English version: [`us_equity_cross_platform_strategy_spec.md`](us_equity_cross_platform_strategy_spec.md). This summary keeps an English entry point in the Chinese file.
-- Purpose: this document covers `美股策略跨平台设计规范` for `QuantPlatformKit`.
-- Main topics: `目标`, `适用范围`, `总原则`, `职责边界`, `必须有的四层`.
-- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
-- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
-- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
+[English](us_equity_cross_platform_strategy_spec.md)
 
 ## 目标
 

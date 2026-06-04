@@ -1,15 +1,5 @@
 # 策略插件运行时契约
 
-
-## English summary
-
-- Full English version: [`strategy_plugin_runtime_contract.md`](strategy_plugin_runtime_contract.md). This summary keeps an English entry point in the Chinese file.
-- Purpose: this document covers `策略插件运行时契约` for `QuantPlatformKit`.
-- Main topics: `职责边界`, `平台挂载配置`, `插件定义`, `Runtime Loader`, `行为边界`.
-- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
-- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
-- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
-
 [English](./strategy_plugin_runtime_contract.md)
 
 本文档说明平台运行时如何消费侧车策略插件 artifact，例如上游 snapshot

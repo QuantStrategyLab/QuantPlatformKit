@@ -1,14 +1,6 @@
 # 美股执行翻译规范
 
-
-## English summary
-
-- Full English version: [`us_equity_execution_translation_spec.md`](us_equity_execution_translation_spec.md). This summary keeps an English entry point in the Chinese file.
-- Purpose: this document covers `美股执行翻译规范` for `QuantPlatformKit`.
-- Main topics: `目标`, `各平台当前原生执行模式`, `翻译层边界`, `翻译层允许依赖的输入`, ``weight -> value` 规则`.
-- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
-- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
-- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
+[English](us_equity_execution_translation_spec.md)
 
 ## 目标
 
