@@ -95,12 +95,12 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
     def test_strategy_plugin_telegram_settings_from_object(self):
         settings = StrategyPluginTelegramSettings.from_object(
             SimpleNamespace(
-                crisis_alert_telegram_chat_ids="123; @risk",
-                crisis_alert_telegram_bot_token="bot-token",
-                crisis_alert_telegram_api_base_url="https://telegram.example.test",
-                crisis_alert_telegram_parse_mode="HTML",
-                crisis_alert_telegram_disable_web_page_preview="false",
-                crisis_alert_telegram_body_max_chars="500",
+                strategy_plugin_alert_telegram_chat_ids="123; @risk",
+                strategy_plugin_alert_telegram_bot_token="bot-token",
+                strategy_plugin_alert_telegram_api_base_url="https://telegram.example.test",
+                strategy_plugin_alert_telegram_parse_mode="HTML",
+                strategy_plugin_alert_telegram_disable_web_page_preview="false",
+                strategy_plugin_alert_telegram_body_max_chars="500",
             )
         )
 
@@ -162,8 +162,8 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
         self.assertEqual(result.sent_count, 0)
         self.assertEqual(result.skipped_count, 1)
         self.assertEqual(result.deliveries[0].reason, "missing_telegram_config")
-        self.assertIn("CRISIS_ALERT_TELEGRAM_CHAT_IDS", result.deliveries[0].error)
-        self.assertIn("CRISIS_ALERT_TELEGRAM_BOT_TOKEN", result.deliveries[0].error)
+        self.assertIn("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS", result.deliveries[0].error)
+        self.assertIn("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN", result.deliveries[0].error)
 
 
 if __name__ == "__main__":

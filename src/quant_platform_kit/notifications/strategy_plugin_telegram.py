@@ -40,20 +40,20 @@ class StrategyPluginTelegramSettings:
             return value
         return cls(
             chat_ids=tuple(
-                parse_telegram_chat_ids(_get_value(value, "crisis_alert_telegram_chat_ids", ()))
+                parse_telegram_chat_ids(_get_value(value, "strategy_plugin_alert_telegram_chat_ids", ()))
             ),
-            bot_token=_first_non_empty(_get_value(value, "crisis_alert_telegram_bot_token")),
+            bot_token=_first_non_empty(_get_value(value, "strategy_plugin_alert_telegram_bot_token")),
             api_base_url=(
-                _first_non_empty(_get_value(value, "crisis_alert_telegram_api_base_url"))
+                _first_non_empty(_get_value(value, "strategy_plugin_alert_telegram_api_base_url"))
                 or DEFAULT_TELEGRAM_BOT_API_BASE_URL
             ),
-            parse_mode=_first_non_empty(_get_value(value, "crisis_alert_telegram_parse_mode")),
+            parse_mode=_first_non_empty(_get_value(value, "strategy_plugin_alert_telegram_parse_mode")),
             disable_web_page_preview=_coerce_bool(
-                _get_value(value, "crisis_alert_telegram_disable_web_page_preview"),
+                _get_value(value, "strategy_plugin_alert_telegram_disable_web_page_preview"),
                 default=True,
             ),
             body_max_chars=_coerce_int(
-                _get_value(value, "crisis_alert_telegram_body_max_chars"),
+                _get_value(value, "strategy_plugin_alert_telegram_body_max_chars"),
                 _DEFAULT_TELEGRAM_BODY_MAX_CHARS,
             ),
         )
@@ -61,9 +61,9 @@ class StrategyPluginTelegramSettings:
     def missing_fields(self) -> tuple[str, ...]:
         missing: list[str] = []
         if not parse_telegram_chat_ids(self.chat_ids):
-            missing.append("CRISIS_ALERT_TELEGRAM_CHAT_IDS")
+            missing.append("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS")
         if not str(self.bot_token or "").strip():
-            missing.append("CRISIS_ALERT_TELEGRAM_BOT_TOKEN")
+            missing.append("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN")
         return tuple(missing)
 
     @property
