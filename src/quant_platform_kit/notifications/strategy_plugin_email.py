@@ -47,31 +47,31 @@ class StrategyPluginEmailSettings:
             return value
         return cls(
             recipients=tuple(
-                parse_email_recipients(_get_value(value, "crisis_alert_email_recipients", ()))
+                parse_email_recipients(_get_value(value, "strategy_plugin_alert_email_recipients", ()))
             ),
-            sender_email=_first_non_empty(_get_value(value, "crisis_alert_email_sender_email")),
-            sender_password=_get_value(value, "crisis_alert_email_sender_password"),
+            sender_email=_first_non_empty(_get_value(value, "strategy_plugin_alert_email_sender_email")),
+            sender_password=_get_value(value, "strategy_plugin_alert_email_sender_password"),
             smtp_host=_first_non_empty(
-                _get_value(value, "crisis_alert_email_smtp_host")
+                _get_value(value, "strategy_plugin_alert_email_smtp_host")
             )
             or _DEFAULT_EMAIL_SMTP_HOST,
             smtp_port=_coerce_int(
-                _get_value(value, "crisis_alert_email_smtp_port"),
+                _get_value(value, "strategy_plugin_alert_email_smtp_port"),
                 _DEFAULT_EMAIL_SMTP_PORT,
             ),
             smtp_security=_coerce_smtp_security(
-                _get_value(value, "crisis_alert_email_smtp_security")
+                _get_value(value, "strategy_plugin_alert_email_smtp_security")
             ),
         )
 
     def missing_fields(self) -> tuple[str, ...]:
         missing: list[str] = []
         if not parse_email_recipients(self.recipients):
-            missing.append("CRISIS_ALERT_EMAIL_RECIPIENTS")
+            missing.append("STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS")
         if not str(self.sender_email or "").strip():
-            missing.append("CRISIS_ALERT_EMAIL_SENDER_EMAIL")
+            missing.append("STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL")
         if not str(self.sender_password or "").strip():
-            missing.append("CRISIS_ALERT_EMAIL_SENDER_PASSWORD")
+            missing.append("STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD")
         return tuple(missing)
 
     @property

@@ -135,8 +135,8 @@ def test_publish_strategy_plugin_push_alerts_skips_missing_config():
     assert result.sent_count == 0
     assert result.skipped_count == 1
     assert result.deliveries[0].reason == "missing_push_config"
-    assert "CRISIS_ALERT_PUSH_RECIPIENTS" in result.deliveries[0].error
-    assert "CRISIS_ALERT_PUSH_APP_TOKEN" in result.deliveries[0].error
+    assert "STRATEGY_PLUGIN_ALERT_PUSH_RECIPIENTS" in result.deliveries[0].error
+    assert "STRATEGY_PLUGIN_ALERT_PUSH_APP_TOKEN" in result.deliveries[0].error
     assert observed == []
 
 
@@ -200,22 +200,22 @@ def test_publish_strategy_plugin_push_alerts_skips_duplicate_marker(tmp_path):
 def test_push_settings_reads_pushover_and_ntfy_config_from_object():
     pushover = StrategyPluginPushSettings.from_object(
         SimpleNamespace(
-            crisis_alert_push_recipients="user-key",
-            crisis_alert_push_provider="pushover",
-            crisis_alert_push_app_token="app-token",
-            crisis_alert_push_device="iphone",
-            crisis_alert_push_priority="1",
+            strategy_plugin_alert_push_recipients="user-key",
+            strategy_plugin_alert_push_provider="pushover",
+            strategy_plugin_alert_push_app_token="app-token",
+            strategy_plugin_alert_push_device="iphone",
+            strategy_plugin_alert_push_priority="1",
         )
     )
     ntfy = StrategyPluginPushSettings.from_object(
         SimpleNamespace(
-            crisis_alert_push_recipients="risk-topic",
-            crisis_alert_push_provider="ntfy",
-            crisis_alert_push_access_token="access-token",
-            crisis_alert_push_api_base_url="https://ntfy.example.test",
-            crisis_alert_push_priority="5",
-            crisis_alert_push_tags="warning",
-            crisis_alert_push_body_max_chars="300",
+            strategy_plugin_alert_push_recipients="risk-topic",
+            strategy_plugin_alert_push_provider="ntfy",
+            strategy_plugin_alert_push_access_token="access-token",
+            strategy_plugin_alert_push_api_base_url="https://ntfy.example.test",
+            strategy_plugin_alert_push_priority="5",
+            strategy_plugin_alert_push_tags="warning",
+            strategy_plugin_alert_push_body_max_chars="300",
         )
     )
 

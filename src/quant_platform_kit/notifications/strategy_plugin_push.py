@@ -47,25 +47,25 @@ class StrategyPluginPushSettings:
         if isinstance(value, cls):
             return value
         provider = (
-            _first_non_empty(_get_value(value, "crisis_alert_push_provider"))
+            _first_non_empty(_get_value(value, "strategy_plugin_alert_push_provider"))
             or _DEFAULT_PUSH_PROVIDER
         ).lower()
         return cls(
             recipients=tuple(
-                parse_push_recipients(_get_value(value, "crisis_alert_push_recipients", ()))
+                parse_push_recipients(_get_value(value, "strategy_plugin_alert_push_recipients", ()))
             ),
             provider=provider,
-            app_token=_first_non_empty(_get_value(value, "crisis_alert_push_app_token")),
-            access_token=_first_non_empty(_get_value(value, "crisis_alert_push_access_token")),
+            app_token=_first_non_empty(_get_value(value, "strategy_plugin_alert_push_app_token")),
+            access_token=_first_non_empty(_get_value(value, "strategy_plugin_alert_push_access_token")),
             api_base_url=(
-                _first_non_empty(_get_value(value, "crisis_alert_push_api_base_url"))
+                _first_non_empty(_get_value(value, "strategy_plugin_alert_push_api_base_url"))
                 or _default_api_base_url(provider)
             ),
-            device=_first_non_empty(_get_value(value, "crisis_alert_push_device")),
-            priority=_first_non_empty(_get_value(value, "crisis_alert_push_priority")),
-            tags=_first_non_empty(_get_value(value, "crisis_alert_push_tags")),
+            device=_first_non_empty(_get_value(value, "strategy_plugin_alert_push_device")),
+            priority=_first_non_empty(_get_value(value, "strategy_plugin_alert_push_priority")),
+            tags=_first_non_empty(_get_value(value, "strategy_plugin_alert_push_tags")),
             body_max_chars=_coerce_int(
-                _get_value(value, "crisis_alert_push_body_max_chars"),
+                _get_value(value, "strategy_plugin_alert_push_body_max_chars"),
                 _DEFAULT_PUSH_BODY_MAX_CHARS,
             ),
         )
@@ -73,11 +73,11 @@ class StrategyPluginPushSettings:
     def missing_fields(self) -> tuple[str, ...]:
         missing: list[str] = []
         if self.provider not in _SUPPORTED_PUSH_PROVIDERS:
-            missing.append("CRISIS_ALERT_PUSH_PROVIDER=pushover or ntfy")
+            missing.append("STRATEGY_PLUGIN_ALERT_PUSH_PROVIDER=pushover or ntfy")
         if not parse_push_recipients(self.recipients):
-            missing.append("CRISIS_ALERT_PUSH_RECIPIENTS")
+            missing.append("STRATEGY_PLUGIN_ALERT_PUSH_RECIPIENTS")
         if self.provider == PUSH_PROVIDER_PUSHOVER and not str(self.app_token or "").strip():
-            missing.append("CRISIS_ALERT_PUSH_APP_TOKEN")
+            missing.append("STRATEGY_PLUGIN_ALERT_PUSH_APP_TOKEN")
         return tuple(missing)
 
     @property

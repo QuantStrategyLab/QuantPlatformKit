@@ -39,18 +39,18 @@ class StrategyPluginSmsSettings:
         if isinstance(value, cls):
             return value
         return cls(
-            recipients=tuple(parse_sms_recipients(_get_value(value, "crisis_alert_sms_recipients", ()))),
-            provider=(_first_non_empty(_get_value(value, "crisis_alert_sms_provider")) or _DEFAULT_SMS_PROVIDER).lower(),
-            account_id=_first_non_empty(_get_value(value, "crisis_alert_sms_account_id")),
-            auth_token=_first_non_empty(_get_value(value, "crisis_alert_sms_auth_token")),
-            sender=_first_non_empty(_get_value(value, "crisis_alert_sms_sender")),
+            recipients=tuple(parse_sms_recipients(_get_value(value, "strategy_plugin_alert_sms_recipients", ()))),
+            provider=(_first_non_empty(_get_value(value, "strategy_plugin_alert_sms_provider")) or _DEFAULT_SMS_PROVIDER).lower(),
+            account_id=_first_non_empty(_get_value(value, "strategy_plugin_alert_sms_account_id")),
+            auth_token=_first_non_empty(_get_value(value, "strategy_plugin_alert_sms_auth_token")),
+            sender=_first_non_empty(_get_value(value, "strategy_plugin_alert_sms_sender")),
             messaging_service_id=_first_non_empty(
-                _get_value(value, "crisis_alert_sms_messaging_service_id")
+                _get_value(value, "strategy_plugin_alert_sms_messaging_service_id")
             ),
-            api_base_url=_first_non_empty(_get_value(value, "crisis_alert_sms_api_base_url"))
+            api_base_url=_first_non_empty(_get_value(value, "strategy_plugin_alert_sms_api_base_url"))
             or _DEFAULT_SMS_API_BASE_URL,
             body_max_chars=_coerce_int(
-                _get_value(value, "crisis_alert_sms_body_max_chars"),
+                _get_value(value, "strategy_plugin_alert_sms_body_max_chars"),
                 _DEFAULT_SMS_BODY_MAX_CHARS,
             ),
         )
@@ -58,15 +58,15 @@ class StrategyPluginSmsSettings:
     def missing_fields(self) -> tuple[str, ...]:
         missing: list[str] = []
         if self.provider != _DEFAULT_SMS_PROVIDER:
-            missing.append("CRISIS_ALERT_SMS_PROVIDER=twilio")
+            missing.append("STRATEGY_PLUGIN_ALERT_SMS_PROVIDER=twilio")
         if not parse_sms_recipients(self.recipients):
-            missing.append("CRISIS_ALERT_SMS_RECIPIENTS")
+            missing.append("STRATEGY_PLUGIN_ALERT_SMS_RECIPIENTS")
         if not str(self.account_id or "").strip():
-            missing.append("CRISIS_ALERT_SMS_ACCOUNT_ID")
+            missing.append("STRATEGY_PLUGIN_ALERT_SMS_ACCOUNT_ID")
         if not str(self.auth_token or "").strip():
-            missing.append("CRISIS_ALERT_SMS_AUTH_TOKEN")
+            missing.append("STRATEGY_PLUGIN_ALERT_SMS_AUTH_TOKEN")
         if not str(self.sender or "").strip() and not str(self.messaging_service_id or "").strip():
-            missing.append("CRISIS_ALERT_SMS_SENDER or CRISIS_ALERT_SMS_MESSAGING_SERVICE_ID")
+            missing.append("STRATEGY_PLUGIN_ALERT_SMS_SENDER or STRATEGY_PLUGIN_ALERT_SMS_MESSAGING_SERVICE_ID")
         return tuple(missing)
 
     @property

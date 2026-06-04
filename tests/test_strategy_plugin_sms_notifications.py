@@ -88,10 +88,10 @@ def test_publish_strategy_plugin_sms_alerts_skips_missing_config():
     assert result.sent_count == 0
     assert result.skipped_count == 1
     assert result.deliveries[0].reason == "missing_sms_config"
-    assert "CRISIS_ALERT_SMS_RECIPIENTS" in result.deliveries[0].error
-    assert "CRISIS_ALERT_SMS_ACCOUNT_ID" in result.deliveries[0].error
-    assert "CRISIS_ALERT_SMS_AUTH_TOKEN" in result.deliveries[0].error
-    assert "CRISIS_ALERT_SMS_SENDER or CRISIS_ALERT_SMS_MESSAGING_SERVICE_ID" in result.deliveries[0].error
+    assert "STRATEGY_PLUGIN_ALERT_SMS_RECIPIENTS" in result.deliveries[0].error
+    assert "STRATEGY_PLUGIN_ALERT_SMS_ACCOUNT_ID" in result.deliveries[0].error
+    assert "STRATEGY_PLUGIN_ALERT_SMS_AUTH_TOKEN" in result.deliveries[0].error
+    assert "STRATEGY_PLUGIN_ALERT_SMS_SENDER or STRATEGY_PLUGIN_ALERT_SMS_MESSAGING_SERVICE_ID" in result.deliveries[0].error
     assert observed == []
 
 
@@ -165,13 +165,13 @@ def test_publish_strategy_plugin_sms_alerts_skips_duplicate_marker(tmp_path):
 def test_sms_settings_reads_twilio_config_from_object():
     settings = StrategyPluginSmsSettings.from_object(
         SimpleNamespace(
-            crisis_alert_sms_recipients="(516) 548-0265",
-            crisis_alert_sms_provider="twilio",
-            crisis_alert_sms_account_id="AC123",
-            crisis_alert_sms_auth_token="secret",
-            crisis_alert_sms_messaging_service_id="MG123",
-            crisis_alert_sms_api_base_url="https://twilio.example.test",
-            crisis_alert_sms_body_max_chars="160",
+            strategy_plugin_alert_sms_recipients="(516) 548-0265",
+            strategy_plugin_alert_sms_provider="twilio",
+            strategy_plugin_alert_sms_account_id="AC123",
+            strategy_plugin_alert_sms_auth_token="secret",
+            strategy_plugin_alert_sms_messaging_service_id="MG123",
+            strategy_plugin_alert_sms_api_base_url="https://twilio.example.test",
+            strategy_plugin_alert_sms_body_max_chars="160",
         )
     )
 

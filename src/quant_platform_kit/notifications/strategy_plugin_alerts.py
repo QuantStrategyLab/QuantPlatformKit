@@ -327,7 +327,7 @@ def _resolve_channels(
 ) -> tuple[str, ...]:
     raw_channels = channels
     if raw_channels is None:
-        raw_channels = _get_value(notification_settings, "crisis_alert_channels", None)
+        raw_channels = _get_value(notification_settings, "strategy_plugin_alert_channels", None)
     if raw_channels in (None, "", (), []):
         raw_channels = (_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH, _CHANNEL_TELEGRAM)
     return _normalize_channels(raw_channels)

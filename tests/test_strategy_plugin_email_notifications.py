@@ -86,9 +86,9 @@ def test_publish_strategy_plugin_email_alerts_skips_missing_config():
     assert result.sent_count == 0
     assert result.skipped_count == 1
     assert result.deliveries[0].reason == "missing_email_config"
-    assert "CRISIS_ALERT_EMAIL_RECIPIENTS" in result.deliveries[0].error
-    assert "CRISIS_ALERT_EMAIL_SENDER_EMAIL" in result.deliveries[0].error
-    assert "CRISIS_ALERT_EMAIL_SENDER_PASSWORD" in result.deliveries[0].error
+    assert "STRATEGY_PLUGIN_ALERT_EMAIL_RECIPIENTS" in result.deliveries[0].error
+    assert "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_EMAIL" in result.deliveries[0].error
+    assert "STRATEGY_PLUGIN_ALERT_EMAIL_SENDER_PASSWORD" in result.deliveries[0].error
     assert observed == []
 
 
@@ -187,9 +187,9 @@ def test_publish_strategy_plugin_email_alerts_uses_transport_overrides():
 def test_email_settings_reads_sender_and_default_transport_names_only():
     settings = StrategyPluginEmailSettings.from_object(
         SimpleNamespace(
-            crisis_alert_email_recipients="alerts@example.com; voice@example.com",
-            crisis_alert_email_sender_email="sender@example.com",
-            crisis_alert_email_sender_password="app-password",
+            strategy_plugin_alert_email_recipients="alerts@example.com; voice@example.com",
+            strategy_plugin_alert_email_sender_email="sender@example.com",
+            strategy_plugin_alert_email_sender_password="app-password",
         )
     )
 
@@ -205,12 +205,12 @@ def test_email_settings_reads_sender_and_default_transport_names_only():
 def test_email_settings_reads_optional_smtp_transport_overrides():
     settings = StrategyPluginEmailSettings.from_object(
         SimpleNamespace(
-            crisis_alert_email_recipients="voice@example.com",
-            crisis_alert_email_sender_email="sender@example.com",
-            crisis_alert_email_sender_password="secret",
-            crisis_alert_email_smtp_host="smtp.example.com",
-            crisis_alert_email_smtp_port="587",
-            crisis_alert_email_smtp_security="starttls",
+            strategy_plugin_alert_email_recipients="voice@example.com",
+            strategy_plugin_alert_email_sender_email="sender@example.com",
+            strategy_plugin_alert_email_sender_password="secret",
+            strategy_plugin_alert_email_smtp_host="smtp.example.com",
+            strategy_plugin_alert_email_smtp_port="587",
+            strategy_plugin_alert_email_smtp_security="starttls",
         )
     )
 

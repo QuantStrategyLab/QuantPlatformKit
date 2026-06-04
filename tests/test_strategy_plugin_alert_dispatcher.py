@@ -25,18 +25,18 @@ def _alert_signal():
 
 
 class _NotificationSettings:
-    crisis_alert_email_recipients = "risk@example.com"
-    crisis_alert_email_sender_email = "bot@example.com"
-    crisis_alert_email_sender_password = "app-password"
-    crisis_alert_sms_recipients = "+15165480265"
-    crisis_alert_sms_account_id = "AC123"
-    crisis_alert_sms_auth_token = "secret"
-    crisis_alert_sms_sender = "+15551234567"
-    crisis_alert_push_provider = "ntfy"
-    crisis_alert_push_recipients = "risk-topic"
-    crisis_alert_push_priority = "5"
-    crisis_alert_telegram_chat_ids = "123456"
-    crisis_alert_telegram_bot_token = "bot-token"
+    strategy_plugin_alert_email_recipients = "risk@example.com"
+    strategy_plugin_alert_email_sender_email = "bot@example.com"
+    strategy_plugin_alert_email_sender_password = "app-password"
+    strategy_plugin_alert_sms_recipients = "+15165480265"
+    strategy_plugin_alert_sms_account_id = "AC123"
+    strategy_plugin_alert_sms_auth_token = "secret"
+    strategy_plugin_alert_sms_sender = "+15551234567"
+    strategy_plugin_alert_push_provider = "ntfy"
+    strategy_plugin_alert_push_recipients = "risk-topic"
+    strategy_plugin_alert_push_priority = "5"
+    strategy_plugin_alert_telegram_chat_ids = "123456"
+    strategy_plugin_alert_telegram_bot_token = "bot-token"
 
 
 class StrategyPluginAlertDispatcherTests(unittest.TestCase):
@@ -202,7 +202,7 @@ class StrategyPluginAlertDispatcherTests(unittest.TestCase):
 
     def test_publish_strategy_plugin_alerts_reads_channels_from_settings(self):
         settings = _NotificationSettings()
-        settings.crisis_alert_channels = "email,telegram"
+        settings.strategy_plugin_alert_channels = "email,telegram"
         emails = []
         telegram_messages = []
 
