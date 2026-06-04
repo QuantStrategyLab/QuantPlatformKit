@@ -1,14 +1,6 @@
 # 平台仓库职责边界
 
-
-## English summary
-
-- Full English version: [`platform_repo_boundaries.md`](platform_repo_boundaries.md). This summary keeps an English entry point in the Chinese file.
-- Purpose: this document covers `平台仓库职责边界` for `QuantPlatformKit`.
-- Main topics: `QuantPlatformKit`, `策略仓库`, `平台仓库`, `实用判断`.
-- Read the boundaries, inputs, outputs, and permission requirements before running commands, CI jobs, dry-runs, releases, or runtime switches.
-- For live trading, secrets, Cloud Run, exchange, or broker API changes, validate in test or dry-run mode first and do not change production only from examples.
-- If this summary differs from the detailed Chinese body, follow the concrete commands, configuration keys, and constraints in the body.
+[English](platform_repo_boundaries.md)
 
 这份文档说明 `QuantPlatformKit` 如何与策略仓库、券商平台仓库协作。
 
