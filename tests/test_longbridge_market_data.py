@@ -5,7 +5,11 @@ import types
 import unittest
 from unittest.mock import patch
 
-from quant_platform_kit.longbridge.market_data import calculate_rotation_indicators, fetch_last_price, fetch_last_prices
+from quant_platform_kit.longbridge.market_data import (
+    calculate_rotation_indicators,
+    fetch_last_price,
+    fetch_last_prices,
+)
 
 
 class FakeQuote:
@@ -55,7 +59,9 @@ class LongBridgeMarketDataTests(unittest.TestCase):
                 return super().quote(symbols)
 
         quote_context = RateLimitedQuoteContext()
-        with patch("quant_platform_kit.longbridge.market_data.time.sleep") as sleep_mock:
+        with patch(
+            "quant_platform_kit.longbridge.market_data.time.sleep"
+        ) as sleep_mock:
             self.assertEqual(fetch_last_price(quote_context, "SOXL.US"), 123.45)
 
         self.assertEqual(quote_context.calls, 2)
@@ -67,13 +73,20 @@ class LongBridgeMarketDataTests(unittest.TestCase):
         openapi_module.Period = types.SimpleNamespace(Day="Day")
         openapi_module.AdjustType = types.SimpleNamespace(ForwardAdjust="ForwardAdjust")
 
-        with patch.dict(sys.modules, {"longport": longport_module, "longport.openapi": openapi_module}):
-            indicators = calculate_rotation_indicators(FakeQuoteContext(), trend_window=150)
+        with patch.dict(
+            sys.modules,
+            {"longport": longport_module, "longport.openapi": openapi_module},
+        ):
+            indicators = calculate_rotation_indicators(
+                FakeQuoteContext(), trend_window=150
+            )
 
         self.assertIsNotNone(indicators)
         self.assertEqual(indicators["soxl"]["price"], 519.0)
         self.assertEqual(indicators["soxx"]["price"], 619.0)
-        self.assertAlmostEqual(indicators["soxx"]["ma20"], sum(200.0 + i for i in range(400, 420)) / 20)
+        self.assertAlmostEqual(
+            indicators["soxx"]["ma20"], sum(200.0 + i for i in range(400, 420)) / 20
+        )
         self.assertGreater(indicators["soxx"]["ma20_slope"], 0.0)
         self.assertEqual(indicators["soxx"]["rsi14"], 100.0)
         self.assertGreaterEqual(indicators["soxx"]["rsi14_dynamic_threshold"], 70.0)
@@ -81,6 +94,15 @@ class LongBridgeMarketDataTests(unittest.TestCase):
         self.assertLess(indicators["soxx"]["bb_lower"], indicators["soxx"]["price"])
         self.assertIn("realized_volatility_10", indicators["soxx"])
         self.assertIn("realized_volatility_20", indicators["soxx"])
+        self.assertEqual(
+            indicators["soxx"]["realized_volatility_10_dynamic_threshold"], 0.50
+        )
+        self.assertEqual(
+            indicators["soxx"]["realized_volatility_10_dynamic_sample_count"], 252.0
+        )
+        self.assertEqual(
+            indicators["soxx"]["realized_volatility_10_dynamic_percentile"], 0.95
+        )
         self.assertEqual(
             indicators["soxx"]["realized_volatility"],
             indicators["soxx"]["realized_volatility_20"],

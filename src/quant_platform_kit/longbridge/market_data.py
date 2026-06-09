@@ -44,7 +44,9 @@ def fetch_last_price(q_ctx: Any, symbol: str) -> float | None:
     return fetch_last_prices(q_ctx, [symbol]).get(_normalize_symbol(symbol))
 
 
-def fetch_last_prices(q_ctx: Any, symbols: list[str] | tuple[str, ...]) -> dict[str, float]:
+def fetch_last_prices(
+    q_ctx: Any, symbols: list[str] | tuple[str, ...]
+) -> dict[str, float]:
     normalized_symbols = []
     for symbol in symbols:
         normalized_symbol = _normalize_symbol(symbol)
@@ -57,8 +59,12 @@ def fetch_last_prices(q_ctx: Any, symbols: list[str] | tuple[str, ...]) -> dict[
     quotes = _quote_with_retry(q_ctx, normalized_symbols)
     prices: dict[str, float] = {}
     for index, quote in enumerate(quotes):
-        fallback_symbol = normalized_symbols[index] if index < len(normalized_symbols) else ""
-        quoted_symbol = _normalize_symbol(getattr(quote, "symbol", "") or fallback_symbol)
+        fallback_symbol = (
+            normalized_symbols[index] if index < len(normalized_symbols) else ""
+        )
+        quoted_symbol = _normalize_symbol(
+            getattr(quote, "symbol", "") or fallback_symbol
+        )
         if not quoted_symbol:
             continue
         last_done = getattr(quote, "last_done", None)
@@ -77,6 +83,8 @@ def calculate_rotation_indicators(
     trend_window: int,
     lookback: int | None = None,
     dynamic_rsi_quantile_window: int = 252,
+    dynamic_volatility_delever_window: int = 10,
+    dynamic_volatility_delever_quantile_window: int = 252,
 ) -> dict[str, dict[str, float]] | None:
     from longport.openapi import AdjustType, Period
 
@@ -86,10 +94,16 @@ def calculate_rotation_indicators(
         else required_semiconductor_rotation_history_lookback(
             trend_ma_window=trend_window,
             dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
+            dynamic_volatility_delever_window=dynamic_volatility_delever_window,
+            dynamic_volatility_delever_quantile_window=dynamic_volatility_delever_quantile_window,
         )
     )
-    soxl_bars = q_ctx.candlesticks("SOXL.US", Period.Day, effective_lookback, AdjustType.ForwardAdjust)
-    soxx_bars = q_ctx.candlesticks("SOXX.US", Period.Day, effective_lookback, AdjustType.ForwardAdjust)
+    soxl_bars = q_ctx.candlesticks(
+        "SOXL.US", Period.Day, effective_lookback, AdjustType.ForwardAdjust
+    )
+    soxx_bars = q_ctx.candlesticks(
+        "SOXX.US", Period.Day, effective_lookback, AdjustType.ForwardAdjust
+    )
     if not soxl_bars or not soxx_bars:
         return None
 
@@ -103,4 +117,6 @@ def calculate_rotation_indicators(
         soxx_history=df_soxx["close"],
         trend_ma_window=trend_window,
         dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
+        dynamic_volatility_delever_window=dynamic_volatility_delever_window,
+        dynamic_volatility_delever_quantile_window=dynamic_volatility_delever_quantile_window,
     )

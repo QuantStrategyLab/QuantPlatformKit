@@ -34,7 +34,9 @@ def _normalize_numeric_history(
             continue
         normalized.append(numeric)
     if not normalized:
-        raise ValueError(f"Semiconductor rotation inputs require non-empty {label} history")
+        raise ValueError(
+            f"Semiconductor rotation inputs require non-empty {label} history"
+        )
     return tuple(normalized)
 
 
@@ -75,16 +77,33 @@ def _tail_std(values: tuple[float, ...], window: int) -> float:
     return _std(values[-window:])
 
 
-def _tail_realized_volatility(values: tuple[float, ...], window: int) -> float:
+def _sample_realized_volatility(values: tuple[float, ...], window: int) -> float:
     if len(values) < window + 1:
         raise ValueError("insufficient history for realized volatility")
-    tail_values = values[-(window + 1):]
+    tail_values = values[-(window + 1) :]
     returns: list[float] = []
     for previous, current in zip(tail_values, tail_values[1:]):
         if previous == 0.0:
             raise ValueError("realized volatility requires non-zero prices")
         returns.append((current / previous) - 1.0)
     return float(_sample_std(returns) * sqrt(252))
+
+
+def _tail_realized_volatility(values: tuple[float, ...], window: int) -> float:
+    return _sample_realized_volatility(values, window)
+
+
+def _realized_volatility_history(
+    values: tuple[float, ...], *, window: int
+) -> tuple[float | None, ...]:
+    if window <= 0:
+        raise ValueError("window must be positive")
+    result: list[float | None] = [None] * len(values)
+    for index in range(window, len(values)):
+        result[index] = _sample_realized_volatility(
+            values[index - window : index + 1], window
+        )
+    return tuple(result)
 
 
 def _compute_rsi(values: tuple[float, ...], *, window: int = 14) -> tuple[float, ...]:
@@ -122,22 +141,59 @@ def _compute_rsi(values: tuple[float, ...], *, window: int = 14) -> tuple[float,
     return tuple(rsis)
 
 
-def _rolling_quantile(values: tuple[float, ...], *, window: int, quantile: float) -> tuple[float | None, ...]:
+def _rolling_count(values: tuple[float | None, ...], *, window: int) -> tuple[int, ...]:
+    if window <= 0:
+        raise ValueError("window must be positive")
+    result: list[int] = [0] * len(values)
+    for index in range(len(values)):
+        start = max(0, index - window + 1)
+        result[index] = sum(
+            1 for value in values[start : index + 1] if value is not None
+        )
+    return tuple(result)
+
+
+def _rolling_quantile(
+    values: tuple[float | None, ...],
+    *,
+    window: int,
+    quantile: float,
+    min_periods: int | None = None,
+) -> tuple[float | None, ...]:
     if window <= 0:
         raise ValueError("window must be positive")
     if not 0.0 < quantile < 1.0:
         raise ValueError("quantile must be between 0 and 1")
+    effective_min_periods = window if min_periods is None else max(1, int(min_periods))
     result: list[float | None] = [None] * len(values)
-    for index in range(window - 1, len(values)):
-        chunk = sorted(values[index - window + 1 : index + 1])
-        if not chunk:
+    for index in range(len(values)):
+        start = max(0, index - window + 1)
+        chunk = sorted(
+            value for value in values[start : index + 1] if value is not None
+        )
+        if len(chunk) < effective_min_periods:
             continue
         position = (len(chunk) - 1) * quantile
         lower_index = int(position)
         upper_index = min(lower_index + 1, len(chunk) - 1)
         fraction = position - lower_index
-        result[index] = chunk[lower_index] * (1.0 - fraction) + chunk[upper_index] * fraction
+        result[index] = (
+            chunk[lower_index] * (1.0 - fraction) + chunk[upper_index] * fraction
+        )
     return tuple(result)
+
+
+def _bounded_threshold(
+    value: float | None, *, floor: float | None, cap: float | None
+) -> float | None:
+    if value is None:
+        return None
+    threshold = float(value)
+    if floor is not None:
+        threshold = max(float(floor), threshold)
+    if cap is not None:
+        threshold = min(float(cap), threshold)
+    return threshold
 
 
 def build_semiconductor_rotation_indicators_from_history(
@@ -148,6 +204,12 @@ def build_semiconductor_rotation_indicators_from_history(
     dynamic_rsi_quantile_window: int = 252,
     dynamic_rsi_quantile: float = 0.90,
     dynamic_rsi_floor: float = 70.0,
+    dynamic_volatility_delever_window: int = 10,
+    dynamic_volatility_delever_quantile_window: int = 252,
+    dynamic_volatility_delever_quantile: float = 0.95,
+    dynamic_volatility_delever_min_periods: int = 126,
+    dynamic_volatility_delever_floor: float = 0.50,
+    dynamic_volatility_delever_cap: float = 0.75,
 ) -> dict[str, dict[str, float]]:
     window = int(trend_ma_window)
     if window <= 0:
@@ -158,11 +220,26 @@ def build_semiconductor_rotation_indicators_from_history(
     rsi_quantile = float(dynamic_rsi_quantile)
     if not 0.0 < rsi_quantile < 1.0:
         raise ValueError("dynamic_rsi_quantile must be between 0 and 1")
+    volatility_window = int(dynamic_volatility_delever_window)
+    if volatility_window <= 0:
+        raise ValueError("dynamic_volatility_delever_window must be positive")
+    volatility_quantile_window = int(dynamic_volatility_delever_quantile_window)
+    if volatility_quantile_window <= 0:
+        raise ValueError("dynamic_volatility_delever_quantile_window must be positive")
+    volatility_quantile = float(dynamic_volatility_delever_quantile)
+    if not 0.0 < volatility_quantile < 1.0:
+        raise ValueError("dynamic_volatility_delever_quantile must be between 0 and 1")
+    volatility_min_periods = max(
+        1,
+        min(volatility_quantile_window, int(dynamic_volatility_delever_min_periods)),
+    )
 
     soxl_close = _normalize_numeric_history(soxl_history, label="SOXL")
     soxx_close = _normalize_numeric_history(soxx_history, label="SOXX")
     if len(soxl_close) < window or len(soxx_close) < window:
-        raise ValueError("Semiconductor rotation inputs require sufficient SOXL/SOXX history")
+        raise ValueError(
+            "Semiconductor rotation inputs require sufficient SOXL/SOXX history"
+        )
 
     soxl_ma_trend = _tail_mean(soxl_close, window)
     soxx_ma_trend = _tail_mean(soxx_close, window)
@@ -176,17 +253,68 @@ def build_semiconductor_rotation_indicators_from_history(
         window=rsi_quantile_window,
         quantile=rsi_quantile,
     )
-    previous_threshold = rsi_threshold_history[-2] if len(rsi_threshold_history) >= 2 else None
+    previous_threshold = (
+        rsi_threshold_history[-2] if len(rsi_threshold_history) >= 2 else None
+    )
     soxx_dynamic_rsi_threshold = float(
         max(
             float(dynamic_rsi_floor),
-            float(previous_threshold) if previous_threshold is not None else float(dynamic_rsi_floor),
+            float(previous_threshold)
+            if previous_threshold is not None
+            else float(dynamic_rsi_floor),
         )
     )
     soxx_bb_mid = _tail_mean(soxx_close, 20)
     soxx_bb_std = _tail_std(soxx_close, 20)
     soxx_realized_volatility_10 = _tail_realized_volatility(soxx_close, 10)
     soxx_realized_volatility_20 = _tail_realized_volatility(soxx_close, 20)
+    soxx_volatility_history = _realized_volatility_history(
+        soxx_close,
+        window=volatility_window,
+    )
+    volatility_threshold_history = _rolling_quantile(
+        soxx_volatility_history,
+        window=volatility_quantile_window,
+        quantile=volatility_quantile,
+        min_periods=volatility_min_periods,
+    )
+    soxx_dynamic_volatility_threshold = _bounded_threshold(
+        volatility_threshold_history[-1],
+        floor=dynamic_volatility_delever_floor,
+        cap=dynamic_volatility_delever_cap,
+    )
+    soxx_dynamic_volatility_sample_count = _rolling_count(
+        soxx_volatility_history,
+        window=volatility_quantile_window,
+    )[-1]
+    volatility_threshold_fields = {
+        f"realized_volatility_{volatility_window}_dynamic_threshold": soxx_dynamic_volatility_threshold,
+        f"realized_volatility_{volatility_window}_dynamic_sample_count": float(
+            soxx_dynamic_volatility_sample_count
+        ),
+        f"realized_volatility_{volatility_window}_dynamic_lookback": float(
+            volatility_quantile_window
+        ),
+        f"realized_volatility_{volatility_window}_dynamic_percentile": volatility_quantile,
+        f"realized_volatility_{volatility_window}_dynamic_min_periods": float(
+            volatility_min_periods
+        ),
+        f"realized_volatility_{volatility_window}_dynamic_floor": float(
+            dynamic_volatility_delever_floor
+        ),
+        f"realized_volatility_{volatility_window}_dynamic_cap": float(
+            dynamic_volatility_delever_cap
+        ),
+        "realized_volatility_dynamic_threshold": soxx_dynamic_volatility_threshold,
+        "realized_volatility_dynamic_sample_count": float(
+            soxx_dynamic_volatility_sample_count
+        ),
+        "realized_volatility_dynamic_lookback": float(volatility_quantile_window),
+        "realized_volatility_dynamic_percentile": volatility_quantile,
+        "realized_volatility_dynamic_min_periods": float(volatility_min_periods),
+        "realized_volatility_dynamic_floor": float(dynamic_volatility_delever_floor),
+        "realized_volatility_dynamic_cap": float(dynamic_volatility_delever_cap),
+    }
     return {
         "soxl": {
             "price": float(soxl_close[-1]),
@@ -205,6 +333,11 @@ def build_semiconductor_rotation_indicators_from_history(
             "realized_volatility": soxx_realized_volatility_20,
             "realized_volatility_10": soxx_realized_volatility_10,
             "realized_volatility_20": soxx_realized_volatility_20,
+            **{
+                key: value
+                for key, value in volatility_threshold_fields.items()
+                if value is not None
+            },
         },
     }
 
@@ -213,12 +346,17 @@ def required_semiconductor_rotation_history_lookback(
     *,
     trend_ma_window: int = 140,
     dynamic_rsi_quantile_window: int = 252,
+    dynamic_volatility_delever_window: int = 10,
+    dynamic_volatility_delever_quantile_window: int = 252,
     minimum_lookback: int = DEFAULT_SEMICONDUCTOR_ROTATION_HISTORY_LOOKBACK,
 ) -> int:
     return max(
         int(minimum_lookback),
         int(trend_ma_window) + 20,
         int(dynamic_rsi_quantile_window) + 28,
+        int(dynamic_volatility_delever_quantile_window)
+        + int(dynamic_volatility_delever_window)
+        + 1,
     )
 
 
@@ -230,6 +368,12 @@ def build_semiconductor_rotation_inputs_from_history(
     dynamic_rsi_quantile_window: int = 252,
     dynamic_rsi_quantile: float = 0.90,
     dynamic_rsi_floor: float = 70.0,
+    dynamic_volatility_delever_window: int = 10,
+    dynamic_volatility_delever_quantile_window: int = 252,
+    dynamic_volatility_delever_quantile: float = 0.95,
+    dynamic_volatility_delever_min_periods: int = 126,
+    dynamic_volatility_delever_floor: float = 0.50,
+    dynamic_volatility_delever_cap: float = 0.75,
 ) -> dict[str, dict[str, dict[str, float]]]:
     return {
         "derived_indicators": build_semiconductor_rotation_indicators_from_history(
@@ -239,6 +383,12 @@ def build_semiconductor_rotation_inputs_from_history(
             dynamic_rsi_quantile_window=dynamic_rsi_quantile_window,
             dynamic_rsi_quantile=dynamic_rsi_quantile,
             dynamic_rsi_floor=dynamic_rsi_floor,
+            dynamic_volatility_delever_window=dynamic_volatility_delever_window,
+            dynamic_volatility_delever_quantile_window=dynamic_volatility_delever_quantile_window,
+            dynamic_volatility_delever_quantile=dynamic_volatility_delever_quantile,
+            dynamic_volatility_delever_min_periods=dynamic_volatility_delever_min_periods,
+            dynamic_volatility_delever_floor=dynamic_volatility_delever_floor,
+            dynamic_volatility_delever_cap=dynamic_volatility_delever_cap,
         )
     }
 
@@ -250,7 +400,9 @@ def build_account_state_from_portfolio_snapshot(
     liquid_cash: float | None = None,
 ) -> dict[str, Any]:
     metadata = getattr(snapshot, "metadata", {}) or {}
-    raw_sellable_quantities = metadata.get("sellable_quantities") if isinstance(metadata, Mapping) else None
+    raw_sellable_quantities = (
+        metadata.get("sellable_quantities") if isinstance(metadata, Mapping) else None
+    )
     resolved_sellable_quantities: dict[str, float] = {}
     if isinstance(raw_sellable_quantities, Mapping):
         resolved_sellable_quantities = {
@@ -281,7 +433,9 @@ def build_account_state_from_portfolio_snapshot(
 
         quantity = float(position.quantity)
         quantities[symbol] = quantity
-        sellable_quantities[symbol] = float(resolved_sellable_quantities.get(symbol, quantity))
+        sellable_quantities[symbol] = float(
+            resolved_sellable_quantities.get(symbol, quantity)
+        )
         market_values[symbol] = float(position.market_value)
 
     resolved_liquid_cash = liquid_cash
@@ -301,7 +455,9 @@ def build_account_state_from_portfolio_snapshot(
         "sellable_quantities": sellable_quantities,
         "total_strategy_equity": float(snapshot.total_equity),
     }
-    raw_cash_by_currency = metadata.get("cash_by_currency") if isinstance(metadata, Mapping) else None
+    raw_cash_by_currency = (
+        metadata.get("cash_by_currency") if isinstance(metadata, Mapping) else None
+    )
     if isinstance(raw_cash_by_currency, Mapping):
         account_state["cash_by_currency"] = {
             str(currency).strip().upper(): float(amount)
@@ -321,7 +477,9 @@ def build_portfolio_snapshot_from_account_state(
     normalized_symbols = _normalize_symbols(strategy_symbols)
     market_values = dict(account_state["market_values"])
     quantities = dict(account_state["quantities"])
-    symbols = normalized_symbols or tuple(sorted(str(symbol) for symbol in market_values))
+    symbols = normalized_symbols or tuple(
+        sorted(str(symbol) for symbol in market_values)
+    )
 
     positions: list[Position] = []
     for symbol in symbols:
