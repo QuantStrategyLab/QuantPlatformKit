@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from quant_platform_kit.strategy_contracts import StrategyManifest, StrategyRuntimeAdapter
+from quant_platform_kit.strategy_contracts import (
+    StrategyManifest,
+    StrategyRuntimeAdapter,
+)
 from quant_platform_kit import (
     build_semiconductor_rotation_indicators_from_history,
     build_semiconductor_rotation_inputs_from_history,
@@ -42,7 +45,9 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(observed["call"], ("QQQ", "2 Y", "1 day"))
         self.assertEqual(payload["benchmark_history"][0]["close"], 1.0)
 
-    def test_build_ibkr_strategy_context_uses_required_inputs_and_portfolio(self) -> None:
+    def test_build_ibkr_strategy_context_uses_required_inputs_and_portfolio(
+        self,
+    ) -> None:
         entrypoint = type(
             "Entrypoint",
             (),
@@ -52,11 +57,15 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
                     domain="us_equity",
                     display_name="SOXL/SOXX Semiconductor Trend Income",
                     description="test",
-                    required_inputs=frozenset({"derived_indicators", "portfolio_snapshot"}),
+                    required_inputs=frozenset(
+                        {"derived_indicators", "portfolio_snapshot"}
+                    ),
                 )
             },
         )()
-        runtime_adapter = StrategyRuntimeAdapter(portfolio_input_name="portfolio_snapshot")
+        runtime_adapter = StrategyRuntimeAdapter(
+            portfolio_input_name="portfolio_snapshot"
+        )
         portfolio_snapshot = object()
 
         ctx = build_ibkr_strategy_context(
@@ -77,7 +86,9 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(ctx.capabilities["broker_client"], "fake-ib")
         self.assertEqual(ctx.runtime_config["translator"], "noop")
 
-    def test_build_semiconductor_rotation_indicators_uses_soxl_and_soxx_history(self) -> None:
+    def test_build_semiconductor_rotation_indicators_uses_soxl_and_soxx_history(
+        self,
+    ) -> None:
         observed = []
 
         def fake_loader(_ib, symbol, duration="2 Y", bar_size="1 day"):
@@ -118,11 +129,22 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertIn("realized_volatility_10", indicators["soxx"])
         self.assertIn("realized_volatility_20", indicators["soxx"])
         self.assertEqual(
+            indicators["soxx"]["realized_volatility_10_dynamic_threshold"], 0.50
+        )
+        self.assertEqual(
+            indicators["soxx"]["realized_volatility_10_dynamic_sample_count"], 160.0
+        )
+        self.assertEqual(
+            indicators["soxx"]["realized_volatility_10_dynamic_percentile"], 0.95
+        )
+        self.assertEqual(
             indicators["soxx"]["realized_volatility"],
             indicators["soxx"]["realized_volatility_20"],
         )
 
-    def test_build_semiconductor_rotation_indicators_from_history_is_generic(self) -> None:
+    def test_build_semiconductor_rotation_indicators_from_history_is_generic(
+        self,
+    ) -> None:
         indicators = build_semiconductor_rotation_indicators_from_history(
             soxl_history=[100.0 + idx for idx in range(170)],
             soxx_history=[200.0 + idx for idx in range(170)],
@@ -144,6 +166,12 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertGreater(indicators["soxx"]["bb_upper"], indicators["soxx"]["price"])
         self.assertIn("realized_volatility_10", indicators["soxx"])
         self.assertIn("realized_volatility_20", indicators["soxx"])
+        self.assertEqual(
+            indicators["soxx"]["realized_volatility_10_dynamic_threshold"], 0.50
+        )
+        self.assertEqual(
+            indicators["soxx"]["realized_volatility_dynamic_threshold"], 0.50
+        )
         wrapped = build_semiconductor_rotation_inputs_from_history(
             soxl_history=[100.0 + idx for idx in range(170)],
             soxx_history=[200.0 + idx for idx in range(170)],
@@ -152,7 +180,9 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(set(wrapped), {"derived_indicators"})
         self.assertEqual(wrapped["derived_indicators"]["soxl"]["price"], 269.0)
 
-    def test_build_semiconductor_rotation_indicators_accepts_short_dynamic_rsi_window(self) -> None:
+    def test_build_semiconductor_rotation_indicators_accepts_short_dynamic_rsi_window(
+        self,
+    ) -> None:
         indicators = build_semiconductor_rotation_indicators_from_history(
             soxl_history=[100.0 + idx for idx in range(170)],
             soxx_history=[200.0 + idx for idx in range(170)],
@@ -181,11 +211,31 @@ class IbkrRuntimeInputsTests(unittest.TestCase):
         self.assertEqual(payload["derived_indicators"]["soxx"]["price"], 200.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["ma20"], 200.0)
         self.assertEqual(payload["derived_indicators"]["soxx"]["rsi14"], 50.0)
-        self.assertEqual(payload["derived_indicators"]["soxx"]["rsi14_dynamic_threshold"], 70.0)
-        self.assertEqual(payload["derived_indicators"]["soxx"]["realized_volatility_10"], 0.0)
-        self.assertEqual(payload["derived_indicators"]["soxx"]["realized_volatility_20"], 0.0)
+        self.assertEqual(
+            payload["derived_indicators"]["soxx"]["rsi14_dynamic_threshold"], 70.0
+        )
+        self.assertEqual(
+            payload["derived_indicators"]["soxx"]["realized_volatility_10"], 0.0
+        )
+        self.assertEqual(
+            payload["derived_indicators"]["soxx"]["realized_volatility_20"], 0.0
+        )
+        self.assertEqual(
+            payload["derived_indicators"]["soxx"][
+                "realized_volatility_10_dynamic_threshold"
+            ],
+            0.50,
+        )
+        self.assertEqual(
+            payload["derived_indicators"]["soxx"][
+                "realized_volatility_10_dynamic_sample_count"
+            ],
+            160.0,
+        )
 
-    def test_build_semiconductor_rotation_indicators_requires_sufficient_history(self) -> None:
+    def test_build_semiconductor_rotation_indicators_requires_sufficient_history(
+        self,
+    ) -> None:
         def fake_loader(_ib, symbol, duration="2 Y", bar_size="1 day"):
             if symbol == "SOXL":
                 return [100.0] * 100
