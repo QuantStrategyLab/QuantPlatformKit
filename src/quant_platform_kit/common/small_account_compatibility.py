@@ -147,7 +147,7 @@ def apply_small_account_cash_compatibility(
                 safe_haven_substituted.append(symbol)
 
     notes: list[dict[str, object]] = []
-    if safe_haven_substituted:
+    if substituted:
         normalized_targets = {
             _normalize_symbol(symbol): float(value or 0.0)
             for symbol, value in dict(target_values or {}).items()
