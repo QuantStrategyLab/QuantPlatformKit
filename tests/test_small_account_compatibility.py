@@ -68,7 +68,17 @@ class SmallAccountCompatibilityTests(unittest.TestCase):
         self.assertEqual(result.targets["BOXX"], 5000.0)
         self.assertEqual(result.whole_share_substituted_symbols, ("SOXX",))
         self.assertEqual(result.safe_haven_cash_substituted_symbols, ())
-        self.assertEqual(result.cash_substitution_notes, ())
+        self.assertEqual(
+            result.cash_substitution_notes,
+            (
+                {
+                    "symbol": "SOXX",
+                    "target_value": 163.14,
+                    "price": 504.60,
+                    "cash_symbols": (),
+                },
+            ),
+        )
 
     def test_formats_cash_substitution_notes_through_i18n(self):
         messages = format_small_account_cash_substitution_notes(
@@ -85,7 +95,7 @@ class SmallAccountCompatibilityTests(unittest.TestCase):
                 "buy_deferred": "ℹ️ [买入说明] {detail}",
                 "buy_deferred_small_account_cash_substitution": (
                     "{symbol} 目标金额 ${diff} 低于 1 股价格 ${price}；"
-                    "为避免超过目标仓位，小账户本轮保留现金，不回补 {cash_symbols}"
+                    "为避免超过目标仓位，本轮保留现金（现金替代：{cash_symbols}）"
                 ),
             }.get(key, key).format(**kwargs),
         )
@@ -94,7 +104,7 @@ class SmallAccountCompatibilityTests(unittest.TestCase):
             messages,
             (
                 "ℹ️ [买入说明] SOXX.US 目标金额 $163.14 低于 1 股价格 $504.60；"
-                "为避免超过目标仓位，小账户本轮保留现金，不回补 BOXX.US",
+                "为避免超过目标仓位，本轮保留现金（现金替代：BOXX.US）",
             ),
         )
 
