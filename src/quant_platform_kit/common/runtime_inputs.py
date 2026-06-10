@@ -448,12 +448,18 @@ def build_account_state_from_portfolio_snapshot(
     if resolved_liquid_cash is None:
         resolved_liquid_cash = 0.0
 
+    total_strategy_equity = (
+        float(resolved_liquid_cash) + sum(float(value) for value in market_values.values())
+        if filter_enabled
+        else float(snapshot.total_equity)
+    )
+
     account_state = {
         "available_cash": float(resolved_liquid_cash),
         "market_values": market_values,
         "quantities": quantities,
         "sellable_quantities": sellable_quantities,
-        "total_strategy_equity": float(snapshot.total_equity),
+        "total_strategy_equity": total_strategy_equity,
     }
     raw_cash_by_currency = (
         metadata.get("cash_by_currency") if isinstance(metadata, Mapping) else None

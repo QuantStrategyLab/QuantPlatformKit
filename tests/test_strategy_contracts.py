@@ -353,8 +353,23 @@ class StrategyContractMigrationTests(unittest.TestCase):
             account_state["sellable_quantities"],
             {"TQQQ": 3, "BOXX": 10, "QQQI": 0},
         )
-        self.assertEqual(account_state["total_strategy_equity"], 50000.0)
+        self.assertEqual(account_state["total_strategy_equity"], 14000.0)
         self.assertEqual(account_state["cash_by_currency"], {"USD": 8000.0, "SGD": 350.0})
+
+    def test_build_account_state_without_strategy_symbols_preserves_snapshot_equity(self) -> None:
+        snapshot = PortfolioSnapshot(
+            as_of="2026-04-09",
+            total_equity=50000.0,
+            buying_power=12000.0,
+            positions=(
+                Position(symbol="TQQQ", quantity=5, market_value=1000.0),
+                Position(symbol="QQQ", quantity=99, market_value=9999.0),
+            ),
+        )
+
+        account_state = build_account_state_from_portfolio_snapshot(snapshot)
+
+        self.assertEqual(account_state["total_strategy_equity"], 50000.0)
 
     def test_build_portfolio_snapshot_from_account_state_keeps_strategy_symbol_order(self) -> None:
         snapshot = build_portfolio_snapshot_from_account_state(
