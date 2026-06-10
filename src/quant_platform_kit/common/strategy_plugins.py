@@ -11,6 +11,13 @@ from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import Any, Callable
 
+from quant_platform_kit.common.strategy_plugin_artifacts import (
+    cache_path_for_remote_artifact,
+    download_gcs_object,
+    materialize_local_or_gcs_artifact,
+    parse_gcs_uri,
+)
+
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
 PLUGIN_MARKET_REGIME_CONTROL = "market_regime_control"
 PLUGIN_MACRO_RISK_GOVERNOR = "macro_risk_governor"
@@ -1237,42 +1244,23 @@ def _sanitize_key_part(value: Any) -> str:
 
 
 def _materialize_artifact_path(reference: str, *, client_factory: Any = None) -> tuple[Path, dict[str, str | None]]:
-    raw_reference = _required_string(reference, field_name="reference")
-    if not raw_reference.startswith("gs://"):
-        return Path(raw_reference).expanduser(), {"source_uri": None, "local_path": raw_reference}
-
-    local_path = _cache_path_for_remote_artifact(raw_reference)
-    _download_gcs_object(raw_reference, local_path, client_factory=client_factory)
-    return local_path, {"source_uri": raw_reference, "local_path": str(local_path)}
+    return materialize_local_or_gcs_artifact(
+        reference,
+        cache_dir=DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR,
+        client_factory=client_factory,
+    )
 
 
 def _download_gcs_object(uri: str, destination: Path, *, client_factory: Any = None) -> None:
-    if client_factory is None:
-        try:
-            from google.cloud import storage  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("google-cloud-storage is required for GCS strategy plugin artifacts") from exc
-        client_factory = storage.Client
-    bucket_name, object_name = _parse_gcs_uri(uri)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    client = client_factory()
-    client.bucket(bucket_name).blob(object_name).download_to_filename(str(destination))
+    download_gcs_object(uri, destination, client_factory=client_factory)
 
 
 def _parse_gcs_uri(uri: str) -> tuple[str, str]:
-    raw_uri = str(uri or "").strip()
-    if not raw_uri.startswith("gs://"):
-        raise ValueError(f"Unsupported GCS URI: {raw_uri}")
-    bucket_name, _, object_name = raw_uri[5:].partition("/")
-    if not bucket_name or not object_name:
-        raise ValueError(f"Invalid GCS URI: {raw_uri}")
-    return bucket_name, object_name
+    return parse_gcs_uri(uri)
 
 
 def _cache_path_for_remote_artifact(reference: str) -> Path:
-    digest = hashlib.sha256(reference.encode("utf-8")).hexdigest()[:16]
-    leaf_name = Path(reference).name or "latest_signal.json"
-    return DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR / digest / leaf_name
+    return cache_path_for_remote_artifact(reference, cache_dir=DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR)
 
 
 def _as_bool(value: Any, *, default: bool = False) -> bool:
