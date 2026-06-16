@@ -933,6 +933,8 @@ def should_alert_strategy_plugin_signal(signal: StrategyPluginSignal) -> bool:
     action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
     if _is_strategy_position_control_notice(signal, action=action):
         return False
+    if _is_strategy_manual_review_notification_delegated(signal):
+        return False
     return (
         bool(getattr(signal, "would_trade_if_enabled", False))
         or route not in STRATEGY_PLUGIN_NON_ALERT_ROUTES
@@ -960,6 +962,21 @@ def _is_strategy_position_control_notice(signal: StrategyPluginSignal, *, action
         return False
     evidence_status = _normalize_strategy_plugin_field(controls.get("consumption_evidence_status"))
     return evidence_status == "automation_approved"
+
+
+def _is_strategy_manual_review_notification_delegated(signal: StrategyPluginSignal) -> bool:
+    """Return true when a strategy artifact delegates human-review alerts to a notification target."""
+
+    target_type = _normalize_strategy_plugin_field(getattr(signal, "target_type", None)) or "strategy"
+    if target_type != "strategy":
+        return False
+    controls = getattr(signal, "execution_controls", {}) or {}
+    if not isinstance(controls, Mapping):
+        return False
+    if not _as_bool(controls.get("manual_review_notification_delegated"), default=False):
+        return False
+    notification_target = _optional_string(controls.get("manual_review_notification_target"))
+    return notification_target is not None
 
 
 def build_strategy_plugin_alert_guidance(
@@ -1124,7 +1141,16 @@ def build_strategy_plugin_alert_messages(
         strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip()
         notification_target = str(getattr(signal, "notification_target", None) or "").strip()
         target_label = strategy or notification_target or "unknown"
-        target_name = "Notification target" if target_type == "notification_target" else "Strategy"
+        target_name_key = (
+            "strategy_plugin_alert_target_name_notification_target"
+            if target_type == "notification_target"
+            else "strategy_plugin_alert_target_name_strategy"
+        )
+        target_name = _translate(
+            translator,
+            target_name_key,
+            fallback="Notification target" if target_type == "notification_target" else "Strategy",
+        )
         guidance = build_strategy_plugin_alert_guidance(signal, translator=translator)
         scope_note = build_strategy_plugin_alert_scope_note(signal, translator=translator)
         ai_audit_note = build_strategy_plugin_ai_audit_note(signal, translator=translator)

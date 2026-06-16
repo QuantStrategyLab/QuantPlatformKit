@@ -96,6 +96,12 @@ defaults may consume `risk_off` and deterministic
 default. Broad market-regime notifications may still be published through the
 separate `notification_targets.market_regime_notification` artifact for manual
 review; notification-target artifacts cannot affect position sizing.
+When a strategy-mounted market-regime artifact carries
+`execution_controls.manual_review_notification_delegated = true`, platform
+strategy runners should treat manual-review plugin-bot delivery as delegated to
+that notification target. They may still attach the strategy artifact to runtime
+metadata and may still report any actual position effect in the strategy run
+notification.
 SOXL retention profiles may include a deterministic SOXX price/volatility
 rebound context. That context is backtestable hard-data evidence only and must
 not promote TACO, panic reversal, AI audit, OSINT, or localized copy into
@@ -190,9 +196,14 @@ Strategy-mounted artifacts that are automation-approved, expose
 `position_control_allowed = true`, and request an automatic `defend` or
 `delever` action are intentionally excluded from the dedicated plugin-alert
 stream. Those position-impacting events should be reported by the strategy run
-that consumed the artifact. The plugin-alert stream remains for manual-review
-or notification-only cases, including `notification_targets`, `blocked`,
-`watch_only`, and `notify_manual_review` routes.
+that consumed the artifact. Strategy artifacts can also explicitly delegate
+manual-review plugin-bot delivery with
+`execution_controls.manual_review_notification_delegated = true` plus
+`manual_review_notification_target`; those delegated alerts are sent once from
+the matching `notification_targets` artifact. The plugin-alert stream remains
+for non-delegated manual-review or notification-only cases, including
+`notification_targets`, `blocked`, `watch_only`, and `notify_manual_review`
+routes.
 
 Platforms may still choose their delivery sinks, but shared escalation helpers
 are available for email, SMS, push, and Telegram:

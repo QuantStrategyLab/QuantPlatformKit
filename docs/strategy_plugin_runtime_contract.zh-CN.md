@@ -85,6 +85,10 @@ SOXL/SOXX 已列入 `market_regime_control` 的运行时挂载清单。策略默
 `risk_off` 和确定性的 `position_control.volatility_delever_context` retention
 profiles；`risk_reduced` 仓位影响仍在策略默认配置中关闭。广义市场状态通知仍可通过独立的
 `notification_targets.market_regime_notification` artifact 分发给人工复核；notification-target artifact 不能影响仓位。
+当 strategy-mounted market-regime artifact 带有
+`execution_controls.manual_review_notification_delegated = true` 时，平台策略
+runner 应把人工复核插件 bot 通知视为已委托给该 notification target。策略
+runner 仍可把 strategy artifact 挂入 runtime metadata，并在策略运行通知中报告实际仓位影响。
 SOXL retention profiles 可以包含确定性的 SOXX 价格/波动反弹上下文。该上下文只使用可回测硬数据，
 不能把 TACO、panic reversal、AI audit、OSINT 或本地化文案升级成自动仓位权限。
 
@@ -171,8 +175,12 @@ sidecar 路径维护插件账本或执行插件驱动的 allocation 变更。
 如果 strategy-mounted artifact 已经是 `automation_approved`、暴露
 `position_control_allowed = true`，并且请求自动 `defend` 或 `delever`
 动作，则专用插件告警流会刻意跳过它。这类会影响仓位的事件应由实际消费该
-artifact 的策略运行结果通知。插件告警流只保留给人工复核或 notification-only
-场景，包括 `notification_targets`、`blocked`、`watch_only` 和
+artifact 的策略运行结果通知。strategy artifact 也可以通过
+`execution_controls.manual_review_notification_delegated = true` 和
+`manual_review_notification_target` 明确把人工复核插件 bot 通知委托给统一
+notification target；这类委托告警只从对应 `notification_targets` artifact
+发送一次。插件告警流只保留给未委托的人工复核或 notification-only 场景，
+包括 `notification_targets`、`blocked`、`watch_only` 和
 `notify_manual_review` 路线。
 
 平台仍可选择自己的投递 sink；共享 helper 已提供 email、SMS、push 和
