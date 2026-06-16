@@ -728,6 +728,78 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         self.assertIn("Manual review only", alerts[0].body)
 
+    def test_delegated_manual_review_strategy_signal_stays_with_notification_target(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "canonical_route": "opportunity_watch",
+                "suggested_action": "notify_manual_review",
+                "would_trade_if_enabled": False,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": True,
+                    "position_control_allowed": True,
+                    "consumption_evidence_status": "automation_approved",
+                    "manual_review_notification_delegated": True,
+                    "manual_review_notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+                    "manual_review_notification_delegate": (
+                        f"notification_target:{GENERAL_MARKET_REGIME_NOTIFICATION_TARGET}"
+                    ),
+                },
+            }
+        )
+
+        self.assertFalse(should_alert_strategy_plugin_signal(signal))
+        self.assertEqual(build_strategy_plugin_alert_messages([signal]), ())
+
+    def test_notification_target_alert_uses_localized_target_name(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "target_type": "notification_target",
+                "strategy": "",
+                "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+                "canonical_route": "watch",
+                "suggested_action": "notify_manual_review",
+                "would_trade_if_enabled": False,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": False,
+                    "position_control_allowed": False,
+                    "consumption_evidence_status": "notification_only",
+                    "capital_impact": "notification_only",
+                },
+            }
+        )
+        translations = {
+            "strategy_plugin_alert_subject": "告警:{plugin}:{route}",
+            "strategy_plugin_alert_title": "插件告警",
+            "strategy_plugin_alert_target": "{target_name}={target}",
+            "strategy_plugin_alert_target_name_notification_target": "通知目标",
+            "strategy_plugin_alert_plugin": "插件={plugin}",
+            "strategy_plugin_alert_status": "状态={route}",
+            "strategy_plugin_alert_action": "建议={action}",
+            "strategy_plugin_alert_mode": "模式={mode}",
+            "strategy_plugin_alert_as_of": "时间={as_of}",
+            "strategy_plugin_alert_scope_note": "范围={scope_note}",
+            "strategy_plugin_alert_scope": "只通知人工复核",
+            "strategy_plugin_name_market_regime_control": "市场状态控制通知",
+            "strategy_plugin_mode_shadow": "影子观察",
+            "strategy_plugin_route_watch": "观察",
+            "strategy_plugin_action_notify_manual_review": "通知人工复核",
+        }
+
+        alerts = build_strategy_plugin_alert_messages(
+            [signal],
+            translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+            if kwargs
+            else translations.get(key, key),
+        )
+
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("通知目标=market_regime_notification", alerts[0].body)
+        self.assertNotIn("Notification target", alerts[0].body)
+
     def test_strategy_plugin_true_crisis_builds_generic_alert_message(self):
         signal = validate_strategy_plugin_signal_payload(
             {
