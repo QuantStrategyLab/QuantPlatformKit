@@ -2,7 +2,9 @@
 
 from .notification_localization import (
     COMMON_ZH_NOTIFICATION_REPLACEMENTS,
+    STRATEGY_PLUGIN_I18N,
     localize_notification_text,
+    merge_strategy_plugin_i18n,
     translator_uses_zh,
 )
 from .execution_outcomes import (
@@ -113,6 +115,7 @@ __all__ = [
     "STRATEGY_PLUGIN_ALERT_CHANNEL_SMS",
     "STRATEGY_PLUGIN_ALERT_CHANNEL_TELEGRAM",
     "STRATEGY_PLUGIN_ALERT_ACTIONS",
+    "STRATEGY_PLUGIN_I18N",
     "STRATEGY_PLUGIN_NON_ALERT_ROUTES",
     "STRATEGY_PLUGIN_NOTIFICATION_TARGETS",
     "STRATEGY_PLUGIN_SCHEMA_VERSIONS",
@@ -124,6 +127,7 @@ __all__ = [
     "is_terminal_funding_block",
     "is_terminal_strategy_run_stage",
     "localize_notification_text",
+    "merge_strategy_plugin_i18n",
     "normalize_skip_reason",
     "normalize_stage",
     "resolve_strategy_run_stage",
