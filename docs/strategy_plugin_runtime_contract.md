@@ -96,6 +96,10 @@ defaults may consume `risk_off` and deterministic
 default. Broad market-regime notifications may still be published through the
 separate `notification_targets.market_regime_notification` artifact for manual
 review; notification-target artifacts cannot affect position sizing.
+SOXL retention profiles may include a deterministic SOXX price/volatility
+rebound context. That context is backtestable hard-data evidence only and must
+not promote TACO, panic reversal, AI audit, OSINT, or localized copy into
+automatic position authority.
 
 ## Runtime Loader
 
