@@ -1037,6 +1037,183 @@ def build_strategy_plugin_alert_scope_note(
     )
 
 
+def _strategy_plugin_alert_locale(*, translator: Callable[..., str] | None = None) -> str:
+    locale = _translate(translator, "strategy_plugin_alert_locale", fallback="en-US")
+    return str(locale or "en-US").strip() or "en-US"
+
+
+def _localized_strategy_plugin_label_values(
+    signal: StrategyPluginSignal,
+    label_name: str,
+    *,
+    locale: str,
+) -> tuple[str, ...]:
+    payload = getattr(signal, "payload", {}) or {}
+    if not isinstance(payload, Mapping):
+        return ()
+    localized_messages = payload.get("localized_messages")
+    if not isinstance(localized_messages, Mapping):
+        return ()
+    labels = localized_messages.get("labels")
+    if not isinstance(labels, Mapping):
+        return ()
+    label_values = labels.get(label_name)
+    if not isinstance(label_values, Mapping):
+        return ()
+
+    candidates = [locale]
+    if "-" in locale:
+        candidates.append(locale.split("-", 1)[0])
+    default_locale = _optional_string(localized_messages.get("default_locale"))
+    if default_locale:
+        candidates.append(default_locale)
+
+    for candidate in candidates:
+        value = label_values.get(candidate)
+        if isinstance(value, str):
+            text = value.strip()
+            return (text,) if text else ()
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+            values = tuple(str(item).strip() for item in value if str(item).strip())
+            if values:
+                return values
+    return ()
+
+
+def _strategy_plugin_reason_values(signal: StrategyPluginSignal, *, locale: str) -> tuple[str, ...]:
+    localized_reasons = _localized_strategy_plugin_label_values(signal, "reason_codes", locale=locale)
+    if localized_reasons:
+        return localized_reasons
+
+    payload = getattr(signal, "payload", {}) or {}
+    if isinstance(payload, Mapping):
+        log_record = payload.get("log_record")
+        if isinstance(log_record, Mapping):
+            reason_codes = log_record.get("reason_codes")
+            if isinstance(reason_codes, Sequence) and not isinstance(reason_codes, (str, bytes)):
+                values = tuple(str(item).strip() for item in reason_codes if str(item).strip())
+                if values:
+                    return values
+        position_control = payload.get("position_control")
+        if isinstance(position_control, Mapping):
+            reason_codes = position_control.get("reason_codes")
+            if isinstance(reason_codes, Sequence) and not isinstance(reason_codes, (str, bytes)):
+                values = tuple(str(item).strip() for item in reason_codes if str(item).strip())
+                if values:
+                    return values
+    return ()
+
+
+def build_strategy_plugin_alert_reason_summary(
+    signal: StrategyPluginSignal,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str:
+    locale = _strategy_plugin_alert_locale(translator=translator)
+    reasons = _strategy_plugin_reason_values(signal, locale=locale)
+    if not reasons:
+        return _translate(
+            translator,
+            "strategy_plugin_alert_reason_none",
+            fallback="no explicit reason provided",
+        )
+    joiner = _translate(translator, "strategy_plugin_alert_reason_joiner", fallback=", ")
+    return str(joiner).join(reasons)
+
+
+def _translate_first_formatted(
+    translator: Callable[..., str] | None,
+    keys: Sequence[str],
+    **kwargs: Any,
+) -> str | None:
+    if translator is None:
+        return None
+    for key in keys:
+        translated = translator(key, **kwargs)
+        if translated != key:
+            text = str(translated).strip()
+            if text:
+                return text
+    return None
+
+
+def build_strategy_plugin_alert_situation(
+    signal: StrategyPluginSignal,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str:
+    plugin = _normalize_strategy_plugin_field(getattr(signal, "plugin", None))
+    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
+    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
+    reasons = build_strategy_plugin_alert_reason_summary(signal, translator=translator)
+    translated = _translate_first_formatted(
+        translator,
+        (
+            f"strategy_plugin_situation_{plugin}_{route}_{action}",
+            f"strategy_plugin_situation_{plugin}_{route}",
+            f"strategy_plugin_situation_{plugin}_{action}",
+            f"strategy_plugin_situation_{route}_{action}",
+            f"strategy_plugin_situation_{route}",
+            f"strategy_plugin_situation_{action}",
+            "strategy_plugin_situation_default",
+        ),
+        reasons=reasons,
+    )
+    if translated:
+        return translated
+    return f"The plugin found a market state that needs attention. Trigger: {reasons}."
+
+
+def build_strategy_plugin_alert_recommendation(
+    signal: StrategyPluginSignal,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str:
+    plugin = _normalize_strategy_plugin_field(getattr(signal, "plugin", None))
+    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
+    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
+    translated = _translate_first_formatted(
+        translator,
+        (
+            f"strategy_plugin_recommendation_{plugin}_{route}_{action}",
+            f"strategy_plugin_recommendation_{plugin}_{route}",
+            f"strategy_plugin_recommendation_{plugin}_{action}",
+            f"strategy_plugin_recommendation_{route}_{action}",
+            f"strategy_plugin_recommendation_{route}",
+            f"strategy_plugin_recommendation_{action}",
+            "strategy_plugin_recommendation_default",
+        ),
+    )
+    if translated:
+        return translated
+    return (
+        "Review manually first, then decide whether the action belongs to strategy rules or a manual process; "
+        "do not treat the plugin notice as a trade instruction."
+    )
+
+
+def _strategy_plugin_alert_display_context(
+    raw_context: str,
+    signal: StrategyPluginSignal,
+    *,
+    target_label: str,
+    translator: Callable[..., str] | None = None,
+) -> str:
+    context = str(raw_context or "").strip()
+    if not context:
+        return ""
+    normalized = context.strip().lower()
+    notification_target = str(getattr(signal, "notification_target", None) or "").strip()
+    if normalized == f"strategy-plugin-publish / {notification_target}".lower() and notification_target:
+        return _translate(
+            translator,
+            "strategy_plugin_alert_context_strategy_plugin_publish",
+            fallback="plugin publish / {target}",
+            target=target_label,
+        )
+    return context
+
+
 def build_strategy_plugin_ai_audit_note(
     signal: StrategyPluginSignal,
     *,
@@ -1141,6 +1318,21 @@ def build_strategy_plugin_alert_messages(
         strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip()
         notification_target = str(getattr(signal, "notification_target", None) or "").strip()
         target_label = strategy or notification_target or "unknown"
+        display_target_label = target_label
+        if target_type == "notification_target" and notification_target:
+            display_target_label = translate_strategy_plugin_value(
+                "notification_target",
+                notification_target,
+                translator=translator,
+            )
+        elif strategy:
+            display_target_label = translate_strategy_plugin_value("strategy", strategy, translator=translator)
+        display_context = _strategy_plugin_alert_display_context(
+            context,
+            signal,
+            target_label=display_target_label,
+            translator=translator,
+        )
         target_name_key = (
             "strategy_plugin_alert_target_name_notification_target"
             if target_type == "notification_target"
@@ -1152,6 +1344,8 @@ def build_strategy_plugin_alert_messages(
             fallback="Notification target" if target_type == "notification_target" else "Strategy",
         )
         guidance = build_strategy_plugin_alert_guidance(signal, translator=translator)
+        situation = build_strategy_plugin_alert_situation(signal, translator=translator)
+        recommendation = build_strategy_plugin_alert_recommendation(signal, translator=translator)
         scope_note = build_strategy_plugin_alert_scope_note(signal, translator=translator)
         ai_audit_note = build_strategy_plugin_ai_audit_note(signal, translator=translator)
         subject = _translate(
@@ -1162,19 +1356,19 @@ def build_strategy_plugin_alert_messages(
             plugin=plugin,
             route=translated_route,
         )
-        if context:
-            subject = f"[{context}] {subject}"
+        if display_context:
+            subject = f"[{display_context}] {subject}"
         body_lines = [
             _translate(translator, "strategy_plugin_alert_title", fallback="Strategy Plugin Alert"),
             "",
         ]
-        if context:
+        if display_context:
             body_lines.append(
                 _translate(
                     translator,
                     "strategy_plugin_alert_context",
                     fallback="Context: {context}",
-                    context=context,
+                    context=display_context,
                 )
             )
         body_lines.extend(
@@ -1184,13 +1378,31 @@ def build_strategy_plugin_alert_messages(
                     "strategy_plugin_alert_target",
                     fallback="{target_name}: {target}",
                     target_name=target_name,
-                    target=target_label,
+                    target=display_target_label,
                 ),
                 _translate(
                     translator,
                     "strategy_plugin_alert_plugin",
                     fallback="Plugin: {plugin}",
                     plugin=plugin,
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_as_of",
+                    fallback="Signal as-of: {as_of}",
+                    as_of=getattr(signal, "as_of", None) or "unknown",
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_situation",
+                    fallback="Situation: {situation}",
+                    situation=situation,
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_recommendation",
+                    fallback="Suggested review: {recommendation}",
+                    recommendation=recommendation,
                 ),
                 _translate(
                     translator,
@@ -1209,12 +1421,6 @@ def build_strategy_plugin_alert_messages(
                     "strategy_plugin_alert_mode",
                     fallback="Mode: {mode}",
                     mode=translated_mode,
-                ),
-                _translate(
-                    translator,
-                    "strategy_plugin_alert_as_of",
-                    fallback="Signal as-of: {as_of}",
-                    as_of=getattr(signal, "as_of", None) or "unknown",
                 ),
             ]
         )
@@ -1251,6 +1457,11 @@ def build_strategy_plugin_alert_messages(
             "suggested_action": getattr(signal, "suggested_action", None),
             "would_trade_if_enabled": bool(getattr(signal, "would_trade_if_enabled", False)),
             "context_label": context or None,
+            "display_context_label": display_context or None,
+            "display_target": display_target_label,
+            "situation": situation,
+            "recommendation": recommendation,
+            "reason_summary": build_strategy_plugin_alert_reason_summary(signal, translator=translator),
             "guidance": guidance,
             "scope_note": scope_note,
             "ai_audit": getattr(signal, "payload", {}).get("ai_audit")

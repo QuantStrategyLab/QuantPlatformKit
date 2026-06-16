@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 
+from quant_platform_kit.common.notification_localization import STRATEGY_PLUGIN_I18N
 from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.common.strategy_plugins import (
     CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
@@ -799,6 +800,59 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertEqual(len(alerts), 1)
         self.assertIn("通知目标=market_regime_notification", alerts[0].body)
         self.assertNotIn("Notification target", alerts[0].body)
+
+    def test_market_regime_notification_alert_explains_situation_and_next_step_in_zh(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "target_type": "notification_target",
+                "strategy": "",
+                "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+                "canonical_route": "watch",
+                "suggested_action": "watch_only",
+                "would_trade_if_enabled": False,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": False,
+                    "position_control_allowed": False,
+                    "consumption_evidence_status": "notification_only",
+                    "capital_impact": "notification_only",
+                },
+                "localized_messages": {
+                    "default_locale": "en-US",
+                    "labels": {
+                        "reason_codes": {
+                            "en-US": ["Macro: high realized volatility"],
+                            "zh-CN": ["宏观：实现波动偏高"],
+                        }
+                    },
+                },
+                "log_record": {
+                    "reason_codes": ["macro:benchmark_realized_volatility_high"],
+                },
+            }
+        )
+        translations = STRATEGY_PLUGIN_I18N["zh"]
+
+        alerts = build_strategy_plugin_alert_messages(
+            [signal],
+            translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+            if kwargs
+            else translations.get(key, key),
+            context_label="strategy-plugin-publish / market_regime_notification",
+        )
+
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("[插件发布 / 统一市场状态通知]", alerts[0].subject)
+        self.assertNotIn("strategy-plugin-publish", alerts[0].subject)
+        self.assertIn("通知对象：统一市场状态通知", alerts[0].body)
+        self.assertIn("当前情况：当前不是危机，也不是自动抄底信号", alerts[0].body)
+        self.assertIn("宏观：实现波动偏高", alerts[0].body)
+        self.assertIn("建议处理：先人工核对市场环境和现有仓位", alerts[0].body)
+        self.assertIn("动作边界：仅观察，不自动交易", alerts[0].body)
+        self.assertIn("自动化边界：这条通知只用于人工复核", alerts[0].body)
+        self.assertEqual(alerts[0].metadata["display_target"], "统一市场状态通知")
+        self.assertEqual(alerts[0].metadata["reason_summary"], "宏观：实现波动偏高")
 
     def test_strategy_plugin_true_crisis_builds_generic_alert_message(self):
         signal = validate_strategy_plugin_signal_payload(
