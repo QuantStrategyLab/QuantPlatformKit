@@ -162,12 +162,21 @@ sidecar 路径维护插件账本或执行插件驱动的 allocation 变更。
 - `suggested_action` 是 `defend` 或 `blocked`
 - `would_trade_if_enabled` 是 `true`
 
+如果 strategy-mounted artifact 已经是 `automation_approved`、暴露
+`position_control_allowed = true`，并且请求自动 `defend` 或 `delever`
+动作，则专用插件告警流会刻意跳过它。这类会影响仓位的事件应由实际消费该
+artifact 的策略运行结果通知。插件告警流只保留给人工复核或 notification-only
+场景，包括 `notification_targets`、`blocked`、`watch_only` 和
+`notify_manual_review` 路线。
+
 平台仍可选择自己的投递 sink；共享 helper 已提供 email、SMS、push 和
 Telegram 的聚合入口：
 
 - `quant_platform_kit.notifications.strategy_plugin_alerts.publish_strategy_plugin_alerts()`
 - `quant_platform_kit.notifications.strategy_plugin_email.publish_strategy_plugin_email_alerts()`
 - `quant_platform_kit.notifications.strategy_plugin_sms.publish_strategy_plugin_sms_alerts()`
+- `quant_platform_kit.notifications.strategy_plugin_push.publish_strategy_plugin_push_alerts()`
+- `quant_platform_kit.notifications.strategy_plugin_telegram.publish_strategy_plugin_telegram_alerts()`
 
 publisher 会构造共享 subject/body、追加平台上下文、返回结构化
 sent/skipped/failed diagnostics，并可使用 marker store 跳过某个通道已发送过的

@@ -663,6 +663,71 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertFalse(should_alert_strategy_plugin_signal(signal))
         self.assertEqual(build_strategy_plugin_alert_messages([signal]), ())
 
+    def test_strategy_plugin_auto_position_control_signal_stays_with_strategy_notification(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "canonical_route": "risk_off",
+                "suggested_action": "defend",
+                "would_trade_if_enabled": True,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": True,
+                    "position_control_allowed": True,
+                    "consumption_evidence_status": "automation_approved",
+                },
+            }
+        )
+
+        self.assertFalse(should_alert_strategy_plugin_signal(signal))
+        self.assertEqual(build_strategy_plugin_alert_messages([signal]), ())
+
+    def test_strategy_plugin_notification_target_still_alerts_plugin_bot(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "target_type": "notification_target",
+                "strategy": "",
+                "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+                "canonical_route": "risk_off",
+                "suggested_action": "defend",
+                "would_trade_if_enabled": True,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": False,
+                    "position_control_allowed": False,
+                    "consumption_evidence_status": "notification_only",
+                    "capital_impact": "notification_only",
+                },
+            }
+        )
+
+        self.assertTrue(should_alert_strategy_plugin_signal(signal))
+        alerts = build_strategy_plugin_alert_messages([signal])
+        self.assertEqual(len(alerts), 1)
+        self.assertEqual(alerts[0].metadata["target_type"], "notification_target")
+
+    def test_strategy_plugin_manual_review_strategy_signal_still_alerts_plugin_bot(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "canonical_route": "opportunity_watch",
+                "suggested_action": "notify_manual_review",
+                "would_trade_if_enabled": False,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": True,
+                    "position_control_allowed": True,
+                    "consumption_evidence_status": "automation_approved",
+                },
+            }
+        )
+
+        self.assertTrue(should_alert_strategy_plugin_signal(signal))
+        alerts = build_strategy_plugin_alert_messages([signal])
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("Manual review only", alerts[0].body)
+
     def test_strategy_plugin_true_crisis_builds_generic_alert_message(self):
         signal = validate_strategy_plugin_signal_payload(
             {

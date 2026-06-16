@@ -32,6 +32,7 @@ SUPPORTED_STRATEGY_PLUGIN_MODES = frozenset({PLUGIN_MODE_SHADOW})
 DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR = Path(tempfile.gettempdir()) / "quant_strategy_plugin_artifacts"
 STRATEGY_PLUGIN_NON_ALERT_ROUTES = frozenset({"no_action"})
 STRATEGY_PLUGIN_ALERT_ACTIONS = frozenset({"defend", "blocked"})
+STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS = frozenset({"defend", "delever"})
 CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES = frozenset(
     {
         "tqqq_growth_income",
@@ -930,11 +931,35 @@ def build_strategy_plugin_notification_lines(
 def should_alert_strategy_plugin_signal(signal: StrategyPluginSignal) -> bool:
     route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
     action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
+    if _is_strategy_position_control_notice(signal, action=action):
+        return False
     return (
         bool(getattr(signal, "would_trade_if_enabled", False))
         or route not in STRATEGY_PLUGIN_NON_ALERT_ROUTES
         or action in STRATEGY_PLUGIN_ALERT_ACTIONS
     )
+
+
+def _is_strategy_position_control_notice(signal: StrategyPluginSignal, *, action: str | None = None) -> bool:
+    """Return true when strategy runtime should carry the alert instead of the plugin bot."""
+
+    target_type = _normalize_strategy_plugin_field(getattr(signal, "target_type", None)) or "strategy"
+    if target_type != "strategy":
+        return False
+    normalized_action = action if action is not None else _normalize_strategy_plugin_field(
+        getattr(signal, "suggested_action", None)
+    )
+    if normalized_action not in STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS:
+        return False
+    controls = getattr(signal, "execution_controls", {}) or {}
+    if not isinstance(controls, Mapping):
+        return False
+    if not _as_bool(controls.get("strategy_runtime_metadata_allowed"), default=False):
+        return False
+    if not _as_bool(controls.get("position_control_allowed"), default=False):
+        return False
+    evidence_status = _normalize_strategy_plugin_field(controls.get("consumption_evidence_status"))
+    return evidence_status == "automation_approved"
 
 
 def build_strategy_plugin_alert_guidance(
