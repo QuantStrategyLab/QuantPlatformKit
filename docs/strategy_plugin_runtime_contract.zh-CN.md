@@ -152,6 +152,10 @@ artifact 可以包含展示层 i18n 字段：
 平台 renderer 可以使用这些字段渲染通知和日志文案。交易逻辑必须继续读取
 `schema_version`、`canonical_route`、`suggested_action`、`reason_codes`
 和 `position_control` 等机器字段。
+共享的 `strategy_plugin_*` 通知标签由
+`quant_platform_kit.common.notification_localization.STRATEGY_PLUGIN_I18N`
+维护；broker 平台可以通过 `merge_strategy_plugin_i18n()` 与本地文案合并，
+从而保持各运行时的插件告警文案一致。
 
 共享契约不支持 `paper`、`advisory` 和 `live` 插件模式。平台不应从这条
 sidecar 路径维护插件账本或执行插件驱动的 allocation 变更。

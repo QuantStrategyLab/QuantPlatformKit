@@ -167,6 +167,11 @@ Artifacts may include display-only i18n fields:
 Platform renderers may use these fields for notification and log text. Trading
 logic must continue to read machine fields such as `schema_version`,
 `canonical_route`, `suggested_action`, `reason_codes`, and `position_control`.
+Shared `strategy_plugin_*` notification labels live in
+`quant_platform_kit.common.notification_localization.STRATEGY_PLUGIN_I18N`;
+broker platforms can merge them with local text through
+`merge_strategy_plugin_i18n()` so the plugin alert wording stays consistent
+across runtimes.
 
 `paper`, `advisory`, and `live` plugin modes are not supported by the shared
 contract. Platforms should not maintain plugin ledgers or execute plugin-driven
