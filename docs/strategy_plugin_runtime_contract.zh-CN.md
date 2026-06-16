@@ -64,7 +64,7 @@ artifact 内，并固定为通知/观察用途的 `shadow`。
 
 | 插件 | Schema versions | 支持策略 | 状态 | 支持模式 | 升级告警通道 |
 | --- | --- | --- | --- | --- | --- |
-| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `global_etf_rotation`, `russell_1000_multi_factor_defensive`, `mega_cap_leader_rotation_top50_balanced` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `soxl_soxx_trend_income`, `global_etf_rotation`, `russell_1000_multi_factor_defensive`, `mega_cap_leader_rotation_top50_balanced` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `crisis_response_shadow` | `crisis_response_shadow.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `macro_risk_governor` | `macro_risk_governor.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `taco_rebound_shadow` | `taco_rebound_shadow.v2` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
@@ -81,10 +81,10 @@ registry 给 parser / loader。这样平台运行时代码不用承载未来插�
 Tech/Communication Pullback Enhancement 也不列入当前挂载清单，因为它已经降级为研究侧 profile，
 不应出现在当前可配置插件 profile 中。
 
-SOXL/SOXX 故意不列入 `market_regime_control` 的运行时挂载清单。SOXL
-相关宏观和危机信号应通过通用
-`notification_targets.market_regime_notification` artifact 分发，并由人工复核；
-除非未来回测证明策略级 opt-in 有优势，否则不默认自动消费仓位控制。
+SOXL/SOXX 已列入 `market_regime_control` 的运行时挂载清单。策略默认可以消费
+`risk_off` 和确定性的 `position_control.volatility_delever_context` retention
+profiles；`risk_reduced` 仓位影响仍在策略默认配置中关闭。广义市场状态通知仍可通过独立的
+`notification_targets.market_regime_notification` artifact 分发给人工复核；notification-target artifact 不能影响仓位。
 
 ## Runtime Loader
 

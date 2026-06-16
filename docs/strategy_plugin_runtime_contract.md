@@ -70,7 +70,7 @@ The default registry currently defines versioned plugin contracts:
 
 | Plugin | Schema versions | Supported strategies | Status | Supported mode | Escalated alert channel |
 | --- | --- | --- | --- | --- | --- |
-| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `global_etf_rotation`, `russell_1000_multi_factor_defensive`, `mega_cap_leader_rotation_top50_balanced` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
+| `market_regime_control` | `market_regime_control.v1` | `tqqq_growth_income`, `soxl_soxx_trend_income`, `global_etf_rotation`, `russell_1000_multi_factor_defensive`, `mega_cap_leader_rotation_top50_balanced` | default | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `crisis_response_shadow` | `crisis_response_shadow.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `macro_risk_governor` | `macro_risk_governor.v1` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
 | `taco_rebound_shadow` | `taco_rebound_shadow.v2` | `tqqq_growth_income` | deprecated; successor `market_regime_control` | `shadow` | `email`, `sms`, `push`, `telegram` |
@@ -89,10 +89,13 @@ changes out of platform runtime code.
 Tech/Communication Pullback Enhancement is also not listed because it is a research-only
 profile and should not appear in current configurable plugin mounts.
 
-SOXL/SOXX is intentionally not listed as a `market_regime_control` runtime
-mount. Broad macro and crisis signals for SOXL should be delivered through a
-general `notification_targets.market_regime_notification` artifact and reviewed
-manually unless a future backtest promotes an explicit strategy-level opt-in.
+SOXL/SOXX is listed as a `market_regime_control` runtime mount. Its strategy
+defaults may consume `risk_off` and deterministic
+`position_control.volatility_delever_context` retention profiles, while
+`risk_reduced` position impact remains disabled in the strategy config by
+default. Broad market-regime notifications may still be published through the
+separate `notification_targets.market_regime_notification` artifact for manual
+review; notification-target artifacts cannot affect position sizing.
 
 ## Runtime Loader
 
