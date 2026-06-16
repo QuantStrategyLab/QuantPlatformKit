@@ -1344,6 +1344,7 @@ def build_strategy_plugin_alert_messages(
             fallback="Notification target" if target_type == "notification_target" else "Strategy",
         )
         guidance = build_strategy_plugin_alert_guidance(signal, translator=translator)
+        reason_summary = build_strategy_plugin_alert_reason_summary(signal, translator=translator)
         situation = build_strategy_plugin_alert_situation(signal, translator=translator)
         recommendation = build_strategy_plugin_alert_recommendation(signal, translator=translator)
         scope_note = build_strategy_plugin_alert_scope_note(signal, translator=translator)
@@ -1397,6 +1398,12 @@ def build_strategy_plugin_alert_messages(
                     "strategy_plugin_alert_situation",
                     fallback="Situation: {situation}",
                     situation=situation,
+                ),
+                _translate(
+                    translator,
+                    "strategy_plugin_alert_trigger",
+                    fallback="Trigger: {reasons}",
+                    reasons=reason_summary,
                 ),
                 _translate(
                     translator,
@@ -1461,7 +1468,7 @@ def build_strategy_plugin_alert_messages(
             "display_target": display_target_label,
             "situation": situation,
             "recommendation": recommendation,
-            "reason_summary": build_strategy_plugin_alert_reason_summary(signal, translator=translator),
+            "reason_summary": reason_summary,
             "guidance": guidance,
             "scope_note": scope_note,
             "ai_audit": getattr(signal, "payload", {}).get("ai_audit")
