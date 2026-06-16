@@ -85,6 +85,8 @@ SOXL/SOXX 已列入 `market_regime_control` 的运行时挂载清单。策略默
 `risk_off` 和确定性的 `position_control.volatility_delever_context` retention
 profiles；`risk_reduced` 仓位影响仍在策略默认配置中关闭。广义市场状态通知仍可通过独立的
 `notification_targets.market_regime_notification` artifact 分发给人工复核；notification-target artifact 不能影响仓位。
+SOXL retention profiles 可以包含确定性的 SOXX 价格/波动反弹上下文。该上下文只使用可回测硬数据，
+不能把 TACO、panic reversal、AI audit、OSINT 或本地化文案升级成自动仓位权限。
 
 ## Runtime Loader
 
