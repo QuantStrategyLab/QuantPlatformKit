@@ -217,6 +217,7 @@ class StrategyPluginsTests(unittest.TestCase):
         )
         for strategy in (
             "tqqq_growth_income",
+            "soxl_soxx_trend_income",
             "global_etf_rotation",
             "russell_1000_multi_factor_defensive",
             "mega_cap_leader_rotation_top50_balanced",
@@ -232,15 +233,6 @@ class StrategyPluginsTests(unittest.TestCase):
         ):
             validate_strategy_plugin_compatibility(
                 strategy="tech_communication_pullback_enhancement",
-                plugin=PLUGIN_MARKET_REGIME_CONTROL,
-                mode=PLUGIN_MODE_SHADOW,
-            )
-        with self.assertRaisesRegex(
-            ValueError,
-            "market_regime_control does not support strategy soxl_soxx_trend_income",
-        ):
-            validate_strategy_plugin_compatibility(
-                strategy="soxl_soxx_trend_income",
                 plugin=PLUGIN_MARKET_REGIME_CONTROL,
                 mode=PLUGIN_MODE_SHADOW,
             )
@@ -338,20 +330,21 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertEqual(mounts[0].plugin, PLUGIN_MARKET_REGIME_CONTROL)
         self.assertEqual(mounts[0].expected_schema_version, "market_regime_control.v1")
 
-    def test_parse_strategy_plugin_mounts_rejects_market_regime_control_soxl(self):
-        with self.assertRaisesRegex(
-            ValueError,
-            "market_regime_control does not support strategy soxl_soxx_trend_income",
-        ):
-            parse_strategy_plugin_mounts(
-                [
-                    {
-                        "strategy": "soxl_soxx_trend_income",
-                        "plugin": PLUGIN_MARKET_REGIME_CONTROL,
-                        "signal_path": "gs://bucket/market_regime/latest_signal.json",
-                    }
-                ]
-            )
+    def test_parse_strategy_plugin_mounts_accepts_market_regime_control_soxl(self):
+        mounts = parse_strategy_plugin_mounts(
+            [
+                {
+                    "strategy": "soxl_soxx_trend_income",
+                    "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                    "signal_path": "gs://bucket/market_regime/latest_signal.json",
+                    "expected_schema_version": "market_regime_control.v1",
+                }
+            ]
+        )
+
+        self.assertEqual(mounts[0].strategy, "soxl_soxx_trend_income")
+        self.assertEqual(mounts[0].plugin, PLUGIN_MARKET_REGIME_CONTROL)
+        self.assertEqual(mounts[0].expected_schema_version, "market_regime_control.v1")
 
     def test_parse_strategy_plugin_mounts_accepts_market_regime_control_weight_profile(self):
         mounts = parse_strategy_plugin_mounts(
