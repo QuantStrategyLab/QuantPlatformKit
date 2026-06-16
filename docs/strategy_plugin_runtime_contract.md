@@ -177,11 +177,22 @@ when any of the following is true:
 - `suggested_action` is `defend` or `blocked`
 - `would_trade_if_enabled` is `true`
 
-Platforms may still choose their delivery sinks, but shared escalation helpers
-are available for email and SMS:
+Strategy-mounted artifacts that are automation-approved, expose
+`position_control_allowed = true`, and request an automatic `defend` or
+`delever` action are intentionally excluded from the dedicated plugin-alert
+stream. Those position-impacting events should be reported by the strategy run
+that consumed the artifact. The plugin-alert stream remains for manual-review
+or notification-only cases, including `notification_targets`, `blocked`,
+`watch_only`, and `notify_manual_review` routes.
 
+Platforms may still choose their delivery sinks, but shared escalation helpers
+are available for email, SMS, push, and Telegram:
+
+- `quant_platform_kit.notifications.strategy_plugin_alerts.publish_strategy_plugin_alerts()`
 - `quant_platform_kit.notifications.strategy_plugin_email.publish_strategy_plugin_email_alerts()`
 - `quant_platform_kit.notifications.strategy_plugin_sms.publish_strategy_plugin_sms_alerts()`
+- `quant_platform_kit.notifications.strategy_plugin_push.publish_strategy_plugin_push_alerts()`
+- `quant_platform_kit.notifications.strategy_plugin_telegram.publish_strategy_plugin_telegram_alerts()`
 
 The publishers build the shared subject/body, prefix platform context, return
 structured sent/skipped/failed diagnostics, and can use marker stores to skip
