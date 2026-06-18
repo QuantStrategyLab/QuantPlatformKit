@@ -146,6 +146,7 @@ class StrategyContractsTests(unittest.TestCase):
                     canonical_profile="global_etf_rotation",
                     display_name="Global ETF Rotation Defense",
                     description="rotation",
+                    localized_display_names={"zh": "全球 ETF 防守轮动"},
                     aliases=("global_macro_etf_rotation",),
                     cadence="quarterly",
                     benchmark="VOO",
@@ -175,6 +176,7 @@ class StrategyContractsTests(unittest.TestCase):
         rows = build_strategy_index_rows(catalog)
         by_profile = {row["canonical_profile"]: row for row in rows}
         self.assertEqual(by_profile["global_etf_rotation"]["display_name"], "Global ETF Rotation Defense")
+        self.assertEqual(by_profile["global_etf_rotation"]["display_name_zh"], "全球 ETF 防守轮动")
         self.assertEqual(by_profile["global_etf_rotation"]["target_mode"], "weight")
 
     def test_platform_policy_helpers_build_matrix_and_resolve_enabled_profile(self) -> None:
@@ -185,6 +187,7 @@ class StrategyContractsTests(unittest.TestCase):
                     canonical_profile="global_etf_rotation",
                     display_name="Global ETF Rotation Defense",
                     description="rotation",
+                    localized_display_names={"zh": "全球 ETF 防守轮动"},
                     aliases=("global_macro_etf_rotation",),
                 ),
             },
@@ -204,6 +207,7 @@ class StrategyContractsTests(unittest.TestCase):
         )
         matrix = build_platform_profile_matrix(catalog, policy=policy)
         self.assertEqual(matrix[0]["display_name"], "Global ETF Rotation Defense")
+        self.assertEqual(matrix[0]["display_name_zh"], "全球 ETF 防守轮动")
         definition = resolve_platform_strategy_definition(
             "global_macro_etf_rotation",
             platform_id="ibkr",
@@ -216,6 +220,7 @@ class StrategyContractsTests(unittest.TestCase):
             policy=policy,
             eligible_profiles=frozenset({"global_etf_rotation"}),
         )
+        self.assertEqual(status_matrix[0]["display_name_zh"], "全球 ETF 防守轮动")
         self.assertEqual(status_matrix[0]["eligible"], True)
         self.assertEqual(status_matrix[0]["enabled"], True)
 

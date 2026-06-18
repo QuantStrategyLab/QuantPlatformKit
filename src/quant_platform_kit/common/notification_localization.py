@@ -214,7 +214,7 @@ COMMON_ZH_NOTIFICATION_REPLACEMENTS: tuple[NotificationReplacement, ...] = (
     ("russell_1000_multi_factor_defensive", "罗素1000多因子"),
     ("tech_communication_pullback_enhancement", "科技通信回调增强"),
     ("qqq_tech_enhancement", "科技通信回调增强"),
-    ("mega_cap_leader_rotation_top50_balanced", "Mega Cap Top50 平衡龙头轮动"),
+    ("mega_cap_leader_rotation_top50_balanced", "美股超大盘50强平衡龙头轮动"),
     ("outside_monthly_execution_window", "当前不在月度执行窗口"),
     ("no_execution_window_after_snapshot", "快照后没有可用执行窗口"),
     ("no-op", "不执行"),
