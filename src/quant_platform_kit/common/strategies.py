@@ -60,6 +60,7 @@ class StrategyMetadata:
     canonical_profile: str
     display_name: str
     description: str
+    localized_display_names: Mapping[str, str] = field(default_factory=dict)
     aliases: tuple[str, ...] = ()
     cadence: str | None = None
     asset_scope: str | None = None
@@ -275,9 +276,19 @@ def build_strategy_index_rows(strategy_catalog: StrategyCatalog) -> list[dict[st
                 "compatible_capabilities": definition.compatible_capabilities,
                 "target_mode": _resolve_target_mode(definition),
                 "bundled_config_relpath": definition.bundled_config_relpath,
+                **_localized_display_name_fields(metadata),
             }
         )
     return rows
+
+
+def _localized_display_name_fields(metadata: StrategyMetadata | None) -> dict[str, object]:
+    if metadata is None:
+        return {}
+    zh_name = str(metadata.localized_display_names.get("zh") or "").strip()
+    if not zh_name:
+        return {}
+    return {"display_name_zh": zh_name}
 
 
 def get_catalog_target_mode(
@@ -441,6 +452,7 @@ def build_platform_profile_matrix(
                 "is_default": definition.profile == policy.default_profile,
                 "is_rollback": definition.profile == policy.rollback_profile,
                 "domain": definition.domain,
+                **_localized_display_name_fields(metadata),
             }
         )
     return rows
@@ -471,6 +483,7 @@ def build_platform_profile_status_matrix(
                 "is_default": definition.profile == policy.default_profile,
                 "is_rollback": definition.profile == policy.rollback_profile,
                 "domain": definition.domain,
+                **_localized_display_name_fields(metadata),
             }
         )
     return rows
