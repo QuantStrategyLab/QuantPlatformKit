@@ -27,6 +27,7 @@ from quant_platform_kit.common.strategy_plugins import (
     StrategyPluginDefinition,
     attach_strategy_plugin_metadata,
     build_strategy_plugin_alert_messages,
+    build_strategy_plugin_error_notification_lines,
     build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
     extract_strategy_plugin_localized_message,
@@ -573,6 +574,8 @@ class StrategyPluginsTests(unittest.TestCase):
         signal = validate_strategy_plugin_signal_payload(_signal_payload())
         translations = {
             "strategy_plugin_line": "plugin={plugin}|mode={mode}|route={route}|action={action}",
+            "strategy_plugin_error_line": "plugin-error={reason}|fallback=built-in",
+            "strategy_plugin_error_reason_ValueError": "config validation failed",
             "strategy_plugin_name_crisis_response_shadow": "Crisis",
             "strategy_plugin_mode_shadow": "shadow",
             "strategy_plugin_route_no_action": "no action",
@@ -587,6 +590,15 @@ class StrategyPluginsTests(unittest.TestCase):
         )
 
         self.assertEqual(lines, ("plugin=Crisis|mode=shadow|route=no action|action=watch only",))
+        self.assertEqual(
+            build_strategy_plugin_error_notification_lines(
+                "ValueError: bad config\ntrace line",
+                translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+                if kwargs
+                else translations.get(key, key),
+            ),
+            ("plugin-error=config validation failed|fallback=built-in",),
+        )
 
     def test_strategy_plugin_notification_lines_can_use_artifact_localized_message(self):
         signal = validate_strategy_plugin_signal_payload(
