@@ -31,7 +31,7 @@ STRATEGY_PLUGIN_I18N: dict[str, dict[str, str]] = {
         "strategy_plugin_alert_reason_none": "未提供明确原因",
         "strategy_plugin_line": "🧩 插件：{plugin} | 状态：{route} | 提醒：{action}",
         "strategy_plugin_error_line": "⚠️ 插件信号未加载：{reason}；本轮使用策略内置规则",
-        "strategy_plugin_error_reason_JSONDecodeError": "插件配置 JSON 格式错误",
+        "strategy_plugin_error_reason_JSONDecodeError": "插件配置格式错误",
         "strategy_plugin_error_reason_FileNotFoundError": "插件信号文件不存在",
         "strategy_plugin_error_reason_PermissionError": "插件信号文件权限不足",
         "strategy_plugin_error_reason_ValueError": "插件配置校验失败",
