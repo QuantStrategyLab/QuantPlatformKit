@@ -928,6 +928,65 @@ def build_strategy_plugin_notification_lines(
     return tuple(lines)
 
 
+def _compact_strategy_plugin_error(error: object, *, max_chars: int = 240) -> str:
+    text = " ".join(str(error or "").split())
+    if not text:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "…"
+
+
+def _translator_uses_zh(translator: Callable[..., str] | None) -> bool:
+    if translator is None:
+        return False
+    for key in ("strategy_plugin_alert_locale", "no_trades"):
+        try:
+            sample = str(translator(key))
+        except Exception:
+            continue
+        if sample.strip().lower().startswith("zh"):
+            return True
+        if any("\u4e00" <= char <= "\u9fff" for char in sample):
+            return True
+    return False
+
+
+def _strategy_plugin_error_reason(error: object, *, translator: Callable[..., str] | None = None) -> str:
+    detail = _compact_strategy_plugin_error(error)
+    if not detail:
+        return ""
+    error_type = detail.split(":", 1)[0].rsplit(".", 1)[-1].strip()
+    reason_key = f"strategy_plugin_error_reason_{error_type}" if error_type else ""
+    if translator is not None and reason_key:
+        translated = translator(reason_key)
+        if translated != reason_key:
+            return translated
+    if _translator_uses_zh(translator):
+        translated = translator("strategy_plugin_error_reason_default") if translator is not None else ""
+        if translated and translated != "strategy_plugin_error_reason_default":
+            return translated
+    return detail
+
+
+def build_strategy_plugin_error_notification_lines(
+    error: object,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> tuple[str, ...]:
+    reason = _strategy_plugin_error_reason(error, translator=translator)
+    if not reason:
+        return ()
+    return (
+        _translate(
+            translator,
+            "strategy_plugin_error_line",
+            fallback="Plugin signal failed to load: {reason}; this run falls back to built-in strategy rules",
+            reason=reason,
+        ),
+    )
+
+
 def should_alert_strategy_plugin_signal(signal: StrategyPluginSignal) -> bool:
     route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
     action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
