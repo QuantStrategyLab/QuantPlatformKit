@@ -40,6 +40,13 @@ from .runtime_target import (
     build_runtime_target,
     resolve_runtime_target_from_env,
 )
+from .market_signal_artifacts import (
+    MARKET_SIGNAL_ARTIFACT_LINK_FIELDS,
+    cache_root_for_market_signal_artifact_tree,
+    local_path_for_gcs_object,
+    materialize_market_signal_artifact_tree,
+    resolve_gcs_artifact_reference,
+)
 from .strategy_plugins import (
     CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
     DEFAULT_STRATEGY_PLUGIN_DEFINITIONS,
@@ -123,11 +130,15 @@ __all__ = [
     "SUPPORTED_STRATEGY_PLUGIN_MODES",
     "MACRO_RISK_GOVERNOR_SUPPORTED_STRATEGIES",
     "MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES",
+    "MARKET_SIGNAL_ARTIFACT_LINK_FIELDS",
     "TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES",
     "filter_execution_blocking_skips",
     "is_terminal_funding_block",
     "is_terminal_strategy_run_stage",
     "localize_notification_text",
+    "cache_root_for_market_signal_artifact_tree",
+    "local_path_for_gcs_object",
+    "materialize_market_signal_artifact_tree",
     "merge_strategy_plugin_i18n",
     "normalize_skip_reason",
     "normalize_stage",
@@ -162,6 +173,7 @@ __all__ = [
     "parse_strategy_plugin_notification_targets",
     "parse_strategy_plugin_mounts",
     "resolve_runtime_target_from_env",
+    "resolve_gcs_artifact_reference",
     "should_alert_strategy_plugin_signal",
     "translate_strategy_plugin_value",
     "translator_uses_zh",
