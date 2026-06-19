@@ -22,6 +22,9 @@ FEATURE_SNAPSHOT_INPUT = "feature_snapshot"
 class FeatureSnapshotRuntimeSettings:
     feature_snapshot_path: str | None
     feature_snapshot_manifest_path: str | None = None
+    feature_snapshot_fallback_mode: str | None = None
+    feature_snapshot_fallback_cache_dir: str | None = None
+    feature_snapshot_fallback_max_stale_days: int | None = None
     strategy_config_path: str | None = None
     strategy_config_source: str | None = None
     dry_run_only: bool = False
@@ -148,6 +151,9 @@ def evaluate_feature_snapshot_strategy(
         expected_config_name=runtime_config_name,
         expected_config_path=runtime_config_path,
         expected_contract_version=runtime_adapter.snapshot_contract_version,
+        fallback_mode=runtime_settings.feature_snapshot_fallback_mode,
+        fallback_cache_dir=runtime_settings.feature_snapshot_fallback_cache_dir,
+        fallback_max_stale_days=runtime_settings.feature_snapshot_fallback_max_stale_days,
     )
     guard_metadata = dict(guard_result.metadata)
     if on_guard_metadata is not None:
