@@ -45,6 +45,7 @@ MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES = frozenset(
         "tqqq_growth_income",
         "soxl_soxx_trend_income",
         "global_etf_rotation",
+        "russell_top50_leader_rotation",
         "russell_1000_multi_factor_defensive",
         "mega_cap_leader_rotation_top50_balanced",
     }
