@@ -221,6 +221,7 @@ class StrategyPluginsTests(unittest.TestCase):
             "tqqq_growth_income",
             "soxl_soxx_trend_income",
             "global_etf_rotation",
+            "russell_top50_leader_rotation",
             "russell_1000_multi_factor_defensive",
             "mega_cap_leader_rotation_top50_balanced",
         ):
@@ -361,6 +362,22 @@ class StrategyPluginsTests(unittest.TestCase):
 
         self.assertEqual(mounts[0].strategy, "global_etf_rotation")
         self.assertEqual(mounts[0].plugin, PLUGIN_MARKET_REGIME_CONTROL)
+
+    def test_parse_strategy_plugin_mounts_accepts_market_regime_control_russell_top50(self):
+        mounts = parse_strategy_plugin_mounts(
+            [
+                {
+                    "strategy": "russell_top50_leader_rotation",
+                    "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                    "signal_path": "gs://bucket/market_regime/latest_signal.json",
+                    "expected_schema_version": "market_regime_control.v1",
+                }
+            ]
+        )
+
+        self.assertEqual(mounts[0].strategy, "russell_top50_leader_rotation")
+        self.assertEqual(mounts[0].plugin, PLUGIN_MARKET_REGIME_CONTROL)
+        self.assertEqual(mounts[0].expected_schema_version, "market_regime_control.v1")
 
     def test_plugin_definition_marks_legacy_plugins_deprecated(self):
         for plugin in (
