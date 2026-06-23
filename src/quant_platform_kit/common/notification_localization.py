@@ -299,7 +299,7 @@ COMMON_ZH_NOTIFICATION_REPLACEMENTS: tuple[NotificationReplacement, ...] = (
 def merge_strategy_plugin_i18n(
     i18n: dict[str, dict[str, str]],
     *,
-    shared_wins: bool = True,
+    shared_wins: bool = False,
 ) -> dict[str, dict[str, str]]:
     merged = {str(locale): dict(values) for locale, values in i18n.items()}
     for locale, shared_values in STRATEGY_PLUGIN_I18N.items():

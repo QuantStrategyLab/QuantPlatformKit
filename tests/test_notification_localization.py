@@ -80,7 +80,7 @@ class NotificationLocalizationTests(unittest.TestCase):
         self.assertIn("strategy_plugin_name_taco_rebound_shadow", STRATEGY_PLUGIN_I18N["zh"])
         self.assertEqual(STRATEGY_PLUGIN_I18N["zh"]["strategy_plugin_name_taco_rebound_shadow"], "TACO 反弹观察通知")
 
-    def test_merge_strategy_plugin_i18n_fills_and_overrides_shared_keys(self):
+    def test_merge_strategy_plugin_i18n_fills_missing_keys_without_overriding_callers(self):
         merged = merge_strategy_plugin_i18n(
             {
                 "zh": {
@@ -92,6 +92,20 @@ class NotificationLocalizationTests(unittest.TestCase):
         )
 
         self.assertEqual(merged["zh"]["no_trades"], "无需调仓")
+        self.assertEqual(merged["zh"]["strategy_plugin_name_taco_rebound_shadow"], "TACO 旧观察通知")
+        self.assertEqual(merged["en"]["strategy_plugin_name_taco_rebound_shadow"], "TACO Rebound Watch Notice")
+
+    def test_merge_strategy_plugin_i18n_can_prefer_shared_keys(self):
+        merged = merge_strategy_plugin_i18n(
+            {
+                "zh": {
+                    "strategy_plugin_name_taco_rebound_shadow": "TACO 旧观察通知",
+                },
+                "en": {},
+            },
+            shared_wins=True,
+        )
+
         self.assertEqual(merged["zh"]["strategy_plugin_name_taco_rebound_shadow"], "TACO 反弹观察通知")
         self.assertEqual(merged["en"]["strategy_plugin_route_watch"], "watch")
 
