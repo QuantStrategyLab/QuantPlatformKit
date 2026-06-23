@@ -590,11 +590,12 @@ class StrategyPluginsTests(unittest.TestCase):
     def test_strategy_plugin_notification_lines_use_translator_when_available(self):
         signal = validate_strategy_plugin_signal_payload(_signal_payload())
         translations = {
-            "strategy_plugin_line": "plugin={plugin}|mode={mode}|route={route}|action={action}",
+            "strategy_plugin_line": "plugin={plugin}|enabled={enabled}|route={route}|action={action}",
             "strategy_plugin_error_line": "plugin-error={reason}|fallback=built-in",
             "strategy_plugin_error_reason_ValueError": "config validation failed",
+            "strategy_plugin_consumption_unavailable": "consumption=none",
+            "strategy_plugin_enabled_true": "yes",
             "strategy_plugin_name_crisis_response_shadow": "Crisis",
-            "strategy_plugin_mode_shadow": "shadow",
             "strategy_plugin_route_no_action": "no action",
             "strategy_plugin_action_watch_only": "watch only",
         }
@@ -606,7 +607,7 @@ class StrategyPluginsTests(unittest.TestCase):
             else translations.get(key, key),
         )
 
-        self.assertEqual(lines, ("plugin=Crisis|mode=shadow|route=no action|action=watch only",))
+        self.assertEqual(lines, ("plugin=Crisis|enabled=yes|route=no action|action=watch only",))
         self.assertEqual(
             build_strategy_plugin_error_notification_lines(
                 "ValueError: bad config\ntrace line",
@@ -614,7 +615,126 @@ class StrategyPluginsTests(unittest.TestCase):
                 if kwargs
                 else translations.get(key, key),
             ),
-            ("plugin-error=config validation failed|fallback=built-in",),
+            ("plugin-error=config validation failed|fallback=built-in", "consumption=none"),
+        )
+
+    def test_strategy_plugin_notification_lines_include_auto_consumption_line(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "canonical_route": "risk_off",
+                "suggested_action": "defend",
+                "would_trade_if_enabled": True,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": True,
+                    "position_control_allowed": True,
+                    "consumption_evidence_status": "automation_approved",
+                },
+            }
+        )
+        translations = {
+            "strategy_plugin_line": "plugin={plugin}|enabled={enabled}|route={route}|action={action}",
+            "strategy_plugin_enabled_true": "yes",
+            "strategy_plugin_name_market_regime_control": "Market Regime",
+            "strategy_plugin_route_risk_off": "risk off",
+            "strategy_plugin_action_defend": "defend",
+            "strategy_plugin_consumption_auto_defend": "consumption=auto-defend",
+        }
+
+        lines = build_strategy_plugin_notification_lines(
+            [signal],
+            translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+            if kwargs
+            else translations.get(key, key),
+        )
+
+        self.assertEqual(
+            lines,
+            (
+                "plugin=Market Regime|enabled=yes|route=risk off|action=defend",
+                "consumption=auto-defend",
+            ),
+        )
+
+    def test_strategy_plugin_notification_lines_include_review_only_consumption_line(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "canonical_route": "opportunity_watch",
+                "suggested_action": "notify_manual_review",
+                "would_trade_if_enabled": False,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": False,
+                    "position_control_allowed": False,
+                    "consumption_evidence_status": "notification_only",
+                    "capital_impact": "notification_only",
+                },
+            }
+        )
+        translations = {
+            "strategy_plugin_line": "plugin={plugin}|enabled={enabled}|route={route}|action={action}",
+            "strategy_plugin_enabled_true": "yes",
+            "strategy_plugin_name_market_regime_control": "Market Regime",
+            "strategy_plugin_route_opportunity_watch": "opportunity watch",
+            "strategy_plugin_action_notify_manual_review": "manual review",
+            "strategy_plugin_consumption_review_only": "consumption=review-only",
+        }
+
+        lines = build_strategy_plugin_notification_lines(
+            [signal],
+            translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+            if kwargs
+            else translations.get(key, key),
+        )
+
+        self.assertEqual(
+            lines,
+            (
+                "plugin=Market Regime|enabled=yes|route=opportunity watch|action=manual review",
+                "consumption=review-only",
+            ),
+        )
+
+    def test_strategy_plugin_notification_lines_include_loaded_not_applied_consumption_line(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "canonical_route": "risk_reduced",
+                "suggested_action": "delever",
+                "would_trade_if_enabled": True,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": False,
+                    "position_control_allowed": False,
+                    "consumption_evidence_status": "automation_approved",
+                },
+            }
+        )
+        translations = {
+            "strategy_plugin_line": "plugin={plugin}|enabled={enabled}|route={route}|action={action}",
+            "strategy_plugin_enabled_true": "yes",
+            "strategy_plugin_name_market_regime_control": "Market Regime",
+            "strategy_plugin_route_risk_reduced": "risk reduced",
+            "strategy_plugin_action_delever": "de-lever",
+            "strategy_plugin_consumption_review_only": "consumption=review-only",
+            "strategy_plugin_consumption_loaded_not_applied": "consumption=loaded-not-applied",
+        }
+
+        lines = build_strategy_plugin_notification_lines(
+            [signal],
+            translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+            if kwargs
+            else translations.get(key, key),
+        )
+
+        self.assertEqual(
+            lines,
+            (
+                "plugin=Market Regime|enabled=yes|route=risk reduced|action=de-lever",
+                "consumption=loaded-not-applied",
+            ),
         )
 
     def test_strategy_plugin_notification_lines_can_use_artifact_localized_message(self):

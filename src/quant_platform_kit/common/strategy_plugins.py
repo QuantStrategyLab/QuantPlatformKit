@@ -892,8 +892,110 @@ def extract_strategy_plugin_localized_message(
                 default_locale = _optional_string(notification.get("default_locale"))
                 if default_locale:
                     localized = _optional_string(notification_messages.get(default_locale))
-                    if localized:
-                        return localized
+            if localized:
+                return localized
+    return None
+
+
+def _strategy_plugin_enabled_label(
+    signal: StrategyPluginSignal,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str:
+    enabled = _as_bool(getattr(signal, "enabled", True), default=True)
+    return _translate(
+        translator,
+        f"strategy_plugin_enabled_{str(enabled).lower()}",
+        fallback="yes" if enabled else "no",
+    )
+
+
+def _strategy_plugin_execution_controls(signal: StrategyPluginSignal) -> Mapping[str, Any]:
+    controls = getattr(signal, "execution_controls", {}) or {}
+    return controls if isinstance(controls, Mapping) else {}
+
+
+def _strategy_plugin_consumption_policy(signal: StrategyPluginSignal) -> Mapping[str, Any]:
+    payload = getattr(signal, "payload", {}) or {}
+    if not isinstance(payload, Mapping):
+        return {}
+    policy = payload.get("consumption_policy") or {}
+    return policy if isinstance(policy, Mapping) else {}
+
+
+def _strategy_plugin_consumption_status(signal: StrategyPluginSignal) -> str:
+    controls = _strategy_plugin_execution_controls(signal)
+    status = _optional_string(controls.get("consumption_evidence_status"))
+    if status is None:
+        status = _optional_string(_strategy_plugin_consumption_policy(signal).get("evidence_status"))
+    return _normalize_strategy_plugin_field(status)
+
+
+def _strategy_plugin_policy_allows_position_control(signal: StrategyPluginSignal) -> bool:
+    controls = _strategy_plugin_execution_controls(signal)
+    if "position_control_allowed" in controls:
+        return _as_bool(controls.get("position_control_allowed"), default=False)
+    return _as_bool(
+        _strategy_plugin_consumption_policy(signal).get("position_control_allowed"),
+        default=False,
+    )
+
+
+def _strategy_plugin_is_notification_only(signal: StrategyPluginSignal) -> bool:
+    controls = _strategy_plugin_execution_controls(signal)
+    policy = _strategy_plugin_consumption_policy(signal)
+    if _strategy_plugin_consumption_status(signal) == "notification_only":
+        return True
+    if str(controls.get("capital_impact") or policy.get("capital_impact") or "").strip().lower() == "notification_only":
+        return True
+    if str(controls.get("notification_profile") or policy.get("notification_profile") or "").strip().lower() == "shadow_only":
+        return True
+    return False
+
+
+def _strategy_plugin_auto_consumption_allowed(signal: StrategyPluginSignal, *, action: str) -> bool:
+    if _is_strategy_position_control_notice(signal, action=action):
+        return True
+    controls = _strategy_plugin_execution_controls(signal)
+    if controls:
+        return False
+    return bool(
+        action in STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS
+        and _strategy_plugin_policy_allows_position_control(signal)
+        and _strategy_plugin_consumption_status(signal) == "automation_approved"
+    )
+
+
+def _strategy_plugin_consumption_notification_line(
+    signal: StrategyPluginSignal,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str | None:
+    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
+    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
+    if _strategy_plugin_auto_consumption_allowed(signal, action=action):
+        if action == "defend" or route == "risk_off":
+            key = "strategy_plugin_consumption_auto_defend"
+        elif action == "delever" or route == "risk_reduced":
+            key = "strategy_plugin_consumption_auto_delever"
+        else:
+            key = "strategy_plugin_consumption_auto"
+        return _translate(translator, key, fallback="Plugin consumption: included in this cycle's position calculation")
+    if _strategy_plugin_is_notification_only(signal):
+        return _translate(
+            translator,
+            "strategy_plugin_consumption_review_only",
+            fallback="Plugin consumption: review-only notice, not used for automatic position calculation",
+        )
+    if action in STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS:
+        return _translate(
+            translator,
+            "strategy_plugin_consumption_loaded_not_applied",
+            fallback=(
+                "Plugin consumption: loaded but did not rewrite positions; this strategy does not enable "
+                "automatic consumption for this state"
+            ),
+        )
     return None
 
 
@@ -912,6 +1014,10 @@ def build_strategy_plugin_notification_lines(
         )
         if localized_line:
             lines.append(localized_line)
+            if translator is not None:
+                consumption_line = _strategy_plugin_consumption_notification_line(signal, translator=translator)
+                if consumption_line:
+                    lines.append(consumption_line)
             continue
         route = getattr(signal, "canonical_route", None) or "unknown_route"
         action = getattr(signal, "suggested_action", None) or "unknown_action"
@@ -919,13 +1025,17 @@ def build_strategy_plugin_notification_lines(
             _translate(
                 translator,
                 "strategy_plugin_line",
-                fallback="Plugin: {plugin} | status: {route} | notice: {action}",
+                fallback="Plugin: {plugin} | enabled: {enabled} | status: {route} | notice: {action}",
                 plugin=translate_strategy_plugin_value("name", getattr(signal, "plugin", None), translator=translator),
+                enabled=_strategy_plugin_enabled_label(signal, translator=translator),
                 mode=translate_strategy_plugin_value("mode", getattr(signal, "effective_mode", None), translator=translator),
                 route=translate_strategy_plugin_value("route", route, translator=translator),
                 action=translate_strategy_plugin_value("action", action, translator=translator),
             )
         )
+        consumption_line = _strategy_plugin_consumption_notification_line(signal, translator=translator)
+        if consumption_line:
+            lines.append(consumption_line)
     return tuple(lines)
 
 
@@ -984,6 +1094,11 @@ def build_strategy_plugin_error_notification_lines(
             "strategy_plugin_error_line",
             fallback="Plugin signal failed to load: {reason}; this run falls back to built-in strategy rules",
             reason=reason,
+        ),
+        _translate(
+            translator,
+            "strategy_plugin_consumption_unavailable",
+            fallback="Plugin consumption: no plugin signal consumed",
         ),
     )
 
