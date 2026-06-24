@@ -2,6 +2,8 @@ import unittest
 
 from quant_platform_kit.common.small_account_compatibility import (
     apply_small_account_cash_compatibility,
+    build_small_account_allocation_drift_notes,
+    format_small_account_allocation_drift_notes,
     format_small_account_cash_substitution_notes,
     project_unbuyable_value_targets_to_cash,
 )
@@ -106,6 +108,74 @@ class SmallAccountCompatibilityTests(unittest.TestCase):
                 "ℹ️ [买入说明] SOXX.US 目标金额 $163.14 低于 1 股价格 $504.60；"
                 "为避免超过目标仓位，本轮保留现金（现金替代：BOXX.US）",
             ),
+        )
+
+    def test_builds_projected_allocation_drift_notes_from_submitted_orders(self):
+        notes = build_small_account_allocation_drift_notes(
+            target_values={"SOXL": 218.19, "SOXX": 342.86},
+            current_values={"SOXL": 0.0, "SOXX": 0.0},
+            current_quantities={"SOXL": 0.0, "SOXX": 0.0},
+            prices={"SOXL": 229.73, "SOXX": 603.0},
+            submitted_orders=(
+                {"symbol": "SOXL.US", "side": "buy", "quantity": 1, "limit_price": 233.18},
+            ),
+            total_value=623.39,
+            min_abs_weight_drift=0.005,
+        )
+
+        self.assertEqual(notes[0]["symbol"], "SOXX")
+        self.assertAlmostEqual(notes[0]["target_weight"], 342.86 / 623.39)
+        self.assertAlmostEqual(notes[0]["projected_weight"], 0.0)
+        self.assertEqual(notes[1]["symbol"], "SOXL")
+        self.assertAlmostEqual(notes[1]["projected_weight"], 233.18 / 623.39)
+
+    def test_skips_drift_notes_for_larger_accounts_by_default(self):
+        notes = build_small_account_allocation_drift_notes(
+            target_values={"AAA": 5000.0},
+            current_values={"AAA": 0.0},
+            prices={"AAA": 100.0},
+            submitted_orders=({"symbol": "AAA", "side": "buy", "quantity": 49, "limit_price": 100.0},),
+            total_value=50_000.0,
+        )
+
+        self.assertEqual(notes, ())
+
+    def test_drift_notes_ignore_symbols_outside_reference_targets(self):
+        notes = build_small_account_allocation_drift_notes(
+            target_values={"SOXL": 500.0},
+            current_values={"SOXL": 0.0, "BOXX": 1000.0},
+            current_quantities={"SOXL": 0.0, "BOXX": 10.0},
+            prices={"SOXL": 100.0, "BOXX": 100.0},
+            submitted_orders=(
+                {"symbol": "BOXX.US", "side": "buy", "quantity": 1, "limit_price": 100.0},
+            ),
+            total_value=1000.0,
+        )
+
+        self.assertEqual([note["symbol"] for note in notes], ["SOXL"])
+
+    def test_formats_projected_allocation_drift_notes_through_i18n(self):
+        messages = format_small_account_allocation_drift_notes(
+            (
+                {
+                    "kind": "small_account_allocation_drift",
+                    "symbol": "SOXL",
+                    "projected_weight": 0.3740,
+                    "target_weight": 0.3500,
+                    "drift_weight": 0.0240,
+                },
+            ),
+            translator=lambda key, **kwargs: {
+                "small_account_allocation_drift": "📏 整数股偏离：若本轮订单全部成交，{details}",
+                "small_account_allocation_drift_detail": (
+                    "{symbol} 预计 {projected_weight} vs 目标 {target_weight}（{drift_weight}）"
+                ),
+            }.get(key, key).format(**kwargs),
+        )
+
+        self.assertEqual(
+            messages,
+            ("📏 整数股偏离：若本轮订单全部成交，SOXL.US 预计 37.4% vs 目标 35.0%（+2.4pp）",),
         )
 
 
