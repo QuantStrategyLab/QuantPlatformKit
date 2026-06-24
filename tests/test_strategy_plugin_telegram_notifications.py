@@ -72,6 +72,28 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
         self.assertEqual(payload["text"], "危机通知")
         self.assertTrue(payload["disable_web_page_preview"])
 
+    def test_send_telegram_message_breaks_market_symbol_auto_links(self):
+        requests = []
+
+        def opener(request, timeout):
+            requests.append((request, timeout))
+            return _FakeResponse()
+
+        sent = send_telegram_message(
+            text="SOXL.US 预计；00700.HK 持仓；https://example.com 保持原样",
+            chat_ids=("123",),
+            bot_token="123456:ABC",
+            api_base_url="https://telegram.example.test",
+            opener=opener,
+        )
+
+        self.assertTrue(sent)
+        payload = json.loads(requests[0][0].data.decode("utf-8"))
+        self.assertEqual(
+            payload["text"],
+            "SOXL.\u2060US 预计；00700.\u2060HK 持仓；https://example.com 保持原样",
+        )
+
     def test_send_strategy_plugin_telegram_combines_title_and_body(self):
         requests = []
 

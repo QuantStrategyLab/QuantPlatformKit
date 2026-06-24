@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.parse
 import urllib.request
 from collections.abc import Sequence
@@ -10,6 +11,16 @@ from typing import Any
 
 
 DEFAULT_TELEGRAM_BOT_API_BASE_URL = "https://api.telegram.org"
+_TELEGRAM_MARKET_SYMBOL_LINK_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Z0-9]{1,12})\.([A-Z]{2,4})(?![A-Za-z0-9_])")
+_TELEGRAM_MARKET_SYMBOL_LINK_JOINER = "\u2060"
+
+
+def _break_telegram_market_symbol_auto_links(value: object) -> str:
+    text = str(value or "")
+    return _TELEGRAM_MARKET_SYMBOL_LINK_RE.sub(
+        lambda match: f"{match.group(1)}.{_TELEGRAM_MARKET_SYMBOL_LINK_JOINER}{match.group(2)}",
+        text,
+    )
 
 
 def parse_telegram_chat_ids(raw_value: str | Sequence[str] | None) -> tuple[str, ...]:
@@ -85,7 +96,7 @@ def send_telegram_message(
     for chat_id in resolved_chat_ids:
         payload: dict[str, object] = {
             "chat_id": chat_id,
-            "text": message,
+            "text": _break_telegram_market_symbol_auto_links(message),
             "disable_web_page_preview": bool(disable_web_page_preview),
         }
         text_parse_mode = str(parse_mode or "").strip()
