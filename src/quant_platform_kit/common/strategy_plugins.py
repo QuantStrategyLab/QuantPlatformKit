@@ -980,20 +980,26 @@ def _strategy_plugin_consumption_notification_line(
             key = "strategy_plugin_consumption_auto_delever"
         else:
             key = "strategy_plugin_consumption_auto"
-        return _translate(translator, key, fallback="Plugin consumption: included in this cycle's position calculation")
+        return _translate(
+            translator,
+            key,
+            fallback="Plugin impact this run: included in this cycle's position calculation",
+        )
     if _strategy_plugin_is_notification_only(signal):
         return _translate(
             translator,
             "strategy_plugin_consumption_review_only",
-            fallback="Plugin consumption: review-only notice, not used for automatic position calculation",
+            fallback=(
+                "Plugin impact this run: review-only notice; current state did not trigger automatic "
+                "position rewrites"
+            ),
         )
     if action in STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS:
         return _translate(
             translator,
             "strategy_plugin_consumption_loaded_not_applied",
             fallback=(
-                "Plugin consumption: loaded but did not rewrite positions; this strategy does not enable "
-                "automatic consumption for this state"
+                "Plugin impact this run: loaded; this state did not enable automatic position rewrites"
             ),
         )
     return None
@@ -1098,7 +1104,7 @@ def build_strategy_plugin_error_notification_lines(
         _translate(
             translator,
             "strategy_plugin_consumption_unavailable",
-            fallback="Plugin consumption: no plugin signal consumed",
+            fallback="Plugin impact this run: no usable plugin signal loaded",
         ),
     )
 
