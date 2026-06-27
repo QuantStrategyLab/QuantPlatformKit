@@ -119,6 +119,25 @@ class IbkrExecutionTests(unittest.TestCase):
         self.assertEqual(ib.orders[0][1].account, "U18308207")
         self.assertEqual(report.raw_payload["account_id"], "U18308207")
 
+    def test_submit_order_intent_rejects_notional_equity_order(self) -> None:
+        ib = FakeIB()
+        report = submit_order_intent(
+            ib,
+            OrderIntent(
+                symbol="SPY",
+                side="buy",
+                quantity=0,
+                metadata={"notional_usd": 100.0},
+            ),
+            wait_seconds=0,
+            stock_factory=FakeContract,
+            market_order_factory=FakeMarketOrder,
+        )
+
+        self.assertEqual(report.status, "rejected")
+        self.assertEqual(report.raw_payload["skip_reason"], "ibkr_fractional_equity_api_unsupported")
+        self.assertEqual(ib.orders, [])
+
     def test_submit_order_intent_rejects_conflicting_account_id(self) -> None:
         ib = FakeIB()
 
