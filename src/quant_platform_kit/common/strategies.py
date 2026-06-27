@@ -16,6 +16,7 @@ from .strategy_contracts import (
 )
 
 US_EQUITY_DOMAIN = "us_equity"
+CN_EQUITY_DOMAIN = "cn_equity"
 CRYPTO_DOMAIN = "crypto"
 
 
