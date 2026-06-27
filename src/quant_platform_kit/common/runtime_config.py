@@ -39,6 +39,19 @@ def resolve_bool_value(raw_value: str | None) -> bool:
     return str(raw_value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def resolve_dry_run_env(
+    env: Mapping[str, str | None],
+    name: str,
+    *,
+    default: bool = True,
+) -> bool:
+    """Resolve a dry-run env flag; unset values default to dry-run (safe)."""
+    raw_value = env.get(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    return resolve_bool_value(raw_value)
+
+
 def resolve_optional_float_env(
     env: Mapping[str, str | None],
     name: str,

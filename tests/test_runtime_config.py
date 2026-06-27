@@ -7,6 +7,7 @@ from pathlib import Path
 from quant_platform_kit.common.runtime_config import (
     first_non_empty,
     resolve_bool_value,
+    resolve_dry_run_env,
     resolve_float_env,
     resolve_optional_float_env,
     resolve_quantity_step_env,
@@ -31,6 +32,10 @@ class RuntimeConfigTests(unittest.TestCase):
             self.assertEqual(first_non_empty("", None, "  value  "), "value")
             self.assertIs(resolve_bool_value("yes"), True)
             self.assertIs(resolve_bool_value("0"), False)
+            self.assertTrue(resolve_dry_run_env({}, "DRY_RUN_ONLY"))
+            self.assertFalse(
+                resolve_dry_run_env({"DRY_RUN_ONLY": "false"}, "DRY_RUN_ONLY")
+            )
             env = {
                 "DEFAULT_MIN_NOTIONAL": "25",
                 "EMPTY_MIN_NOTIONAL": "",
