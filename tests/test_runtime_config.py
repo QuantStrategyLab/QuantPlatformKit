@@ -7,8 +7,10 @@ from pathlib import Path
 from quant_platform_kit.common.runtime_config import (
     first_non_empty,
     resolve_bool_value,
+    resolve_cash_only_execution_env,
     resolve_dry_run_env,
     resolve_float_env,
+    resolve_optional_bool_env,
     resolve_optional_float_env,
     resolve_quantity_step_env,
     resolve_strategy_config_path,
@@ -199,6 +201,28 @@ class RuntimeConfigTests(unittest.TestCase):
             self.assertEqual(settings.strategy_config_path, "/workspace/config.json")
             self.assertEqual(settings.strategy_config_source, "env")
             self.assertIsNone(settings.reconciliation_output_path)
+
+    def test_resolve_cash_only_execution_env_prefers_platform_override(self) -> None:
+        env = {
+            "CASH_ONLY_EXECUTION": "false",
+            "IBKR_CASH_ONLY_EXECUTION": "true",
+            "SCHWAB_CASH_ONLY_EXECUTION": "false",
+        }
+        self.assertTrue(
+            resolve_cash_only_execution_env(env, platform_env_prefix="IBKR")
+        )
+        self.assertFalse(
+            resolve_cash_only_execution_env(env, platform_env_prefix="SCHWAB")
+        )
+        self.assertFalse(resolve_cash_only_execution_env(env))
+        self.assertTrue(
+            resolve_cash_only_execution_env({}, platform_env_prefix="IBKR")
+        )
+
+    def test_resolve_optional_bool_env_treats_blank_as_unset(self) -> None:
+        self.assertIsNone(resolve_optional_bool_env({"FLAG": ""}, "FLAG"))
+        self.assertIsNone(resolve_optional_bool_env({}, "FLAG"))
+        self.assertFalse(resolve_optional_bool_env({"FLAG": "false"}, "FLAG"))
 
 
 if __name__ == "__main__":
