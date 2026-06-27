@@ -55,6 +55,25 @@ class LongBridgeExecutionTests(unittest.TestCase):
         self.assertEqual(quantity, 12)
         self.assertNotIn("fractional_shares", ctx.estimate_kwargs)
 
+    def test_estimate_max_purchase_quantity_with_fractional_shares(self) -> None:
+        longport_module = types.ModuleType("longport")
+        openapi_module = types.ModuleType("longport.openapi")
+        openapi_module.OrderSide = types.SimpleNamespace(Buy="Buy")
+        openapi_module.OrderType = types.SimpleNamespace(LO="LO", MO="MO")
+
+        ctx = FakeTradeContext()
+        with patch.dict(sys.modules, {"longport": longport_module, "longport.openapi": openapi_module}):
+            quantity = estimate_max_purchase_quantity(
+                ctx,
+                "QQQM.US",
+                order_kind="market",
+                ref_price=100.5,
+                fractional_shares=True,
+            )
+
+        self.assertEqual(quantity, 12)
+        self.assertTrue(ctx.estimate_kwargs.get("fractional_shares"))
+
     def test_submit_order(self) -> None:
         longport_module = types.ModuleType("longport")
         openapi_module = types.ModuleType("longport.openapi")
@@ -104,6 +123,51 @@ class LongBridgeExecutionTests(unittest.TestCase):
         self.assertEqual(report.status, "rejected")
         self.assertIn("at least 1 share", report.raw_payload["detail"])
         self.assertFalse(hasattr(ctx, "submit_args"))
+
+    def test_submit_order_allows_fractional_market_buy_when_enabled(self) -> None:
+        longport_module = types.ModuleType("longport")
+        openapi_module = types.ModuleType("longport.openapi")
+        openapi_module.OrderSide = types.SimpleNamespace(Buy="Buy", Sell="Sell")
+        openapi_module.OrderType = types.SimpleNamespace(LO="LO", MO="MO")
+        openapi_module.TimeInForceType = types.SimpleNamespace(Day="Day")
+
+        ctx = FakeTradeContext()
+        with patch.dict(sys.modules, {"longport": longport_module, "longport.openapi": openapi_module}):
+            report = submit_order(
+                ctx,
+                "QQQM.US",
+                order_kind="market",
+                side="buy",
+                quantity=0.4326,
+                allow_fractional_shares=True,
+                quantity_step=0.0001,
+            )
+
+        self.assertEqual(report.status, "submitted")
+        self.assertEqual(str(ctx.submit_args[3]), "0.4326")
+
+    def test_submit_order_allows_fractional_limit_buy_when_enabled(self) -> None:
+        longport_module = types.ModuleType("longport")
+        openapi_module = types.ModuleType("longport.openapi")
+        openapi_module.OrderSide = types.SimpleNamespace(Buy="Buy", Sell="Sell")
+        openapi_module.OrderType = types.SimpleNamespace(LO="LO", MO="MO")
+        openapi_module.TimeInForceType = types.SimpleNamespace(Day="Day")
+
+        ctx = FakeTradeContext()
+        with patch.dict(sys.modules, {"longport": longport_module, "longport.openapi": openapi_module}):
+            report = submit_order(
+                ctx,
+                "QQQM.US",
+                order_kind="limit",
+                side="buy",
+                quantity=0.4326,
+                submitted_price=100.25,
+                allow_fractional_shares=True,
+                quantity_step=0.0001,
+            )
+
+        self.assertEqual(report.status, "submitted")
+        self.assertEqual(str(ctx.submit_args[3]), "0.4326")
 
     def test_submit_order_rejects_fractional_quantity_before_api_call(self) -> None:
         longport_module = types.ModuleType("longport")

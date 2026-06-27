@@ -201,6 +201,26 @@ def submit_order_intent(
     limit_order_factory: Callable[..., Any] | None = None,
 ) -> ExecutionReport:
     metadata = dict(order_intent.metadata or {})
+    notional_usd = metadata.get("notional_usd")
+    if (
+        notional_usd is not None
+        and not _is_option_intent(order_intent)
+        and not _is_combo_option_intent(order_intent)
+    ):
+        return ExecutionReport(
+            symbol=order_intent.symbol,
+            side=order_intent.side.lower(),
+            quantity=float(notional_usd),
+            status="rejected",
+            raw_payload={
+                "detail": (
+                    "IBKR TWS API does not support fractional or notional equity orders "
+                    f"(notional_usd={float(notional_usd):.2f})."
+                ),
+                "skip_reason": "ibkr_fractional_equity_api_unsupported",
+            },
+        )
+
     if _is_combo_option_intent(order_intent):
         contract = _build_option_combo_contract(
             ib,

@@ -61,6 +61,28 @@ class SchwabExecutionTests(unittest.TestCase):
         self.assertEqual(report.status, "rejected")
         self.assertIn("bad request", report.raw_payload["detail"])
 
+    def test_submit_dollar_buy_market_uses_quantity_type_dollars(self) -> None:
+        client = FakeClient(FakeResponse(201, headers={"Location": "/orders/789"}))
+        report = submit_equity_order(
+            client,
+            "acct-hash",
+            OrderIntent(
+                symbol="QQQM",
+                side="buy",
+                quantity=0.0,
+                order_type="market",
+                metadata={"notional_usd": 50.0},
+            ),
+        )
+
+        self.assertEqual(report.status, "accepted")
+        self.assertEqual(report.quantity, 50.0)
+        order = client.last_call[1]
+        self.assertEqual(order["orderType"], "MARKET")
+        self.assertEqual(order["orderLegCollection"][0]["quantityType"], "DOLLARS")
+        self.assertEqual(order["orderLegCollection"][0]["quantity"], 50.0)
+        self.assertEqual(order["orderLegCollection"][0]["instrument"]["symbol"], "QQQM")
+
 
 if __name__ == "__main__":
     unittest.main()
