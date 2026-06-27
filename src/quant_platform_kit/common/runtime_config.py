@@ -39,6 +39,38 @@ def resolve_bool_value(raw_value: str | None) -> bool:
     return str(raw_value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+def resolve_optional_bool_env(
+    env: Mapping[str, str | None],
+    name: str,
+) -> bool | None:
+    raw_value = env.get(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return None
+    return resolve_bool_value(raw_value)
+
+
+def resolve_cash_only_execution_env(
+    env: Mapping[str, str | None],
+    *,
+    platform_env_prefix: str | None = None,
+    legacy_name: str = "CASH_ONLY_EXECUTION",
+    default: bool = True,
+) -> bool:
+    """Resolve cash-only execution with platform-specific override precedence."""
+    candidates: list[str] = []
+    prefix = str(platform_env_prefix or "").strip().upper()
+    if prefix:
+        candidates.append(f"{prefix}_CASH_ONLY_EXECUTION")
+    legacy = str(legacy_name or "").strip()
+    if legacy:
+        candidates.append(legacy)
+    for name in candidates:
+        value = resolve_optional_bool_env(env, name)
+        if value is not None:
+            return value
+    return default
+
+
 def resolve_dry_run_env(
     env: Mapping[str, str | None],
     name: str,
