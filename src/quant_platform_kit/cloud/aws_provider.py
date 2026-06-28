@@ -242,21 +242,65 @@ class AwsComputeDiscovery:
 
 
 class AwsDeploymentContext:
-    """AWS deployment context."""
+    """AWS deployment context.
+
+    通过 ECS metadata / EC2 IMDSv2 获取运行时身份信息。
+
+    注意：fetch_id_token 的语义与 GCP 不完全对等 ——
+    AWS 没有 GCP ID Token 的标准替代品。
+    此实现返回当前 EC2/ECS 实例的身份文档，
+    或 STS GetCallerIdentity 作为 fallback。
+    """
 
     @property
     def project_id(self) -> str:
-        return os.environ.get("AWS_ACCOUNT_ID", "")
+        # ECS task ARN 解析 → account_id
+        task_arn = os.environ.get("ECS_CONTAINER_METADATA_URI_V4", "")
+        if task_arn:
+            parts = task_arn.split(":") if ":" in task_arn else []
+            if len(parts) >= 5:
+                return parts[4]
+        return _resolve_aws_account_id()
 
     @property
     def region(self) -> str | None:
         return _resolve_aws_region()
 
     def fetch_id_token(self, audience: str) -> str:
-        raise NotImplementedError(
-            "AWS DeploymentContext.fetch_id_token is not implemented. "
-            "Use a service-specific mechanism (e.g., Cognito, STS, or IAM roles)."
-        )
+        """获取当前 AWS 环境的身份凭证。
+
+        在 ECS/EC2 上返回实例身份文档的 JSON string；
+        本地开发环境 fallback 到 STS GetCallerIdentity。
+
+        ``audience`` 参数在 AWS 无直接对应，此方法不会使用它。
+        如果调用方依赖 audience 进行令牌验证，
+        建议使用 Cognito 或自建 OIDC provider。
+        """
+        import json as _json
+        try:
+            return _fetch_ecs_identity()
+        except Exception:
+            pass
+        try:
+            return _fetch_ec2_identity()
+        except Exception:
+            pass
+        try:
+            import boto3
+            sts = boto3.client("sts", region_name=_resolve_aws_region())
+            identity = sts.get_caller_identity()
+            return _json.dumps({
+                "account": identity.get("Account", ""),
+                "arn": identity.get("Arn", ""),
+                "user_id": identity.get("UserId", ""),
+            })
+        except Exception as exc:
+            raise RuntimeError(
+                "AwsDeploymentContext.fetch_id_token: unable to resolve AWS identity. "
+                "Ensure the process runs on EC2, ECS, or has valid AWS credentials. "
+                "Note: GCP-style audience-based ID tokens are not natively supported on AWS; "
+                "consider using Cognito or a custom OIDC setup for audienced tokens."
+            ) from exc
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -277,6 +321,54 @@ def _resolve_aws_region() -> str:
     except Exception:
         pass
     return "us-east-1"
+
+
+def _resolve_aws_account_id() -> str:
+    """Resolve AWS account ID from env vars, STS, or metadata."""
+    env = os.environ.get("AWS_ACCOUNT_ID")
+    if env:
+        return env
+    try:
+        import boto3
+        sts = boto3.client("sts", region_name=_resolve_aws_region())
+        return sts.get_caller_identity().get("Account", "")
+    except Exception:
+        return ""
+
+
+def _fetch_ecs_identity() -> str:
+    """Fetch identity document from ECS container metadata endpoint (v4)."""
+    import urllib.request
+    metadata_uri = os.environ.get("ECS_CONTAINER_METADATA_URI_V4", "")
+    if not metadata_uri:
+        raise RuntimeError("Not running on ECS (ECS_CONTAINER_METADATA_URI_V4 not set)")
+    req = urllib.request.Request(metadata_uri)
+    with urllib.request.urlopen(req, timeout=3) as resp:
+        return resp.read().decode("utf-8")
+
+
+def _fetch_ec2_identity() -> str:
+    """Fetch identity document from EC2 IMDSv2."""
+    import urllib.request
+    # Step 1: get IMDSv2 token
+    token_req = urllib.request.Request(
+        "http://169.254.169.254/latest/api/token",
+        headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"},
+        method="PUT",
+    )
+    try:
+        with urllib.request.urlopen(token_req, timeout=2) as resp:
+            token = resp.read().decode("utf-8")
+    except Exception:
+        raise RuntimeError("Not running on EC2 (IMDSv2 unreachable)")
+
+    # Step 2: fetch identity document
+    id_req = urllib.request.Request(
+        "http://169.254.169.254/latest/dynamic/instance-identity/document",
+        headers={"X-aws-ec2-metadata-token": token},
+    )
+    with urllib.request.urlopen(id_req, timeout=3) as resp:
+        return resp.read().decode("utf-8")
 
 
 def _dynamodb_serialize(value):

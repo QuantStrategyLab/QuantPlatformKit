@@ -3,7 +3,7 @@ Cloud provider abstraction layer — quant-platform-kit 的云服务接口定义
 
 每个 Protocol 定义一个云服务品类（密钥管理、对象存储、文档数据库等），
 GcpProvider 是默认实现（保持现有行为不变），
-社区可通过 env PROVIDER=aws|local 切换到其他实现。
+社区可通过 env PROVIDER=aws|azure|local|env 切换到其他实现。
 """
 
 from __future__ import annotations
@@ -42,16 +42,33 @@ class SecretStoreReadWrite(SecretStore, Protocol):
 
 
 # ──────────────────────────────────────────────────────────────────────
-#  Object Store — 对象存储（GCS / S3 / 本地文件系统）
+#  Object Store — 对象存储（GCS / S3 / Azure Blob / 本地文件系统）
 # ──────────────────────────────────────────────────────────────────────
 
 @runtime_checkable
 class ObjectStore(Protocol):
     """对象存储接口。URI 格式由实现方决定：
-    - GCP:   gs://bucket/key
-    - AWS:   s3://bucket/key
-    - Azure: az://account/container/blob
-    - Local: file:///absolute/path 或 /absolute/path
+
+    GCP provider:
+      gs://bucket-name/path/to/key   — Cloud Storage
+
+    AWS provider:
+      s3://bucket-name/path/to/key   — S3
+
+    Azure provider:
+      az://account/container/blob    — Blob Storage
+
+    Local / Env provider:
+      /absolute/path/to/file         — 本地文件（绝对路径）
+      file:///absolute/path/to/file   — 同上
+      gs://bucket/key                — 映射到 ~/.qsl/storage/gs/bucket/key
+      s3://bucket/key                — 映射到 ~/.qsl/storage/s3/bucket/key
+      az://account/container/blob    — 映射到 ~/.qsl/storage/az/account/container/blob
+
+    注意：URI scheme 与 provider 必须匹配：
+    - ``s3://`` URI + AWS provider → S3 操作
+    - ``s3://`` URI + Local provider → 本地文件模拟（便于开发）
+    - ``gs://`` URI + AWS provider → ValueError（不跨云互通）
     """
 
     def read_text(self, uri: str) -> str:
@@ -80,7 +97,7 @@ class ObjectStore(Protocol):
 
 
 # ──────────────────────────────────────────────────────────────────────
-#  Document Store — 文档型 KV（Firestore / DynamoDB）
+#  Document Store — 文档型 KV（Firestore / DynamoDB / Cosmos DB）
 # ──────────────────────────────────────────────────────────────────────
 
 @runtime_checkable
@@ -105,7 +122,7 @@ class DocumentStore(Protocol):
 
 
 # ──────────────────────────────────────────────────────────────────────
-#  Compute Discovery — 计算资源发现（GCE / EC2）
+#  Compute Discovery — 计算资源发现（GCE / EC2 / Azure VM）
 # ──────────────────────────────────────────────────────────────────────
 
 @runtime_checkable
@@ -125,7 +142,7 @@ class ComputeDiscovery(Protocol):
 
 
 # ──────────────────────────────────────────────────────────────────────
-#  Deployment Context — 部署上下文（Cloud Run / ECS / 自托管）
+#  Deployment Context — 部署上下文（Cloud Run / ECS / Azure CA / 自托管）
 # ──────────────────────────────────────────────────────────────────────
 
 @runtime_checkable
