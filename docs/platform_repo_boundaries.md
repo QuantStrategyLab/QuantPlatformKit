@@ -56,3 +56,18 @@ Use this split when deciding where code belongs:
 - strategy formula or profile semantics: strategy repository
 - broker session, runtime assembly, execution, notification routing, or state:
   platform repository
+
+## Cloud Provider Abstraction
+
+`QuantPlatformKit` provides cloud provider protocol interfaces in
+`quant_platform_kit.cloud`. Platform repositories interact with secrets,
+object storage, and document databases through these interfaces rather than
+directly importing cloud SDKs.
+
+- Default provider is **Google Cloud** (same behavior as before).
+- Switch to **local** (`QSL_CLOUD_PROVIDER=local`) for development without
+  cloud credentials.
+- To add a new provider, implement the protocol interface and register it in
+  the factory (`cloud/__init__.py`).
+
+See [README.md](../README.md#cloud-provider-abstraction) for details.

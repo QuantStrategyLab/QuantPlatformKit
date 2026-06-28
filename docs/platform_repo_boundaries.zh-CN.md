@@ -51,3 +51,17 @@
 - 共享契约或可复用 adapter：放 `QuantPlatformKit`
 - 策略公式或 profile 语义：放策略仓库
 - 券商 session、运行时组装、执行、通知路由或状态：放平台仓库
+
+## 云服务抽象层
+
+`QuantPlatformKit` 在 `quant_platform_kit.cloud` 中提供了云服务协议接口。
+平台仓库通过这些接口与密钥管理、对象存储、文档数据库交互，而不是直接调用
+云厂商 SDK。
+
+- 默认 Provider 为 **Google Cloud**（与之前行为完全一致）。
+- 切换为 **local**（设 `QSL_CLOUD_PROVIDER=local`）可在无云凭证的环境中
+  开发测试。
+- 要增加新的 Provider，只需实现协议接口并在工厂
+  （`cloud/__init__.py`）中注册。
+
+详见 [README.zh-CN.md](../README.zh-CN.md#云服务抽象层)。

@@ -8,6 +8,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from quant_platform_kit.cloud import get_secret_store, get_secret_store_rw
+
 
 def fetch_token_from_secret(
     project_id: str,
@@ -15,18 +17,7 @@ def fetch_token_from_secret(
     *,
     secret_client_factory: Callable[[], Any] | None = None,
 ) -> str:
-    if secret_client_factory is None:
-        try:
-            import google.cloud.secretmanager_v1 as secret_manager
-        except ImportError:
-            from google.cloud import secret_manager
-
-        secret_client_factory = secret_manager.SecretManagerServiceClient
-
-    client = secret_client_factory()
-    resource_name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-    response = client.access_secret_version(request={"name": resource_name})
-    return response.payload.data.decode("UTF-8").strip()
+    return get_secret_store().get_secret(secret_name, project_id=project_id).strip()
 
 
 def _longport_sign(method: str, uri: str, headers: dict[str, str], params: str, body: str, secret: str) -> str:
@@ -115,34 +106,7 @@ def refresh_token_if_needed(
         return current_token
 
     new_token = response["data"]["token"]
-    if secret_client_factory is None:
-        try:
-            import google.cloud.secretmanager_v1 as secret_manager
-        except ImportError:
-            from google.cloud import secret_manager
-
-        secret_client_factory = secret_manager.SecretManagerServiceClient
-        destroyed_state = secret_manager.SecretVersion.State.DESTROYED
-    else:
-        destroyed_state = getattr(getattr(secret_client_factory(), "__class__", object), "DESTROYED", None)
-
-    client = secret_client_factory()
-    parent = f"projects/{project_id}/secrets/{secret_name}"
-    new_version = client.add_secret_version(
-        request={"parent": parent, "payload": {"data": new_token.encode("UTF-8")}}
-    )
-
-    try:
-        versions = client.list_secret_versions(request={"parent": parent})
-        for version in versions:
-            if version.name == new_version.name:
-                continue
-            version_state = getattr(version, "state", None)
-            if destroyed_state is not None and version_state == destroyed_state:
-                continue
-            client.destroy_secret_version(request={"name": version.name})
-    except Exception:
-        pass
+    get_secret_store_rw().update_secret(secret_name, new_token, project_id=project_id)
 
     return new_token
 

@@ -103,7 +103,7 @@ class ExecutionMarkerStore:
     def has_marker(self, marker_key: str) -> bool:
         if not str(marker_key or "").strip():
             return False
-        if self.gcs_prefix_uri and self._gcs_blob(marker_key).exists():
+        if self.gcs_prefix_uri and self._gcs_object_store().exists(self._gcs_object_uri(marker_key)):
             return True
         if self.local_dir and self._local_path(marker_key).exists():
             return True
@@ -125,7 +125,8 @@ class ExecutionMarkerStore:
         }
         encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
         if self.gcs_prefix_uri:
-            self._gcs_blob(marker_key).upload_from_string(
+            self._gcs_object_store().write_text(
+                self._gcs_object_uri(marker_key),
                 encoded,
                 content_type="application/json",
             )
@@ -164,17 +165,17 @@ class ExecutionMarkerStore:
             )
             if part and part.strip("/")
         )
-        client = self._gcs_client()
+        store = self._gcs_object_store()
+        prefix_uri = f"gs://{bucket_name}/{object_prefix}"
         scanned = 0
-        for blob in client.list_blobs(bucket_name, prefix=object_prefix):
-            name = str(getattr(blob, "name", "") or "")
-            if not name.endswith(".json"):
+        for uri in store.list(prefix_uri):
+            if not uri.endswith(".json"):
                 continue
             scanned += 1
             if scanned > max(1, int(self.prior_report_scan_limit or 1)):
                 break
             try:
-                payload = json.loads(blob.download_as_text())
+                payload = json.loads(store.read_text(uri))
             except Exception:
                 continue
             if _report_matches_execution(
@@ -193,7 +194,7 @@ class ExecutionMarkerStore:
         root = Path(self.local_dir or tempfile.gettempdir()).expanduser()
         return root / self.namespace / f"{_clean_relative_key(marker_key)}.json"
 
-    def _gcs_blob(self, marker_key: str):
+    def _gcs_object_uri(self, marker_key: str) -> str:
         bucket_name, prefix = _parse_gcs_uri(str(self.gcs_prefix_uri or ""))
         object_name = "/".join(
             part.strip("/")
@@ -204,39 +205,20 @@ class ExecutionMarkerStore:
             )
             if part and part.strip("/")
         )
-        if self.client_factory is None:
-            try:
-                from google.cloud import storage  # type: ignore
-            except ImportError as exc:
-                raise RuntimeError(
-                    "google-cloud-storage is required for GCS execution markers"
-                ) from exc
-            client_factory = storage.Client
-        else:
-            client_factory = self.client_factory
-        client = (
-            client_factory(project=self.gcp_project_id)
-            if self.gcp_project_id
-            else client_factory()
-        )
-        return client.bucket(bucket_name).blob(object_name)
+        return f"gs://{bucket_name}/{object_name}"
+
+    def _gcs_object_store(self):
+        try:
+            from quant_platform_kit.cloud import get_object_store
+        except ImportError as exc:
+            raise RuntimeError(
+                "quant_platform_kit.cloud is required for GCS execution markers"
+            ) from exc
+        return get_object_store(project_id=self.gcp_project_id)
 
     def _gcs_client(self):
-        if self.client_factory is None:
-            try:
-                from google.cloud import storage  # type: ignore
-            except ImportError as exc:
-                raise RuntimeError(
-                    "google-cloud-storage is required for GCS execution markers"
-                ) from exc
-            client_factory = storage.Client
-        else:
-            client_factory = self.client_factory
-        return (
-            client_factory(project=self.gcp_project_id)
-            if self.gcp_project_id
-            else client_factory()
-        )
+        """Deprecated: use _gcs_object_store() instead."""
+        return self._gcs_object_store()
 
 
 def build_execution_marker_store_from_env(

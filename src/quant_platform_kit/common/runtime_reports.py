@@ -164,17 +164,13 @@ def upload_runtime_report_to_gcs(
     bucket_name, object_name = _parse_gcs_uri(gcs_uri)
     if not object_name:
         raise ValueError(f"gcs_uri must include an object path, got: {gcs_uri!r}")
-    if client_factory is None:
-        try:
-            from google.cloud import storage  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("google-cloud-storage is required for GCS runtime report upload") from exc
-        client_factory = storage.Client
-    client = client_factory(project=gcp_project_id) if gcp_project_id is not None else client_factory()
-    blob = client.bucket(bucket_name).blob(object_name)
+    try:
+        from quant_platform_kit.cloud import get_object_store
+    except ImportError as exc:
+        raise RuntimeError("quant_platform_kit.cloud is required for GCS runtime report upload") from exc
     payload = json.dumps(_normalize_mapping(report), ensure_ascii=False, indent=2, sort_keys=True)
-    blob.upload_from_string(payload, content_type="application/json")
-    return f"gs://{bucket_name}/{object_name}"
+    get_object_store(project_id=gcp_project_id).write_text(gcs_uri, payload, content_type="application/json")
+    return gcs_uri
 
 
 def persist_runtime_report(

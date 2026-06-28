@@ -3,6 +3,8 @@ from __future__ import annotations
 import stat
 from typing import Any, Callable
 
+from quant_platform_kit.cloud import get_secret_store
+
 
 def load_secret_payload(
     project_id: str,
@@ -10,18 +12,7 @@ def load_secret_payload(
     *,
     secret_client_factory: Callable[[], Any] | None = None,
 ) -> str:
-    if secret_client_factory is None:
-        try:
-            import google.cloud.secretmanager_v1 as secret_manager
-        except ImportError:
-            from google.cloud import secret_manager
-
-        secret_client_factory = secret_manager.SecretManagerServiceClient
-
-    client = secret_client_factory()
-    name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
+    return get_secret_store().get_secret(secret_id, project_id=project_id)
 
 
 def build_client_from_token_payload(

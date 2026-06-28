@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from quant_platform_kit.common.runtime_reports import (
     RUNTIME_REPORT_SCHEMA_VERSION,
@@ -16,6 +17,31 @@ from quant_platform_kit.common.runtime_reports import (
     runtime_report_relative_path,
     write_runtime_report_json,
 )
+
+
+class FakeObjectStore:
+    def __init__(self):
+        self.last_uri = None
+        self.last_payload = None
+        self.last_content_type = None
+
+    def write_text(self, uri: str, data: str, content_type: str = "text/plain") -> str:
+        self.last_uri = uri
+        self.last_payload = data
+        self.last_content_type = content_type
+        return uri
+
+    def read_text(self, uri: str) -> str:
+        return self.last_payload or ""
+
+    def read_bytes(self, uri: str) -> bytes:
+        return (self.last_payload or "").encode("utf-8")
+
+    def exists(self, uri: str) -> bool:
+        return True
+
+    def list(self, prefix: str) -> list[str]:
+        return []
 
 
 class RuntimeReportsTests(unittest.TestCase):
@@ -115,7 +141,8 @@ class RuntimeReportsTests(unittest.TestCase):
             "gs://demo-bucket/runtime-reports/interactive_brokers/global_etf_rotation/paper/2026-04/run-004.json",
         )
 
-    def test_persist_runtime_report_writes_local_and_uploads_gcs(self) -> None:
+    @patch("quant_platform_kit.cloud.get_object_store")
+    def test_persist_runtime_report_writes_local_and_uploads_gcs(self, mock_get_store) -> None:
         report = build_runtime_report_base(
             platform="charles_schwab",
             deploy_target="cloud_run",
@@ -127,43 +154,8 @@ class RuntimeReportsTests(unittest.TestCase):
             started_at=datetime(2026, 4, 8, 12, 0, tzinfo=timezone.utc),
         )
 
-        class FakeBlob:
-            def __init__(self, name: str) -> None:
-                self.name = name
-                self.payload = ""
-                self.content_type = ""
-
-            def upload_from_string(self, payload: str, content_type: str) -> None:
-                self.payload = payload
-                self.content_type = content_type
-
-        class FakeBucket:
-            def __init__(self, name: str) -> None:
-                self.name = name
-                self.last_blob: FakeBlob | None = None
-
-            def blob(self, name: str) -> FakeBlob:
-                self.last_blob = FakeBlob(name)
-                return self.last_blob
-
-        class FakeClient:
-            def __init__(self, *, project: str | None = None) -> None:
-                self.project = project
-                self.buckets: dict[str, FakeBucket] = {}
-
-            def bucket(self, name: str) -> FakeBucket:
-                bucket = self.buckets.get(name)
-                if bucket is None:
-                    bucket = FakeBucket(name)
-                    self.buckets[name] = bucket
-                return bucket
-
-        fake_clients: list[FakeClient] = []
-
-        def build_fake_client(*, project: str | None = None) -> FakeClient:
-            client = FakeClient(project=project)
-            fake_clients.append(client)
-            return client
+        fake_store = FakeObjectStore()
+        mock_get_store.return_value = fake_store
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             result = persist_runtime_report(
@@ -171,28 +163,20 @@ class RuntimeReportsTests(unittest.TestCase):
                 base_dir=tmp_dir,
                 gcs_prefix_uri="gs://demo-bucket/runtime-reports",
                 gcp_project_id="demo-project",
-                client_factory=build_fake_client,
             )
             payload = json.loads(
                 default_runtime_report_path(report, base_dir=tmp_dir).read_text(encoding="utf-8")
             )
 
+        expected_uri = "gs://demo-bucket/runtime-reports/charles_schwab/tqqq_growth_income/2026-04/run-005.json"
         self.assertEqual(result.local_path, str(default_runtime_report_path(report, base_dir=tmp_dir)))
-        self.assertEqual(
-            result.gcs_uri,
-            "gs://demo-bucket/runtime-reports/charles_schwab/tqqq_growth_income/2026-04/run-005.json",
-        )
+        self.assertEqual(result.gcs_uri, expected_uri)
         self.assertEqual(payload["artifacts"]["runtime_report_gcs_uri"], result.gcs_uri)
         self.assertEqual(payload["artifacts"]["runtime_report_local_path"], result.local_path)
-        self.assertEqual(fake_clients[0].project, "demo-project")
-        self.assertEqual(
-            fake_clients[0].buckets["demo-bucket"].last_blob.name,
-            "runtime-reports/charles_schwab/tqqq_growth_income/2026-04/run-005.json",
-        )
-        uploaded_payload = json.loads(fake_clients[0].buckets["demo-bucket"].last_blob.payload)
+        self.assertEqual(fake_store.last_uri, expected_uri)
+        uploaded_payload = json.loads(fake_store.last_payload)
         self.assertEqual(uploaded_payload["artifacts"]["runtime_report_gcs_uri"], result.gcs_uri)
-        self.assertEqual(uploaded_payload["artifacts"]["runtime_report_local_path"], result.local_path)
         self.assertEqual(
-            fake_clients[0].buckets["demo-bucket"].last_blob.content_type,
+            fake_store.last_content_type,
             "application/json",
         )

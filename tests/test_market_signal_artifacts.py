@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -13,31 +14,32 @@ from quant_platform_kit.common.market_signal_artifacts import (
 )
 
 
-class _FakeBlob:
-    def __init__(self, payloads: dict[str, str], key: str) -> None:
-        self._payloads = payloads
-        self._key = key
+class _FakeObjectStore:
+    """Mocks ObjectStore for GCS materialization tests."""
 
-    def download_to_filename(self, destination: str) -> None:
-        Path(destination).parent.mkdir(parents=True, exist_ok=True)
-        Path(destination).write_text(self._payloads[self._key], encoding="utf-8")
-
-
-class _FakeBucket:
-    def __init__(self, payloads: dict[str, str], bucket_name: str) -> None:
-        self._payloads = payloads
-        self._bucket_name = bucket_name
-
-    def blob(self, object_name: str) -> _FakeBlob:
-        return _FakeBlob(self._payloads, f"gs://{self._bucket_name}/{object_name}")
-
-
-class _FakeClient:
     def __init__(self, payloads: dict[str, str]) -> None:
         self._payloads = payloads
 
-    def bucket(self, bucket_name: str) -> _FakeBucket:
-        return _FakeBucket(self._payloads, bucket_name)
+    def read_text(self, uri: str) -> str:
+        if uri not in self._payloads:
+            raise FileNotFoundError(f"Object not found: {uri}")
+        return self._payloads[uri]
+
+    def read_bytes(self, uri: str) -> bytes:
+        return self.read_text(uri).encode("utf-8")
+
+    def write_text(self, uri: str, data: str, content_type: str = "text/plain") -> str:
+        self._payloads[uri] = data
+        return uri
+
+    def write_bytes(self, uri: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        return self.write_text(uri, data.decode("utf-8"), content_type)
+
+    def exists(self, uri: str) -> bool:
+        return uri in self._payloads
+
+    def list(self, prefix: str) -> list[str]:
+        return [k for k in self._payloads if k.startswith(prefix)]
 
 
 def _json(payload: object) -> str:
@@ -61,7 +63,8 @@ def test_materialize_local_market_signal_artifact_tree_does_not_download():
     }
 
 
-def test_materialize_gcs_market_signal_artifact_tree_downloads_linked_artifacts(tmp_path):
+@patch("quant_platform_kit.cloud.get_object_store")
+def test_materialize_gcs_market_signal_artifact_tree_downloads_linked_artifacts(mock_get_store, tmp_path):
     payloads = {
         "gs://signals/live/platform_handoffs/index.json": _json(
             {
@@ -105,10 +108,11 @@ def test_materialize_gcs_market_signal_artifact_tree_downloads_linked_artifacts(
         ),
     }
 
+    mock_get_store.return_value = _FakeObjectStore(payloads)
+
     local_path, metadata = materialize_market_signal_artifact_tree(
         "gs://signals/live/platform_handoffs/index.json",
         cache_dir=tmp_path,
-        client_factory=lambda: _FakeClient(payloads),
     )
 
     cache_root = cache_root_for_market_signal_artifact_tree(

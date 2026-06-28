@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from quant_platform_kit.cloud import get_object_store
 from quant_platform_kit.common.strategy_plugins import (
     StrategyPluginAlertMessage,
     build_strategy_plugin_alert_messages,
@@ -138,8 +139,11 @@ class StrategyPluginEmailAlertMarkerStore:
     namespace: str = "strategy_plugin_email_alerts"
     client_factory: Any = None
 
+    def _object_store(self):
+        return get_object_store(project_id=self.gcp_project_id)
+
     def has_alert(self, alert_key: str) -> bool:
-        if self.gcs_prefix_uri and self._gcs_blob(alert_key, namespace=self.namespace).exists():
+        if self.gcs_prefix_uri and self._object_store().exists(self._gcs_uri(alert_key, namespace=self.namespace)):
             return True
         if self.local_dir and self._local_path(alert_key, namespace=self.namespace).exists():
             return True
@@ -159,7 +163,8 @@ class StrategyPluginEmailAlertMarkerStore:
         }
         encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
         if self.gcs_prefix_uri:
-            self._gcs_blob(alert_key, namespace=self.namespace).upload_from_string(
+            self._object_store().write_text(
+                self._gcs_uri(alert_key, namespace=self.namespace),
                 encoded,
                 content_type="application/json",
             )
@@ -173,23 +178,14 @@ class StrategyPluginEmailAlertMarkerStore:
         root = Path(self.local_dir or tempfile.gettempdir()).expanduser()
         return root / namespace / f"{_clean_relative_key(alert_key)}.json"
 
-    def _gcs_blob(self, alert_key: str, *, namespace: str):
+    def _gcs_uri(self, alert_key: str, *, namespace: str) -> str:
         bucket_name, prefix = _parse_gcs_uri(str(self.gcs_prefix_uri or ""))
         object_name = "/".join(
             part.strip("/")
             for part in (prefix, namespace, f"{_clean_relative_key(alert_key)}.json")
             if part and part.strip("/")
         )
-        if self.client_factory is None:
-            try:
-                from google.cloud import storage  # type: ignore
-            except ImportError as exc:
-                raise RuntimeError("google-cloud-storage is required for GCS alert markers") from exc
-            client_factory = storage.Client
-        else:
-            client_factory = self.client_factory
-        client = client_factory(project=self.gcp_project_id) if self.gcp_project_id else client_factory()
-        return client.bucket(bucket_name).blob(object_name)
+        return f"gs://{bucket_name}/{object_name}"
 
 
 def build_strategy_plugin_alert_context_label(

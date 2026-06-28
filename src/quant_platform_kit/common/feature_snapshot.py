@@ -170,12 +170,10 @@ def _parse_gcs_uri(uri: str) -> tuple[str, str]:
 
 
 def _download_gcs_object(uri: str, destination: Path) -> None:
-    from google.cloud import storage
+    from quant_platform_kit.cloud import get_object_store
 
-    bucket_name, object_name = _parse_gcs_uri(uri)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    client = storage.Client()
-    client.bucket(bucket_name).blob(object_name).download_to_filename(str(destination))
+    destination.write_bytes(get_object_store().read_bytes(uri))
 
 
 def _cache_path_for_remote_artifact(reference: str) -> Path:

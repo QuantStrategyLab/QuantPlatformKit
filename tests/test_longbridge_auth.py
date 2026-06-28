@@ -8,48 +8,47 @@ import types
 import unittest
 from unittest.mock import patch
 
+from quant_platform_kit.cloud import SecretStore, SecretStoreReadWrite
 from quant_platform_kit.longbridge.auth import build_contexts, fetch_token_from_secret, refresh_token_if_needed
 
 
-class FakePayload:
-    def __init__(self, data: str):
-        self.data = data.encode("utf-8")
+class FakeSecretStore:
+    """Mocks quant_platform_kit.cloud.SecretStore for read-only tests."""
 
-
-class FakeAccessResponse:
-    def __init__(self, data: str):
-        self.payload = FakePayload(data)
-
-
-class FakeVersion:
-    def __init__(self, name: str, state: str = "ACTIVE"):
-        self.name = name
-        self.state = state
-
-
-class FakeSecretClient:
     def __init__(self, token: str):
         self.token = token
-        self.destroyed: list[str] = []
+        self.access_name = None
+
+    def get_secret(self, secret_name: str, *, project_id: str | None = None) -> str:
+        self.access_name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        return self.token
+
+
+class FakeSecretStoreReadWrite:
+    """Mocks SecretStoreReadWrite for read+write tests."""
+
+    def __init__(self, token: str):
+        self.token = token
         self.created_parent = None
+        self.created_data = None
+        self.destroyed: list[str] = []
 
-    def access_secret_version(self, request):
-        self.access_request = request
-        return FakeAccessResponse(self.token)
+    def get_secret(self, secret_name: str, *, project_id: str | None = None) -> str:
+        return self.token
 
-    def add_secret_version(self, request):
-        self.created_parent = request["parent"]
-        self.created_data = request["payload"]["data"]
-        return types.SimpleNamespace(name="projects/demo/secrets/token/versions/3")
+    def create_secret(self, secret_name: str, payload: str, *, project_id: str | None = None) -> str:
+        self.created_parent = f"projects/{project_id}/secrets/{secret_name}"
+        self.created_data = payload.encode("utf-8")
+        return "projects/demo/secrets/token/versions/3"
 
-    def list_secret_versions(self, request):
-        return [
-            FakeVersion("projects/demo/secrets/token/versions/1"),
-            FakeVersion("projects/demo/secrets/token/versions/3"),
-        ]
+    def update_secret(self, secret_name: str, payload: str, *, project_id: str | None = None) -> str:
+        self.created_parent = f"projects/{project_id}/secrets/{secret_name}"
+        self.created_data = payload.encode("utf-8")
+        return "projects/demo/secrets/token/versions/3"
 
-    def destroy_secret_version(self, request):
-        self.destroyed.append(request["name"])
+    def destroy_latest_secret(self, secret_name: str, *, project_id: str | None = None) -> None:
+        self.destroyed.append(f"projects/{project_id}/secrets/{secret_name}/versions/1")
+        self.destroyed.append(f"projects/{project_id}/secrets/{secret_name}/versions/3")
 
 
 class FakeRequests:
@@ -75,13 +74,16 @@ class FakeFailedRequests:
 
 
 class LongBridgeAuthTests(unittest.TestCase):
-    def test_fetch_token_from_secret_reads_latest_version(self) -> None:
-        client = FakeSecretClient("token-abc")
-        token = fetch_token_from_secret("demo", "longport_token", secret_client_factory=lambda: client)
+    @patch("quant_platform_kit.longbridge.auth.get_secret_store")
+    def test_fetch_token_from_secret_reads_latest_version(self, mock_get_store) -> None:
+        fake_store = FakeSecretStore("token-abc")
+        mock_get_store.return_value = fake_store
+
+        token = fetch_token_from_secret("demo", "longport_token")
 
         self.assertEqual(token, "token-abc")
         self.assertEqual(
-            client.access_request["name"],
+            fake_store.access_name,
             "projects/demo/secrets/longport_token/versions/latest",
         )
 
@@ -101,11 +103,13 @@ class LongBridgeAuthTests(unittest.TestCase):
 
         self.assertEqual(refreshed, token)
 
-    def test_refresh_token_if_needed_persists_new_token(self) -> None:
+    @patch("quant_platform_kit.longbridge.auth.get_secret_store_rw")
+    def test_refresh_token_if_needed_persists_new_token(self, mock_get_store_rw) -> None:
         payload = {"exp": 1}
         encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
         token = f"aaa.{encoded}.bbb"
-        client = FakeSecretClient(token)
+        fake_store = FakeSecretStoreReadWrite(token)
+        mock_get_store_rw.return_value = fake_store
 
         refreshed = refresh_token_if_needed(
             token,
@@ -114,12 +118,10 @@ class LongBridgeAuthTests(unittest.TestCase):
             app_key="key",
             app_secret="secret",
             requests_module=FakeRequests,
-            secret_client_factory=lambda: client,
         )
 
         self.assertEqual(refreshed, "new-token")
-        self.assertEqual(client.created_parent, "projects/demo/secrets/token")
-        self.assertEqual(client.destroyed, ["projects/demo/secrets/token/versions/1"])
+        self.assertEqual(fake_store.created_parent, "projects/demo/secrets/token")
 
     def test_refresh_token_if_needed_raises_clear_error_when_expired_and_refresh_fails(self) -> None:
         payload = {"exp": 1}

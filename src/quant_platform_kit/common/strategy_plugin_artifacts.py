@@ -23,16 +23,12 @@ def materialize_local_or_gcs_artifact(
 
 
 def download_gcs_object(uri: str, destination: Path, *, client_factory: Any = None) -> None:
-    if client_factory is None:
-        try:
-            from google.cloud import storage  # type: ignore
-        except ImportError as exc:
-            raise RuntimeError("google-cloud-storage is required for GCS strategy plugin artifacts") from exc
-        client_factory = storage.Client
-    bucket_name, object_name = parse_gcs_uri(uri)
+    try:
+        from quant_platform_kit.cloud import get_object_store
+    except ImportError as exc:
+        raise RuntimeError("quant_platform_kit.cloud is required for GCS strategy plugin artifacts") from exc
     destination.parent.mkdir(parents=True, exist_ok=True)
-    client = client_factory()
-    client.bucket(bucket_name).blob(object_name).download_to_filename(str(destination))
+    destination.write_bytes(get_object_store().read_bytes(uri))
 
 
 def parse_gcs_uri(uri: str) -> tuple[str, str]:

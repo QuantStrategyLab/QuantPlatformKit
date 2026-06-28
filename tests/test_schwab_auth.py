@@ -3,27 +3,18 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from quant_platform_kit.schwab.auth import build_client_from_token_payload, get_client_from_secret
 
 
-class FakeSecretPayload:
-    def __init__(self, data: str):
-        self.data = data.encode("utf-8")
-
-
-class FakeSecretResponse:
-    def __init__(self, data: str):
-        self.payload = FakeSecretPayload(data)
-
-
-class FakeSecretClient:
+class FakeSecretStore:
     def __init__(self, data: str):
         self.data = data
 
-    def access_secret_version(self, request):
-        self.request = request
-        return FakeSecretResponse(self.data)
+    def get_secret(self, secret_name: str, *, project_id: str | None = None) -> str:
+        self.request = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        return self.data
 
 
 class FakeAuthModule:
@@ -52,9 +43,10 @@ class SchwabAuthTests(unittest.TestCase):
         self.assertEqual(client["app_key"], "app-key")
         self.assertIn("access_token", client["token_contents"])
 
-    def test_get_client_from_secret_loads_secret_then_builds_client(self) -> None:
-        def factory():
-            return FakeSecretClient('{"refresh_token":"xyz"}')
+    @patch("quant_platform_kit.schwab.auth.get_secret_store")
+    def test_get_client_from_secret_loads_secret_then_builds_client(self, mock_get_store) -> None:
+        fake_store = FakeSecretStore('{"refresh_token":"xyz"}')
+        mock_get_store.return_value = fake_store
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             token_path = str(Path(tmp_dir) / "token.json")
@@ -64,7 +56,6 @@ class SchwabAuthTests(unittest.TestCase):
                 "app-key",
                 "app-secret",
                 token_path=token_path,
-                secret_client_factory=factory,
                 auth_module=FakeAuthModule,
             )
 

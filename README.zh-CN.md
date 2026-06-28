@@ -31,6 +31,53 @@ python -m pip install -e .
 python -m pytest -q
 ```
 
+## 云服务抽象层
+
+`quant_platform_kit.cloud` 包为常用云服务定义了协议接口——密钥管理、对象存储、文档数据库、计算发现和部署上下文。平台代码可以通过这些接口编写，无需硬编码到特定云厂商。
+
+**支持的 Provider：**
+
+| Provider | 环境变量 | 说明 |
+|----------|---------|------|
+| **Google Cloud**（默认） | `QSL_CLOUD_PROVIDER=gcp` | 使用 GCP Secret Manager、Cloud Storage、Firestore—— 保持原有行为，无需修改配置。 |
+| **本地文件系统** | `QSL_CLOUD_PROVIDER=local` | 密钥和数据库存储在 `~/.qsl/` 目录下。无需任何云凭证——适合开发、测试和离线环境。 |
+| **环境变量** | `QSL_CLOUD_PROVIDER=env` | 密钥从环境变量读取；其余操作使用本地文件系统。适合 CI 场景。 |
+
+**用法：**
+
+```python
+from quant_platform_kit.cloud import (
+    get_secret_store,       # SecretStore（只读）
+    get_secret_store_rw,    # SecretStoreReadWrite（令牌刷新等写场景）
+    get_object_store,       # ObjectStore（GCS / S3 / 本地文件）
+    get_document_store,     # DocumentStore（Firestore / JSON 文件）
+    get_compute_discovery,  # ComputeDiscovery（GCE / 环境变量）
+    get_deployment_context, # DeploymentContext（Cloud Run / 本地 mock）
+)
+
+# 读取密钥——无论后端是 GCP、环境变量还是 ~/.qsl/secrets/ 都可以
+secret = get_secret_store().get_secret("my-api-key")
+
+# 读写对象——URI 格式与 provider 无关
+data = get_object_store().read_text("gs://bucket/path/to/data.json")
+get_object_store().write_text("gs://bucket/path/to/output.json", '{"key": "value"}')
+```
+
+切换 Provider 只需设置 `QSL_CLOUD_PROVIDER` 环境变量：
+
+```bash
+export QSL_CLOUD_PROVIDER=local  # 所有云操作走 ~/.qsl/ 本地目录
+python your_script.py
+```
+
+令牌刷新场景（如 LongPort 或 Schwab OAuth 自动续期）使用读写版接口：
+
+```python
+from quant_platform_kit.cloud import get_secret_store_rw
+rw = get_secret_store_rw()
+rw.update_secret("my-token", "new-token-value")
+```
+
 ## 延伸文档
 
 - [`docs/platform_notification_outcomes.md`](docs/platform_notification_outcomes.md)
