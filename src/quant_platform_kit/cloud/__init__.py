@@ -3,6 +3,8 @@ quant-platform-kit 云服务抽象层。
 
 通过环境变量 QSL_CLOUD_PROVIDER 选择后端：
   "gcp"   — Google Cloud（默认，保持现有行为）
+  "aws"   — Amazon Web Services
+  "azure" — Microsoft Azure
   "local" — 本地文件系统（开发/测试，无需云账号）
   "env"   — 环境变量 + 本地文件系统（CI）
 
@@ -63,6 +65,9 @@ def get_secret_store() -> SecretStore:
     elif p == "aws":
         from .aws_provider import AwsSecretStore
         return AwsSecretStore()
+    elif p == "azure":
+        from .azure_provider import AzureSecretStore
+        return AzureSecretStore()
     elif p == "local":
         from .local_provider import LocalSecretStore
         return LocalSecretStore()
@@ -82,6 +87,9 @@ def get_secret_store_rw() -> SecretStoreReadWrite:
     elif p == "aws":
         from .aws_provider import AwsSecretStoreReadWrite
         return AwsSecretStoreReadWrite()
+    elif p == "azure":
+        from .azure_provider import AzureSecretStoreReadWrite
+        return AzureSecretStoreReadWrite()
     elif p == "local":
         from .local_provider import LocalSecretStoreReadWrite
         return LocalSecretStoreReadWrite()
@@ -105,6 +113,9 @@ def get_object_store(project_id: str | None = None) -> ObjectStore:
     elif p == "aws":
         from .aws_provider import AwsObjectStore
         return AwsObjectStore()
+    elif p == "azure":
+        from .azure_provider import AzureObjectStore
+        return AzureObjectStore()
     elif p in ("local", "env"):
         from .local_provider import LocalObjectStore
         return LocalObjectStore()
@@ -121,6 +132,9 @@ def get_document_store() -> DocumentStore:
     elif p == "aws":
         from .aws_provider import AwsDocumentStore
         return AwsDocumentStore()
+    elif p == "azure":
+        from .azure_provider import AzureDocumentStore
+        return AzureDocumentStore()
     elif p in ("local", "env"):
         from .local_provider import LocalDocumentStore
         return LocalDocumentStore()
@@ -137,6 +151,9 @@ def get_compute_discovery() -> ComputeDiscovery:
     elif p == "aws":
         from .aws_provider import AwsComputeDiscovery
         return AwsComputeDiscovery()
+    elif p == "azure":
+        from .azure_provider import AzureComputeDiscovery
+        return AzureComputeDiscovery()
     elif p in ("local", "env"):
         from .local_provider import LocalComputeDiscovery
         return LocalComputeDiscovery()
@@ -153,6 +170,9 @@ def get_deployment_context() -> DeploymentContext:
     elif p == "aws":
         from .aws_provider import AwsDeploymentContext
         return AwsDeploymentContext()
+    elif p == "azure":
+        from .azure_provider import AzureDeploymentContext
+        return AzureDeploymentContext()
     elif p in ("local", "env"):
         from .local_provider import LocalDeploymentContext
         return LocalDeploymentContext()

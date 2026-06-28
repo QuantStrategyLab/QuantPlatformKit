@@ -83,12 +83,13 @@ class LocalObjectStore:
       file:///absolute/path → /absolute/path
       gs://bucket/key       → ~/.qsl/storage/gs/bucket/key
       s3://bucket/key       → ~/.qsl/storage/s3/bucket/key
+      az://account/container/blob → ~/.qsl/storage/az/account/container/blob
     """
 
     def _to_local_path(self, uri: str) -> Path:
         if uri.startswith("file://"):
             return Path(uri[7:])
-        if uri.startswith("gs://") or uri.startswith("s3://"):
+        if uri.startswith("gs://") or uri.startswith("s3://") or uri.startswith("az://"):
             scheme = uri.split(":")[0]
             path_part = uri[len(scheme) + 3 :]  # skip "s3://"
             return STORAGE_DIR / scheme / path_part
