@@ -128,7 +128,7 @@ def fetch_default_daily_price_history_candles(api_client: Any, symbol: str) -> l
 
 def fetch_quotes(api_client: Any, symbols: list[str] | tuple[str, ...]) -> dict[str, QuoteSnapshot]:
     payload = decode_response_json(_request_with_retries(lambda: api_client.get_quotes(symbols)), "Quotes")
-    as_of = datetime.utcnow()
+    as_of = datetime.now(timezone.utc)
     snapshots: dict[str, QuoteSnapshot] = {}
     for symbol in symbols:
         symbol_payload = payload.get(symbol)

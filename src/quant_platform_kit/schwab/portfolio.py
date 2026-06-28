@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
@@ -44,7 +44,7 @@ def fetch_account_snapshot(
     total_equity = cash_for_equity + sum(position.market_value for position in positions)
 
     return PortfolioSnapshot(
-        as_of=datetime.utcnow(),
+        as_of=datetime.now(timezone.utc),
         total_equity=total_equity,
         buying_power=buying_power,
         cash_balance=cash_for_equity,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from math import ceil
 from math import isnan
 import re
@@ -239,7 +239,7 @@ def _collect_quote_snapshots(
     }
     _wait_for_market_data(ib, wait_seconds)
 
-    as_of = datetime.utcnow()
+    as_of = datetime.now(timezone.utc)
     snapshots: dict[str, QuoteSnapshot] = {}
     for symbol, contract in contracts:
         ib.cancelMktData(contract)
@@ -395,7 +395,7 @@ def fetch_option_chain_snapshot(
     if chain is None:
         return {"underlier": symbol, "spot": spot, "contracts": ()}
 
-    as_of = datetime.utcnow().date()
+    as_of = datetime.now(timezone.utc).date()
     target_dte = int(target_dte if target_dte is not None else (min_dte + max_dte) / 2)
     expirations = []
     for raw_expiration in getattr(chain, "expirations", ()) or ():
