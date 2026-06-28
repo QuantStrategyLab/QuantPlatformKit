@@ -13,15 +13,16 @@ from typing import Any, Callable
 
 from quant_platform_kit.common.strategy_plugin_artifacts import (
     cache_path_for_remote_artifact,
-    download_gcs_object,
-    materialize_local_or_gcs_artifact,
-    parse_gcs_uri,
+    download_remote_object,
+    materialize_local_or_remote_artifact,
+    parse_cloud_uri,
 )
 
 PLUGIN_CRISIS_RESPONSE_SHADOW = "crisis_response_shadow"
 PLUGIN_MARKET_REGIME_CONTROL = "market_regime_control"
 PLUGIN_MACRO_RISK_GOVERNOR = "macro_risk_governor"
 PLUGIN_TACO_REBOUND_SHADOW = "taco_rebound_shadow"
+PLUGIN_PANIC_REVERSAL_SHADOW = "panic_reversal_shadow"
 GENERAL_MARKET_REGIME_NOTIFICATION_TARGET = "market_regime_notification"
 PLUGIN_MODE_SHADOW = "shadow"
 STRATEGY_PLUGIN_ALERT_CHANNEL_EMAIL = "email"
@@ -1310,7 +1311,10 @@ def _translate_first_formatted(
     if translator is None:
         return None
     for key in keys:
-        translated = translator(key, **kwargs)
+        try:
+            translated = translator(key, **kwargs)
+        except TypeError:
+            translated = translator(key)
         if translated != key:
             text = str(translated).strip()
             if text:
@@ -1695,19 +1699,24 @@ def _sanitize_key_part(value: Any) -> str:
 
 
 def _materialize_artifact_path(reference: str, *, client_factory: Any = None) -> tuple[Path, dict[str, str | None]]:
-    return materialize_local_or_gcs_artifact(
+    return materialize_local_or_remote_artifact(
         reference,
         cache_dir=DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR,
         client_factory=client_factory,
     )
 
 
-def _download_gcs_object(uri: str, destination: Path, *, client_factory: Any = None) -> None:
-    download_gcs_object(uri, destination, client_factory=client_factory)
+def _download_remote_object(uri: str, destination: Path, *, client_factory: Any = None) -> None:
+    download_remote_object(uri, destination, client_factory=client_factory)
 
 
-def _parse_gcs_uri(uri: str) -> tuple[str, str]:
-    return parse_gcs_uri(uri)
+def _parse_cloud_uri(uri: str) -> tuple[str, str]:
+    return parse_cloud_uri(uri)
+
+
+# Backward-compatible aliases (used internally by notification modules)
+_download_gcs_object = _download_remote_object
+_parse_gcs_uri = _parse_cloud_uri
 
 
 def _cache_path_for_remote_artifact(reference: str) -> Path:
@@ -1742,7 +1751,10 @@ def _translate(
 ) -> str:
     if translator is None:
         return fallback.format(**kwargs)
-    translated = translator(key, **kwargs)
+    try:
+        translated = translator(key, **kwargs)
+    except TypeError:
+        translated = translator(key)
     return translated if translated != key else fallback.format(**kwargs)
 
 
