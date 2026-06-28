@@ -1,6 +1,7 @@
-"""Shared platform monitor dispatch — extracted from CharlesSchwabPlatform/FirstradePlatform/LongBridgePlatform (byte-identical)."""
+"""Shared platform monitor dispatch — extracted from CharlesSchwabPlatform/FirstradePlatform/LongBridgePlatform (byte-identical).
 
-"""Dispatch shared monitor checks to platform Cloud Run services."""
+Dispatch shared monitor checks to platform Cloud Run services.
+"""
 
 from __future__ import annotations
 
