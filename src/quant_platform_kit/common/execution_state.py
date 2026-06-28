@@ -178,7 +178,7 @@ class ExecutionMarkerStore:
         if not signal and not effective:
             return False
         month_segment = _month_segment(signal, effective)
-        bucket_name, prefix = _parse_gcs_uri(str(self.cloud_prefix_uri or ""))
+        bucket_name, prefix = _parse_cloud_uri(str(self.cloud_prefix_uri or ""))
         object_prefix = "/".join(
             part.strip("/")
             for part in (
@@ -220,7 +220,7 @@ class ExecutionMarkerStore:
         return root / self.namespace / f"{_clean_relative_key(marker_key)}.json"
 
     def _cloud_uri(self, marker_key: str) -> str:
-        bucket_name, prefix = _parse_gcs_uri(str(self.cloud_prefix_uri or ""))
+        bucket_name, prefix = _parse_cloud_uri(str(self.cloud_prefix_uri or ""))
         object_name = "/".join(
             part.strip("/")
             for part in (

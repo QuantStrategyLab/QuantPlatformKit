@@ -197,7 +197,7 @@ def _materialize_artifact_path(reference: str) -> tuple[Path, dict[str, object]]
     if not raw_reference:
         raise ValueError("artifact reference is required")
 
-    if not _is_gcs_uri(raw_reference):
+    if not _is_cloud_uri(raw_reference):
         return Path(raw_reference), {"source_uri": None, "local_path": raw_reference}
 
     local_path = _cache_path_for_remote_artifact(raw_reference)
@@ -348,7 +348,7 @@ def _load_feature_snapshot_guarded_without_fallback(
         )
 
     manifest_reference = _resolve_manifest_reference(raw_path, manifest_path)
-    if _is_gcs_uri(raw_path) or _is_gcs_uri(manifest_reference):
+    if _is_cloud_uri(raw_path) or _is_cloud_uri(manifest_reference):
         try:
             local_snapshot_path, snapshot_artifact_metadata = _materialize_artifact_path(raw_path)
         except Exception as exc:
@@ -358,14 +358,14 @@ def _load_feature_snapshot_guarded_without_fallback(
                     snapshot_path=raw_path,
                     decision="fail_closed",
                     snapshot_exists=False,
-                    snapshot_source_uri=raw_path if _is_gcs_uri(raw_path) else None,
+                    snapshot_source_uri=raw_path if _is_cloud_uri(raw_path) else None,
                     fail_reason=f"feature_snapshot_download_failed:{type(exc).__name__}:{exc}",
                 ),
             )
 
         local_manifest_path = None
         manifest_artifact_metadata = {
-            "source_uri": manifest_reference if _is_gcs_uri(manifest_reference) else None,
+            "source_uri": manifest_reference if _is_cloud_uri(manifest_reference) else None,
             "local_path": manifest_reference,
         }
         manifest_download_error = None
