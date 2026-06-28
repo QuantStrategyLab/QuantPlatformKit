@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
@@ -91,7 +91,7 @@ def fetch_portfolio_snapshot(
             buying_power = value if buying_power is None else buying_power + value
 
     return PortfolioSnapshot(
-        as_of=datetime.utcnow(),
+        as_of=datetime.now(timezone.utc),
         total_equity=total_equity,
         buying_power=buying_power,
         positions=tuple(positions),
