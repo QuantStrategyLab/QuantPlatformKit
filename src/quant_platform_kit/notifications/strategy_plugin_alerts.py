@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .email import send_smtp_email
+from ._email import send_smtp_email
 from .push import send_strategy_plugin_push
 from .sms import send_twilio_sms
 from .telegram import send_strategy_plugin_telegram
