@@ -1,5 +1,13 @@
 """Notification integrations."""
 
+from .cycle_channel import (
+    CYCLE_CHANNEL_DINGTALK,
+    CYCLE_CHANNEL_FEISHU,
+    CYCLE_CHANNEL_SERVERCHAN,
+    CYCLE_CHANNEL_TELEGRAM,
+    CYCLE_CHANNEL_WECOM,
+    build_cycle_sender,
+)
 from .channel import (
     SmsChannel,
     PushChannel,
@@ -77,6 +85,11 @@ from .webhook import (
 )
 
 __all__ = [
+    "CYCLE_CHANNEL_DINGTALK",
+    "CYCLE_CHANNEL_FEISHU",
+    "CYCLE_CHANNEL_SERVERCHAN",
+    "CYCLE_CHANNEL_TELEGRAM",
+    "CYCLE_CHANNEL_WECOM",
     "SmsChannel",
     "PushChannel",
     "EmailChannel",
@@ -120,6 +133,7 @@ __all__ = [
     "WEBHOOK_PROVIDER_FEISHU",
     "WEBHOOK_PROVIDER_SERVERCHAN",
     "WEBHOOK_PROVIDER_WECOM",
+    "build_cycle_sender",
     "build_strategy_plugin_alert_context_label",
     "normalize_sms_recipient",
     "parse_email_recipients",

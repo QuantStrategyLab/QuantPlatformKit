@@ -325,3 +325,34 @@ def _json_webhook_request_succeeded(
     except (json.JSONDecodeError, UnicodeDecodeError):
         pass  # unparseable body on HTTP 2xx → treat as success
     return True
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  Channel auto-detection
+# ──────────────────────────────────────────────────────────────────────
+
+# Domain patterns for each supported webhook platform
+_CHANNEL_DOMAIN_PATTERNS: dict[str, str] = {
+    "qyapi.weixin.qq.com": WEBHOOK_PROVIDER_WECOM,
+    "oapi.dingtalk.com": WEBHOOK_PROVIDER_DINGTALK,
+    "open.feishu.cn": WEBHOOK_PROVIDER_FEISHU,
+    "sctapi.ftqq.com": WEBHOOK_PROVIDER_SERVERCHAN,
+}
+
+
+def detect_channel_from_url(url: str) -> str | None:
+    """Detect the webhook channel type from a webhook URL's hostname.
+
+    Returns one of ``"wecom"``, ``"dingtalk"``, ``"feishu"``, ``"serverchan"``,
+    or ``None`` if the URL doesn't match any known platform.
+
+    >>> detect_channel_from_url("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx")
+    'wecom'
+    >>> detect_channel_from_url("https://oapi.dingtalk.com/robot/send?access_token=xxx")
+    'dingtalk'
+    """
+    host = urllib.parse.urlparse(str(url or "")).hostname or ""
+    for domain, channel in _CHANNEL_DOMAIN_PATTERNS.items():
+        if domain in host:
+            return channel
+    return None
