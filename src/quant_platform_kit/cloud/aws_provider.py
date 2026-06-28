@@ -1,12 +1,13 @@
 """
-AWS provider implementation — 遵循与 GCP provider 相同的 Protocol 接口。
+AWS provider implementation — follows the same Protocol interface as the GCP provider.
 
-所有 *Provider 类均为无状态单例（lazy-init boto3 client）。
-启用方式: export QSL_CLOUD_PROVIDER=aws
+All *Provider classes are stateless singletons (lazy-init boto3 client).
+Activate via: export QSL_CLOUD_PROVIDER=aws
 
-需要 boto3 和适当的 AWS 凭证（环境变量、~/.aws/credentials、或 IAM 角色）。
+Requires boto3 and appropriate AWS credentials
+(env vars, ~/.aws/credentials, or IAM role).
 
-URI 格式:
+URI format:
   s3://bucket-name/path/to/blob  — ObjectStore
 """
 
@@ -14,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 
 from . import ports
 
@@ -80,8 +80,7 @@ class AwsSecretStoreReadWrite:
 class AwsObjectStore:
     """Amazon S3 implementation.
 
-    URI 格式: s3://bucket-name/path/to/blob
-    也接受 file:// 和 gs:// URI（仅用于本地 mapping — 实际 S3 操作需要 s3://）。
+    URI format: s3://bucket-name/path/to/blob
     """
 
     _client = None
@@ -94,13 +93,14 @@ class AwsObjectStore:
         return self._client
 
     def _parse_uri(self, uri: str) -> tuple[str, str]:
-        """返回 (bucket_name, object_key)。"""
-        for scheme in ("s3://",):
-            if uri.startswith(scheme):
-                path = uri[len(scheme):]
-                bucket, _, key = path.partition("/")
-                return bucket, key
-        raise ValueError(f"AwsObjectStore requires s3:// URI, got: {uri!r}")
+        """Return (bucket_name, object_key)."""
+        if not uri.startswith("s3://"):
+            raise ValueError(f"AwsObjectStore requires s3:// URI, got: {uri!r}")
+        path = uri[5:]
+        bucket, _, key = path.partition("/")
+        if not bucket or not key:
+            raise ValueError(f"Invalid s3:// URI: {uri!r}")
+        return bucket, key
 
     def read_text(self, uri: str) -> str:
         bucket, key = self._parse_uri(uri)
@@ -131,7 +131,7 @@ class AwsObjectStore:
             return False
 
     def list(self, prefix: str) -> list[str]:
-        """列出指定前缀下的对象。prefix 格式: s3://bucket/prefix"""
+        """List objects under a prefix. Format: s3://bucket/prefix"""
         bucket, key_prefix = self._parse_uri(prefix)
         response = self.client.list_objects_v2(Bucket=bucket, Prefix=key_prefix)
         if "Contents" not in response:
@@ -145,9 +145,9 @@ class AwsObjectStore:
 
 
 class AwsDocumentStore:
-    """DynamoDB implementation (collection/document 模型).
+    """DynamoDB implementation (collection/document model).
 
-    DynamoDB 表名 = collection 名，document_id 作为主键 'id'。
+    Table name = collection name, document_id as primary key 'id'.
     """
 
     _client = None
@@ -265,7 +265,7 @@ class AwsDeploymentContext:
 
 
 def _resolve_aws_region() -> str:
-    """从环境变量或 boto3 session 解析 AWS region，默认 us-east-1。"""
+    """Resolve AWS region from env vars or boto3 session, default us-east-1."""
     env_region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
     if env_region:
         return env_region
@@ -280,22 +280,16 @@ def _resolve_aws_region() -> str:
 
 
 def _dynamodb_serialize(value):
-    """将 Python 值转换为 DynamoDB 兼容格式。"""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
+    """Convert Python values to DynamoDB-compatible format."""
+    if isinstance(value, (str, bool, int, float, type(None))):
         return value
     if isinstance(value, (list, tuple)):
         return list(value)
     if isinstance(value, dict):
         return {k: _dynamodb_serialize(v) for k, v in value.items()}
-    if value is None:
-        return value
     return str(value)
 
 
 def _dynamodb_deserialize(value):
-    """DynamoDB 值直接返回（boto3 resource API 已处理反序列化）。"""
+    """DynamoDB values are returned as-is by boto3 resource API."""
     return value
