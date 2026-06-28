@@ -79,6 +79,24 @@ class EmailChannel(Protocol):
         ...
 
 
+class WebhookChannel(Protocol):
+    """Send a message to a webhook-based chat platform (WeCom, DingTalk, Feishu, ServerChan, etc.).
+
+    ``webhook_url`` is the full webhook URL provided by the platform.
+    ``title`` is optional and will be rendered appropriately for the platform.
+    Return True on success, False on failure.
+    """
+
+    def send_webhook(
+        self,
+        webhook_url: str,
+        text: str,
+        *,
+        title: str | None = None,
+    ) -> bool:
+        ...
+
+
 class ChatChannel(Protocol):
     """Send a message to a chat platform. Return True on success, False on failure.
 
@@ -221,3 +239,59 @@ class TelegramChatChannel:
             api_base_url=api_base_url,
             parse_mode=parse_mode,
         )
+
+
+class WecomWebhookChannel:
+    """WeCom (企业微信) bot webhook channel — wraps send_wecom_webhook()."""
+
+    def send_webhook(
+        self,
+        webhook_url: str,
+        text: str,
+        *,
+        title: str | None = None,
+    ) -> bool:
+        from .webhook import send_wecom_webhook
+        return send_wecom_webhook(webhook_url, text)
+
+
+class DingtalkWebhookChannel:
+    """DingTalk (钉钉) bot webhook channel — wraps send_dingtalk_webhook()."""
+
+    def send_webhook(
+        self,
+        webhook_url: str,
+        text: str,
+        *,
+        title: str | None = None,
+    ) -> bool:
+        from .webhook import send_dingtalk_webhook
+        return send_dingtalk_webhook(webhook_url, text, title=title or "")
+
+
+class FeishuWebhookChannel:
+    """Feishu (飞书) bot webhook channel — wraps send_feishu_webhook()."""
+
+    def send_webhook(
+        self,
+        webhook_url: str,
+        text: str,
+        *,
+        title: str | None = None,
+    ) -> bool:
+        from .webhook import send_feishu_webhook
+        return send_feishu_webhook(webhook_url, text)
+
+
+class ServerchanWebhookChannel:
+    """ServerChan (Server酱) webhook channel — wraps send_serverchan_webhook()."""
+
+    def send_webhook(
+        self,
+        webhook_url: str,
+        text: str,
+        *,
+        title: str | None = None,
+    ) -> bool:
+        from .webhook import send_serverchan_webhook
+        return send_serverchan_webhook(webhook_url, title=title or "", body=text)

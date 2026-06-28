@@ -12,6 +12,7 @@ from ._email import send_smtp_email
 from .push import send_strategy_plugin_push
 from .sms import send_twilio_sms
 from .telegram import send_strategy_plugin_telegram
+from .webhook import send_strategy_plugin_webhook
 from .strategy_plugin_email import (
     StrategyPluginEmailAlertMarkerStore,
     StrategyPluginEmailAlertPublishResult,
@@ -37,13 +38,20 @@ from .strategy_plugin_telegram import (
     StrategyPluginTelegramSettings,
     publish_strategy_plugin_telegram_alerts,
 )
+from .strategy_plugin_webhook import (
+    StrategyPluginWebhookAlertMarkerStore,
+    StrategyPluginWebhookAlertPublishResult,
+    StrategyPluginWebhookSettings,
+    publish_strategy_plugin_webhook_alerts,
+)
 
 _DEFAULT_ALERT_STATE_DIR = "/tmp/quant_strategy_plugin_alerts"
 _CHANNEL_EMAIL = "email"
 _CHANNEL_SMS = "sms"
 _CHANNEL_PUSH = "push"
 _CHANNEL_TELEGRAM = "telegram"
-_SUPPORTED_CHANNELS = frozenset({_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH, _CHANNEL_TELEGRAM})
+_CHANNEL_WEBHOOK = "webhook"
+_SUPPORTED_CHANNELS = frozenset({_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH, _CHANNEL_TELEGRAM, _CHANNEL_WEBHOOK})
 
 
 def _read_cloud_env(
@@ -75,6 +83,7 @@ class StrategyPluginAlertChannelStores:
     sms: StrategyPluginSmsAlertMarkerStore | object | None = None
     push: StrategyPluginPushAlertMarkerStore | object | None = None
     telegram: StrategyPluginTelegramAlertMarkerStore | object | None = None
+    webhook: StrategyPluginWebhookAlertMarkerStore | object | None = None
 
     @classmethod
     def from_mapping(
@@ -88,6 +97,7 @@ class StrategyPluginAlertChannelStores:
             sms=value.get(_CHANNEL_SMS),
             push=value.get(_CHANNEL_PUSH),
             telegram=value.get(_CHANNEL_TELEGRAM),
+            webhook=value.get(_CHANNEL_WEBHOOK),
         )
 
 
@@ -152,6 +162,12 @@ class StrategyPluginAlertStateSettings:
                 project_id=self.project_id,
                 client_factory=self.client_factory,
             ),
+            webhook=StrategyPluginWebhookAlertMarkerStore(
+                local_dir=self.local_dir,
+                cloud_prefix_uri=self.cloud_prefix_uri,
+                project_id=self.project_id,
+                client_factory=self.client_factory,
+            ),
         )
 
 
@@ -163,6 +179,7 @@ class StrategyPluginAlertPublishResult:
     sms_result: StrategyPluginSmsAlertPublishResult | None = None
     push_result: StrategyPluginPushAlertPublishResult | None = None
     telegram_result: StrategyPluginTelegramAlertPublishResult | None = None
+    webhook_result: StrategyPluginWebhookAlertPublishResult | None = None
 
     @property
     def attempted_count(self) -> int:
@@ -195,6 +212,8 @@ class StrategyPluginAlertPublishResult:
             fields.update(self.push_result.to_report_fields())
         if self.telegram_result is not None:
             fields.update(self.telegram_result.to_report_fields())
+        if self.webhook_result is not None:
+            fields.update(self.webhook_result.to_report_fields())
         return fields
 
     def to_summary_fields(self) -> dict[str, int]:
@@ -209,6 +228,8 @@ class StrategyPluginAlertPublishResult:
             fields["strategy_plugin_alert_push_sent_count"] = self.push_result.sent_count
         if self.telegram_result is not None:
             fields["strategy_plugin_alert_telegram_sent_count"] = self.telegram_result.sent_count
+        if self.webhook_result is not None:
+            fields["strategy_plugin_alert_webhook_sent_count"] = self.webhook_result.sent_count
         return fields
 
     def attach_to_report(self, report: dict[str, Any]) -> None:
@@ -221,7 +242,8 @@ class StrategyPluginAlertPublishResult:
         StrategyPluginEmailAlertPublishResult
         | StrategyPluginSmsAlertPublishResult
         | StrategyPluginPushAlertPublishResult
-        | StrategyPluginTelegramAlertPublishResult,
+        | StrategyPluginTelegramAlertPublishResult
+        | StrategyPluginWebhookAlertPublishResult,
         ...,
     ]:
         return tuple(
@@ -231,6 +253,7 @@ class StrategyPluginAlertPublishResult:
                 self.sms_result,
                 self.push_result,
                 self.telegram_result,
+                self.webhook_result,
             )
             if result is not None
         )
@@ -256,6 +279,7 @@ def publish_strategy_plugin_alerts(
     send_sms_notification: Callable[..., bool] = send_twilio_sms,
     send_push_notification: Callable[..., bool] = send_strategy_plugin_push,
     send_telegram_notification: Callable[..., bool] = send_strategy_plugin_telegram,
+    send_webhook_notification: Callable[..., bool] = send_strategy_plugin_webhook,
     log_message: Callable[..., Any] = print,
 ) -> StrategyPluginAlertPublishResult:
     """Publish strategy plugin alerts through the configured notification channels."""
@@ -266,6 +290,7 @@ def publish_strategy_plugin_alerts(
     sms_result = None
     push_result = None
     telegram_result = None
+    webhook_result = None
     if _CHANNEL_EMAIL in selected_channels:
         email_result = publish_strategy_plugin_email_alerts(
             signals,
@@ -310,11 +335,23 @@ def publish_strategy_plugin_alerts(
             send_notification=send_telegram_notification,
             log_message=log_message,
         )
+    if _CHANNEL_WEBHOOK in selected_channels:
+        webhook_result = publish_strategy_plugin_webhook_alerts(
+            signals,
+            webhook_settings=notification_settings,
+            translator=translator,
+            strategy_label=strategy_label,
+            context_label=context_label,
+            alert_store=stores.webhook,
+            send_notification=send_webhook_notification,
+            log_message=log_message,
+        )
     return StrategyPluginAlertPublishResult(
         email_result=email_result,
         sms_result=sms_result,
         push_result=push_result,
         telegram_result=telegram_result,
+        webhook_result=webhook_result,
     )
 
 
@@ -374,4 +411,5 @@ __all__ = [
     "StrategyPluginAlertStateSettings",
     "build_strategy_plugin_alert_context_label",
     "publish_strategy_plugin_alerts",
+    "publish_strategy_plugin_webhook_alerts",
 ]

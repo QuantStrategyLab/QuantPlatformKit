@@ -14,7 +14,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 import requests
-from ..cloud import get_deployment_context
+from quant_platform_kit.cloud import get_deployment_context
 
 
 MONITOR_TARGET_ENV_NAMES = (
