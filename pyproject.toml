@@ -7,7 +7,7 @@ name = "quant-platform-kit"
 version = "0.7.41"
 description = "QuantStrategyLab shared runtime: broker adapters, domain models, execution ports, cloud provider abstraction, and notification utilities."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
   { name = "QuantStrategyLab" }
@@ -21,4 +21,4 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
