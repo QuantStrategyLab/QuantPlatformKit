@@ -10,12 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from quant_platform_kit.cloud import get_object_store
 from quant_platform_kit.common.strategy_plugins import (
     StrategyPluginAlertMessage,
     build_strategy_plugin_alert_messages,
 )
 
+from .alert_marker import CloudAlertMarkerStore, _clean_relative_key
 from .sms import parse_sms_recipients, send_twilio_sms
 
 _DEFAULT_SMS_PROVIDER = "twilio"
@@ -127,60 +127,10 @@ class StrategyPluginSmsAlertPublishResult:
 
 
 @dataclass(frozen=True)
-class StrategyPluginSmsAlertMarkerStore:
-    local_dir: str | Path | None = None
-    cloud_prefix_uri: str | None = None
-    project_id: str | None = None
+class StrategyPluginSmsAlertMarkerStore(CloudAlertMarkerStore):
+    """SMS-specific alert marker store — thin wrapper around shared base."""
     namespace: str = "strategy_plugin_sms_alerts"
-    client_factory: Any = None
-
-    def _object_store(self):
-        return get_object_store(project_id=self.project_id)
-
-    def has_alert(self, alert_key: str) -> bool:
-        if self.cloud_prefix_uri and self._object_store().exists(self._cloud_uri(alert_key, namespace=self.namespace)):
-            return True
-        if self.local_dir and self._local_path(alert_key, namespace=self.namespace).exists():
-            return True
-        return False
-
-    def record_alert(
-        self,
-        alert_key: str,
-        *,
-        metadata: Mapping[str, Any] | None = None,
-    ) -> None:
-        payload = {
-            "schema_version": "strategy_plugin_sms_alert_marker.v1",
-            "alert_key": str(alert_key),
-            "recorded_at": datetime.now(timezone.utc).isoformat(),
-            "metadata": dict(metadata or {}),
-        }
-        encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-        if self.cloud_prefix_uri:
-            self._object_store().write_text(
-                self._cloud_uri(alert_key, namespace=self.namespace),
-                encoded,
-                content_type="application/json",
-            )
-            return
-        if self.local_dir:
-            path = self._local_path(alert_key, namespace=self.namespace)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(encoded, encoding="utf-8")
-
-    def _local_path(self, alert_key: str, *, namespace: str) -> Path:
-        root = Path(self.local_dir or tempfile.gettempdir()).expanduser()
-        return root / namespace / f"{_clean_relative_key(alert_key)}.json"
-
-    def _cloud_uri(self, alert_key: str, *, namespace: str) -> str:
-        bucket_name, prefix = _parse_cloud_uri(str(self.cloud_prefix_uri or ""))
-        object_name = "/".join(
-            part.strip("/")
-            for part in (prefix, namespace, f"{_clean_relative_key(alert_key)}.json")
-            if part and part.strip("/")
-        )
-        return f"gs://{bucket_name}/{object_name}"
+    schema_version: str = "strategy_plugin_sms_alert_marker.v1"
 
 
 def publish_strategy_plugin_sms_alerts(
@@ -373,24 +323,5 @@ def _fallback_alert_key(message: StrategyPluginAlertMessage) -> str:
     return "strategy_plugin_sms_alert/" + _clean_relative_key(message.subject or "unknown")
 
 
-def _clean_relative_key(value: str) -> str:
-    parts = []
-    for raw_part in str(value or "").replace("\\", "/").split("/"):
-        cleaned = "".join(
-            char if char.isalnum() or char in {"-", "_", "."} else "-"
-            for char in raw_part.strip()
-        ).strip("-._")
-        if cleaned:
-            parts.append(cleaned[:100])
-    return "/".join(parts) or "unknown"
 
 
-def _parse_cloud_uri(uri: str) -> tuple[str, str]:
-    raw_uri = str(uri or "").strip()
-    if not raw_uri.startswith("gs://"):
-        raise ValueError(f"gcs uri must start with gs://, got: {uri!r}")
-    remainder = raw_uri[5:]
-    bucket_name, _, object_prefix = remainder.partition("/")
-    if not bucket_name:
-        raise ValueError(f"gcs uri must include a bucket name, got: {uri!r}")
-    return bucket_name, object_prefix.strip("/")

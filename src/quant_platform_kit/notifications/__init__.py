@@ -1,5 +1,16 @@
 """Notification integrations."""
 
+from .channel import (
+    SmsChannel,
+    PushChannel,
+    EmailChannel,
+    ChatChannel,
+    TwilioSmsChannel,
+    PushoverChannel,
+    NtfyChannel,
+    SmtpEmailChannel,
+    TelegramChatChannel,
+)
 from .email import parse_email_recipients, send_smtp_email
 from .events import NotificationPublisher, RenderedNotification, publish_rendered_notification
 from .push import parse_push_recipients, send_ntfy_push, send_pushover_push, send_strategy_plugin_push
@@ -42,6 +53,15 @@ from .strategy_plugin_telegram import (
 )
 
 __all__ = [
+    "SmsChannel",
+    "PushChannel",
+    "EmailChannel",
+    "ChatChannel",
+    "TwilioSmsChannel",
+    "PushoverChannel",
+    "NtfyChannel",
+    "SmtpEmailChannel",
+    "TelegramChatChannel",
     "NotificationPublisher",
     "RenderedNotification",
     "StrategyPluginAlertChannelStores",
