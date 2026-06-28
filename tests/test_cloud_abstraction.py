@@ -453,5 +453,54 @@ class AwsProviderRegistrationTests(unittest.TestCase):
         self.assertIsInstance(get_deployment_context(), DeploymentContext)
 
 
+class AzureProviderRegistrationTests(unittest.TestCase):
+    """Verify Azure provider is correctly registered in factory functions."""
+
+    def setUp(self):
+        set_provider("azure")
+
+    def tearDown(self):
+        reset_provider()
+
+    def test_azure_secret_store_resolves(self):
+        from quant_platform_kit.cloud.azure_provider import AzureSecretStore
+        store = get_secret_store()
+        self.assertIsInstance(store, AzureSecretStore)
+
+    def test_azure_secret_store_rw_resolves(self):
+        from quant_platform_kit.cloud.azure_provider import AzureSecretStoreReadWrite
+        rw = get_secret_store_rw()
+        self.assertIsInstance(rw, AzureSecretStoreReadWrite)
+
+    def test_azure_object_store_resolves(self):
+        from quant_platform_kit.cloud.azure_provider import AzureObjectStore
+        store = get_object_store()
+        self.assertIsInstance(store, AzureObjectStore)
+
+    def test_azure_document_store_resolves(self):
+        from quant_platform_kit.cloud.azure_provider import AzureDocumentStore
+        store = get_document_store()
+        self.assertIsInstance(store, AzureDocumentStore)
+
+    def test_azure_compute_discovery_resolves(self):
+        from quant_platform_kit.cloud.azure_provider import AzureComputeDiscovery
+        disc = get_compute_discovery()
+        self.assertIsInstance(disc, AzureComputeDiscovery)
+
+    def test_azure_deployment_context_resolves(self):
+        from quant_platform_kit.cloud.azure_provider import AzureDeploymentContext
+        ctx = get_deployment_context()
+        self.assertIsInstance(ctx, AzureDeploymentContext)
+
+    def test_azure_providers_satisfy_port_interfaces(self):
+        """All Azure providers should pass runtime_checkable Protocol checks."""
+        self.assertIsInstance(get_secret_store(), SecretStore)
+        self.assertIsInstance(get_secret_store_rw(), SecretStoreReadWrite)
+        self.assertIsInstance(get_object_store(), ObjectStore)
+        self.assertIsInstance(get_document_store(), DocumentStore)
+        self.assertIsInstance(get_compute_discovery(), ComputeDiscovery)
+        self.assertIsInstance(get_deployment_context(), DeploymentContext)
+
+
 if __name__ == "__main__":
     unittest.main()

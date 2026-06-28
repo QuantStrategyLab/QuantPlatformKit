@@ -50,6 +50,7 @@ class ObjectStore(Protocol):
     """对象存储接口。URI 格式由实现方决定：
     - GCP:   gs://bucket/key
     - AWS:   s3://bucket/key
+    - Azure: az://account/container/blob
     - Local: file:///absolute/path 或 /absolute/path
     """
 

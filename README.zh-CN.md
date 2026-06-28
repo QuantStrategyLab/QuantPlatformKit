@@ -40,6 +40,8 @@ python -m pytest -q
 | Provider | 环境变量 | 说明 |
 |----------|---------|------|
 | **Google Cloud**（默认） | `QSL_CLOUD_PROVIDER=gcp` | 使用 GCP Secret Manager、Cloud Storage、Firestore—— 保持原有行为，无需修改配置。 |
+| **AWS** | `QSL_CLOUD_PROVIDER=aws` | 使用 AWS Secrets Manager、S3、DynamoDB—— 需要 boto3 和有效的 AWS 凭证。 |
+| **Azure** | `QSL_CLOUD_PROVIDER=azure` | 使用 Azure Key Vault、Blob Storage、Cosmos DB—— 需要 azure-identity 和 Azure SDK。 |
 | **本地文件系统** | `QSL_CLOUD_PROVIDER=local` | 密钥和数据库存储在 `~/.qsl/` 目录下。无需任何云凭证——适合开发、测试和离线环境。 |
 | **环境变量** | `QSL_CLOUD_PROVIDER=env` | 密钥从环境变量读取；其余操作使用本地文件系统。适合 CI 场景。 |
 

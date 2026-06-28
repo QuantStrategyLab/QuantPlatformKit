@@ -40,8 +40,10 @@ QuantPlatformKit includes a cloud provider abstraction layer at `quant_platform_
 | Provider | Env var | Description |
 |----------|---------|-------------|
 | **Google Cloud** (default) | `QSL_CLOUD_PROVIDER=gcp` | Uses GCP Secret Manager, Cloud Storage, Firestore — original behavior, no config change needed. |
+| **AWS** | `QSL_CLOUD_PROVIDER=aws` | Uses AWS Secrets Manager, S3, DynamoDB — requires boto3 and valid AWS credentials. |
+| **Azure** | `QSL_CLOUD_PROVIDER=azure` | Uses Azure Key Vault, Blob Storage, Cosmos DB — requires azure-identity and Azure SDK packages. |
 | **Local filesystem** | `QSL_CLOUD_PROVIDER=local` | Reads secrets and stores data under `~/.qsl/`. No cloud credentials required — ideal for development and testing. |
-| **Environment variables** | `QSL_CLOUD_PROVIDER=env` | Reads secrets from environment variables; otherwise uses local filesystem. Suitable for CI. |
+| **Environment variables** | `QSL_CLOUD_PROVIDER=env` | Reads secrets from environment variables; uses local filesystem for object/document storage. Suitable for CI. |
 
 **Usage:**
 
