@@ -45,7 +45,7 @@ class ExecutionStateTests(unittest.TestCase):
 
     def test_local_marker_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
-            store = ExecutionMarkerStore(local_dir=tmpdir, gcs_prefix_uri=None)
+            store = ExecutionMarkerStore(local_dir=tmpdir, cloud_prefix_uri=None)
             key = build_execution_marker_key(
                 platform="ibkr",
                 strategy_profile="test",
@@ -62,7 +62,7 @@ class ExecutionStateTests(unittest.TestCase):
 
     def test_build_store_from_env(self) -> None:
         env = {
-            "SCHWAB_EXECUTION_STATE_GCS_URI": "gs://bucket/reports",
+            "SCHWAB_EXECUTION_STATE_CLOUD_URI": "gs://bucket/reports",
             "SCHWAB_EXECUTION_STATE_DIR": "/tmp/schwab",
         }
 
@@ -73,7 +73,7 @@ class ExecutionStateTests(unittest.TestCase):
             platform_env_prefix="SCHWAB",
             env_reader=reader,
         )
-        self.assertEqual(store.gcs_prefix_uri, "gs://bucket/reports")
+        self.assertEqual(store.cloud_prefix_uri, "gs://bucket/reports")
         self.assertEqual(str(store.local_dir), "/tmp/schwab")
 
     def test_resolve_execution_dedup_enabled(self) -> None:

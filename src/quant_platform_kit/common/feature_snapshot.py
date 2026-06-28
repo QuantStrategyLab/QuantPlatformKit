@@ -148,8 +148,12 @@ def _resolve_manifest_path(snapshot_path: Path, manifest_path: str | None) -> Pa
     return Path(f"{snapshot_path}{DEFAULT_SNAPSHOT_MANIFEST_SUFFIX}")
 
 
-def _is_gcs_uri(reference: str | None) -> bool:
-    return str(reference or "").strip().startswith("gs://")
+def _is_cloud_uri(reference: str | None) -> bool:
+    return str(reference or "").strip().startswith("gs://") or str(reference or "").strip().startswith("s3://")
+
+
+# Backward-compatible alias
+_is_gcs_uri = _is_cloud_uri
 
 
 def _resolve_manifest_reference(snapshot_reference: str, manifest_path: str | None) -> str:
@@ -159,21 +163,26 @@ def _resolve_manifest_reference(snapshot_reference: str, manifest_path: str | No
     return f"{str(snapshot_reference).strip()}{DEFAULT_SNAPSHOT_MANIFEST_SUFFIX}"
 
 
-def _parse_gcs_uri(uri: str) -> tuple[str, str]:
+def _parse_cloud_uri(uri: str) -> tuple[str, str]:
     raw_uri = str(uri or "").strip()
-    if not raw_uri.startswith("gs://"):
-        raise ValueError(f"Unsupported GCS URI: {raw_uri}")
+    if not raw_uri.startswith("gs://") and not raw_uri.startswith("s3://"):
+        raise ValueError(f"Unsupported cloud storage URI: {raw_uri}")
     bucket_name, _, object_name = raw_uri[5:].partition("/")
     if not bucket_name or not object_name:
-        raise ValueError(f"Invalid GCS URI: {raw_uri}")
+        raise ValueError(f"Invalid cloud storage URI: {raw_uri}")
     return bucket_name, object_name
 
 
-def _download_gcs_object(uri: str, destination: Path) -> None:
+def _download_remote_object(uri: str, destination: Path) -> None:
     from quant_platform_kit.cloud import get_object_store
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(get_object_store().read_bytes(uri))
+
+
+# Backward-compatible aliases
+_parse_gcs_uri = _parse_cloud_uri
+_download_gcs_object = _download_remote_object
 
 
 def _cache_path_for_remote_artifact(reference: str) -> Path:

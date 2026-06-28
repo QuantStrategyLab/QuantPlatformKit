@@ -60,6 +60,9 @@ def get_secret_store() -> SecretStore:
     if p == "gcp":
         from .gcp_provider import GcpSecretStore
         return GcpSecretStore()
+    elif p == "aws":
+        from .aws_provider import AwsSecretStore
+        return AwsSecretStore()
     elif p == "local":
         from .local_provider import LocalSecretStore
         return LocalSecretStore()
@@ -76,6 +79,9 @@ def get_secret_store_rw() -> SecretStoreReadWrite:
     if p == "gcp":
         from .gcp_provider import GcpSecretStoreReadWrite
         return GcpSecretStoreReadWrite()
+    elif p == "aws":
+        from .aws_provider import AwsSecretStoreReadWrite
+        return AwsSecretStoreReadWrite()
     elif p == "local":
         from .local_provider import LocalSecretStoreReadWrite
         return LocalSecretStoreReadWrite()
@@ -96,6 +102,9 @@ def get_object_store(project_id: str | None = None) -> ObjectStore:
     if p == "gcp":
         from .gcp_provider import GcpObjectStore
         return GcpObjectStore(project_id=project_id)
+    elif p == "aws":
+        from .aws_provider import AwsObjectStore
+        return AwsObjectStore()
     elif p in ("local", "env"):
         from .local_provider import LocalObjectStore
         return LocalObjectStore()
@@ -109,6 +118,9 @@ def get_document_store() -> DocumentStore:
     if p == "gcp":
         from .gcp_provider import GcpDocumentStore
         return GcpDocumentStore()
+    elif p == "aws":
+        from .aws_provider import AwsDocumentStore
+        return AwsDocumentStore()
     elif p in ("local", "env"):
         from .local_provider import LocalDocumentStore
         return LocalDocumentStore()
@@ -122,6 +134,9 @@ def get_compute_discovery() -> ComputeDiscovery:
     if p == "gcp":
         from .gcp_provider import GcpComputeDiscovery
         return GcpComputeDiscovery()
+    elif p == "aws":
+        from .aws_provider import AwsComputeDiscovery
+        return AwsComputeDiscovery()
     elif p in ("local", "env"):
         from .local_provider import LocalComputeDiscovery
         return LocalComputeDiscovery()
@@ -135,6 +150,9 @@ def get_deployment_context() -> DeploymentContext:
     if p == "gcp":
         from .gcp_provider import GcpDeploymentContext
         return GcpDeploymentContext()
+    elif p == "aws":
+        from .aws_provider import AwsDeploymentContext
+        return AwsDeploymentContext()
     elif p in ("local", "env"):
         from .local_provider import LocalDeploymentContext
         return LocalDeploymentContext()

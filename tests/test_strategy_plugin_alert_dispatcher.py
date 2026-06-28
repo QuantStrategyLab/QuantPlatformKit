@@ -269,18 +269,18 @@ class StrategyPluginAlertDispatcherTests(unittest.TestCase):
     def test_strategy_plugin_alert_state_settings_reads_env_with_fallback(self):
         values = {
             "STRATEGY_PLUGIN_ALERT_STATE_DIR": "/tmp/custom-alerts",
-            "EXECUTION_REPORT_GCS_URI": "gs://reports/runtime",
+            "EXECUTION_REPORT_CLOUD_URI": "gs://reports/runtime",
         }
 
         settings = StrategyPluginAlertStateSettings.from_env(
             env_reader=lambda name, default=None: values.get(name, default),
-            gcp_project_id="project-a",
-            fallback_gcs_prefix_uri="gs://state/fallback",
+            project_id="project-a",
+            fallback_cloud_prefix_uri="gs://state/fallback",
         )
 
         self.assertEqual(settings.local_dir, "/tmp/custom-alerts")
-        self.assertEqual(settings.gcs_prefix_uri, "gs://reports/runtime")
-        self.assertEqual(settings.gcp_project_id, "project-a")
+        self.assertEqual(settings.cloud_prefix_uri, "gs://reports/runtime")
+        self.assertEqual(settings.project_id, "project-a")
 
 
 if __name__ == "__main__":

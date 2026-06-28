@@ -15,7 +15,18 @@ RUNTIME_REPORT_SCHEMA_VERSION = "runtime_report.v1"
 @dataclass(frozen=True)
 class RuntimeReportPersistResult:
     local_path: str | None = None
-    gcs_uri: str | None = None
+    cloud_uri: str | None = None
+
+    @property
+    def gcs_uri(self) -> str | None:
+        """Deprecated: use cloud_uri instead."""
+        import warnings
+        warnings.warn(
+            "RuntimeReportPersistResult.gcs_uri is deprecated, use .cloud_uri",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.cloud_uri
 
 
 def build_runtime_report_base(
@@ -142,35 +153,56 @@ def write_runtime_report_json(
     return path
 
 
-def build_runtime_report_gcs_uri(
+def build_runtime_report_cloud_uri(
     report: Mapping[str, Any],
     *,
-    gcs_prefix_uri: str,
+    cloud_prefix_uri: str,
 ) -> str:
-    bucket_name, prefix = _parse_gcs_uri(gcs_prefix_uri)
+    bucket_name, prefix = _parse_cloud_uri(cloud_prefix_uri)
     object_name = runtime_report_relative_path(report).as_posix()
     if prefix:
         object_name = f"{prefix.rstrip('/')}/{object_name}"
     return f"gs://{bucket_name}/{object_name}"
 
 
-def upload_runtime_report_to_gcs(
+def upload_runtime_report_to_cloud(
     report: Mapping[str, Any],
     *,
-    gcs_uri: str,
-    gcp_project_id: str | None = None,
+    cloud_uri: str,
+    project_id: str | None = None,
     client_factory: Any = None,
 ) -> str:
-    bucket_name, object_name = _parse_gcs_uri(gcs_uri)
+    bucket_name, object_name = _parse_cloud_uri(cloud_uri)
     if not object_name:
-        raise ValueError(f"gcs_uri must include an object path, got: {gcs_uri!r}")
+        raise ValueError(f"cloud_uri must include an object path, got: {cloud_uri!r}")
     try:
         from quant_platform_kit.cloud import get_object_store
     except ImportError as exc:
-        raise RuntimeError("quant_platform_kit.cloud is required for GCS runtime report upload") from exc
+        raise RuntimeError("quant_platform_kit.cloud is required for cloud runtime report upload") from exc
     payload = json.dumps(_normalize_mapping(report), ensure_ascii=False, indent=2, sort_keys=True)
-    get_object_store(project_id=gcp_project_id).write_text(gcs_uri, payload, content_type="application/json")
-    return gcs_uri
+    get_object_store(project_id=project_id).write_text(cloud_uri, payload, content_type="application/json")
+    return cloud_uri
+
+
+# Deprecated alias
+def upload_runtime_report_to_gcs(
+    report: Mapping[str, Any],
+    *,
+    cloud_uri: str | None = None,
+    gcs_uri: str | None = None,
+    project_id: str | None = None,
+    client_factory: Any = None,
+) -> str:
+    import warnings
+    warnings.warn(
+        "upload_runtime_report_to_gcs is deprecated, use upload_runtime_report_to_cloud",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    effective_uri = cloud_uri or gcs_uri
+    if not effective_uri:
+        raise ValueError("cloud_uri or gcs_uri is required")
+    return upload_runtime_report_to_cloud(report, cloud_uri=effective_uri, project_id=project_id, client_factory=client_factory)
 
 
 def persist_runtime_report(
@@ -178,12 +210,12 @@ def persist_runtime_report(
     *,
     base_dir: str | Path | None = None,
     output_path: str | Path | None = None,
-    gcs_prefix_uri: str | None = None,
-    gcp_project_id: str | None = None,
+    cloud_prefix_uri: str | None = None,
+    project_id: str | None = None,
     client_factory: Any = None,
 ) -> RuntimeReportPersistResult:
     local_path = Path(output_path).expanduser() if output_path else default_runtime_report_path(report, base_dir=base_dir)
-    gcs_uri = build_runtime_report_gcs_uri(report, gcs_prefix_uri=gcs_prefix_uri) if _optional_string(gcs_prefix_uri) else None
+    cloud_uri = build_runtime_report_cloud_uri(report, cloud_prefix_uri=cloud_prefix_uri) if _optional_string(cloud_prefix_uri) else None
     _merge_section(
         report,
         "artifacts",
@@ -192,30 +224,30 @@ def persist_runtime_report(
         },
     )
     write_runtime_report_json(report, output_path=local_path)
-    if gcs_uri is not None:
+    if cloud_uri is not None:
         upload_report = _normalize_mapping(report)
         _merge_section(
             upload_report,
             "artifacts",
             {
-                "runtime_report_gcs_uri": gcs_uri,
+                "runtime_report_cloud_uri": cloud_uri,
             },
         )
-        gcs_uri = upload_runtime_report_to_gcs(
+        cloud_uri = upload_runtime_report_to_cloud(
             upload_report,
-            gcs_uri=gcs_uri,
-            gcp_project_id=gcp_project_id,
+            cloud_uri=cloud_uri,
+            project_id=project_id,
             client_factory=client_factory,
         )
         _merge_section(
             report,
             "artifacts",
             {
-                "runtime_report_gcs_uri": gcs_uri,
+                "runtime_report_cloud_uri": cloud_uri,
             },
         )
         write_runtime_report_json(report, output_path=local_path)
-    return RuntimeReportPersistResult(local_path=str(local_path), gcs_uri=gcs_uri)
+    return RuntimeReportPersistResult(local_path=str(local_path), cloud_uri=cloud_uri)
 
 
 def _merge_section(report: dict[str, Any], key: str, payload: Mapping[str, Any] | None) -> None:
@@ -316,7 +348,7 @@ def _sanitize_path_segment(value: Any) -> str | None:
     return safe or None
 
 
-def _parse_gcs_uri(value: str) -> tuple[str, str]:
+def _parse_cloud_uri(value: str) -> tuple[str, str]:
     text = _optional_string(value)
     if text is None or not text.startswith("gs://"):
         raise ValueError(f"Expected gs://bucket[/prefix] URI, got: {value!r}")
@@ -325,4 +357,27 @@ def _parse_gcs_uri(value: str) -> tuple[str, str]:
     bucket = _optional_string(bucket_name)
     if bucket is None:
         raise ValueError(f"GCS bucket name is missing in URI: {value!r}")
+    return bucket, _optional_string(object_name) or ""
+
+
+# Backward-compatible alias
+_parse_gcs_uri = _parse_cloud_uri
+
+
+def build_runtime_report_gcs_uri(
+    report: Mapping[str, Any],
+    *,
+    cloud_prefix_uri: str | None = None,
+    gcs_prefix_uri: str | None = None,
+) -> str:
+    import warnings
+    warnings.warn(
+        "build_runtime_report_gcs_uri is deprecated, use build_runtime_report_cloud_uri",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    effective_prefix = cloud_prefix_uri or gcs_prefix_uri
+    if not effective_prefix:
+        raise ValueError("cloud_prefix_uri or gcs_prefix_uri is required")
+    return build_runtime_report_cloud_uri(report, cloud_prefix_uri=effective_prefix)
     return bucket, object_name.strip("/")

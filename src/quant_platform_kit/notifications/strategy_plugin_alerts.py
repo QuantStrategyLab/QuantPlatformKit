@@ -46,6 +46,27 @@ _CHANNEL_TELEGRAM = "telegram"
 _SUPPORTED_CHANNELS = frozenset({_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH, _CHANNEL_TELEGRAM})
 
 
+def _read_cloud_env(
+    env_reader: Callable[[str, str | None], str | None],
+    *,
+    new_key: str,
+    old_key: str,
+) -> str | None:
+    """Read new env var name first, fall back to old name with deprecation warning."""
+    val = env_reader(new_key, None)
+    if val is not None:
+        return val
+    val = env_reader(old_key, None)
+    if val is not None:
+        import warnings
+        warnings.warn(
+            f"Env var '{old_key}' is deprecated, use '{new_key}'",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+    return val
+
+
 @dataclass(frozen=True)
 class StrategyPluginAlertChannelStores:
     """Marker stores used by each alert channel."""
@@ -75,8 +96,8 @@ class StrategyPluginAlertStateSettings:
     """Shared marker-store location for strategy plugin alert channels."""
 
     local_dir: str | Path | None = _DEFAULT_ALERT_STATE_DIR
-    gcs_prefix_uri: str | None = None
-    gcp_project_id: str | None = None
+    cloud_prefix_uri: str | None = None
+    project_id: str | None = None
     client_factory: Any = None
 
     @classmethod
@@ -84,43 +105,51 @@ class StrategyPluginAlertStateSettings:
         cls,
         *,
         env_reader: Callable[[str, str | None], str | None] = os.getenv,
-        gcp_project_id: str | None = None,
-        fallback_gcs_prefix_uri: str | None = None,
+        project_id: str | None = None,
+        fallback_cloud_prefix_uri: str | None = None,
         default_local_dir: str | Path | None = _DEFAULT_ALERT_STATE_DIR,
     ) -> "StrategyPluginAlertStateSettings":
-        explicit_gcs_uri = env_reader("STRATEGY_PLUGIN_ALERT_STATE_GCS_URI", None)
-        report_gcs_uri = env_reader("EXECUTION_REPORT_GCS_URI", None)
+        explicit_cloud_uri = _read_cloud_env(
+            env_reader,
+            new_key="STRATEGY_PLUGIN_ALERT_STATE_CLOUD_URI",
+            old_key="STRATEGY_PLUGIN_ALERT_STATE_GCS_URI",
+        )
+        report_cloud_uri = _read_cloud_env(
+            env_reader,
+            new_key="EXECUTION_REPORT_CLOUD_URI",
+            old_key="EXECUTION_REPORT_GCS_URI",
+        )
         local_dir = env_reader("STRATEGY_PLUGIN_ALERT_STATE_DIR", None)
         return cls(
             local_dir=local_dir or default_local_dir,
-            gcs_prefix_uri=explicit_gcs_uri or report_gcs_uri or fallback_gcs_prefix_uri,
-            gcp_project_id=gcp_project_id,
+            cloud_prefix_uri=explicit_cloud_uri or report_cloud_uri or fallback_cloud_prefix_uri,
+            project_id=project_id,
         )
 
     def build_channel_stores(self) -> StrategyPluginAlertChannelStores:
         return StrategyPluginAlertChannelStores(
             email=StrategyPluginEmailAlertMarkerStore(
                 local_dir=self.local_dir,
-                gcs_prefix_uri=self.gcs_prefix_uri,
-                gcp_project_id=self.gcp_project_id,
+                cloud_prefix_uri=self.cloud_prefix_uri,
+                project_id=self.project_id,
                 client_factory=self.client_factory,
             ),
             sms=StrategyPluginSmsAlertMarkerStore(
                 local_dir=self.local_dir,
-                gcs_prefix_uri=self.gcs_prefix_uri,
-                gcp_project_id=self.gcp_project_id,
+                cloud_prefix_uri=self.cloud_prefix_uri,
+                project_id=self.project_id,
                 client_factory=self.client_factory,
             ),
             push=StrategyPluginPushAlertMarkerStore(
                 local_dir=self.local_dir,
-                gcs_prefix_uri=self.gcs_prefix_uri,
-                gcp_project_id=self.gcp_project_id,
+                cloud_prefix_uri=self.cloud_prefix_uri,
+                project_id=self.project_id,
                 client_factory=self.client_factory,
             ),
             telegram=StrategyPluginTelegramAlertMarkerStore(
                 local_dir=self.local_dir,
-                gcs_prefix_uri=self.gcs_prefix_uri,
-                gcp_project_id=self.gcp_project_id,
+                cloud_prefix_uri=self.cloud_prefix_uri,
+                project_id=self.project_id,
                 client_factory=self.client_factory,
             ),
         )

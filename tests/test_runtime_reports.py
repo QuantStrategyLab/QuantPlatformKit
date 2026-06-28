@@ -9,7 +9,7 @@ from unittest.mock import patch
 from quant_platform_kit.common.runtime_reports import (
     RUNTIME_REPORT_SCHEMA_VERSION,
     append_runtime_report_error,
-    build_runtime_report_gcs_uri,
+    build_runtime_report_cloud_uri,
     build_runtime_report_base,
     default_runtime_report_path,
     finalize_runtime_report,
@@ -118,7 +118,7 @@ class RuntimeReportsTests(unittest.TestCase):
             "longbridge/soxl_soxx_trend_income/HK/2026-04/run-003.json",
         )
 
-    def test_build_runtime_report_gcs_uri_uses_relative_layout(self) -> None:
+    def test_build_runtime_report_cloud_uri_uses_relative_layout(self) -> None:
         report = build_runtime_report_base(
             platform="interactive_brokers",
             deploy_target="cloud_run",
@@ -131,9 +131,9 @@ class RuntimeReportsTests(unittest.TestCase):
             started_at="2026-04-08T00:00:00Z",
         )
 
-        uri = build_runtime_report_gcs_uri(
+        uri = build_runtime_report_cloud_uri(
             report,
-            gcs_prefix_uri="gs://demo-bucket/runtime-reports",
+            cloud_prefix_uri="gs://demo-bucket/runtime-reports",
         )
 
         self.assertEqual(
@@ -142,7 +142,7 @@ class RuntimeReportsTests(unittest.TestCase):
         )
 
     @patch("quant_platform_kit.cloud.get_object_store")
-    def test_persist_runtime_report_writes_local_and_uploads_gcs(self, mock_get_store) -> None:
+    def test_persist_runtime_report_writes_local_and_uploads_cloud(self, mock_get_store) -> None:
         report = build_runtime_report_base(
             platform="charles_schwab",
             deploy_target="cloud_run",
@@ -161,8 +161,8 @@ class RuntimeReportsTests(unittest.TestCase):
             result = persist_runtime_report(
                 report,
                 base_dir=tmp_dir,
-                gcs_prefix_uri="gs://demo-bucket/runtime-reports",
-                gcp_project_id="demo-project",
+                cloud_prefix_uri="gs://demo-bucket/runtime-reports",
+                project_id="demo-project",
             )
             payload = json.loads(
                 default_runtime_report_path(report, base_dir=tmp_dir).read_text(encoding="utf-8")
@@ -170,12 +170,12 @@ class RuntimeReportsTests(unittest.TestCase):
 
         expected_uri = "gs://demo-bucket/runtime-reports/charles_schwab/tqqq_growth_income/2026-04/run-005.json"
         self.assertEqual(result.local_path, str(default_runtime_report_path(report, base_dir=tmp_dir)))
-        self.assertEqual(result.gcs_uri, expected_uri)
-        self.assertEqual(payload["artifacts"]["runtime_report_gcs_uri"], result.gcs_uri)
+        self.assertEqual(result.cloud_uri, expected_uri)
+        self.assertEqual(payload["artifacts"]["runtime_report_cloud_uri"], result.cloud_uri)
         self.assertEqual(payload["artifacts"]["runtime_report_local_path"], result.local_path)
         self.assertEqual(fake_store.last_uri, expected_uri)
         uploaded_payload = json.loads(fake_store.last_payload)
-        self.assertEqual(uploaded_payload["artifacts"]["runtime_report_gcs_uri"], result.gcs_uri)
+        self.assertEqual(uploaded_payload["artifacts"]["runtime_report_cloud_uri"], result.cloud_uri)
         self.assertEqual(
             fake_store.last_content_type,
             "application/json",

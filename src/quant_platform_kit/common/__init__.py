@@ -43,9 +43,11 @@ from .runtime_target import (
 from .market_signal_artifacts import (
     MARKET_SIGNAL_ARTIFACT_LINK_FIELDS,
     cache_root_for_market_signal_artifact_tree,
-    local_path_for_gcs_object,
+    local_path_for_cloud_object,
+    local_path_for_gcs_object,  # deprecated — use local_path_for_cloud_object
     materialize_market_signal_artifact_tree,
-    resolve_gcs_artifact_reference,
+    resolve_cloud_artifact_reference,
+    resolve_gcs_artifact_reference,  # deprecated — use resolve_cloud_artifact_reference
 )
 from .strategy_plugins import (
     CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES,
@@ -137,7 +139,8 @@ __all__ = [
     "is_terminal_strategy_run_stage",
     "localize_notification_text",
     "cache_root_for_market_signal_artifact_tree",
-    "local_path_for_gcs_object",
+    "local_path_for_cloud_object",
+    "local_path_for_gcs_object",  # deprecated
     "materialize_market_signal_artifact_tree",
     "merge_strategy_plugin_i18n",
     "normalize_skip_reason",
@@ -173,7 +176,8 @@ __all__ = [
     "parse_strategy_plugin_notification_targets",
     "parse_strategy_plugin_mounts",
     "resolve_runtime_target_from_env",
-    "resolve_gcs_artifact_reference",
+    "resolve_cloud_artifact_reference",
+    "resolve_gcs_artifact_reference",  # deprecated
     "should_alert_strategy_plugin_signal",
     "translate_strategy_plugin_value",
     "translator_uses_zh",
