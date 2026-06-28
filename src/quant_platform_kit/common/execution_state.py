@@ -35,15 +35,40 @@ def _env_bool(value: object, *, default: bool) -> bool:
     return default
 
 
-def _parse_gcs_uri(uri: str) -> tuple[str, str]:
+def _parse_cloud_uri(uri: str) -> tuple[str, str]:
     text = str(uri or "").strip()
-    if not text.startswith("gs://"):
-        raise ValueError(f"gcs uri must start with gs://, got: {uri!r}")
+    if not text.startswith("gs://") and not text.startswith("s3://"):
+        raise ValueError(f"cloud uri must start with gs:// or s3://, got: {uri!r}")
     remainder = text[5:]
     bucket, _, prefix = remainder.partition("/")
     if not bucket:
-        raise ValueError(f"gcs uri must include a bucket, got: {uri!r}")
+        raise ValueError(f"cloud uri must include a bucket, got: {uri!r}")
     return bucket, prefix.strip("/")
+
+
+# Backward-compatible alias
+_parse_gcs_uri = _parse_cloud_uri
+
+
+def _read_cloud_env(
+    env_reader: Callable[[str, str | None], str | None],
+    *,
+    new_key: str,
+    old_key: str,
+) -> str | None:
+    """Read new env var name first, fall back to old name with deprecation warning."""
+    val = env_reader(new_key, None)
+    if val is not None:
+        return val
+    val = env_reader(old_key, None)
+    if val is not None:
+        import warnings
+        warnings.warn(
+            f"Env var '{old_key}' is deprecated, use '{new_key}'",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+    return val
 
 
 def _clean_key_part(value: object, *, fallback: str) -> str:
@@ -94,8 +119,8 @@ def build_execution_marker_key(
 @dataclass(frozen=True)
 class ExecutionMarkerStore:
     local_dir: str | Path | None = DEFAULT_EXECUTION_STATE_DIR
-    gcs_prefix_uri: str | None = None
-    gcp_project_id: str | None = None
+    cloud_prefix_uri: str | None = None
+    project_id: str | None = None
     namespace: str = DEFAULT_EXECUTION_STATE_NAMESPACE
     client_factory: Any = None
     prior_report_scan_limit: int = 100
@@ -103,7 +128,7 @@ class ExecutionMarkerStore:
     def has_marker(self, marker_key: str) -> bool:
         if not str(marker_key or "").strip():
             return False
-        if self.gcs_prefix_uri and self._gcs_object_store().exists(self._gcs_object_uri(marker_key)):
+        if self.cloud_prefix_uri and self._object_store().exists(self._cloud_uri(marker_key)):
             return True
         if self.local_dir and self._local_path(marker_key).exists():
             return True
@@ -124,9 +149,9 @@ class ExecutionMarkerStore:
             "metadata": dict(metadata or {}),
         }
         encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-        if self.gcs_prefix_uri:
-            self._gcs_object_store().write_text(
-                self._gcs_object_uri(marker_key),
+        if self.cloud_prefix_uri:
+            self._object_store().write_text(
+                self._cloud_uri(marker_key),
                 encoded,
                 content_type="application/json",
             )
@@ -146,14 +171,14 @@ class ExecutionMarkerStore:
         effective_date: object,
         dry_run_only: bool,
     ) -> bool:
-        if not self.gcs_prefix_uri:
+        if not self.cloud_prefix_uri:
             return False
         signal = _first_non_empty(signal_date)
         effective = _first_non_empty(effective_date)
         if not signal and not effective:
             return False
         month_segment = _month_segment(signal, effective)
-        bucket_name, prefix = _parse_gcs_uri(str(self.gcs_prefix_uri or ""))
+        bucket_name, prefix = _parse_gcs_uri(str(self.cloud_prefix_uri or ""))
         object_prefix = "/".join(
             part.strip("/")
             for part in (
@@ -165,7 +190,7 @@ class ExecutionMarkerStore:
             )
             if part and part.strip("/")
         )
-        store = self._gcs_object_store()
+        store = self._object_store()
         prefix_uri = f"gs://{bucket_name}/{object_prefix}"
         scanned = 0
         for uri in store.list(prefix_uri):
@@ -194,8 +219,8 @@ class ExecutionMarkerStore:
         root = Path(self.local_dir or tempfile.gettempdir()).expanduser()
         return root / self.namespace / f"{_clean_relative_key(marker_key)}.json"
 
-    def _gcs_object_uri(self, marker_key: str) -> str:
-        bucket_name, prefix = _parse_gcs_uri(str(self.gcs_prefix_uri or ""))
+    def _cloud_uri(self, marker_key: str) -> str:
+        bucket_name, prefix = _parse_gcs_uri(str(self.cloud_prefix_uri or ""))
         object_name = "/".join(
             part.strip("/")
             for part in (
@@ -207,36 +232,42 @@ class ExecutionMarkerStore:
         )
         return f"gs://{bucket_name}/{object_name}"
 
-    def _gcs_object_store(self):
+    def _object_store(self):
         try:
             from quant_platform_kit.cloud import get_object_store
         except ImportError as exc:
             raise RuntimeError(
                 "quant_platform_kit.cloud is required for GCS execution markers"
             ) from exc
-        return get_object_store(project_id=self.gcp_project_id)
+        return get_object_store(project_id=self.project_id)
 
     def _gcs_client(self):
-        """Deprecated: use _gcs_object_store() instead."""
-        return self._gcs_object_store()
+        """Deprecated: use _object_store() instead."""
+        return self._object_store()
 
 
 def build_execution_marker_store_from_env(
     *,
     platform_env_prefix: str,
     env_reader: Callable[[str, str | None], str | None],
-    gcp_project_id: str | None = None,
+    project_id: str | None = None,
     client_factory: Any = None,
     default_local_dir: str | Path | None = None,
 ) -> ExecutionMarkerStore:
     prefix = str(platform_env_prefix or "").strip().upper()
-    explicit_gcs_uri = env_reader(f"{prefix}_EXECUTION_STATE_GCS_URI", None)
-    report_gcs_uri = env_reader("EXECUTION_REPORT_GCS_URI", None)
+    explicit_cloud_uri = _read_cloud_env(
+        env_reader, new_key=f"{prefix}_EXECUTION_STATE_CLOUD_URI",
+        old_key=f"{prefix}_EXECUTION_STATE_GCS_URI",
+    )
+    report_cloud_uri = _read_cloud_env(
+        env_reader, new_key="EXECUTION_REPORT_CLOUD_URI",
+        old_key="EXECUTION_REPORT_GCS_URI",
+    )
     local_dir = env_reader(f"{prefix}_EXECUTION_STATE_DIR", None)
     return ExecutionMarkerStore(
         local_dir=local_dir or default_local_dir or DEFAULT_EXECUTION_STATE_DIR,
-        gcs_prefix_uri=explicit_gcs_uri or report_gcs_uri,
-        gcp_project_id=gcp_project_id,
+        cloud_prefix_uri=explicit_cloud_uri or report_cloud_uri,
+        project_id=project_id,
         client_factory=client_factory,
     )
 

@@ -734,3 +734,59 @@ def load_strategy_entrypoint(
         f"Strategy profile {definition.profile!r} does not expose a unified entrypoint; "
         f"checked modules: {candidate_modules}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Shared combo utilities
+# ---------------------------------------------------------------------------
+
+
+def compute_portfolio_drift(
+    target_weights: dict[str, float],
+    *,
+    holdings: dict[str, float] | None = None,
+    prices: dict[str, float] | None = None,
+    threshold: float = 0.05,
+) -> dict[str, object]:
+    """Check portfolio drift against target weights for rebalance decision.
+
+    Used by all combo strategies to determine whether a rebalance is needed
+    based on how far current portfolio weights have drifted from targets.
+
+    Parameters
+    ----------
+    target_weights : dict[str, float]
+        Desired portfolio weights keyed by symbol.
+    holdings : dict[str, float] | None
+        Current quantities held per symbol.
+    prices : dict[str, float] | None
+        Current price per symbol.
+    threshold : float
+        Maximum allowed drift before rebalance is triggered (default 5%).
+
+    Returns
+    -------
+    dict[str, object]
+        ``{"needs_rebalance": bool, "max_drift": float, "threshold": float, "status": str}``
+    """
+    if not isinstance(holdings, dict) or not isinstance(prices, dict) or not holdings:
+        return {"needs_rebalance": False, "max_drift": 0.0, "threshold": threshold, "status": "unknown"}
+    total_value = sum(
+        float(prices.get(s, 0.0)) * float(holdings.get(s, 0.0))
+        for s in set(holdings) | set(prices)
+    )
+    if total_value <= 0:
+        return {"needs_rebalance": False, "max_drift": 0.0, "threshold": threshold, "status": "no_value"}
+    current_weights = {
+        s: float(prices.get(s, 0.0)) * float(holdings.get(s, 0.0)) / total_value
+        for s in holdings
+        if float(holdings.get(s, 0.0)) > 0
+    }
+    max_drift = 0.0
+    for s in set(current_weights) | set(target_weights):
+        current = current_weights.get(s, 0.0)
+        target = target_weights.get(s, 0.0)
+        drift = abs(current - target)
+        max_drift = max(max_drift, drift)
+    needs = max_drift > threshold
+    return {"needs_rebalance": needs, "max_drift": max_drift, "threshold": threshold, "status": "ok"}

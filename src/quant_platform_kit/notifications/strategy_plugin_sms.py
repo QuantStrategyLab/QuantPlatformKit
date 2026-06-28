@@ -129,16 +129,16 @@ class StrategyPluginSmsAlertPublishResult:
 @dataclass(frozen=True)
 class StrategyPluginSmsAlertMarkerStore:
     local_dir: str | Path | None = None
-    gcs_prefix_uri: str | None = None
-    gcp_project_id: str | None = None
+    cloud_prefix_uri: str | None = None
+    project_id: str | None = None
     namespace: str = "strategy_plugin_sms_alerts"
     client_factory: Any = None
 
     def _object_store(self):
-        return get_object_store(project_id=self.gcp_project_id)
+        return get_object_store(project_id=self.project_id)
 
     def has_alert(self, alert_key: str) -> bool:
-        if self.gcs_prefix_uri and self._object_store().exists(self._gcs_uri(alert_key, namespace=self.namespace)):
+        if self.cloud_prefix_uri and self._object_store().exists(self._cloud_uri(alert_key, namespace=self.namespace)):
             return True
         if self.local_dir and self._local_path(alert_key, namespace=self.namespace).exists():
             return True
@@ -157,9 +157,9 @@ class StrategyPluginSmsAlertMarkerStore:
             "metadata": dict(metadata or {}),
         }
         encoded = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-        if self.gcs_prefix_uri:
+        if self.cloud_prefix_uri:
             self._object_store().write_text(
-                self._gcs_uri(alert_key, namespace=self.namespace),
+                self._cloud_uri(alert_key, namespace=self.namespace),
                 encoded,
                 content_type="application/json",
             )
@@ -173,8 +173,8 @@ class StrategyPluginSmsAlertMarkerStore:
         root = Path(self.local_dir or tempfile.gettempdir()).expanduser()
         return root / namespace / f"{_clean_relative_key(alert_key)}.json"
 
-    def _gcs_uri(self, alert_key: str, *, namespace: str) -> str:
-        bucket_name, prefix = _parse_gcs_uri(str(self.gcs_prefix_uri or ""))
+    def _cloud_uri(self, alert_key: str, *, namespace: str) -> str:
+        bucket_name, prefix = _parse_cloud_uri(str(self.cloud_prefix_uri or ""))
         object_name = "/".join(
             part.strip("/")
             for part in (prefix, namespace, f"{_clean_relative_key(alert_key)}.json")
@@ -385,7 +385,7 @@ def _clean_relative_key(value: str) -> str:
     return "/".join(parts) or "unknown"
 
 
-def _parse_gcs_uri(uri: str) -> tuple[str, str]:
+def _parse_cloud_uri(uri: str) -> tuple[str, str]:
     raw_uri = str(uri or "").strip()
     if not raw_uri.startswith("gs://"):
         raise ValueError(f"gcs uri must start with gs://, got: {uri!r}")

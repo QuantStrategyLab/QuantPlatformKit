@@ -1,0 +1,301 @@
+"""
+AWS provider implementation — 遵循与 GCP provider 相同的 Protocol 接口。
+
+所有 *Provider 类均为无状态单例（lazy-init boto3 client）。
+启用方式: export QSL_CLOUD_PROVIDER=aws
+
+需要 boto3 和适当的 AWS 凭证（环境变量、~/.aws/credentials、或 IAM 角色）。
+
+URI 格式:
+  s3://bucket-name/path/to/blob  — ObjectStore
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from . import ports
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Secret Store — AWS Secrets Manager
+# ══════════════════════════════════════════════════════════════════════
+
+
+class AwsSecretStore:
+    """Read-only secret access via AWS Secrets Manager."""
+
+    _client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            import boto3
+            self._client = boto3.client("secretsmanager", region_name=_resolve_aws_region())
+        return self._client
+
+    def get_secret(self, secret_name: str, *, project_id: str | None = None) -> str:
+        response = self.client.get_secret_value(SecretId=secret_name)
+        return response["SecretString"]
+
+
+class AwsSecretStoreReadWrite:
+    """Read-write secret access for token rotation scenarios."""
+
+    _client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            import boto3
+            self._client = boto3.client("secretsmanager", region_name=_resolve_aws_region())
+        return self._client
+
+    def get_secret(self, secret_name: str, *, project_id: str | None = None) -> str:
+        response = self.client.get_secret_value(SecretId=secret_name)
+        return response["SecretString"]
+
+    def create_secret(self, secret_name: str, payload: str, *, project_id: str | None = None) -> str:
+        response = self.client.create_secret(Name=secret_name, SecretString=payload)
+        return response["ARN"]
+
+    def update_secret(self, secret_name: str, payload: str, *, project_id: str | None = None) -> str:
+        response = self.client.put_secret_value(SecretId=secret_name, SecretString=payload)
+        return response["ARN"]
+
+    def destroy_latest_secret(self, secret_name: str, *, project_id: str | None = None) -> None:
+        try:
+            self.client.delete_secret(SecretId=secret_name, ForceDeleteWithoutRecovery=True)
+        except Exception:
+            pass
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Object Store — S3
+# ══════════════════════════════════════════════════════════════════════
+
+
+class AwsObjectStore:
+    """Amazon S3 implementation.
+
+    URI 格式: s3://bucket-name/path/to/blob
+    也接受 file:// 和 gs:// URI（仅用于本地 mapping — 实际 S3 操作需要 s3://）。
+    """
+
+    _client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            import boto3
+            self._client = boto3.client("s3", region_name=_resolve_aws_region())
+        return self._client
+
+    def _parse_uri(self, uri: str) -> tuple[str, str]:
+        """返回 (bucket_name, object_key)。"""
+        for scheme in ("s3://",):
+            if uri.startswith(scheme):
+                path = uri[len(scheme):]
+                bucket, _, key = path.partition("/")
+                return bucket, key
+        raise ValueError(f"AwsObjectStore requires s3:// URI, got: {uri!r}")
+
+    def read_text(self, uri: str) -> str:
+        bucket, key = self._parse_uri(uri)
+        response = self.client.get_object(Bucket=bucket, Key=key)
+        return response["Body"].read().decode("utf-8")
+
+    def read_bytes(self, uri: str) -> bytes:
+        bucket, key = self._parse_uri(uri)
+        response = self.client.get_object(Bucket=bucket, Key=key)
+        return response["Body"].read()
+
+    def write_text(self, uri: str, data: str, content_type: str = "text/plain") -> str:
+        bucket, key = self._parse_uri(uri)
+        self.client.put_object(Bucket=bucket, Key=key, Body=data.encode("utf-8"), ContentType=content_type)
+        return uri
+
+    def write_bytes(self, uri: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        bucket, key = self._parse_uri(uri)
+        self.client.put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
+        return uri
+
+    def exists(self, uri: str) -> bool:
+        bucket, key = self._parse_uri(uri)
+        try:
+            self.client.head_object(Bucket=bucket, Key=key)
+            return True
+        except self.client.exceptions.ClientError:
+            return False
+
+    def list(self, prefix: str) -> list[str]:
+        """列出指定前缀下的对象。prefix 格式: s3://bucket/prefix"""
+        bucket, key_prefix = self._parse_uri(prefix)
+        response = self.client.list_objects_v2(Bucket=bucket, Prefix=key_prefix)
+        if "Contents" not in response:
+            return []
+        return [f"s3://{bucket}/{obj['Key']}" for obj in response["Contents"]]
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Document Store — DynamoDB
+# ══════════════════════════════════════════════════════════════════════
+
+
+class AwsDocumentStore:
+    """DynamoDB implementation (collection/document 模型).
+
+    DynamoDB 表名 = collection 名，document_id 作为主键 'id'。
+    """
+
+    _client = None
+    _table_cache: dict[str, object] = {}
+
+    @property
+    def client(self):
+        if self._client is None:
+            import boto3
+            self._client = boto3.client("dynamodb", region_name=_resolve_aws_region())
+        return self._client
+
+    def _get_table(self, table_name: str):
+        if table_name not in self._table_cache:
+            import boto3
+            dynamodb = boto3.resource("dynamodb", region_name=_resolve_aws_region())
+            self._table_cache[table_name] = dynamodb.Table(table_name)
+        return self._table_cache[table_name]
+
+    def get(self, collection: str, document_id: str) -> dict | None:
+        table = self._get_table(collection)
+        response = table.get_item(Key={"id": document_id})
+        item = response.get("Item")
+        if item is None:
+            return None
+        return {k: _dynamodb_deserialize(v) for k, v in item.items()}
+
+    def set(self, collection: str, document_id: str, data: dict) -> None:
+        table = self._get_table(collection)
+        item = {"id": document_id, **{k: _dynamodb_serialize(v) for k, v in data.items()}}
+        table.put_item(Item=item)
+
+    def update(self, collection: str, document_id: str, fields: dict) -> None:
+        table = self._get_table(collection)
+        update_expr = "SET " + ", ".join(f"#{k} = :{k}" for k in fields)
+        expr_attr_names = {f"#{k}": k for k in fields}
+        expr_attr_values = {f":{k}": _dynamodb_serialize(v) for k, v in fields.items()}
+        table.update_item(
+            Key={"id": document_id},
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames=expr_attr_names,
+            ExpressionAttributeValues=expr_attr_values,
+        )
+
+    def delete(self, collection: str, document_id: str) -> None:
+        table = self._get_table(collection)
+        table.delete_item(Key={"id": document_id})
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Compute Discovery — EC2
+# ══════════════════════════════════════════════════════════════════════
+
+
+class AwsComputeDiscovery:
+    """Resolve EC2 instance IP via EC2 API."""
+
+    _client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            import boto3
+            self._client = boto3.client("ec2", region_name=_resolve_aws_region())
+        return self._client
+
+    def resolve_instance_ip(
+        self,
+        instance_name: str,
+        zone: str,
+        *,
+        project_id: str | None = None,
+        prefer_internal: bool = True,
+    ) -> str:
+        filters = [{"Name": "tag:Name", "Values": [instance_name]}]
+        response = self.client.describe_instances(Filters=filters)
+
+        for reservation in response.get("Reservations", []):
+            for instance in reservation.get("Instances", []):
+                if instance["State"]["Name"] != "running":
+                    continue
+                if prefer_internal:
+                    return instance.get("PrivateIpAddress", "")
+                return instance.get("PublicIpAddress", "")
+
+        raise RuntimeError(f"No running EC2 instance found with Name={instance_name}")
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Deployment Context — ECS / EC2 / Lambda
+# ══════════════════════════════════════════════════════════════════════
+
+
+class AwsDeploymentContext:
+    """AWS deployment context."""
+
+    @property
+    def project_id(self) -> str:
+        return os.environ.get("AWS_ACCOUNT_ID", "")
+
+    @property
+    def region(self) -> str | None:
+        return _resolve_aws_region()
+
+    def fetch_id_token(self, audience: str) -> str:
+        raise NotImplementedError(
+            "AWS DeploymentContext.fetch_id_token is not implemented. "
+            "Use a service-specific mechanism (e.g., Cognito, STS, or IAM roles)."
+        )
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  Internal helpers
+# ══════════════════════════════════════════════════════════════════════
+
+
+def _resolve_aws_region() -> str:
+    """从环境变量或 boto3 session 解析 AWS region，默认 us-east-1。"""
+    env_region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
+    if env_region:
+        return env_region
+    try:
+        import boto3
+        region = boto3.Session().region_name
+        if region:
+            return region
+    except Exception:
+        pass
+    return "us-east-1"
+
+
+def _dynamodb_serialize(value):
+    """将 Python 值转换为 DynamoDB 兼容格式。"""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    if isinstance(value, dict):
+        return {k: _dynamodb_serialize(v) for k, v in value.items()}
+    if value is None:
+        return value
+    return str(value)
+
+
+def _dynamodb_deserialize(value):
+    """DynamoDB 值直接返回（boto3 resource API 已处理反序列化）。"""
+    return value

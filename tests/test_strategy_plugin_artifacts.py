@@ -4,22 +4,22 @@ import pytest
 
 from quant_platform_kit.common.strategy_plugin_artifacts import (
     cache_path_for_remote_artifact,
-    materialize_local_or_gcs_artifact,
-    parse_gcs_uri,
+    materialize_local_or_remote_artifact,
+    parse_cloud_uri,
 )
 
 
-def test_parse_gcs_uri_requires_bucket_and_object():
-    assert parse_gcs_uri("gs://bucket/path/latest_signal.json") == (
+def test_parse_cloud_uri_requires_bucket_and_object():
+    assert parse_cloud_uri("gs://bucket/path/latest_signal.json") == (
         "bucket",
         "path/latest_signal.json",
     )
 
-    with pytest.raises(ValueError, match="Invalid GCS URI"):
-        parse_gcs_uri("gs://bucket")
+    with pytest.raises(ValueError, match="Invalid cloud storage URI"):
+        parse_cloud_uri("gs://bucket")
 
-    with pytest.raises(ValueError, match="Unsupported GCS URI"):
-        parse_gcs_uri("https://example.com/latest_signal.json")
+    with pytest.raises(ValueError, match="Unsupported cloud storage URI"):
+        parse_cloud_uri("https://example.com/latest_signal.json")
 
 
 def test_cache_path_for_remote_artifact_is_stable_under_cache_dir():
@@ -39,7 +39,7 @@ def test_cache_path_for_remote_artifact_is_stable_under_cache_dir():
 
 
 def test_materialize_local_artifact_does_not_download():
-    local_path, metadata = materialize_local_or_gcs_artifact(
+    local_path, metadata = materialize_local_or_remote_artifact(
         "~/signals/latest_signal.json",
         cache_dir=Path("/tmp/cache"),
         client_factory=lambda: (_ for _ in ()).throw(AssertionError("should not download")),
