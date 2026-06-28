@@ -14,7 +14,7 @@ from quant_platform_kit.common.strategy_plugins import (
 )
 
 from .alert_marker import CloudAlertMarkerStore, _clean_relative_key
-from .email import parse_email_recipients, send_smtp_email
+from ._email import parse_email_recipients, send_smtp_email
 
 
 _DEFAULT_EMAIL_SMTP_HOST = "smtp.gmail.com"
