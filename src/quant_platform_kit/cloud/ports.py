@@ -48,9 +48,23 @@ class SecretStoreReadWrite(SecretStore, Protocol):
 @runtime_checkable
 class ObjectStore(Protocol):
     """对象存储接口。URI 格式由实现方决定：
-    - GCP:   gs://bucket/key
-    - AWS:   s3://bucket/key
-    - Local: file:///absolute/path 或 /absolute/path
+
+    GCP provider:
+      gs://bucket-name/path/to/key   — Cloud Storage
+
+    AWS provider:
+      s3://bucket-name/path/to/key   — S3
+
+    Local / Env provider:
+      /absolute/path/to/file         — 本地文件（绝对路径）
+      file:///absolute/path/to/file   — 同上
+      gs://bucket/key                — 映射到 ~/.qsl/storage/gs/bucket/key
+      s3://bucket/key                — 映射到 ~/.qsl/storage/s3/bucket/key
+
+    注意：URI scheme 与 provider 必须匹配：
+    - ``s3://`` URI + AWS provider → S3 操作
+    - ``s3://`` URI + Local provider → 本地文件模拟（便于开发）
+    - ``gs://`` URI + AWS provider → ValueError（不跨云互通）
     """
 
     def read_text(self, uri: str) -> str:
