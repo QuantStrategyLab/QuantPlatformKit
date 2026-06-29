@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from quant_platform_kit.common.strategies import StrategyMetadata
 
 NotificationTranslator = Callable[..., str]
 NotificationReplacement = tuple[str, str]
@@ -351,3 +355,64 @@ def localize_notification_text(
     for source, target in (*tuple(extra_replacements), *COMMON_ZH_NOTIFICATION_REPLACEMENTS):
         localized = localized.replace(source, target)
     return localized
+
+
+# ──────────────────────────────────────────────────────────────────────
+#  Strategy display name resolver
+# ──────────────────────────────────────────────────────────────────────
+
+# Map locale strings to the keys used in StrategyMetadata.localized_display_names
+_LOCALE_KEY_MAP: dict[str, str] = {
+    "en": "en",
+    "zh": "zh",
+    "zh-cn": "zh",
+    "zh-hk": "zh",
+    "zh-tw": "zh",
+}
+
+
+def _normalize_locale(locale: str) -> str:
+    """Normalize a locale string (e.g. "zh-CN", "zh_CN") to a lookup key."""
+    normalized = str(locale or "en").strip().lower().replace("_", "-")
+    return _LOCALE_KEY_MAP.get(normalized, normalized)
+
+
+def resolve_strategy_display_name(
+    locale: str,
+    metadata: StrategyMetadata,
+    *,
+    translator: NotificationTranslator | None = None,
+) -> str:
+    """Resolve the localized display name for a strategy.
+
+    Fallback chain (first match wins):
+        1. ``metadata.localized_display_names`` for the normalized locale
+        2. ``translator("strategy_name_{profile}")`` if translator is provided (legacy)
+        3. ``metadata.display_name`` (English catalog name)
+        4. ``metadata.canonical_profile`` (raw profile id)
+
+    The caller should already have resolved aliases — the profile stored in
+    ``metadata.canonical_profile`` must be the canonical id, not an alias.
+    """
+    locale_key = _normalize_locale(locale)
+
+    # 1. Check localized_display_names from catalog metadata (canonical source)
+    localized = metadata.localized_display_names
+    if localized:
+        name = localized.get(locale_key)
+        if name:
+            return str(name).strip()
+
+    # 2. Legacy fallback — check hardcoded i18n dict in platform
+    if translator is not None:
+        key = f"strategy_name_{str(metadata.canonical_profile or '').strip()}"
+        translated = translator(key)
+        if translated and translated != key:
+            return translated
+
+    # 3. Fallback to English display_name from catalog
+    if metadata.display_name:
+        return str(metadata.display_name).strip()
+
+    # 4. Ultimate fallback to canonical profile id
+    return str(metadata.canonical_profile or "").strip()

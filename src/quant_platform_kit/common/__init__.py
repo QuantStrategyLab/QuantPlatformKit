@@ -5,6 +5,7 @@ from .notification_localization import (
     STRATEGY_PLUGIN_I18N,
     localize_notification_text,
     merge_strategy_plugin_i18n,
+    resolve_strategy_display_name,
     translator_uses_zh,
 )
 from .execution_outcomes import (
@@ -145,6 +146,7 @@ __all__ = [
     "merge_strategy_plugin_i18n",
     "normalize_skip_reason",
     "normalize_stage",
+    "resolve_strategy_display_name",
     "resolve_strategy_run_stage",
     "RuntimeTarget",
     "build_runtime_context_fields",
