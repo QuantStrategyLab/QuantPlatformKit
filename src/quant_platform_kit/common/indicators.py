@@ -15,23 +15,18 @@ from typing import Any
 
 def sma(series: Any, window: int, *, min_periods: int | None = None) -> Any:
     """Simple moving average."""
-    import pandas as pd  # lazy import
-
     _series = _to_series(series)
     return _series.rolling(window=window, min_periods=min_periods or window).mean()
 
 
 def ema(series: Any, span: int, *, adjust: bool = True) -> Any:
     """Exponential moving average (EMA)."""
-    import pandas as pd
-
     _series = _to_series(series)
     return _series.ewm(span=span, adjust=adjust).mean()
 
 
 def rsi(series: Any, window: int = 14) -> Any:
     """Relative Strength Index (RSI)."""
-    import pandas as pd
     import numpy as np
 
     _series = _to_series(series)
@@ -45,7 +40,6 @@ def rsi(series: Any, window: int = 14) -> Any:
 def atr(high: Any, low: Any, close: Any, window: int = 14) -> Any:
     """Average True Range."""
     import pandas as pd
-    import numpy as np
 
     _high = _to_series(high)
     _low = _to_series(low)
