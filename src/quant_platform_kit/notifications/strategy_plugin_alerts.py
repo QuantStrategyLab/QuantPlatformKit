@@ -396,7 +396,26 @@ def _resolve_channels(
         raw_channels = _get_value(notification_settings, "strategy_plugin_alert_channels", None)
     if raw_channels in (None, "", (), []):
         raw_channels = (_CHANNEL_EMAIL, _CHANNEL_SMS, _CHANNEL_PUSH, _CHANNEL_TELEGRAM)
-    return _normalize_channels(raw_channels)
+    resolved = _normalize_channels(raw_channels)
+    # Auto-add webhook if any webhook URL is configured
+    if _CHANNEL_WEBHOOK not in resolved and _has_any_webhook_url(notification_settings):
+        resolved = (*resolved, _CHANNEL_WEBHOOK)
+    return resolved
+
+
+def _has_any_webhook_url(settings: object) -> bool:
+    """Check if any webhook provider URL is configured."""
+    url_keys = (
+        "strategy_plugin_alert_webhook_wecom_url",
+        "strategy_plugin_alert_webhook_dingtalk_url",
+        "strategy_plugin_alert_webhook_feishu_url",
+        "strategy_plugin_alert_webhook_serverchan_url",
+    )
+    for key in url_keys:
+        url = _get_value(settings, key, None)
+        if url and str(url).strip():
+            return True
+    return False
 
 
 def _get_value(value: object, name: str, default: Any = None) -> Any:

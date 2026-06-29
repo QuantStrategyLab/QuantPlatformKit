@@ -91,6 +91,70 @@ def build_cycle_sender(
 
 
 # ──────────────────────────────────────────────────────────────────────
+#  Smart channel resolution
+# ──────────────────────────────────────────────────────────────────────
+
+def resolve_cycle_channel_and_url(
+    *,
+    explicit_channel: str = CYCLE_CHANNEL_TELEGRAM,
+    telegram_token: str | None = None,
+    telegram_chat_id: str | None = None,
+    wecom_url: str | None = None,
+    dingtalk_url: str | None = None,
+    feishu_url: str | None = None,
+    serverchan_url: str | None = None,
+) -> tuple[str, str | None]:
+    """Resolve the notification channel and optional webhook URL.
+
+    Resolution order:
+    1. If *explicit_channel* is not ``"telegram"``, use it with the
+       matching webhook URL.
+    2. If *telegram_token* and *telegram_chat_id* are both set, use Telegram.
+    3. Otherwise, scan the webhook URLs and auto-detect the first configured
+       channel.
+    4. Fall back to ``"telegram"`` with no URL (sender will log a warning).
+
+    Returns:
+        A ``(channel, webhook_url)`` tuple.  *webhook_url* is ``None``
+        when the channel is ``"telegram"``.
+    """
+    normalized = str(explicit_channel or "").strip().lower() or CYCLE_CHANNEL_TELEGRAM
+
+    # Explicit non-telegram channel → use it with matching URL
+    if normalized != CYCLE_CHANNEL_TELEGRAM:
+        url_map = {
+            CYCLE_CHANNEL_WECOM: wecom_url,
+            CYCLE_CHANNEL_DINGTALK: dingtalk_url,
+            CYCLE_CHANNEL_FEISHU: feishu_url,
+            CYCLE_CHANNEL_SERVERCHAN: serverchan_url,
+        }
+        return normalized, _first_set(url_map.get(normalized))
+
+    # Telegram explicitly configured → use it
+    if telegram_token and telegram_chat_id:
+        return CYCLE_CHANNEL_TELEGRAM, None
+
+    # Auto-detect from webhook URLs
+    for channel, url in [
+        (CYCLE_CHANNEL_WECOM, wecom_url),
+        (CYCLE_CHANNEL_DINGTALK, dingtalk_url),
+        (CYCLE_CHANNEL_FEISHU, feishu_url),
+        (CYCLE_CHANNEL_SERVERCHAN, serverchan_url),
+    ]:
+        if url:
+            return channel, url
+
+    # Nothing configured → keep telegram (sender will print warnings)
+    return CYCLE_CHANNEL_TELEGRAM, None
+
+
+def _first_set(value: str | None) -> str | None:
+    """Return *value* if it is a non-empty string, otherwise None."""
+    text = str(value or "").strip()
+    return text if text else None
+
+
+# ──────────────────────────────────────────────────────────────────────
 #  Telegram sender
 # ──────────────────────────────────────────────────────────────────────
 

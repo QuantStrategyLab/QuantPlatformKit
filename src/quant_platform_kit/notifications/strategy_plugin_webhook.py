@@ -69,22 +69,38 @@ class StrategyPluginWebhookSettings:
     def from_object(cls, value: object) -> "StrategyPluginWebhookSettings":
         if isinstance(value, cls):
             return value
+        # Read per-platform URLs
+        wecom_url = _first_non_empty(
+            _get_value(value, "strategy_plugin_alert_webhook_wecom_url")
+        )
+        dingtalk_url = _first_non_empty(
+            _get_value(value, "strategy_plugin_alert_webhook_dingtalk_url")
+        )
+        feishu_url = _first_non_empty(
+            _get_value(value, "strategy_plugin_alert_webhook_feishu_url")
+        )
+        serverchan_url = _first_non_empty(
+            _get_value(value, "strategy_plugin_alert_webhook_serverchan_url")
+        )
+        # Providers: explicit config takes priority, otherwise auto-detect from URLs
+        explicit_providers = parse_webhook_providers(
+            _get_value(value, "strategy_plugin_alert_webhook_providers", ())
+        )
+        if explicit_providers:
+            providers = explicit_providers
+        else:
+            providers = _auto_detect_providers(
+                wecom_url=wecom_url,
+                dingtalk_url=dingtalk_url,
+                feishu_url=feishu_url,
+                serverchan_url=serverchan_url,
+            )
         return cls(
-            providers=parse_webhook_providers(
-                _get_value(value, "strategy_plugin_alert_webhook_providers", ())
-            ),
-            wecom_webhook_url=_first_non_empty(
-                _get_value(value, "strategy_plugin_alert_webhook_wecom_url")
-            ),
-            dingtalk_webhook_url=_first_non_empty(
-                _get_value(value, "strategy_plugin_alert_webhook_dingtalk_url")
-            ),
-            feishu_webhook_url=_first_non_empty(
-                _get_value(value, "strategy_plugin_alert_webhook_feishu_url")
-            ),
-            serverchan_webhook_url=_first_non_empty(
-                _get_value(value, "strategy_plugin_alert_webhook_serverchan_url")
-            ),
+            providers=providers,
+            wecom_webhook_url=wecom_url,
+            dingtalk_webhook_url=dingtalk_url,
+            feishu_webhook_url=feishu_url,
+            serverchan_webhook_url=serverchan_url,
             body_max_chars=_coerce_int(
                 _get_value(value, "strategy_plugin_alert_webhook_body_max_chars"),
                 _DEFAULT_WEBHOOK_BODY_MAX_CHARS,
@@ -425,6 +441,29 @@ def _first_non_empty(*values: Any) -> str | None:
         if text:
             return text
     return None
+
+
+def _auto_detect_providers(
+    *,
+    wecom_url: str | None,
+    dingtalk_url: str | None,
+    feishu_url: str | None,
+    serverchan_url: str | None,
+) -> tuple[str, ...]:
+    """Auto-detect webhook providers from configured URLs.
+
+    Returns a deduplicated tuple of provider names for each URL that is set.
+    """
+    providers: list[str] = []
+    if wecom_url:
+        providers.append(WEBHOOK_PROVIDER_WECOM)
+    if dingtalk_url:
+        providers.append(WEBHOOK_PROVIDER_DINGTALK)
+    if feishu_url:
+        providers.append(WEBHOOK_PROVIDER_FEISHU)
+    if serverchan_url:
+        providers.append(WEBHOOK_PROVIDER_SERVERCHAN)
+    return tuple(providers)
 
 
 def _coerce_int(value: Any, default: int) -> int:
