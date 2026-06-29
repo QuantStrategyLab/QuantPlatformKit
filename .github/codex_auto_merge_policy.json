@@ -22,7 +22,7 @@
       "reason": "source code changes require review"
     }
   },
-  "max_changed_files": 30,
+  "max_changed_files": 50,
   "max_changed_lines": 2000,
   "pr_review": {
     "enabled": true,

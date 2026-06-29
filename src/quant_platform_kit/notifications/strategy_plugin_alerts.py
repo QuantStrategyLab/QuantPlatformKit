@@ -41,7 +41,6 @@ from .strategy_plugin_telegram import (
 from .strategy_plugin_webhook import (
     StrategyPluginWebhookAlertMarkerStore,
     StrategyPluginWebhookAlertPublishResult,
-    StrategyPluginWebhookSettings,
     publish_strategy_plugin_webhook_alerts,
 )
 

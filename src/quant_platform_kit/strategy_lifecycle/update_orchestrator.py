@@ -12,7 +12,6 @@ from quant_platform_kit.strategy_lifecycle.audit_log import record_audit_entry
 from quant_platform_kit.strategy_lifecycle.config_writer import write_params_to_config
 from quant_platform_kit.strategy_lifecycle.contracts import OptimizationProposal, UpdateStage
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
-from quant_platform_kit.strategy_lifecycle.rollback_manager import RollbackManager
 from quant_platform_kit.strategy_lifecycle.shadow_validator import ShadowValidator
 from quant_platform_kit.strategy_lifecycle.update_policy import UpdatePolicy
 

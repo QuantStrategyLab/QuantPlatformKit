@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 import unittest
 
 import numpy as np
@@ -12,7 +11,6 @@ from quant_platform_kit.strategy_lifecycle.performance_metrics import (
     compute_window_metrics,
     compute_windows,
     normalize_return_series,
-    normalize_return_matrix,
     DEFAULT_WINDOWS,
 )
 

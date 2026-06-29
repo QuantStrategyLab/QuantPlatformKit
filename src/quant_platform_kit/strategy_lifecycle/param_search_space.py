@@ -6,7 +6,6 @@ Each strategy declares which parameters are tunable, their types, and valid rang
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 from quant_platform_kit.strategy_lifecycle.contracts import ParamDimension, ParamSearchSpace
 

@@ -13,10 +13,8 @@ URI format:
 
 from __future__ import annotations
 
-import json
 import os
 
-from . import ports
 
 
 # ══════════════════════════════════════════════════════════════════════

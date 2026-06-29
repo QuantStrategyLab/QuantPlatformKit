@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -126,7 +125,7 @@ def get_service_url(platform_id: str, account_scope: str = "default") -> str:
     target = PLATFORM_DEPLOY_TARGETS[platform_id]
     result = subprocess.run(
         ["gcloud", "run", "services", "describe",
-         f"charles-schwab-quant-service" if platform_id == "schwab"
+         "charles-schwab-quant-service" if platform_id == "schwab"
          else f"interactive-brokers-quant-live-{account_scope}-service" if platform_id == "ibkr"
          else f"longbridge-quant-{account_scope.lower()}-service",
          "--project", target["project"],

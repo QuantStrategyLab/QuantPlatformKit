@@ -15,7 +15,6 @@ import json
 import os
 from pathlib import Path
 
-from . import ports
 
 QSL_DIR = Path.home() / ".qsl"
 SECRETS_DIR = QSL_DIR / "secrets"

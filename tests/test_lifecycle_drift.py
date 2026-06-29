@@ -7,7 +7,6 @@ import unittest
 
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
-    DriftResult,
     DriftStatus,
     StrategyPerformanceSnapshot,
     WindowPerformance,
