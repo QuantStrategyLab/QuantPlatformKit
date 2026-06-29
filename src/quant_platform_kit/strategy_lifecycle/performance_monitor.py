@@ -6,12 +6,10 @@ and persists StrategyPerformanceSnapshot records to the performance store.
 
 from __future__ import annotations
 
-import os
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Sequence
 
-import numpy as np
 import pandas as pd
 
 from quant_platform_kit.strategy_lifecycle.contracts import StrategyPerformanceSnapshot

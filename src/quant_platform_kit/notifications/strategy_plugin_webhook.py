@@ -10,10 +10,8 @@ delivery is recorded independently.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from quant_platform_kit.common.strategy_plugins import (
@@ -27,7 +25,6 @@ from .webhook import (
     WEBHOOK_PROVIDER_DINGTALK,
     WEBHOOK_PROVIDER_FEISHU,
     WEBHOOK_PROVIDER_SERVERCHAN,
-    _SUPPORTED_WEBHOOK_PROVIDERS,
     parse_webhook_providers,
     send_strategy_plugin_webhook,
 )

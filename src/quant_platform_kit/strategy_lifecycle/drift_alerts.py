@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
 from quant_platform_kit.strategy_lifecycle.contracts import DriftResult, DriftStatus
 from quant_platform_kit.strategy_lifecycle.drift_policy import DriftPolicy
@@ -84,16 +84,16 @@ def build_drift_alert(
 
     # Build body
     lines = [
-        f"Strategy Lifecycle Drift Alert",
-        f"",
+        "Strategy Lifecycle Drift Alert",
+        "",
         f"Strategy: {drift.strategy_profile}",
         f"Domain: {drift.domain}",
         f"As-of: {drift.as_of}",
         f"Drift Score: {drift.drift_score:.3f}",
         f"Status: {drift.status.value.upper()}",
         f"Escalated: {'Yes' if drift.escalated else 'No'}",
-        f"",
-        f"Breached Dimensions:",
+        "",
+        "Breached Dimensions:",
     ]
 
     breached = drift.breached_dimensions

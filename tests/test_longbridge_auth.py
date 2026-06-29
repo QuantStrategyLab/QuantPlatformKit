@@ -8,7 +8,6 @@ import types
 import unittest
 from unittest.mock import patch
 
-from quant_platform_kit.cloud import SecretStore, SecretStoreReadWrite
 from quant_platform_kit.longbridge.auth import build_contexts, fetch_token_from_secret, refresh_token_if_needed
 
 

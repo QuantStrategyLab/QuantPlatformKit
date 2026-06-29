@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import date, timedelta
 from typing import Any
 
 import numpy as np
 
-from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult, OptimizationProposal
+from quant_platform_kit.strategy_lifecycle.contracts import OptimizationProposal
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 

@@ -5,12 +5,8 @@ Google Cloud 实现 — 完全兼容现有代码行为。
 
 from __future__ import annotations
 
-import json
 import os
-import time
-from pathlib import Path
 
-from . import ports
 
 
 # ══════════════════════════════════════════════════════════════════════

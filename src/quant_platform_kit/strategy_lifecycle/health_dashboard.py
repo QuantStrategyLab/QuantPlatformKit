@@ -4,13 +4,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from quant_platform_kit.strategy_lifecycle.contracts import StrategyHealthScore
-from quant_platform_kit.strategy_lifecycle.drift_detector import run_drift_detection
-from quant_platform_kit.strategy_lifecycle.performance_monitor import run_monitor
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 from quant_platform_kit.strategy_lifecycle.strategy_health_score import compute_health_score
 
@@ -112,13 +110,13 @@ def _build_summary(scores: list[StrategyHealthScore]) -> dict[str, int]:
 def _render_markdown(scores: list[StrategyHealthScore]) -> str:
     lines = [
         "# Strategy Health Dashboard",
-        f"",
+        "",
         f"Generated: {_now_iso()}",
-        f"",
-        f"## Summary",
-        f"",
-        f"| Status | Count |",
-        f"| --- | ---: |",
+        "",
+        "## Summary",
+        "",
+        "| Status | Count |",
+        "| --- | ---: |",
     ]
     summary = _build_summary(scores)
     for status, emoji in [("healthy", "✅"), ("watch", "⚠️"), ("review", "🔴"), ("critical", "🚨")]:

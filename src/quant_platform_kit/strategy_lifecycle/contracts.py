@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from datetime import date, datetime
-from typing import Any, Mapping, Sequence
+from datetime import date
+from typing import Any, Mapping
 
 
 # ── Window Performance ──────────────────────────────────────────────

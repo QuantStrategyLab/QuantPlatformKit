@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import itertools
 from datetime import date, datetime, timezone
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping
 
 import numpy as np
 
@@ -12,7 +12,6 @@ from quant_platform_kit.strategy_lifecycle.backtest_orchestrator import Backtest
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
     OptimizationProposal,
-    ParamDimension,
     ParamSearchSpace,
 )
 from quant_platform_kit.strategy_lifecycle.param_search_space import get_search_space

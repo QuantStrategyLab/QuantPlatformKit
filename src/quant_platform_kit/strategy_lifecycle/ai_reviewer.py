@@ -16,17 +16,14 @@ The unified provider supports two patterns:
 from __future__ import annotations
 
 import json
-import os
 import re
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
 
 from quant_platform_kit.strategy_lifecycle.contracts import (
-    BacktestResult,
     DriftResult,
     DriftStatus,
     OptimizationProposal,
@@ -125,7 +122,7 @@ def _review_risk_profile(p: OptimizationProposal, *, max_dd: float = 0.40) -> Re
     if m.max_drawdown is not None and abs(m.max_drawdown) > max_dd: issues.append(f"MaxDD {m.max_drawdown:.1%}>{max_dd:.0%}"); s -= 0.5
     if p.current_metrics and m.volatility and p.current_metrics.volatility:
         if m.volatility / max(p.current_metrics.volatility, 0.001) > 1.5: issues.append("Vol spike"); s -= 0.3
-    if m.calmar_ratio is not None and m.calmar_ratio < 0.3: issues.append(f"Low Calmar"); s -= 0.2
+    if m.calmar_ratio is not None and m.calmar_ratio < 0.3: issues.append("Low Calmar"); s -= 0.2
     ok = s >= 0.5
     return ReviewDimension("risk_profile", max(s, 0.0), ok, "; ".join(issues) if issues else "OK")
 

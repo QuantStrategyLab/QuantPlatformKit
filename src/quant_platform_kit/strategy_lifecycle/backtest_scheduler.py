@@ -8,8 +8,7 @@ Answers two questions:
 from __future__ import annotations
 
 import enum
-from datetime import date, datetime, timezone
-from typing import Any, Mapping
+from datetime import datetime, timezone
 
 
 def _now_iso() -> str:

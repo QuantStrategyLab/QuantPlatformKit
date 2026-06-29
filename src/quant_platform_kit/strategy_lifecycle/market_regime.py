@@ -11,7 +11,6 @@ import enum
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
-from typing import Any, Sequence
 
 import numpy as np
 import pandas as pd
