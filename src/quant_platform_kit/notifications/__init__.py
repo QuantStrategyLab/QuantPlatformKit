@@ -7,6 +7,7 @@ from .cycle_channel import (
     CYCLE_CHANNEL_TELEGRAM,
     CYCLE_CHANNEL_WECOM,
     build_cycle_sender,
+    resolve_cycle_channel_and_url,
 )
 from .channel import (
     SmsChannel,
@@ -141,6 +142,8 @@ __all__ = [
     "parse_sms_recipients",
     "parse_telegram_chat_ids",
     "parse_webhook_providers",
+    "detect_channel_from_url",
+    "resolve_cycle_channel_and_url",
     "publish_rendered_notification",
     "publish_strategy_plugin_alerts",
     "publish_strategy_plugin_email_alerts",
