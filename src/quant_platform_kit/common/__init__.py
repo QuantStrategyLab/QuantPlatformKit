@@ -1,4 +1,9 @@
-"""Shared domain models, ports, strategy contracts, and plugin helpers."""
+"""Shared domain models, ports, strategy contracts, plugin helpers, and pipeline contracts.
+
+This package provides the foundational types and utilities used across all
+QuantStrategyLab repositories.  New cross-cutting additions (contracts,
+artifacts, indicators, etc.) should be placed here rather than duplicated.
+"""
 
 from .notification_localization import (
     COMMON_ZH_NOTIFICATION_REPLACEMENTS,
@@ -7,6 +12,34 @@ from .notification_localization import (
     merge_strategy_plugin_i18n,
     resolve_strategy_display_name,
     translator_uses_zh,
+)
+from .artifacts import (
+    RELEASE_MANIFEST_TYPE,
+    FEATURE_SNAPSHOT_MANIFEST_TYPE,
+    STRATEGY_PLUGIN_MANIFEST_TYPE,
+    load_json,
+    json_safe,
+    sha256_file,
+    write_json,
+    write_release_manifest,
+)
+from .contracts import (
+    SnapshotBuildResult,
+    SnapshotProfileContract,
+    resolve_snapshot_profile,
+)
+from .indicators import (
+    atr,
+    ema,
+    max_drawdown,
+    momentum,
+    percentile_rank,
+    rolling_correlation,
+    rolling_volatility,
+    rsi,
+    sma,
+    trend_strength,
+    zscore,
 )
 from .execution_outcomes import (
     DEFAULT_EXECUTION_BLOCKING_SKIP_REASONS,
@@ -100,6 +133,28 @@ from .strategy_plugins import (
 )
 
 __all__ = [
+    "FEATURE_SNAPSHOT_MANIFEST_TYPE",
+    "RELEASE_MANIFEST_TYPE",
+    "STRATEGY_PLUGIN_MANIFEST_TYPE",
+    "SnapshotBuildResult",
+    "SnapshotProfileContract",
+    "atr",
+    "ema",
+    "json_safe",
+    "load_json",
+    "max_drawdown",
+    "momentum",
+    "percentile_rank",
+    "resolve_snapshot_profile",
+    "rolling_correlation",
+    "rolling_volatility",
+    "rsi",
+    "sha256_file",
+    "sma",
+    "trend_strength",
+    "write_json",
+    "write_release_manifest",
+    "zscore",
     "COMMON_ZH_NOTIFICATION_REPLACEMENTS",
     "CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES",
     "DEFAULT_EXECUTION_BLOCKING_SKIP_REASONS",
