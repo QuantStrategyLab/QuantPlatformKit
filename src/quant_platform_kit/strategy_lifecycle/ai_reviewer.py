@@ -56,12 +56,15 @@ class AiReviewVerdict:
     summary: str
     requires_human: bool
     reviewed_at: str = field(default_factory=_now_iso)
+    confidence: float = 0.5          # AI confidence (0.0–1.0), default neutral
+    recommended_action: str = ""     # "auto_merge" | "auto_pr" | "auto_notify" | "escalate"
 
     def to_dict(self) -> dict[str, Any]:
         return {"verdict": self.verdict, "overall_score": self.overall_score,
                 "dimensions": [d.to_dict() for d in self.dimensions],
                 "summary": self.summary, "requires_human": self.requires_human,
-                "reviewed_at": self.reviewed_at}
+                "reviewed_at": self.reviewed_at, "confidence": self.confidence,
+                "recommended_action": self.recommended_action}
 
 
 # ── Provider labels (for consensus display) ──────────────────────────
@@ -204,45 +207,94 @@ def _resolve_multi_consensus(
     claude: AiReviewVerdict | None, gpt: AiReviewVerdict | None,
     codex: AiReviewVerdict | None,
 ) -> AiReviewVerdict:
+    """Confidence-driven consensus resolution.
+
+    Decision logic (ordered):
+    1. No AI available → escalate
+    2. Unanimous approve + avg confidence ≥ 0.85 → approve (auto)
+    3. Unanimous approve + avg confidence ≥ 0.60 → approve (needs human review)
+    4. Unanimous reject + avg confidence ≥ 0.85 → reject
+    5. Codex VERIFIED + LLMs approve + avg confidence ≥ 0.70 → approve
+    6. Codex MISMATCH → reject
+    7. Single LLM approve + confidence ≥ 0.85 → approve
+    8. Otherwise → escalate
+    """
     verdicts: list[tuple[str, AiReviewVerdict]] = []
     for l, v in [(_PRIMARY_LLM, claude), (_SECONDARY_LLM, gpt), (_CODEX_VPS, codex)]:
         if v: verdicts.append((l, v))
 
     if not verdicts:
         return AiReviewVerdict(proposal=proposal, verdict="escalate", overall_score=base.overall_score,
-            dimensions=base.dimensions, summary="No AI available. " + base.summary, requires_human=True)
+            dimensions=base.dimensions, summary="No AI available. " + base.summary,
+            requires_human=True, confidence=0.0)
 
     apps = [l for l, v in verdicts if v.verdict == "approve"]
     rejs = [l for l, v in verdicts if v.verdict == "reject"]
-    escs = [l for l, v in verdicts if v.verdict == "escalate"]
     cx_ok = codex and codex.verdict == "approve"
     cx_bad = codex and codex.verdict == "reject"
 
-    def _avg(): return float(np.mean([v.overall_score for _, v in verdicts]))
+    # Average confidence across all LLM verdicts (exclude Codex for confidence calc)
+    llm_verdicts = [v for l, v in verdicts if l != _CODEX_VPS]
+    avg_conf = float(np.mean([v.confidence for v in llm_verdicts])) if llm_verdicts else 0.5
+    avg_score = float(np.mean([v.overall_score for _, v in verdicts]))
 
+    # Unanimous approve
     if len(apps) == len(verdicts):
-        note = f" [{_CODEX_VPS} verified]" if cx_ok else ""
-        return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=_avg(),
-            dimensions=base.dimensions, summary=f"[Unanimous: {', '.join(apps)}]{note}", requires_human=False)
+        if avg_conf >= 0.85:
+            note = " [AUTO-MERGE: high confidence]"
+            requires_human = False
+            action = "auto_merge"
+        elif avg_conf >= 0.60:
+            note = " [AUTO-PR: moderate confidence, human review recommended]"
+            requires_human = True
+            action = "auto_pr"
+        else:
+            note = " [ESCALATE: low confidence unanimous]"
+            requires_human = True
+            action = "escalate"
+        cx_note = f" [{_CODEX_VPS} verified]" if cx_ok else ""
+        return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=avg_score,
+            dimensions=base.dimensions, summary=f"[Unanimous: {', '.join(apps)}]{cx_note}{note}",
+            requires_human=requires_human, confidence=avg_conf, recommended_action=action)
+
+    # Unanimous reject
     if len(rejs) == len(verdicts):
-        return AiReviewVerdict(proposal=proposal, verdict="reject", overall_score=_avg(),
-            dimensions=base.dimensions, summary=f"[Unanimous reject: {', '.join(rejs)}]", requires_human=False)
+        return AiReviewVerdict(proposal=proposal, verdict="reject", overall_score=avg_score,
+            dimensions=base.dimensions,
+            summary=f"[Unanimous reject: {', '.join(rejs)}] confidence={avg_conf:.0%}",
+            requires_human=False, confidence=avg_conf, recommended_action="escalate")
+
+    # Codex mismatch → reject
     if cx_bad:
         llms = ", ".join(f"{l}={v.verdict}" for l, v in verdicts if l != _CODEX_VPS)
         return AiReviewVerdict(proposal=proposal, verdict="reject", overall_score=codex.overall_score,
-            dimensions=base.dimensions, summary=f"[{_CODEX_VPS} MISMATCH] {codex.summary}. LLMs: {llms}", requires_human=False)
+            dimensions=base.dimensions,
+            summary=f"[{_CODEX_VPS} MISMATCH] {codex.summary}. LLMs: {llms}",
+            requires_human=False, confidence=avg_conf, recommended_action="escalate")
+
+    # Codex verified + LLMs approve
     if cx_ok and apps and not rejs:
-        return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=_avg(),
-            dimensions=base.dimensions, summary=f"[{_CODEX_VPS} verified] {', '.join(apps)} approve.", requires_human=False)
+        if avg_conf >= 0.70:
+            action = "auto_merge" if avg_conf >= 0.85 else "auto_pr"
+            requires_human = avg_conf < 0.85
+            return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=avg_score,
+                dimensions=base.dimensions,
+                summary=f"[{_CODEX_VPS} verified] {', '.join(apps)} approve (conf={avg_conf:.0%}).",
+                requires_human=requires_human, confidence=avg_conf, recommended_action=action)
+
+    # Single LLM with high confidence
     if len(verdicts) == 1 and not codex:
         sl, sv = verdicts[0]
-        if sv.verdict == "approve":
+        if sv.verdict == "approve" and sv.confidence >= 0.85:
             return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=sv.overall_score,
-                dimensions=base.dimensions, summary=f"[Single: {sl}] {sv.summary}", requires_human=False)
+                dimensions=base.dimensions, summary=f"[Single: {sl}] high confidence={sv.confidence:.0%}",
+                requires_human=False, confidence=sv.confidence, recommended_action="auto_merge")
 
-    detail = "; ".join(f"{l}={v.verdict}" for l, v in verdicts)
+    # Disagreement → escalate
+    detail = "; ".join(f"{l}={v.verdict}(c={v.confidence:.0%})" for l, v in verdicts)
     return AiReviewVerdict(proposal=proposal, verdict="escalate", overall_score=base.overall_score,
-        dimensions=base.dimensions, summary=f"[DISAGREE] {detail}", requires_human=True)
+        dimensions=base.dimensions, summary=f"[DISAGREE] {detail}",
+        requires_human=True, confidence=avg_conf, recommended_action="escalate")
 
 
 # ── Result parsers (AiCallResult → AiReviewVerdict) ──────────────────
@@ -260,7 +312,8 @@ def _parse_reviewer_result(
                         verdict=str(d.get("verdict", "escalate")),
                         overall_score=float(d.get("overall_score", 0.5)), dimensions=(),
                         summary=str(d.get("summary", f"{label} done")),
-                        requires_human=bool(d.get("requires_human", True)))
+                        requires_human=bool(d.get("requires_human", True)),
+                        confidence=float(d.get("confidence", 0.5)))
             except (json.JSONDecodeError, ValueError):
                 pass
     return None
