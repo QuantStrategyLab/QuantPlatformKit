@@ -2,3 +2,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
+
+# egg-info build artifact
+src/quant_platform_kit.egg-info/
