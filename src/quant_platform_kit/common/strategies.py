@@ -384,7 +384,14 @@ def _matches_platform_capability_matrix(
     adapter_capabilities = frozenset(runtime_adapter.available_capabilities)
     if definition.compatible_capabilities - adapter_capabilities:
         return False
-    if adapter_capabilities - capability_matrix.supported_capabilities:
+    # ``fractional_share_execution`` is a *soft* capability: when a platform
+    # does not natively support it, the execution layer can still run the
+    # strategy in compat mode by converting notional buys to minimum
+    # whole-share / whole-lot orders.  Drop only that capability before
+    # checking the platform matrix so DCA profiles remain eligible.
+    _soft_caps = frozenset({"fractional_share_execution"})
+    _hard_adapter_caps = adapter_capabilities - _soft_caps
+    if _hard_adapter_caps - capability_matrix.supported_capabilities:
         return False
 
     return True

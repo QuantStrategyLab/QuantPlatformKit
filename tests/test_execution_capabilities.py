@@ -109,7 +109,10 @@ class ExecutionCapabilitiesTests(unittest.TestCase):
             runtime_adapter_loader=lambda profile: adapters[profile],
         )
 
-        self.assertEqual(eligible, frozenset())
+        # ``fractional_share_execution`` is a soft capability — profiles that
+        # require it are still eligible even when the platform lacks native
+        # support (compat mode converts notional → whole-share orders).
+        self.assertEqual(eligible, frozenset({"ibit_smart_dca"}))
 
 
 if __name__ == "__main__":
