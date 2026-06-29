@@ -1,0 +1,37 @@
+{
+  "version": "1",
+  "strategies": {
+    "soxl_soxx_trend_income": {
+      "primary_platform": "schwab",
+      "fallback_platform": null,
+      "execution": {
+        "main_time": "45 15 * * *",
+        "precheck_time": "45 9 * * *",
+        "probe_time": "35 9,15 * * *",
+        "timezone": "America/New_York"
+      },
+      "accounts": {
+        "schwab": {
+          "account_scope": "default",
+          "execution_mode": "live",
+          "dry_run_only": false
+        }
+      }
+    },
+    "global_etf_rotation": {
+      "primary_platform": "ibkr",
+      "execution": {
+        "main_time": "45 15 * * *",
+        "precheck_time": "45 9 * * *",
+        "timezone": "America/New_York"
+      },
+      "accounts": {
+        "ibkr": {
+          "account_ids": ["U15998061"],
+          "execution_mode": "live",
+          "dry_run_only": false
+        }
+      }
+    }
+  }
+}
