@@ -135,8 +135,28 @@ The auto-sync layer handles everything else (plugin mounts, monitor targets).
 
 ---
 
+## Scheduler Timezone Rules
+
+| Market | Calendar | Timezone | Example Scheduler |
+|---|---|---|---|
+| US Equity | NASDAQ | `America/New_York` | `45 15 * * *` = 3:45 PM ET (15 min before 4 PM close) |
+| HK Equity | XHKG | `Asia/Hong_Kong` | `45 15 * * *` = 3:45 PM HKT (15 min before 4 PM close) |
+
+**Rule**: The Scheduler timezone MUST match the **market's** timezone, NOT the Cloud Run service region.
+
+### Execution frequency by strategy type
+
+| Type | Cron | Explanation |
+|---|---|---|
+| Daily | `45 15 * * *` | Every trading day, 15 min before close |
+| Monthly DCA/Snapshot | `45 15 1-7 * *` | Days 1-7 each month, 7-day retry window for data readiness |
+| Month-end | `45 15 28-31 * *` | Last days of month (cron handles 28/29/30/31 automatically) |
+
+The `execution_dedup_enabled` flag prevents duplicate execution within the month window.
+
 ## Version History
 
 | Version | Date | Changes |
 |---|---|---|
 | 1.0 | 2026-06-30 | Initial spec: single source of truth, auto-sync, validation scripts |
+| 1.1 | 2026-06-30 | Add scheduler timezone rules, strategy frequency types |
