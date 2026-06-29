@@ -154,30 +154,9 @@ The auto-sync layer handles everything else (plugin mounts, monitor targets).
 
 The `execution_dedup_enabled` flag prevents duplicate execution within the month window.
 
-| Crypto | GitHub Actions `schedule` | Self-hosted runner, 24/7, heartbeat `35 * * * *` |
-
-The `execution_dedup_enabled` flag prevents duplicate execution within the month window.
-
-## Snapshot Pipeline Monitoring
-
-Snapshot-backed strategies depend on upstream pipelines. To detect failures:
-
-1. `/probe` checks that required snapshot artifacts exist in GCS
-2. `feature_snapshot_fallback_mode` controls behavior when artifacts are missing
-3. 7-day DCA retry window absorbs transient pipeline delays
-
-## Combo Strategy Pattern
-
-Combo strategies (e.g., `us_equity_combo`) combine sub-strategies. They are:
-- Defined in separate pip packages, imported and merged into platform catalogs
-- Share the parent platform's Scheduler and monitoring
-- Sub-strategy execution handled internally by the combo entrypoint
-- Platform only needs to declare `quant_combo` domain and inputs
-
 ## Version History
 
 | Version | Date | Changes |
 |---|---|---|
-| 1.0 | 2026-06-30 | Initial spec |
-| 1.1 | 2026-06-30 | Scheduler timezone rules, frequency types |
-| 1.2 | 2026-06-30 | Snapshot monitoring, combo strategy pattern, crypto platform |
+| 1.0 | 2026-06-30 | Initial spec: single source of truth, auto-sync, validation scripts |
+| 1.1 | 2026-06-30 | Add scheduler timezone rules, strategy frequency types |
