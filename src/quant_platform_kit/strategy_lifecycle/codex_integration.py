@@ -332,21 +332,21 @@ Respond with a JSON object:
 def call_ai_optimization_decision(
     context: AiOptimizationContext,
     *,
-    provider: str = "anthropic",
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """Call an AI model (via ai_audit.py) to decide on optimization.
+    """Call AiGateway to decide whether optimization is needed.
+
+    Routes through AiGateway (Claude/GPT via LlmAdapter).
+    No API keys needed — CODEX_AUDIT_SERVICE_URL only.
 
     Args:
         context: The optimization context with drift and snapshot data.
-        provider: "anthropic", "openai", or "codex".
-        dry_run: If True, return a simulated decision.
+        dry_run: If True, return a simulated decision without AI call.
 
     Returns:
         AI decision dict with optimization_needed, reason, etc.
     """
     if dry_run:
-        # Simulate a decision based on drift status
         if context.drift and context.drift.status in (DriftStatus.REVIEW, DriftStatus.CRITICAL):
             return {
                 "optimization_needed": True,
@@ -364,33 +364,32 @@ def call_ai_optimization_decision(
             "confidence": 0.95,
         }
 
-    # Try using ai_audit.py from QuantStrategyPlugins
     try:
-        from quant_strategy_plugins.ai_audit import AiAuditEndpoint, call_ai_audit
-
-        endpoint = AiAuditEndpoint(
-            name="strategy_optimizer",
-            api_key=os.environ.get("AI_AUDIT_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")),
-            provider=provider,
-            model="claude-sonnet-4-6" if provider == "anthropic" else "gpt-5.4-mini",
+        from quant_platform_kit.strategy_lifecycle.ai_provider import (
+            AiServiceConfig, AiServiceClient, AiProviderConfig,
         )
 
-        prompt = build_optimization_prompt(context)
-        messages = [{"role": "user", "content": prompt}]
+        config = AiServiceConfig.from_env()
+        if not config.reviewers:
+            return {"optimization_needed": False, "reason": "No AI backend configured (set CODEX_AUDIT_SERVICE_URL)"}
 
-        raw = call_ai_audit(endpoint, messages, timeout=30.0)
-        if isinstance(raw, str):
-            # Try to extract JSON from the response
-            import re
-            match = re.search(r"\{[\s\S]*\}", raw)
-            if match:
-                return json.loads(match.group(0))
-            return {"optimization_needed": False, "reason": "Could not parse AI response", "raw": raw[:500]}
-        return raw if isinstance(raw, Mapping) else {"optimization_needed": False, "reason": "Unexpected response type"}
+        client = AiServiceClient(config)
+        prompt = build_optimization_prompt(context)
+        results = client.review(prompt, timeout=30.0)
+
+        # Use the first successful reviewer result
+        for r in results:
+            if r.success and r.output:
+                import re
+                match = re.search(r"\{[\s\S]*\}", r.output)
+                if match:
+                    return json.loads(match.group(0))
+                return {"optimization_needed": False, "reason": "Could not parse AI response", "raw": r.output[:500]}
+
+        return {"optimization_needed": False, "reason": "All AI backends unavailable"}
 
     except ImportError:
-        # Fallback: use the dry_run heuristic
-        return call_ai_optimization_decision(context, provider=provider, dry_run=True)
+        return call_ai_optimization_decision(context, dry_run=True)
     except Exception as exc:
         return {"optimization_needed": False, "reason": f"AI call failed: {exc}", "error": str(exc)}
 
