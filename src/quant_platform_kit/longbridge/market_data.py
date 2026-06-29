@@ -77,6 +77,25 @@ def fetch_last_prices(
     return prices
 
 
+def fetch_lot_sizes(q_ctx: Any, symbols: list[str]) -> dict[str, int]:
+    """Fetch board lot size for each symbol from LongPort ``static_info``."""
+    normalized = [s for s in (_normalize_symbol(s) for s in symbols) if s]
+    normalized = list(dict.fromkeys(normalized))
+    if not normalized:
+        return {}
+    lot_sizes: dict[str, int] = {}
+    try:
+        infos = q_ctx.static_info(normalized)
+    except Exception:
+        return {}
+    for info in infos or []:
+        symbol = _normalize_symbol(getattr(info, "symbol", ""))
+        lot_size = getattr(info, "lot_size", None)
+        if symbol and lot_size is not None:
+            lot_sizes[symbol] = max(1, int(lot_size))
+    return lot_sizes
+
+
 def calculate_rotation_indicators(
     q_ctx: Any,
     *,

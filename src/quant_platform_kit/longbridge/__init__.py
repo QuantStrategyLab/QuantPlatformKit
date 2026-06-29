@@ -1,6 +1,6 @@
 from .auth import build_contexts, fetch_token_from_secret, refresh_token_if_needed
 from .execution import estimate_max_purchase_quantity, fetch_order_status, submit_order
-from .market_data import calculate_rotation_indicators, fetch_last_price, fetch_last_prices
+from .market_data import calculate_rotation_indicators, fetch_last_price, fetch_last_prices, fetch_lot_sizes
 from .portfolio import fetch_strategy_account_state
 
 __all__ = [
@@ -13,5 +13,6 @@ __all__ = [
     "calculate_rotation_indicators",
     "fetch_last_price",
     "fetch_last_prices",
+    "fetch_lot_sizes",
     "fetch_strategy_account_state",
 ]
