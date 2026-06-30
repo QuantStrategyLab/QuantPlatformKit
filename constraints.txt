@@ -12,3 +12,4 @@ quantuscombostrategies @ git+https://github.com/QuantStrategyLab/QuantUsComboStr
 quanthkcombostrategies @ git+https://github.com/QuantStrategyLab/QuantHkComboStrategies.git@dfc21e923c0f9ba54678a75d0edc96a56e2188e2
 quantcncombostrategies @ git+https://github.com/QuantStrategyLab/QuantCnComboStrategies.git@1172e77e8046088c2bab2880343786ec135539da
 quantcryptocombostrategies @ git+https://github.com/QuantStrategyLab/QuantCryptoComboStrategies.git@475c5259d3ba7e2dcd4de30aaa96437142669a1c
+# Updated 2026-06-30
