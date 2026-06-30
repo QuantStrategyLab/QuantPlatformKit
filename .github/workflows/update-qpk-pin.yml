@@ -1,0 +1,37 @@
+name: Update QPK Pin
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - "QPK_PIN"
+      - "docs/**"
+      - "**.md"
+
+permissions:
+  contents: write
+
+jobs:
+  update-pin:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Update QPK_PIN
+        run: |
+          SHA=$(git rev-parse HEAD)
+          echo "$SHA" > QPK_PIN
+
+      - name: Commit and push updated pin
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add QPK_PIN
+          if git diff --cached --quiet; then
+            echo "QPK_PIN already up to date"
+          else
+            git commit -m "chore: update QPK_PIN to $SHA"
+            git push
+          fi
