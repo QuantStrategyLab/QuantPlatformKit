@@ -57,7 +57,7 @@ jobs:
           python -c "import quant_platform_kit; print('QPK import OK')"
           python -c "from quant_platform_kit.common.strategies import compute_portfolio_drift; print('strategies OK')"
           python -c "from quant_platform_kit.common.platform_runner.loader import load_strategy_definition; print('platform_runner OK')"
-          python -c "from quant_platform_kit.notifications.telegram import send_telegram; print('telegram OK')"
+          python -c "from quant_platform_kit.notifications.telegram import send_telegram_message; print('telegram OK')"
           python -c "from quant_platform_kit.common.contracts import SnapshotProfileContract; print('contracts OK')"
 
           # Verify strategy repos installable with NEW constraints
