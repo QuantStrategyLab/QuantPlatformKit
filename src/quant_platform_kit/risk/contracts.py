@@ -104,6 +104,10 @@ class RiskSignal:
     emergency: bool = False
     as_of: str = ""
 
+    @property
+    def severity(self) -> int:
+        return _RISK_ROUTE_SEVERITY.get(self.route, 0)
+
 
 @dataclass(frozen=True)
 class RiskAssessment:

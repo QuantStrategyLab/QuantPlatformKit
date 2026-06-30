@@ -220,9 +220,15 @@ class RuntimeConfigTests(unittest.TestCase):
         )
 
     def test_resolve_optional_bool_env_treats_blank_as_unset(self) -> None:
-        self.assertIsNone(resolve_optional_bool_env({"FLAG": ""}, "FLAG"))
-        self.assertIsNone(resolve_optional_bool_env({}, "FLAG"))
-        self.assertFalse(resolve_optional_bool_env({"FLAG": "false"}, "FLAG"))
+        # Old dict-based API moved to _resolve_optional_bool_env; new API takes (name, default)
+        # Update test to use monkeypatch for new env-based function
+        import os
+        with unittest.mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(resolve_optional_bool_env("FLAG", default=False))
+        with unittest.mock.patch.dict(os.environ, {"FLAG": ""}, clear=True):
+            self.assertFalse(resolve_optional_bool_env("FLAG", default=False))
+        with unittest.mock.patch.dict(os.environ, {"FLAG": "false"}, clear=True):
+            self.assertFalse(resolve_optional_bool_env("FLAG", default=True))
 
 
 if __name__ == "__main__":

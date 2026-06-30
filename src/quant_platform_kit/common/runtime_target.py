@@ -104,9 +104,11 @@ def resolve_runtime_target_from_env(
     env: Mapping[str, str | None],
     expected_platform_id: str | None = None,
 ) -> RuntimeTarget:
-    raw_payload = _normalize_optional_string(env.get("RUNTIME_TARGET_JSON"))
+    raw_payload = _normalize_optional_string(
+        env.get("QSL_RUNTIME_TARGET_JSON") or env.get("RUNTIME_TARGET_JSON")
+    )
     if raw_payload is None:
-        raise EnvironmentError("RUNTIME_TARGET_JSON is required")
+        raise EnvironmentError("RUNTIME_TARGET_JSON (or QSL_RUNTIME_TARGET_JSON) is required")
 
     try:
         payload = json.loads(raw_payload)

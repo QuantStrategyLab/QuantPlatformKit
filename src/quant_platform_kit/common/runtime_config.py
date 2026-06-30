@@ -45,7 +45,7 @@ def _resolve_optional_bool_env(
     name: str,
 ) -> bool | None:
     """Internal helper: resolve bool from a Mapping (not os.environ)."""
-    raw_value = env.get(name)
+    raw_value = env.get(f"QSL_{name}") or env.get(name)
     if raw_value is None or str(raw_value).strip() == "":
         return None
     return resolve_bool_value(raw_value)
@@ -80,7 +80,7 @@ def resolve_dry_run_env(
     default: bool = True,
 ) -> bool:
     """Resolve a dry-run env flag; unset values default to dry-run (safe)."""
-    raw_value = env.get(name)
+    raw_value = env.get(f"QSL_{name}") or env.get(name)
     if raw_value is None or str(raw_value).strip() == "":
         return default
     return resolve_bool_value(raw_value)
@@ -90,7 +90,7 @@ def resolve_optional_float_env(
     env: Mapping[str, str | None],
     name: str,
 ) -> float | None:
-    raw_value = env.get(name)
+    raw_value = env.get(f"QSL_{name}") or env.get(name)
     if raw_value is None or str(raw_value).strip() == "":
         return None
     return float(raw_value)
@@ -117,7 +117,7 @@ def resolve_quantity_step_env(
     explicit_step = resolve_optional_float_env(env, step_env)
     if explicit_step is not None:
         return explicit_step
-    raw_enabled = env.get(fractional_env)
+    raw_enabled = env.get(f"QSL_{fractional_env}") or env.get(fractional_env)
     fractional_enabled = (
         fractional_default
         if raw_enabled is None
@@ -127,8 +127,8 @@ def resolve_quantity_step_env(
 
 
 def resolve_optional_bool_env(name: str, default: bool = False) -> bool:
-    """Read env var *name* and parse as bool. Returns *default* when unset/empty."""
-    raw_value = os.getenv(name)
+    """Read env var *name* (or QSL_{name}) and parse as bool. Returns *default* when unset/empty."""
+    raw_value = os.getenv(f"QSL_{name}") or os.getenv(name)
     if raw_value is None or str(raw_value).strip() == "":
         return default
     value = str(raw_value).strip().lower()
@@ -140,8 +140,8 @@ def resolve_optional_bool_env(name: str, default: bool = False) -> bool:
 
 
 def resolve_optional_ratio_env(name: str, default: float | None = None) -> float | None:
-    """Read env var *name* and parse as a float ratio in [0, 1]. Returns *default* when unset/empty."""
-    raw_value = os.getenv(name)
+    """Read env var *name* (or QSL_{name}) and parse as a float ratio in [0, 1]. Returns *default* when unset/empty."""
+    raw_value = os.getenv(f"QSL_{name}") or os.getenv(name)
     if raw_value is None or str(raw_value).strip() == "":
         return default
     value = float(raw_value)
@@ -151,8 +151,8 @@ def resolve_optional_ratio_env(name: str, default: float | None = None) -> float
 
 
 def resolve_optional_positive_float_env(name: str, default: float | None = None) -> float | None:
-    """Read env var *name* and parse as a positive float. Returns *default* when unset/empty."""
-    raw_value = os.getenv(name)
+    """Read env var *name* (or QSL_{name}) and parse as a positive float. Returns *default* when unset/empty."""
+    raw_value = os.getenv(f"QSL_{name}") or os.getenv(name)
     if raw_value is None or str(raw_value).strip() == "":
         return default
     value = float(raw_value)
@@ -162,8 +162,8 @@ def resolve_optional_positive_float_env(name: str, default: float | None = None)
 
 
 def resolve_optional_dca_mode_env(name: str, default: str | None = None) -> str | None:
-    """Read env var *name* and resolve to 'fixed', 'smart', or *default* when unset."""
-    raw_value = os.getenv(name)
+    """Read env var *name* (or QSL_{name}) and resolve to 'fixed', 'smart', or *default* when unset."""
+    raw_value = os.getenv(f"QSL_{name}") or os.getenv(name)
     if raw_value is None or str(raw_value).strip() == "":
         return default
     value = str(raw_value).strip().lower()
@@ -180,8 +180,8 @@ def resolve_optional_dca_mode_env(name: str, default: str | None = None) -> str 
 
 
 def resolve_optional_ibit_zscore_exit_mode_env(name: str, default: str | None = None) -> str | None:
-    """Read env var *name* and resolve to 'disabled', 'paper', 'live', or *default* when unset."""
-    raw_value = os.getenv(name)
+    """Read env var *name* (or QSL_{name}) and resolve to 'disabled', 'paper', 'live', or *default* when unset."""
+    raw_value = os.getenv(f"QSL_{name}") or os.getenv(name)
     if raw_value is None or str(raw_value).strip() == "":
         return default
     value = str(raw_value).strip().lower()
@@ -202,8 +202,8 @@ def resolve_optional_ibit_zscore_exit_mode_env(name: str, default: str | None = 
 
 
 def resolve_optional_symbol_env(name: str, default: str | None = None) -> str | None:
-    """Read env var *name* and validate as a ticker symbol. Returns *default* when unset/empty."""
-    raw_value = os.getenv(name)
+    """Read env var *name* (or QSL_{name}) and validate as a ticker symbol. Returns *default* when unset/empty."""
+    raw_value = os.getenv(f"QSL_{name}") or os.getenv(name)
     if raw_value is None or str(raw_value).strip() == "":
         return default
     value = str(raw_value).strip().upper()
@@ -213,16 +213,16 @@ def resolve_optional_symbol_env(name: str, default: str | None = None) -> str | 
 
 
 def resolve_optional_int(name: str, default: int | None = None) -> int | None:
-    """Read env var *name* and parse as int. Returns *default* when unset/empty."""
-    raw_value = os.getenv(name)
+    """Read env var *name* (or QSL_{name}) and parse as int. Returns *default* when unset/empty."""
+    raw_value = os.getenv(f"QSL_{name}") or os.getenv(name)
     if raw_value is None or str(raw_value).strip() == "":
         return default
     return int(raw_value)
 
 
 def resolve_split_env_list(name: str, separator: str = ",") -> tuple[str, ...]:
-    """Read env var *name*, split by *separator*, return deduplicated tuple."""
-    raw_value = os.getenv(name)
+    """Read env var *name* (or QSL_{name}), split by *separator*, return deduplicated tuple."""
+    raw_value = os.getenv(f"QSL_{name}") or os.getenv(name)
     if raw_value is None:
         return ()
     items = []
