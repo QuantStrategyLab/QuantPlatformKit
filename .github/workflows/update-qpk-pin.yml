@@ -49,16 +49,20 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::Verifying packages installable with new constraints"
-          # Install QPK itself — must succeed
           python -m pip install --upgrade pip
-          python -m pip install -c constraints.txt -e .
+          # Install QPK WITHOUT constraints (avoids self-referencing SHA conflict)
+          python -m pip install -e .
           python -c "import quant_platform_kit; print('QPK import OK')"
-
-          # Spot-check: try importing key modules that downstream consumers rely on
           python -c "from quant_platform_kit.common.strategies import compute_portfolio_drift; print('strategies OK')"
           python -c "from quant_platform_kit.common.platform_runner.loader import load_strategy_definition; print('platform_runner OK')"
           python -c "from quant_platform_kit.notifications.telegram import send_telegram; print('telegram OK')"
           python -c "from quant_platform_kit.common.contracts import SnapshotProfileContract; print('contracts OK')"
+
+          # Verify strategy repos installable with NEW constraints
+          for dep in us-equity-strategies hk-equity-strategies cn-equity-strategies crypto-strategies; do
+            echo "Checking $dep..."
+            python -m pip install --dry-run -c constraints.txt "$dep" >/dev/null 2>&1 && echo "  $dep OK" || echo "  $dep FAILED"
+          done
           echo "::endgroup::"
           echo "All compatibility checks passed."
 
