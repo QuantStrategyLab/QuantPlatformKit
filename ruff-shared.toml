@@ -1,0 +1,19 @@
+# QSL shared ruff configuration — extend from your repo's .ruff.toml or pyproject.toml
+# Usage in each repo:
+#   [tool.ruff]
+#   extend = "https://raw.githubusercontent.com/QuantStrategyLab/QuantPlatformKit/main/ruff-shared.toml"
+
+target-version = "py311"
+
+[lint]
+ignore = [
+    "E701",  # multiple statements on one line (compact if/except style)
+    "E702",  # multiple statements on one line (semicolon)
+    "E401",  # multiple imports on one line
+    "F541",  # f-string without placeholders
+    "F841",  # unused variable (often intentional in gate scripts)
+]
+
+[lint.per-file-ignores]
+"scripts/gate_codex_app_review.py" = ["E701", "E702"]
+"tests/*.py" = ["E402"]
