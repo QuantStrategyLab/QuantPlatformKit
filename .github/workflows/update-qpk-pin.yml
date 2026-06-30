@@ -5,11 +5,13 @@ on:
     branches: [ main ]
     paths-ignore:
       - "QPK_PIN"
+      - "constraints.txt"
       - "docs/**"
       - "**.md"
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   update-pin:
@@ -19,26 +21,31 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Update QPK_PIN
+      - name: Update QPK_PIN and constraints
+        id: update
         run: |
           SHA=$(git rev-parse HEAD)
           echo "$SHA" > QPK_PIN
-          # Update constraints.txt with latest QPK SHA
-          sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" constraints.txt
-          # Fetch latest SHAs from all strategy repos and update constraints
-          for repo in UsEquityStrategies HkEquityStrategies CnEquityStrategies CryptoStrategies QuantUsComboStrategies; do
-            REMOTE_SHA=$(git ls-remote "https://github.com/QuantStrategyLab/$repo.git" HEAD | cut -f1)
-            [ -n "$REMOTE_SHA" ] && sed -i "s|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@$REMOTE_SHA|" constraints.txt || true
-          done
 
-      - name: Commit and push updated pin
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add QPK_PIN
-          if git diff --cached --quiet; then
-            echo "QPK_PIN already up to date"
+          # Update SHAs from remote repos
+          for repo in UsEquityStrategies HkEquityStrategies CnEquityStrategies CryptoStrategies; do
+            RSHA=$(git ls-remote "https://github.com/QuantStrategyLab/$repo.git" HEAD | cut -f1)
+            [ -n "$RSHA" ] && sed -i "s|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" constraints.txt || true
+          done
+          sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" constraints.txt
+
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "chore: update QPK_PIN to $SHA"
-            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Create PR for pin update
+        if: steps.update.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: auto-update QPK_PIN and constraints.txt"
+          title: "chore: auto-update QPK_PIN and constraints.txt"
+          body: "Automated update of QPK_PIN and dependency constraint SHAs."
+          branch: auto/qpk-pin-update
+          delete-branch: true
