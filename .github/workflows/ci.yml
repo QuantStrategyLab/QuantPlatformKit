@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . numpy pandas pytest ruff
+          python -m pip install -e . numpy pandas pytest pytest-cov ruff
 
       - name: Run Ruff
         run: |
@@ -35,4 +35,4 @@ jobs:
       - name: Run unit tests
         run: |
           set -euo pipefail
-          PYTHONPATH=src python -m pytest -q tests
+          PYTHONPATH=src python -m pytest -q --cov --cov-report=term --cov-report=xml tests
