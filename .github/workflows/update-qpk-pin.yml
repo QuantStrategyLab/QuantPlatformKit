@@ -23,6 +23,13 @@ jobs:
         run: |
           SHA=$(git rev-parse HEAD)
           echo "$SHA" > QPK_PIN
+          # Update constraints.txt with latest QPK SHA
+          sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" constraints.txt
+          # Fetch latest SHAs from all strategy repos and update constraints
+          for repo in UsEquityStrategies HkEquityStrategies CnEquityStrategies CryptoStrategies QuantUsComboStrategies; do
+            REMOTE_SHA=$(git ls-remote "https://github.com/QuantStrategyLab/$repo.git" HEAD | cut -f1)
+            [ -n "$REMOTE_SHA" ] && sed -i "s|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@$REMOTE_SHA|" constraints.txt || true
+          done
 
       - name: Commit and push updated pin
         run: |
