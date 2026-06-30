@@ -1017,3 +1017,9 @@ def build_value_target_execution_annotations(
         current_min_trade=_pick_float("current_min_trade"),
         investable_cash=_pick_float("investable_cash"),
     )
+
+
+# Backward-compat re-export — load_strategy_entrypoint was historically
+# imported from strategy_contracts before being consolidated into strategies.py.
+# Platform repos and tests still reference the old location.
+from quant_platform_kit.common.strategies import load_strategy_entrypoint  # noqa: F401, E402
