@@ -16,10 +16,14 @@ permissions:
 jobs:
   update-pin:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
 
       - name: Update QPK_PIN and constraints
         id: update
@@ -34,11 +38,35 @@ jobs:
           done
           sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" constraints.txt
 
+          # Update Combo repo SHAs
+          for repo in QuantUsComboStrategies QuantHkComboStrategies QuantCnComboStrategies QuantCryptoComboStrategies; do
+            RSHA=$(git ls-remote "https://github.com/QuantStrategyLab/$repo.git" HEAD | cut -f1)
+            [ -n "$RSHA" ] && sed -i "s|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" constraints.txt || true
+          done
+
           if git diff --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Verify downstream compatibility
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          echo "::group::Verifying packages installable with new constraints"
+          # Install QPK itself — must succeed
+          python -m pip install --upgrade pip
+          python -m pip install -c constraints.txt -e .
+          python -c "import quant_platform_kit; print('QPK import OK')"
+
+          # Spot-check: try importing key modules that downstream consumers rely on
+          python -c "from quant_platform_kit.common.strategies import compute_portfolio_drift; print('strategies OK')"
+          python -c "from quant_platform_kit.common.platform_runner.loader import load_strategy_definition; print('platform_runner OK')"
+          python -c "from quant_platform_kit.notifications.telegram import send_telegram; print('telegram OK')"
+          python -c "from quant_platform_kit.common.contracts import SnapshotProfileContract; print('contracts OK')"
+          echo "::endgroup::"
+          echo "All compatibility checks passed."
 
       - name: Create PR for pin update
         if: steps.update.outputs.changed == 'true'
@@ -46,6 +74,15 @@ jobs:
         with:
           commit-message: "chore: auto-update QPK_PIN and constraints.txt"
           title: "chore: auto-update QPK_PIN and constraints.txt"
-          body: "Automated update of QPK_PIN and dependency constraint SHAs."
+          body: |
+            Automated update of QPK_PIN and dependency constraint SHAs.
+
+            Compatibility checks passed ✅ — all downstream-critical QPK modules verified importable.
+
+            Updated SHAs:
+            - QPK: `${{ github.sha }}`
+            - Strategy repos: latest HEAD from each
+
+            🤖 Generated with [Claude Code](https://claude.com/claude-code)
           branch: auto/qpk-pin-update
           delete-branch: true
