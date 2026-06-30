@@ -38,12 +38,6 @@ jobs:
           done
           sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" constraints.txt
 
-          # Update Combo repo SHAs
-          for repo in QuantUsComboStrategies QuantHkComboStrategies QuantCnComboStrategies QuantCryptoComboStrategies; do
-            RSHA=$(git ls-remote "https://github.com/QuantStrategyLab/$repo.git" HEAD | cut -f1)
-            [ -n "$RSHA" ] && sed -i "s|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" constraints.txt || true
-          done
-
           if git diff --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
