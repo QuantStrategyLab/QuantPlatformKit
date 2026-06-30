@@ -23,7 +23,8 @@ def _telegram_alert(message: str) -> bool:
     chat_id = os.environ.get("GLOBAL_TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat_id:
         return False
-    import json, urllib.request
+    import json
+    import urllib.request
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
         data=json.dumps({"chat_id": chat_id, "text": message}).encode(),
