@@ -15,10 +15,12 @@ from quant_platform_kit.common.strategies import (
     StrategyDefinition,
     resolve_platform_strategy_definition,
 )
+from quant_platform_kit.common.strategies import (
+    load_strategy_entrypoint,
+)
 from quant_platform_kit.common.strategy_contracts import (
     StrategyEntrypoint,
     StrategyRuntimeAdapter,
-    load_strategy_entrypoint,
 )
 
 
