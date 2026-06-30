@@ -21,7 +21,6 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.ruff]
-extend = "https://raw.githubusercontent.com/QuantStrategyLab/QuantPlatformKit/main/ruff-shared.toml"
 target-version = "py310"
 
 [tool.ruff.lint]
