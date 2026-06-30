@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
@@ -39,10 +40,11 @@ def resolve_bool_value(raw_value: str | None) -> bool:
     return str(raw_value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
-def resolve_optional_bool_env(
+def _resolve_optional_bool_env(
     env: Mapping[str, str | None],
     name: str,
 ) -> bool | None:
+    """Internal helper: resolve bool from a Mapping (not os.environ)."""
     raw_value = env.get(name)
     if raw_value is None or str(raw_value).strip() == "":
         return None
@@ -65,7 +67,7 @@ def resolve_cash_only_execution_env(
     if legacy:
         candidates.append(legacy)
     for name in candidates:
-        value = resolve_optional_bool_env(env, name)
+        value = _resolve_optional_bool_env(env, name)
         if value is not None:
             return value
     return default
@@ -122,6 +124,116 @@ def resolve_quantity_step_env(
         else resolve_bool_value(raw_enabled)
     )
     return float(fractional_step) if fractional_enabled else 1.0
+
+
+def resolve_optional_bool_env(name: str, default: bool = False) -> bool:
+    """Read env var *name* and parse as bool. Returns *default* when unset/empty."""
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    value = str(raw_value).strip().lower()
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    raise ValueError(f"{name} must be boolean, got {raw_value!r}")
+
+
+def resolve_optional_ratio_env(name: str, default: float | None = None) -> float | None:
+    """Read env var *name* and parse as a float ratio in [0, 1]. Returns *default* when unset/empty."""
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    value = float(raw_value)
+    if not (0.0 <= value <= 1.0):
+        raise ValueError(f"{name} must be in [0,1], got {value}")
+    return value
+
+
+def resolve_optional_positive_float_env(name: str, default: float | None = None) -> float | None:
+    """Read env var *name* and parse as a positive float. Returns *default* when unset/empty."""
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    value = float(raw_value)
+    if value <= 0.0:
+        raise ValueError(f"{name} must be positive, got {value}")
+    return value
+
+
+def resolve_optional_dca_mode_env(name: str, default: str | None = None) -> str | None:
+    """Read env var *name* and resolve to 'fixed', 'smart', or *default* when unset."""
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    value = str(raw_value).strip().lower()
+    aliases = {
+        "ordinary": "fixed",
+        "ordinary_dca": "fixed",
+        "fixed_dca": "fixed",
+        "smart_dca": "smart",
+    }
+    mode = aliases.get(value, value)
+    if mode not in {"fixed", "smart"}:
+        raise ValueError(f"{name} must be fixed or smart, got {raw_value!r}")
+    return mode
+
+
+def resolve_optional_ibit_zscore_exit_mode_env(name: str, default: str | None = None) -> str | None:
+    """Read env var *name* and resolve to 'disabled', 'paper', 'live', or *default* when unset."""
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    value = str(raw_value).strip().lower()
+    aliases = {
+        "off": "disabled",
+        "none": "disabled",
+        "false": "disabled",
+        "disable": "disabled",
+        "enabled": "live",
+        "shadow": "paper",
+        "dry_run": "paper",
+        "dry-run": "paper",
+    }
+    mode = aliases.get(value, value)
+    if mode not in {"disabled", "paper", "live"}:
+        raise ValueError(f"{name} must be disabled, paper, or live, got {raw_value!r}")
+    return mode
+
+
+def resolve_optional_symbol_env(name: str, default: str | None = None) -> str | None:
+    """Read env var *name* and validate as a ticker symbol. Returns *default* when unset/empty."""
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    value = str(raw_value).strip().upper()
+    if len(value) > 16 or not value.replace(".", "").replace("-", "").isalnum():
+        raise ValueError(f"{name} must be a symbol, got {raw_value!r}")
+    return value
+
+
+def resolve_optional_int(name: str, default: int | None = None) -> int | None:
+    """Read env var *name* and parse as int. Returns *default* when unset/empty."""
+    raw_value = os.getenv(name)
+    if raw_value is None or str(raw_value).strip() == "":
+        return default
+    return int(raw_value)
+
+
+def resolve_split_env_list(name: str, separator: str = ",") -> tuple[str, ...]:
+    """Read env var *name*, split by *separator*, return deduplicated tuple."""
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return ()
+    items = []
+    seen = set()
+    for value in str(raw_value).replace(";", ",").replace("\n", ",").split(separator):
+        item = value.strip()
+        if not item or item in seen:
+            continue
+        items.append(item)
+        seen.add(item)
+    return tuple(items)
 
 
 def resolve_strategy_config_path(
