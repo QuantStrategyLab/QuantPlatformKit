@@ -1,35 +1,33 @@
-"""Platform-agnostic health check and watchdog framework.
+"""Unified health monitor — one API for every deployment type.
 
-Supports multiple backends so open-source users can self-host with whatever
-infrastructure they have — VPS, Cloud Run, GCP, AWS, or bare metal.
+    from quant_platform_kit.common.health import HealthMonitor
 
-Usage per deployment type
--------------------------
-Cloud Run / Flask:
-    from quant_platform_kit.common.health import register_health_endpoint
-    register_health_endpoint(app)  # adds GET /health
+    # Cloud Run / Flask
+    monitor = HealthMonitor(app=flask_app, cycle_callback=get_report)
+    monitor.start()
 
-VPS / CLI (file-based):
-    from quant_platform_kit.common.health import FileHeartbeat
-    hb = FileHeartbeat("/var/run/qsl/heartbeat.json")
-    hb.beat(status="ok")
+    # VPS CLI — HTTP endpoint on port 8080
+    monitor = HealthMonitor(http_port=8080)
+    monitor.start()
+    monitor.beat(status="ok")  # call each cycle
 
-Firestore (for Binance):
-    from quant_platform_kit.common.health import FirestoreHeartbeat
-    hb = FirestoreHeartbeat(collection="health", document="alive")
-    hb.beat(status="ok")
+    # Self-hosted — file-based (no cloud deps)
+    monitor = HealthMonitor(file_path="/tmp/qsl.heartbeat")
+    monitor.beat(status="ok")
 
-Watchdog (GitHub Actions):
-    curl -f https://myservice.run.app/health || send_telegram("DOWN")
+    # Binance — Firestore (auto-detected if GOOGLE_APPLICATION_CREDENTIALS set)
+    monitor = HealthMonitor()  # auto: Firestore > file fallback
+    monitor.beat(status="ok", error="", cycle_count=1)
 
-Watchdog (cron on VPS):
-    */5 * * * * curl -f http://localhost:8080/health || notify_error
+    # Watchdog — run anywhere (cron / GitHub Actions / UptimeRobot):
+    qsl_watchdog.py --url https://my-service/health
+    qsl_watchdog.py --file /tmp/qsl.heartbeat
 """
 
 from __future__ import annotations
 
 import json
-import time
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +35,7 @@ from typing import Any, Callable, Mapping, Protocol
 
 
 # ---------------------------------------------------------------------------
-# Heartbeat data model
+# Data model
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -48,7 +46,6 @@ class Heartbeat:
     cycle_count: int = 0
     last_error: str = ""
     version: str = ""
-    metadata: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -58,220 +55,208 @@ class Heartbeat:
             "cycle_count": self.cycle_count,
             "last_error": self.last_error,
             "version": self.version,
-            **dict(self.metadata),
         }
 
 
 # ---------------------------------------------------------------------------
-# Backend protocols
+# Pluggable backends
 # ---------------------------------------------------------------------------
 
-class HeartbeatWriter(Protocol):
-    def write(self, heartbeat: Heartbeat) -> None:
-        ...
+class HealthBackend(Protocol):
+    def write(self, hb: Heartbeat) -> None: ...
+    def read(self) -> Heartbeat | None: ...
 
 
-class HeartbeatReader(Protocol):
-    def read(self) -> Heartbeat | None:
-        ...
+class _FileBackend:
+    """Zero-dependency file heartbeat — works on any OS."""
+    def __init__(self, path: str = "/tmp/qsl.heartbeat"):
+        self.path = Path(path)
 
-
-# ---------------------------------------------------------------------------
-# File-based heartbeat (for VPS / bare-metal / self-hosted)
-# ---------------------------------------------------------------------------
-
-class FileHeartbeat:
-    """Write heartbeat to a local JSON file.  Suitable for VPS / bare-metal."""
-
-    def __init__(self, path: str | Path):
-        self._path = Path(path)
-
-    def write(self, heartbeat: Heartbeat) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(json.dumps(heartbeat.to_dict(), ensure_ascii=False))
+    def write(self, hb: Heartbeat) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(hb.to_dict(), ensure_ascii=False))
 
     def read(self) -> Heartbeat | None:
-        if not self._path.exists():
+        if not self.path.exists():
             return None
-        data = json.loads(self._path.read_text())
-        return Heartbeat(
-            status=str(data.get("status", "ok")),
-            timestamp=str(data.get("timestamp", "")),
-            uptime_seconds=int(data.get("uptime_seconds", 0)),
-            cycle_count=int(data.get("cycle_count", 0)),
-            last_error=str(data.get("last_error", "")),
-            version=str(data.get("version", "")),
-            metadata={k: v for k, v in data.items() if k not in Heartbeat.__dataclass_fields__},
-        )
+        d = json.loads(self.path.read_text())
+        return Heartbeat(**{k: d.get(k, "") for k in Heartbeat.__dataclass_fields__})
 
 
-# ---------------------------------------------------------------------------
-# Firestore heartbeat (for Binance VPS)
-# ---------------------------------------------------------------------------
-
-class FirestoreHeartbeat:
-    """Write heartbeat to Google Firestore."""
-
+class _FirestoreBackend:
+    """Firestore heartbeat — for GCP-connected deployments."""
     def __init__(self, collection: str = "health", document: str = "alive"):
-        self._collection = collection
-        self._document = document
-        self._client = None
+        self.collection = collection
+        self.document = document
 
-    def _get_client(self):
-        if self._client is None:
-            from google.cloud import firestore  # lazy import
-            self._client = firestore.Client()
-        return self._client
+    def _client(self):
+        from google.cloud import firestore
+        return firestore.Client()
 
-    def write(self, heartbeat: Heartbeat) -> None:
+    def write(self, hb: Heartbeat) -> None:
         try:
-            self._get_client().collection(self._collection).document(self._document).set(
-                heartbeat.to_dict(), merge=True
-            )
-        except Exception:
-            pass  # Firestore is best-effort; don't crash the main loop
-
-    def read(self) -> Heartbeat | None:
-        try:
-            doc = self._get_client().collection(self._collection).document(self._document).get()
-            if not doc.exists:
-                return None
-            data = doc.to_dict() or {}
-            return Heartbeat(
-                status=str(data.get("status", "ok")),
-                timestamp=str(data.get("timestamp", "")),
-                uptime_seconds=int(data.get("uptime_seconds", 0)),
-                cycle_count=int(data.get("cycle_count", 0)),
-                last_error=str(data.get("last_error", "")),
-                version=str(data.get("version", "")),
-            )
-        except Exception:
-            return None
-
-
-# ---------------------------------------------------------------------------
-# GCS heartbeat (for Cloud Run / GCP)
-# ---------------------------------------------------------------------------
-
-class GcsHeartbeat:
-    """Write heartbeat to Google Cloud Storage."""
-
-    def __init__(self, bucket: str, path: str = "health/heartbeat.json"):
-        self._bucket = bucket
-        self._path = path
-
-    def write(self, heartbeat: Heartbeat) -> None:
-        try:
-            from google.cloud import storage  # lazy import
-            client = storage.Client()
-            bucket = client.bucket(self._bucket)
-            blob = bucket.blob(self._path)
-            blob.upload_from_string(json.dumps(heartbeat.to_dict()), content_type="application/json")
+            self._client().collection(self.collection).document(self.document).set(hb.to_dict(), merge=True)
         except Exception:
             pass
 
     def read(self) -> Heartbeat | None:
         try:
-            from google.cloud import storage
-            client = storage.Client()
-            bucket = client.bucket(self._bucket)
-            blob = bucket.blob(self._path)
-            if not blob.exists():
+            doc = self._client().collection(self.collection).document(self.document).get()
+            if not doc.exists:
                 return None
-            data = json.loads(blob.download_as_text())
-            return Heartbeat(**{k: data.get(k, "") for k in Heartbeat.__dataclass_fields__})
+            d = doc.to_dict() or {}
+            return Heartbeat(**{k: d.get(k, "") for k in Heartbeat.__dataclass_fields__})
         except Exception:
             return None
 
 
 # ---------------------------------------------------------------------------
-# Flask /health endpoint (for Cloud Run platforms)
+# Unified monitor
+# ---------------------------------------------------------------------------
+
+class HealthMonitor:
+    """One API for all platforms.
+
+    Call `monitor.beat()` each cycle. The right backend is selected automatically
+    or explicitly via constructor args.
+    """
+
+    def __init__(
+        self,
+        *,
+        app=None,                # Flask app → adds /health endpoint
+        http_port: int = 0,      # Start standalone HTTP server on this port
+        file_path: str = "",     # Use file backend at this path
+        backend: HealthBackend | None = None,  # Explicit backend (overrides auto-detect)
+    ):
+        self._app = app
+        self._http_port = http_port
+        self._file_path = file_path
+        self._backend = backend or self._auto_backend()
+        self._start_time = datetime.now(timezone.utc)
+        self._cycle_count = 0
+        self._last_error = ""
+
+    def _auto_backend(self) -> HealthBackend:
+        if self._file_path:
+            return _FileBackend(self._file_path)
+        # Auto-detect: try Firestore if GCP creds are set, otherwise file
+        try:
+            import os
+            if os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("FIRESTORE_EMULATOR_HOST"):
+                return _FirestoreBackend()
+        except Exception:
+            pass
+        return _FileBackend()
+
+    # -- lifecycle --
+
+    def start(self) -> HealthMonitor:
+        """Start HTTP health endpoint. Must be called exactly once."""
+        if self._app is not None:
+            self._register_flask()
+        elif self._http_port > 0:
+            self._start_http_server()
+        return self
+
+    def beat(self, *, status: str = "ok", error: str = "", cycle_count: int | None = None) -> None:
+        """Write a heartbeat. Call this once per cycle."""
+        if cycle_count is not None:
+            self._cycle_count = cycle_count
+        if error:
+            self._last_error = error
+        uptime = int((datetime.now(timezone.utc) - self._start_time).total_seconds())
+        self._backend.write(Heartbeat(
+            status=status,
+            uptime_seconds=uptime,
+            cycle_count=self._cycle_count,
+            last_error=self._last_error,
+        ))
+
+    def read(self) -> Heartbeat | None:
+        return self._backend.read()
+
+    # -- HTTP endpoints --
+
+    def _register_flask(self) -> None:
+        from flask import jsonify
+        monitor = self
+
+        @self._app.route("/health", methods=["GET"])
+        @self._app.route("/healthz", methods=["GET"])
+        def health():
+            return jsonify({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
+
+    def _start_http_server(self) -> None:
+        import http.server
+        port = self._http_port
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                if self.path in ("/health", "/healthz"):
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(b'{"status":"ok"}')
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+            def log_message(self, fmt, *args):
+                pass
+
+        server = http.server.HTTPServer(("0.0.0.0", port), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# Flask convenience (backward compat)
 # ---------------------------------------------------------------------------
 
 def register_health_endpoint(app) -> None:
-    """Add GET /health and GET /healthz to a Flask app."""
-    from flask import jsonify
-
-    @app.route("/health", methods=["GET"])
-    @app.route("/healthz", methods=["GET"])
-    def health():
-        return jsonify({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
+    """Add GET /health to a Flask app. Legacy shim — prefer HealthMonitor(app=app).start()."""
+    HealthMonitor(app=app).start()
 
 
 # ---------------------------------------------------------------------------
-# HTTP health server for CLI apps (no Flask dependency)
+# CLI watchdog helpers
 # ---------------------------------------------------------------------------
 
-def start_health_server(port: int = 8080, *, daemon: bool = True):
-    """Start a minimal HTTP health server in a background thread.
-
-    Suitable for CLI-based platforms that don't use Flask.
-    """
-    import http.server
-    import threading
-
-    class HealthHandler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path in ("/health", "/healthz"):
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"status": "ok"}).encode())
-            else:
-                self.send_response(404)
-                self.end_headers()
-
-        def log_message(self, format, *args):
-            pass  # silent
-
-    server = http.server.HTTPServer(("0.0.0.0", port), HealthHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=daemon)
-    thread.start()
-    return server
-
-
-# ---------------------------------------------------------------------------
-# Watchdog helper (for external ping services)
-# ---------------------------------------------------------------------------
-
-def is_heartbeat_fresh(heartbeat: Heartbeat | None, max_age_seconds: int = 300) -> bool:
-    """Return True if the heartbeat is recent enough to consider the service alive."""
-    if heartbeat is None or not heartbeat.timestamp:
+def is_heartbeat_fresh(hb: Heartbeat | None, max_age_seconds: int = 300) -> bool:
+    if hb is None or not hb.timestamp:
         return False
     try:
-        ts = datetime.fromisoformat(heartbeat.timestamp.replace("Z", "+00:00"))
-        age = (datetime.now(timezone.utc) - ts).total_seconds()
-        return age <= max_age_seconds
+        ts = datetime.fromisoformat(hb.timestamp.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - ts).total_seconds() <= max_age_seconds
     except (ValueError, TypeError):
         return False
 
 
-def check_service_alive(
+def check_alive(
     *,
-    heartbeat_url: str = "",
-    heartbeat_reader: HeartbeatReader | None = None,
+    url: str = "",
+    file_path: str = "",
     max_age_seconds: int = 300,
 ) -> tuple[bool, str]:
-    """Check if a service is alive via HTTP endpoint or heartbeat reader.
-
-    Returns (is_alive, detail_message).
-    """
-    # Try HTTP first
-    if heartbeat_url:
+    """Check service health — HTTP endpoint or file heartbeat."""
+    # HTTP check
+    if url:
         import urllib.request
         try:
-            with urllib.request.urlopen(heartbeat_url + "/health", timeout=10) as resp:
-                if resp.status == 200:
-                    return True, "OK"
-                return False, f"HTTP {resp.status}"
-        except Exception as exc:
-            return False, f"unreachable: {exc}"
+            with urllib.request.urlopen(f"{url.rstrip('/')}/health", timeout=10) as r:
+                return (True, "OK") if r.status == 200 else (False, f"HTTP {r.status}")
+        except Exception as e:
+            return (False, f"{type(e).__name__}")
 
-    # Try heartbeat reader
-    if heartbeat_reader is not None:
-        hb = heartbeat_reader.read()
-        if is_heartbeat_fresh(hb, max_age_seconds):
-            return True, "OK"
-        return False, "stale" if hb else "no heartbeat"
+    # File check
+    if file_path:
+        backend = _FileBackend(file_path)
+        hb = backend.read()
+        return (True, "OK") if is_heartbeat_fresh(hb, max_age_seconds) else (False, "stale")
 
-    return False, "no check method configured"
+    return (False, "no check method")
+
+
+# Backward-compat re-exports
+FileHeartbeat = _FileBackend
+FirestoreHeartbeat = _FirestoreBackend
+check_service_alive = check_alive
