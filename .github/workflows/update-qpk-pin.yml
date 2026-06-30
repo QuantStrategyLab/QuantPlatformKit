@@ -62,21 +62,12 @@ jobs:
           echo "::endgroup::"
           echo "All compatibility checks passed."
 
-      - name: Create PR for pin update
+      - name: Commit pin update directly to main
         if: steps.update.outputs.changed == 'true'
-        uses: peter-evans/create-pull-request@v7
-        with:
-          commit-message: "chore: auto-update QPK_PIN and constraints.txt"
-          title: "chore: auto-update QPK_PIN and constraints.txt"
-          body: |
-            Automated update of QPK_PIN and dependency constraint SHAs.
-
-            Compatibility checks passed ✅ — all downstream-critical QPK modules verified importable.
-
-            Updated SHAs:
-            - QPK: `${{ github.sha }}`
-            - Strategy repos: latest HEAD from each
-
-            🤖 Generated with [Claude Code](https://claude.com/claude-code)
-          branch: auto/qpk-pin-update
-          delete-branch: true
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add QPK_PIN constraints.txt
+          git commit -m "chore: auto-update QPK_PIN and constraints.txt [skip ci]"
+          git push origin HEAD:main
