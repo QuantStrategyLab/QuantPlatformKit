@@ -31,10 +31,15 @@ jobs:
           SHA=$(git rev-parse HEAD)
           echo "$SHA" > QPK_PIN
 
-          # Update SHAs from remote repos
-          for repo in UsEquityStrategies HkEquityStrategies CnEquityStrategies CryptoStrategies; do
+          # Update SHAs from remote repos. Package names use hyphenated form.
+          for pair in "us-equity-strategies:UsEquityStrategies" \
+                      "hk-equity-strategies:HkEquityStrategies" \
+                      "cn-equity-strategies:CnEquityStrategies" \
+                      "crypto-strategies:CryptoStrategies"; do
+            pkg="${pair%%:*}"
+            repo="${pair##*:}"
             RSHA=$(git ls-remote "https://github.com/QuantStrategyLab/$repo.git" HEAD | cut -f1)
-            [ -n "$RSHA" ] && sed -i "s|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|${repo,,} @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" constraints.txt || true
+            [ -n "$RSHA" ] && sed -i "s|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" constraints.txt || true
           done
           sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" constraints.txt
 
