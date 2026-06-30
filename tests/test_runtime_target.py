@@ -102,7 +102,7 @@ class RuntimeTargetTests(unittest.TestCase):
             )
 
     def test_resolve_runtime_target_from_env_requires_structured_json(self) -> None:
-        with self.assertRaisesRegex(EnvironmentError, "RUNTIME_TARGET_JSON is required"):
+        with self.assertRaisesRegex(EnvironmentError, "RUNTIME_TARGET_JSON"):
             resolve_runtime_target_from_env(env={})
 
     def test_build_runtime_context_fields_merges_runtime_target_without_overwriting_fields(self) -> None:

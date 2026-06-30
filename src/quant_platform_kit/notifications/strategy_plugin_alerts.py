@@ -123,10 +123,14 @@ class StrategyPluginAlertStateSettings:
             new_key="STRATEGY_PLUGIN_ALERT_STATE_CLOUD_URI",
             old_key="STRATEGY_PLUGIN_ALERT_STATE_GCS_URI",
         )
-        report_cloud_uri = _read_cloud_env(
-            env_reader,
-            new_key="EXECUTION_REPORT_CLOUD_URI",
-            old_key="EXECUTION_REPORT_GCS_URI",
+        report_cloud_uri = (
+            env_reader("QSL_EXECUTION_REPORT_CLOUD_URI", None)
+            or env_reader("QSL_EXECUTION_REPORT_GCS_URI", None)
+            or _read_cloud_env(
+                env_reader,
+                new_key="EXECUTION_REPORT_CLOUD_URI",
+                old_key="EXECUTION_REPORT_GCS_URI",
+            )
         )
         local_dir = env_reader("STRATEGY_PLUGIN_ALERT_STATE_DIR", None)
         return cls(
