@@ -21,4 +21,5 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.ruff]
+ignore = ["E701"]
 target-version = "py310"
