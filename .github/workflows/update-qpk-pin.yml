@@ -50,6 +50,8 @@ jobs:
           set -euo pipefail
           echo "::group::Verifying packages installable with new constraints"
           python -m pip install --upgrade pip
+          # Pre-install runtime deps QPK needs but doesn't declare as dependencies
+          python -m pip install requests numpy pandas
           # Install QPK WITHOUT constraints (avoids self-referencing SHA conflict)
           python -m pip install -e .
           python -c "import quant_platform_kit; print('QPK import OK')"
