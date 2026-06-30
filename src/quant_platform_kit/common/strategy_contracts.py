@@ -1019,7 +1019,6 @@ def build_value_target_execution_annotations(
     )
 
 
-# Note: load_strategy_entrypoint moved to common/strategies.py in v0.9.0.
-# Backward-compat import placed at end of file to avoid circular import.
-from quant_platform_kit.common.strategies import load_strategy_entrypoint  # noqa: F401, E402
+# Note: load_strategy_entrypoint is in common/strategies.py (v0.9.0+).
+# Import from quant_platform_kit.common.strategies, not strategy_contracts.
 # Use from quant_platform_kit.common.strategies import load_strategy_entrypoint.
