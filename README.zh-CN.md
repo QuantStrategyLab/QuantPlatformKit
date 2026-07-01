@@ -31,6 +31,19 @@ python -m pip install -e .
 python -m pytest -q
 ```
 
+## 策略生命周期 CLI
+
+`quant-lifecycle` 是原 `QuantStrategyLifecycle` wrapper 职责迁入后的共享入口。
+生产定时任务应放在各 domain 仓库，并调用这个 CLI 或底层
+`quant_platform_kit.strategy_lifecycle` 模块。
+
+```bash
+quant-lifecycle monitor --domain us_equity
+quant-lifecycle drift --domain us_equity
+quant-lifecycle autopilot --domain us_equity --dry-run
+quant-lifecycle dashboard --format all
+```
+
 ## 云服务抽象层
 
 `quant_platform_kit.cloud` 包为常用云服务定义了协议接口——密钥管理、对象存储、文档数据库、计算发现和部署上下文。平台代码可以通过这些接口编写，无需硬编码到特定云厂商。
