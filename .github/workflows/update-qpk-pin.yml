@@ -92,7 +92,9 @@ jobs:
           echo "All compatibility checks passed."
 
       - name: Create PR for pin update
+        id: create_pin_pr
         if: steps.update.outputs.changed == 'true'
+        continue-on-error: true
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ github.token }}
@@ -111,3 +113,19 @@ jobs:
           branch: auto/qpk-pin-update
           delete-branch: true
           base: main
+
+      - name: Report blocked pin PR creation
+        if: steps.update.outputs.changed == 'true' && steps.create_pin_pr.outcome == 'failure'
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+          ## QPK pin update PR not created
+
+          The generated `QPK_PIN` / `constraints.txt` update was verified, but repository policy prevented `GITHUB_TOKEN` from creating a pull request.
+
+          Manual follow-up:
+          - Enable the repository setting that allows GitHub Actions to create pull requests, or
+          - Run the pin update manually from a reviewed maintainer branch.
+
+          This workflow intentionally does not fall back to a PAT-based bypass.
+          MD
+          echo "::warning::QPK pin update PR was not created because repository policy blocks GitHub Actions PR creation."
