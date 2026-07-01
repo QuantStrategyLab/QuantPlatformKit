@@ -33,7 +33,7 @@ python -m pytest -q
 
 ## 策略生命周期 CLI
 
-`quant-lifecycle` 是原 `QuantStrategyLifecycle` wrapper 职责迁入后的共享入口。
+`quant-lifecycle` 是策略监控、漂移检测、优化、更新和 dashboard 的共享生命周期入口。
 生产定时任务应放在各 domain 仓库，并调用这个 CLI 或底层
 `quant_platform_kit.strategy_lifecycle` 模块。
 
