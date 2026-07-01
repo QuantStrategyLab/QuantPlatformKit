@@ -6,6 +6,8 @@ import smtplib
 from collections.abc import Sequence
 from email.message import EmailMessage
 
+from ._redaction import redact_sensitive_text
+
 
 def parse_email_recipients(raw_value: str | Sequence[str] | None) -> tuple[str, ...]:
     if raw_value is None:
@@ -63,5 +65,5 @@ def send_smtp_email(
             smtp.send_message(message)
         return True
     except Exception as exc:
-        printer(f"Email send failed: {exc}", flush=True)
+        printer(f"Email send failed: {redact_sensitive_text(exc)}", flush=True)
         return False

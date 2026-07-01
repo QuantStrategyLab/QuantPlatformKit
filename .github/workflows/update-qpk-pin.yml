@@ -66,10 +66,20 @@ jobs:
           python -c "from quant_platform_kit.common.contracts import SnapshotProfileContract; print('contracts OK')"
 
           # Verify strategy repos installable with NEW constraints
+          failed=0
           for dep in us-equity-strategies hk-equity-strategies cn-equity-strategies crypto-strategies; do
             echo "Checking $dep..."
-            python -m pip install --dry-run -c constraints.txt "$dep" >/dev/null 2>&1 && echo "  $dep OK" || echo "  $dep FAILED"
+            if python -m pip install --dry-run -c constraints.txt "$dep" >/dev/null 2>&1; then
+              echo "  $dep OK"
+            else
+              echo "  $dep FAILED"
+              failed=1
+            fi
           done
+          if [ "${failed}" -ne 0 ]; then
+            echo "One or more downstream dependency checks failed." >&2
+            exit 1
+          fi
           echo "::endgroup::"
           echo "All compatibility checks passed."
 
@@ -77,10 +87,7 @@ jobs:
         if: steps.update.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
-          # Use PAT to bypass GH013 ruleset (GITHUB_TOKEN is blocked from creating PRs).
-          # Create a classic PAT at https://github.com/settings/tokens with `public_repo`
-          # scope, then add it as org secret `QSL_AUTOMATION_PAT`.
-          token: ${{ secrets.QSL_AUTOMATION_PAT || secrets.GITHUB_TOKEN }}
+          token: ${{ github.token }}
           commit-message: "chore: auto-update QPK_PIN and constraints.txt"
           title: "chore: auto-update QPK_PIN and constraints.txt"
           body: |

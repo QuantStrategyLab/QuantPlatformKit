@@ -8,6 +8,8 @@ import urllib.request
 from collections.abc import Sequence
 from typing import Any
 
+from ._redaction import redact_sensitive_text
+
 
 def normalize_sms_recipient(value: str) -> str:
     """Normalize common US phone-number formatting to E.164.
@@ -102,7 +104,7 @@ def send_twilio_sms(
                     status = response.getcode()
                 status = int(status)
         except Exception as exc:
-            printer(f"SMS send failed for {recipient}: {exc}", flush=True)
+            printer(f"SMS send failed for {recipient}: {redact_sensitive_text(exc)}", flush=True)
             all_sent = False
             continue
         if status < 200 or status >= 300:

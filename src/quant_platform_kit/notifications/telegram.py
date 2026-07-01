@@ -9,6 +9,8 @@ import urllib.request
 from collections.abc import Sequence
 from typing import Any
 
+from ._redaction import redact_sensitive_text
+
 
 DEFAULT_TELEGRAM_BOT_API_BASE_URL = "https://api.telegram.org"
 _TELEGRAM_MARKET_SYMBOL_LINK_RE = re.compile(r"(?<![A-Za-z0-9_])([A-Z0-9]{1,12})\.([A-Z]{2,4})(?![A-Za-z0-9_])")
@@ -127,7 +129,7 @@ def _request_succeeded(
                 status = response.getcode()
             status = int(status)
     except Exception as exc:
-        printer(f"Telegram send failed for {chat_id}: {exc}", flush=True)
+        printer(f"Telegram send failed for {chat_id}: {redact_sensitive_text(exc)}", flush=True)
         return False
     if status < 200 or status >= 300:
         printer(f"Telegram send failed for {chat_id}: HTTP {status}", flush=True)
