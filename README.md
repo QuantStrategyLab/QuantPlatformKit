@@ -31,6 +31,19 @@ python -m pip install -e .
 python -m pytest -q
 ```
 
+## Strategy lifecycle CLI
+
+`quant-lifecycle` provides the shared lifecycle entrypoint formerly wrapped by `QuantStrategyLifecycle`.
+Production schedules should live in domain repositories and call this CLI or the underlying
+`quant_platform_kit.strategy_lifecycle` modules directly.
+
+```bash
+quant-lifecycle monitor --domain us_equity
+quant-lifecycle drift --domain us_equity
+quant-lifecycle autopilot --domain us_equity --dry-run
+quant-lifecycle dashboard --format all
+```
+
 ## Cloud provider abstraction
 
 QuantPlatformKit includes a cloud provider abstraction layer at `quant_platform_kit.cloud`. It defines protocol interfaces for common cloud services — secret management, object storage, document databases, compute discovery, and deployment context — so that platform code can be written without hard-wiring to a specific cloud provider.
