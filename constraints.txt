@@ -1,8 +1,8 @@
 # QSL Dependency Constraints — SINGLE SOURCE OF TRUTH
 # Auto-updated by update-qpk-pin.yml on every push to QPK main.
 
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@cfcbbcd51be902877eb760bc55b2612351a31e90
-us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@1e8b6ee28cdba8a9637276cf8619cd8890fa6861
-hk-equity-strategies @ git+https://github.com/QuantStrategyLab/HkEquityStrategies.git@1a5c8bf5f05eb708a0893f0062c6824aa9ef1882
+quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@d786c1140967f0e96e35599d057f0655e5a9ba25
+us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@c8df5f9659340965bd7f53998892ed1018ed4254
+hk-equity-strategies @ git+https://github.com/QuantStrategyLab/HkEquityStrategies.git@700c8b19c46336d3d8fcba687e58553afcf0235f
 cn-equity-strategies @ git+https://github.com/QuantStrategyLab/CnEquityStrategies.git@2e5a8da3af5fa25c1a5e7de6fa00bda488f50440
 crypto-strategies @ git+https://github.com/QuantStrategyLab/CryptoStrategies.git@6e0037b625c98ccdb97f225b9772e3c6fff4afd2
