@@ -2,7 +2,7 @@
 
 Architecture::
 
-    QuantStrategyLifecycle          AiGateway (VPS, single service)
+    QuantPlatformKit lifecycle      AiGateway (VPS, single service)
     ───────────────────             ─────────────────────────────────
     AiServiceClient                     │
       ├─ review() ──────────────────────┤──▶ POST /v1/ai/review (multi-model)
@@ -212,7 +212,7 @@ class AiServiceClient:
                 "model": provider.model,
                 "prompt": prompt,
                 "timeout_seconds": int(timeout),
-                "source_repository": os.environ.get("AI_GATEWAY_SOURCE_REPO", "QuantStrategyLab/QuantStrategyLifecycle"),
+                "source_repository": os.environ.get("AI_GATEWAY_SOURCE_REPO", "QuantStrategyLab/QuantPlatformKit"),
                 "source_ref": "main",
                 "mode": "review_only",
             }).encode("utf-8")
@@ -220,7 +220,7 @@ class AiServiceClient:
             req = _urllib_req.Request(
                 f"{base_url}/v1/ai/execute/jobs", data=payload, method="POST",
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
-                         "Accept": "application/json", "User-Agent": "quant-strategy-lifecycle"},
+                         "Accept": "application/json", "User-Agent": "quant-platform-kit-lifecycle"},
             )
             with _urllib_req.urlopen(req, timeout=30) as resp:
                 result = _json.loads(resp.read().decode("utf-8"))
@@ -236,7 +236,7 @@ class AiServiceClient:
                 req2 = _urllib_req.Request(
                     f"{base_url}/v1/ai/execute/jobs/{job_id}", method="GET",
                     headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
-                             "User-Agent": "quant-strategy-lifecycle"},
+                             "User-Agent": "quant-platform-kit-lifecycle"},
                 )
                 try:
                     with _urllib_req.urlopen(req2, timeout=30) as resp2:
