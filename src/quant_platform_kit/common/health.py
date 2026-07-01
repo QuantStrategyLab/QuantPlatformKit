@@ -180,12 +180,25 @@ class HealthMonitor:
 
     def _register_flask(self) -> None:
         from flask import jsonify
-        monitor = self
 
-        @self._app.route("/health", methods=["GET"])
-        @self._app.route("/healthz", methods=["GET"])
-        def health():
+        def qpk_health():
             return jsonify({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
+
+        existing_rules = {getattr(rule, "rule", "") for rule in self._app.url_map.iter_rules()}
+        if "/health" not in existing_rules:
+            self._app.add_url_rule(
+                "/health",
+                endpoint="qpk_health",
+                view_func=qpk_health,
+                methods=["GET"],
+            )
+        if "/healthz" not in existing_rules:
+            self._app.add_url_rule(
+                "/healthz",
+                endpoint="qpk_healthz",
+                view_func=qpk_health,
+                methods=["GET"],
+            )
 
     def _start_http_server(self) -> None:
         import http.server
