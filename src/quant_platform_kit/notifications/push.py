@@ -8,6 +8,8 @@ from collections.abc import Sequence
 from email.header import Header
 from typing import Any
 
+from ._redaction import redact_sensitive_text
+
 
 PUSH_PROVIDER_NTFY = "ntfy"
 PUSH_PROVIDER_PUSHOVER = "pushover"
@@ -190,7 +192,7 @@ def _request_succeeded(
                 status = response.getcode()
             status = int(status)
     except Exception as exc:
-        printer(f"Push send failed for {recipient}: {exc}", flush=True)
+        printer(f"Push send failed for {recipient}: {redact_sensitive_text(exc)}", flush=True)
         return False
     if status < 200 or status >= 300:
         printer(f"Push send failed for {recipient}: HTTP {status}", flush=True)

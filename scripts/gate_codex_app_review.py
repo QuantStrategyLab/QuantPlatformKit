@@ -115,7 +115,7 @@ def scan_diff(diff_text: str, path_patterns: list[re.Pattern[str]]) -> list[str]
         if not line.startswith("+") or line.startswith("+++"): continue
         m = _SENSITIVE.search(line[1:])
         if m:
-            violations.append(f"**Hardcoded secret** in `{current}`: `{m.group(0)[:100]}`")
+            violations.append(f"**Hardcoded secret** in `{current}`: sensitive assignment pattern detected")
     return list(dict.fromkeys(violations))
 
 

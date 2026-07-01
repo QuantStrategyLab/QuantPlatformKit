@@ -12,6 +12,7 @@ from quant_platform_kit.common.strategy_plugins import (
 )
 
 from .alert_marker import CloudAlertMarkerStore, _clean_relative_key
+from ._redaction import redact_sensitive_text
 from .push import (
     DEFAULT_NTFY_API_BASE_URL,
     DEFAULT_PUSHOVER_API_BASE_URL,
@@ -182,7 +183,7 @@ def publish_strategy_plugin_push_alerts(
             store_error = None
         except Exception as exc:
             duplicate = False
-            store_error = f"alert_store_check_failed:{type(exc).__name__}: {exc}"
+            store_error = f"alert_store_check_failed:{type(exc).__name__}: {redact_sensitive_text(exc)}"
         if duplicate:
             deliveries.append(_delivery(message, status="skipped", reason="duplicate_alert"))
             continue
@@ -235,7 +236,7 @@ def _send_message(
             timeout=settings.timeout,
         )
     except Exception as exc:
-        return False, f"{type(exc).__name__}: {exc}"
+        return False, f"{type(exc).__name__}: {redact_sensitive_text(exc)}"
     return bool(sent), None
 
 
@@ -275,7 +276,7 @@ def _store_record_error(
             },
         )
     except Exception as exc:
-        return f"alert_store_record_failed:{type(exc).__name__}: {exc}"
+        return f"alert_store_record_failed:{type(exc).__name__}: {redact_sensitive_text(exc)}"
     return None
 
 
@@ -337,7 +338,6 @@ def _default_api_base_url(provider: str) -> str:
 
 def _fallback_alert_key(message: StrategyPluginAlertMessage) -> str:
     return "strategy_plugin_push_alert/" + _clean_relative_key(message.subject or "unknown")
-
 
 
 

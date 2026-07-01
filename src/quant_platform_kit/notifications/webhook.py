@@ -26,6 +26,8 @@ import urllib.request
 from collections.abc import Sequence
 from typing import Any
 
+from ._redaction import redact_sensitive_text
+
 
 # ──────────────────────────────────────────────────────────────────────
 #  Provider constants
@@ -309,7 +311,7 @@ def _json_webhook_request_succeeded(
             status = int(status)
             raw = response.read()
     except Exception as exc:
-        printer(f"{provider} webhook send failed: {exc}", flush=True)
+        printer(f"{provider} webhook send failed: {redact_sensitive_text(exc)}", flush=True)
         return False
     if status < 200 or status >= 300:
         printer(f"{provider} webhook send failed: HTTP {status}", flush=True)
@@ -318,7 +320,7 @@ def _json_webhook_request_succeeded(
         body = json.loads(raw.decode("utf-8"))
         if body.get(errcode_key, -1) != 0:
             printer(
-                f"{provider} webhook send failed: {body.get(errmsg_key, 'unknown error')}",
+                f"{provider} webhook send failed: {redact_sensitive_text(body.get(errmsg_key, 'unknown error'))}",
                 flush=True,
             )
             return False

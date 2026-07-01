@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,7 @@ version = "0.10.0"
 description = "QuantStrategyLab shared runtime: broker adapters, domain models, execution ports, cloud provider abstraction, and notification utilities."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
   { name = "QuantStrategyLab" }
 ]
