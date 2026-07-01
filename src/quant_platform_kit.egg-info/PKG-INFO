@@ -1,10 +1,10 @@
 Metadata-Version: 2.4
 Name: quant-platform-kit
-Version: 0.7.41
-Summary: Shared broker adapters, domain models, execution ports, and notification utilities for QuantStrategyLab strategies.
+Version: 0.10.0
+Summary: QuantStrategyLab shared runtime: broker adapters, domain models, execution ports, cloud provider abstraction, and notification utilities.
 Author: QuantStrategyLab
 License: MIT
-Requires-Python: >=3.9
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
 Dynamic: license-file
@@ -40,6 +40,68 @@ It supports the system but does not decide which strategy should be live. Strate
 ```bash
 python -m pip install -e .
 python -m pytest -q
+```
+
+## Strategy lifecycle CLI
+
+`quant-lifecycle` provides the shared lifecycle entrypoint formerly wrapped by `QuantStrategyLifecycle`.
+Production schedules should live in domain repositories and call this CLI or the underlying
+`quant_platform_kit.strategy_lifecycle` modules directly.
+
+```bash
+quant-lifecycle monitor --domain us_equity
+quant-lifecycle drift --domain us_equity
+quant-lifecycle autopilot --domain us_equity --dry-run
+quant-lifecycle dashboard --format all
+```
+
+## Cloud provider abstraction
+
+QuantPlatformKit includes a cloud provider abstraction layer at `quant_platform_kit.cloud`. It defines protocol interfaces for common cloud services — secret management, object storage, document databases, compute discovery, and deployment context — so that platform code can be written without hard-wiring to a specific cloud provider.
+
+**Supported providers:**
+
+| Provider | Env var | Description |
+|----------|---------|-------------|
+| **Google Cloud** (default) | `QSL_CLOUD_PROVIDER=gcp` | Uses GCP Secret Manager, Cloud Storage, Firestore — original behavior, no config change needed. |
+| **AWS** | `QSL_CLOUD_PROVIDER=aws` | Uses AWS Secrets Manager, S3, DynamoDB — requires boto3 and valid AWS credentials. |
+| **Azure** | `QSL_CLOUD_PROVIDER=azure` | Uses Azure Key Vault, Blob Storage, Cosmos DB — requires azure-identity and Azure SDK packages. |
+| **Local filesystem** | `QSL_CLOUD_PROVIDER=local` | Reads secrets and stores data under `~/.qsl/`. No cloud credentials required — ideal for development and testing. |
+| **Environment variables** | `QSL_CLOUD_PROVIDER=env` | Reads secrets from environment variables; uses local filesystem for object/document storage. Suitable for CI. |
+
+**Usage:**
+
+```python
+from quant_platform_kit.cloud import (
+    get_secret_store,      # SecretStore (read-only)
+    get_secret_store_rw,   # SecretStoreReadWrite (for token rotation)
+    get_object_store,      # ObjectStore (GCS, S3, or local)
+    get_document_store,    # DocumentStore (Firestore or JSON files)
+    get_compute_discovery, # ComputeDiscovery (GCE or env var)
+    get_deployment_context,# DeploymentContext (Cloud Run or local mock)
+)
+
+# Read a secret — works identically with GCP, env var, or ~/.qsl/secrets/
+secret = get_secret_store().get_secret("my-api-key")
+
+# Read/write objects — URI format is provider-neutral
+data = get_object_store().read_text("gs://bucket/path/to/data.json")
+get_object_store().write_text("gs://bucket/path/to/output.json", '{"key": "value"}')
+```
+
+To switch provider, set `QSL_CLOUD_PROVIDER` before importing the library:
+
+```bash
+export QSL_CLOUD_PROVIDER=local  # use ~/.qsl/ for all cloud operations
+python your_script.py
+```
+
+For token-rotation scenarios (e.g. LongPort or Schwab OAuth refresh), use the read-write store:
+
+```python
+from quant_platform_kit.cloud import get_secret_store_rw
+rw = get_secret_store_rw()
+rw.update_secret("my-token", "new-token-value")
 ```
 
 ## Useful docs
