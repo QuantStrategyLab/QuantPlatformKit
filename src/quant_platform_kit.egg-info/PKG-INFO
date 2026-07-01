@@ -44,7 +44,7 @@ python -m pytest -q
 
 ## Strategy lifecycle CLI
 
-`quant-lifecycle` provides the shared lifecycle entrypoint formerly wrapped by `QuantStrategyLifecycle`.
+`quant-lifecycle` provides the shared lifecycle entrypoint for strategy monitoring, drift detection, optimization, updates, and dashboards.
 Production schedules should live in domain repositories and call this CLI or the underlying
 `quant_platform_kit.strategy_lifecycle` modules directly.
 

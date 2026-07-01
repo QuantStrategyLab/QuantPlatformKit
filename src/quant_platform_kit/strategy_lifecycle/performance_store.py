@@ -33,7 +33,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
 
 SCHEMA_VERSION = "strategy_lifecycle.v1"
 DEFAULT_BUCKET_ENV = "LIFECYCLE_PERFORMANCE_BUCKET"
-DEFAULT_LOCAL_ROOT = Path(tempfile.gettempdir()) / "quant_strategy_lifecycle"
+DEFAULT_LOCAL_ROOT = Path(tempfile.gettempdir()) / "quant_platform_lifecycle"
 
 
 def _now_iso() -> str:
