@@ -20,6 +20,31 @@ from .telegram import (
 )
 
 _DEFAULT_TELEGRAM_BODY_MAX_CHARS = 3900
+_MARKET_REGIME_CONTROL_PLUGIN = "market_regime_control"
+_ZH_MARKET_REGIME_ROUTE_LABELS = {
+    "true_crisis": "黑天鹅",
+    "crisis": "黑天鹅",
+    "risk_off": "黑天鹅",
+    "opportunity_watch": "抄底机会",
+    "panic_reversal": "抄底机会",
+    "taco_rebound": "抄底机会",
+    "risk_reduced": "机会被否决",
+    "delever": "机会被否决",
+    "blocked": "数据阻断",
+    "watch": "观察",
+}
+_EN_MARKET_REGIME_ROUTE_LABELS = {
+    "true_crisis": "black swan risk",
+    "crisis": "black swan risk",
+    "risk_off": "black swan risk",
+    "opportunity_watch": "dip-buy opportunity",
+    "panic_reversal": "dip-buy opportunity",
+    "taco_rebound": "dip-buy opportunity",
+    "risk_reduced": "opportunity vetoed",
+    "delever": "opportunity vetoed",
+    "blocked": "data blocked",
+    "watch": "watch",
+}
 
 
 @dataclass(frozen=True)
@@ -207,10 +232,11 @@ def _send_message(
     message: StrategyPluginAlertMessage,
     settings: StrategyPluginTelegramSettings,
 ) -> tuple[bool, str | None]:
+    title, body = _build_telegram_message_parts(message, max_chars=settings.body_max_chars)
     try:
         sent = send_notification(
-            title=message.subject,
-            body=_build_telegram_body(message, max_chars=settings.body_max_chars),
+            title=title,
+            body=body,
             chat_ids=settings.chat_ids,
             bot_token=settings.bot_token,
             api_base_url=settings.api_base_url,
@@ -223,8 +249,76 @@ def _send_message(
     return bool(sent), None
 
 
+def _build_telegram_message_parts(
+    message: StrategyPluginAlertMessage,
+    *,
+    max_chars: int,
+) -> tuple[str, str]:
+    compact_body = _build_compact_market_regime_body(message)
+    if compact_body:
+        return "", _truncate_telegram_body(compact_body, max_chars=max_chars)
+    return message.subject, _build_telegram_body(message, max_chars=max_chars)
+
+
+def _build_compact_market_regime_body(message: StrategyPluginAlertMessage) -> str | None:
+    metadata = message.metadata
+    if not isinstance(metadata, Mapping):
+        return None
+    plugin = str(metadata.get("plugin") or "").strip().lower()
+    if plugin != _MARKET_REGIME_CONTROL_PLUGIN:
+        return None
+    background = _first_non_empty(metadata.get("situation"))
+    recommendation = _first_non_empty(metadata.get("recommendation"))
+    if not background or not recommendation:
+        return None
+    use_zh = _message_uses_zh(message)
+    route = str(metadata.get("canonical_route") or "").strip().lower()
+    as_of = _first_non_empty(metadata.get("as_of")) or ("未知" if use_zh else "unknown")
+    if use_zh:
+        return "\n".join(
+            (
+                f"日期：{as_of}",
+                f"市场状态：{_market_regime_route_label(route, use_zh=True)}",
+                f"背景情况：{background}",
+                f"建议操作：{recommendation}",
+            )
+        )
+    return "\n".join(
+        (
+            f"Date: {as_of}",
+            f"Market state: {_market_regime_route_label(route, use_zh=False)}",
+            f"Background: {background}",
+            f"Suggested action: {recommendation}",
+        )
+    )
+
+
+def _message_uses_zh(message: StrategyPluginAlertMessage) -> bool:
+    metadata = message.metadata if isinstance(message.metadata, Mapping) else {}
+    text = "\n".join(
+        str(value or "")
+        for value in (
+            message.subject,
+            message.body,
+            metadata.get("situation"),
+            metadata.get("recommendation"),
+            metadata.get("reason_summary"),
+        )
+    )
+    return any("\u4e00" <= char <= "\u9fff" for char in text)
+
+
+def _market_regime_route_label(route: str, *, use_zh: bool) -> str:
+    labels = _ZH_MARKET_REGIME_ROUTE_LABELS if use_zh else _EN_MARKET_REGIME_ROUTE_LABELS
+    return labels.get(route, "需要复核" if use_zh else "manual review")
+
+
 def _build_telegram_body(message: StrategyPluginAlertMessage, *, max_chars: int) -> str:
     body = str(message.body or "").strip() or str(message.subject or "").strip()
+    return _truncate_telegram_body(body, max_chars=max_chars)
+
+
+def _truncate_telegram_body(body: str, *, max_chars: int) -> str:
     limit = max(80, min(4096, int(max_chars or _DEFAULT_TELEGRAM_BODY_MAX_CHARS)))
     if len(body) <= limit:
         return body
@@ -326,6 +420,5 @@ def _coerce_int(value: Any, default: int) -> int:
 
 def _fallback_alert_key(message: StrategyPluginAlertMessage) -> str:
     return "strategy_plugin_telegram_alert/" + _clean_relative_key(message.subject or "unknown")
-
 
 

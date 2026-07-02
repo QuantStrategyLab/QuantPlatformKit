@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
+from quant_platform_kit.common.notification_localization import STRATEGY_PLUGIN_I18N
 from quant_platform_kit.notifications.strategy_plugin_telegram import (
     StrategyPluginTelegramSettings,
     publish_strategy_plugin_telegram_alerts,
@@ -173,6 +174,59 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
         self.assertEqual(calls[0]["chat_ids"], ("123",))
         self.assertIn("ibkr / live-slot-a", calls[0]["body"])
         self.assertTrue(tmp_dir)
+
+    def test_publish_strategy_plugin_telegram_alerts_compacts_market_regime_body(self):
+        calls = []
+        translations = STRATEGY_PLUGIN_I18N["zh"]
+        signal = SimpleNamespace(
+            strategy="tqqq_growth_income",
+            plugin="market_regime_control",
+            effective_mode="shadow",
+            as_of="2026-06-19",
+            canonical_route="opportunity_watch",
+            suggested_action="notify_manual_review",
+            would_trade_if_enabled=False,
+            execution_controls={"notification_profile": "shadow_only"},
+            payload={
+                "localized_messages": {
+                    "default_locale": "zh-CN",
+                    "labels": {"reason_codes": {"zh-CN": ["价格反弹待确认"]}},
+                },
+            },
+        )
+
+        result = publish_strategy_plugin_telegram_alerts(
+            [signal],
+            telegram_settings=StrategyPluginTelegramSettings(
+                chat_ids=("123",),
+                bot_token="bot-token",
+            ),
+            translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+            if kwargs
+            else translations.get(key, key),
+            alert_store=SimpleNamespace(
+                has_alert=lambda _key: False,
+                record_alert=lambda _key, **_kwargs: None,
+            ),
+            send_notification=lambda **kwargs: calls.append(kwargs) or True,
+            log_message=lambda *_args, **_kwargs: None,
+        )
+
+        self.assertEqual(result.sent_count, 1)
+        self.assertEqual(calls[0]["title"], "")
+        self.assertEqual(
+            calls[0]["body"],
+            "\n".join(
+                (
+                    "日期：2026-06-19",
+                    "市场状态：抄底机会",
+                    "背景情况：机会观察：出现可能的反弹或低吸窗口，当前证据只够人工复核。",
+                    "建议操作：人工核对反弹质量、成交/趋势确认和失效条件；确认前只作为低吸候选，不直接转成自动买入。",
+                )
+            ),
+        )
+        self.assertNotIn("策略插件提醒", calls[0]["body"])
+        self.assertNotIn("插件：", calls[0]["body"])
 
     def test_publish_strategy_plugin_telegram_alerts_skips_when_missing_config(self):
         result = publish_strategy_plugin_telegram_alerts(
