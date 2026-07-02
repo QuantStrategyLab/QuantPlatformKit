@@ -77,6 +77,7 @@ src/quant_platform_kit/longbridge/market_data.py
 src/quant_platform_kit/longbridge/portfolio.py
 src/quant_platform_kit/notifications/__init__.py
 src/quant_platform_kit/notifications/_email.py
+src/quant_platform_kit/notifications/_redaction.py
 src/quant_platform_kit/notifications/alert_marker.py
 src/quant_platform_kit/notifications/channel.py
 src/quant_platform_kit/notifications/cycle_channel.py
@@ -150,10 +151,12 @@ tests/test_ibkr_execution.py
 tests/test_ibkr_market_data.py
 tests/test_ibkr_portfolio.py
 tests/test_ibkr_runtime_inputs.py
+tests/test_lifecycle_ai_provider.py
 tests/test_lifecycle_cli.py
 tests/test_lifecycle_contracts.py
 tests/test_lifecycle_drift.py
 tests/test_lifecycle_metrics.py
+tests/test_lifecycle_performance_store.py
 tests/test_lifecycle_reviewer.py
 tests/test_longbridge_auth.py
 tests/test_longbridge_execution.py
@@ -164,6 +167,7 @@ tests/test_market_signal_artifacts.py
 tests/test_models.py
 tests/test_notification_events.py
 tests/test_notification_localization.py
+tests/test_notification_redaction.py
 tests/test_package_version.py
 tests/test_quantconnect.py
 tests/test_runtime_assembly.py
