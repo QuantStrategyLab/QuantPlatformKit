@@ -3,7 +3,7 @@ Name: quant-platform-kit
 Version: 0.10.0
 Summary: QuantStrategyLab shared runtime: broker adapters, domain models, execution ports, cloud provider abstraction, and notification utilities.
 Author: QuantStrategyLab
-License: MIT
+License-Expression: MIT
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
