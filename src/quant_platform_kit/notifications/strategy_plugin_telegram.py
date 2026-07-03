@@ -21,6 +21,8 @@ from .telegram import (
 
 _DEFAULT_TELEGRAM_BODY_MAX_CHARS = 3900
 _MARKET_REGIME_CONTROL_PLUGIN = "market_regime_control"
+_AUTOMATED_POSITION_ACTIONS = frozenset({"defend", "delever"})
+_MANUAL_REVIEW_ACTIONS = frozenset({"notify_manual_review"})
 _ZH_MARKET_REGIME_ROUTE_LABELS = {
     "true_crisis": "黑天鹅",
     "crisis": "黑天鹅",
@@ -164,11 +166,15 @@ def publish_strategy_plugin_telegram_alerts(
     log_message: Callable[..., Any] = print,
 ) -> StrategyPluginTelegramAlertPublishResult:
     settings = StrategyPluginTelegramSettings.from_object(telegram_settings)
+    del context_label  # The plugin Telegram bot is a unified manual-review channel.
+    manual_review_signals = tuple(
+        signal for signal in signals if _is_manual_review_telegram_signal(signal)
+    )
     messages = build_strategy_plugin_alert_messages(
-        signals,
+        manual_review_signals,
         translator=translator,
         strategy_label=strategy_label,
-        context_label=context_label,
+        context_label=None,
         alert_namespace="strategy_plugin_telegram_alert",
     )
     deliveries: list[StrategyPluginTelegramAlertDelivery] = []
@@ -208,6 +214,63 @@ def publish_strategy_plugin_telegram_alerts(
     result = StrategyPluginTelegramAlertPublishResult(tuple(deliveries))
     _log_publish_result(result, log_message=log_message)
     return result
+
+
+def _is_manual_review_telegram_signal(signal: object) -> bool:
+    if _is_auto_consumable_signal(signal):
+        return False
+    target_type = str(getattr(signal, "target_type", None) or "strategy").strip().lower()
+    if target_type == "notification_target":
+        return True
+    action = str(getattr(signal, "suggested_action", None) or "").strip().lower()
+    if action in _MANUAL_REVIEW_ACTIONS:
+        return True
+    controls = _signal_execution_controls(signal)
+    policy = _signal_consumption_policy(signal)
+    status = str(
+        controls.get("consumption_evidence_status")
+        or policy.get("evidence_status")
+        or ""
+    ).strip().lower()
+    if status == "notification_only":
+        return True
+    for key in ("capital_impact", "notification_profile"):
+        value = str(controls.get(key) or policy.get(key) or "").strip().lower()
+        if value in {"notification_only", "shadow_only"}:
+            return True
+    return False
+
+
+def _is_auto_consumable_signal(signal: object) -> bool:
+    action = str(getattr(signal, "suggested_action", None) or "").strip().lower()
+    if action not in _AUTOMATED_POSITION_ACTIONS:
+        return False
+    controls = _signal_execution_controls(signal)
+    policy = _signal_consumption_policy(signal)
+    status = str(
+        controls.get("consumption_evidence_status")
+        or policy.get("evidence_status")
+        or ""
+    ).strip().lower()
+    if status != "automation_approved":
+        return False
+    return (
+        _coerce_bool(controls.get("position_control_allowed"), default=False)
+        or _coerce_bool(policy.get("position_control_allowed"), default=False)
+    )
+
+
+def _signal_execution_controls(signal: object) -> Mapping[str, Any]:
+    controls = getattr(signal, "execution_controls", {}) or {}
+    return controls if isinstance(controls, Mapping) else {}
+
+
+def _signal_consumption_policy(signal: object) -> Mapping[str, Any]:
+    payload = getattr(signal, "payload", {}) or {}
+    if not isinstance(payload, Mapping):
+        return {}
+    policy = payload.get("consumption_policy") or {}
+    return policy if isinstance(policy, Mapping) else {}
 
 
 def _delivery(
@@ -277,6 +340,7 @@ def _build_compact_market_regime_body(message: StrategyPluginAlertMessage) -> st
     if use_zh:
         return "\n".join(
             (
+                "统一人工复核信号",
                 f"日期：{as_of}",
                 f"市场状态：{_market_regime_route_label(route, use_zh=True)}",
                 f"背景情况：{background}",
@@ -285,6 +349,7 @@ def _build_compact_market_regime_body(message: StrategyPluginAlertMessage) -> st
         )
     return "\n".join(
         (
+            "Unified manual-review signal",
             f"Date: {as_of}",
             f"Market state: {_market_regime_route_label(route, use_zh=False)}",
             f"Background: {background}",
@@ -420,5 +485,3 @@ def _coerce_int(value: Any, default: int) -> int:
 
 def _fallback_alert_key(message: StrategyPluginAlertMessage) -> str:
     return "strategy_plugin_telegram_alert/" + _clean_relative_key(message.subject or "unknown")
-
-
