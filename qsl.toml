@@ -1,8 +1,9 @@
 tier = "core"
 ring = 0
 allow_legacy = true
+# legacy_reason: constraints.txt remains for pinned downstream git deps and update-qpk-pin workflow.
 
 [compat]
-bundle = "2026.07.0"
+bundle = "2026.07.1"
 requires = [
 ]
