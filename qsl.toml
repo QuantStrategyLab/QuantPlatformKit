@@ -1,5 +1,6 @@
 tier = "core"
 ring = 0
+allow_legacy = true
 
 [compat]
 bundle = "2026.07.0"
