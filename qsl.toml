@@ -1,0 +1,7 @@
+tier = "core"
+ring = 0
+
+[compat]
+bundle = "2026.07.0"
+requires = [
+]
