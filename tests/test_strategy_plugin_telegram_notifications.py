@@ -18,12 +18,30 @@ from quant_platform_kit.notifications.telegram import (
 def _alert_signal():
     return SimpleNamespace(
         strategy="tqqq_growth_income",
-        plugin="crisis_response_shadow",
+        plugin="market_regime_control",
         effective_mode="shadow",
         as_of="2026-05-24",
-        canonical_route="true_crisis",
+        canonical_route="opportunity_watch",
+        suggested_action="notify_manual_review",
+        would_trade_if_enabled=False,
+        execution_controls={"notification_profile": "shadow_only"},
+    )
+
+
+def _auto_consumable_signal():
+    return SimpleNamespace(
+        strategy="tqqq_growth_income",
+        plugin="market_regime_control",
+        effective_mode="shadow",
+        as_of="2026-05-24",
+        canonical_route="risk_off",
         suggested_action="defend",
         would_trade_if_enabled=True,
+        execution_controls={
+            "strategy_runtime_metadata_allowed": True,
+            "position_control_allowed": True,
+            "consumption_evidence_status": "automation_approved",
+        },
     )
 
 
@@ -172,8 +190,26 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
         self.assertEqual(second.skipped_count, 1)
         self.assertEqual(second.deliveries[0].reason, "duplicate_alert")
         self.assertEqual(calls[0]["chat_ids"], ("123",))
-        self.assertIn("ibkr / live-slot-a", calls[0]["body"])
+        self.assertIn("Unified manual-review signal", calls[0]["body"])
+        self.assertNotIn("ibkr / live-slot-a", calls[0]["body"])
         self.assertTrue(tmp_dir)
+
+    def test_publish_strategy_plugin_telegram_alerts_skips_auto_consumable_signals(self):
+        calls = []
+
+        result = publish_strategy_plugin_telegram_alerts(
+            [_auto_consumable_signal()],
+            telegram_settings=StrategyPluginTelegramSettings(
+                chat_ids=("123",),
+                bot_token="bot-token",
+            ),
+            send_notification=lambda **kwargs: calls.append(kwargs) or True,
+            log_message=lambda *_args, **_kwargs: None,
+        )
+
+        self.assertEqual(result.attempted_count, 0)
+        self.assertEqual(result.sent_count, 0)
+        self.assertEqual(calls, [])
 
     def test_publish_strategy_plugin_telegram_alerts_compacts_market_regime_body(self):
         calls = []
@@ -218,6 +254,7 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
             calls[0]["body"],
             "\n".join(
                 (
+                    "统一人工复核信号",
                     "日期：2026-06-19",
                     "市场状态：抄底机会",
                     "背景情况：机会观察：出现可能的反弹或低吸窗口，当前证据只够人工复核。",

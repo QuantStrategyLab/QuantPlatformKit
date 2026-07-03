@@ -15,12 +15,13 @@ from quant_platform_kit.notifications.strategy_plugin_telegram import StrategyPl
 def _alert_signal():
     return SimpleNamespace(
         strategy="tqqq_growth_income",
-        plugin="crisis_response_shadow",
+        plugin="market_regime_control",
         effective_mode="shadow",
         as_of="2026-05-24",
-        canonical_route="true_crisis",
-        suggested_action="defend",
-        would_trade_if_enabled=True,
+        canonical_route="opportunity_watch",
+        suggested_action="notify_manual_review",
+        would_trade_if_enabled=False,
+        execution_controls={"notification_profile": "shadow_only"},
     )
 
 
@@ -199,6 +200,8 @@ class StrategyPluginAlertDispatcherTests(unittest.TestCase):
         self.assertIsNotNone(result.telegram_result)
         self.assertEqual(result.sent_count, 1)
         self.assertEqual(telegram_messages[0]["chat_ids"], ("123456",))
+        self.assertIn("Unified manual-review signal", telegram_messages[0]["body"])
+        self.assertNotIn("ibkr / live-slot-a", telegram_messages[0]["body"])
 
     def test_publish_strategy_plugin_alerts_reads_channels_from_settings(self):
         settings = _NotificationSettings()
