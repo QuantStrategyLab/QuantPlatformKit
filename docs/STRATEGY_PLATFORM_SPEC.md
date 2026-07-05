@@ -29,6 +29,16 @@ auto-sync layer described below.
 
 ## Adding a New Strategy
 
+See also: [`strategy_lifecycle_policy.md`](./strategy_lifecycle_policy.md) for the
+promotion ladder and live-enable gate model.
+
+Before requesting live enablement, attach an evidence package that covers:
+
+- backtest summary
+- drift / regime notes
+- platform compatibility evidence
+- plugin gate status, if applicable
+
 1. Add strategy definition to the shared catalog (`us_equity_strategies` or `hk_equity_strategies`)
 2. Set `compatible_platforms` to list which platforms support it
 3. Add to `runtime_enabled_profiles` for the rollout

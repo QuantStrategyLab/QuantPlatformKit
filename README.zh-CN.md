@@ -41,8 +41,15 @@ python -m pytest -q
 quant-lifecycle monitor --domain us_equity
 quant-lifecycle drift --domain us_equity
 quant-lifecycle autopilot --domain us_equity --dry-run
+quant-lifecycle evidence --file path/to/evidence.json
 quant-lifecycle dashboard --format all
 ```
+
+## 延伸文档
+
+- [`docs/strategy_lifecycle_policy.zh-CN.md`](docs/strategy_lifecycle_policy.zh-CN.md)
+- [`docs/strategy_portfolio_action_matrix.zh-CN.md`](docs/strategy_portfolio_action_matrix.zh-CN.md)
+- [`docs/evidence_package_template.zh-CN.md`](docs/evidence_package_template.zh-CN.md)
 
 ## 云服务抽象层
 

@@ -41,6 +41,7 @@ Production schedules should live in domain repositories and call this CLI or the
 quant-lifecycle monitor --domain us_equity
 quant-lifecycle drift --domain us_equity
 quant-lifecycle autopilot --domain us_equity --dry-run
+quant-lifecycle evidence --file path/to/evidence.json
 quant-lifecycle dashboard --format all
 ```
 
@@ -94,6 +95,9 @@ rw.update_secret("my-token", "new-token-value")
 ```
 
 ## Useful docs
+- [`docs/strategy_lifecycle_policy.md`](docs/strategy_lifecycle_policy.md)
+- [`docs/strategy_portfolio_action_matrix.md`](docs/strategy_portfolio_action_matrix.md)
+- [`docs/evidence_package_template.md`](docs/evidence_package_template.md)
 
 - [`docs/platform_notification_outcomes.md`](docs/platform_notification_outcomes.md)
 - [`docs/platform_notification_outcomes.zh-CN.md`](docs/platform_notification_outcomes.zh-CN.md)

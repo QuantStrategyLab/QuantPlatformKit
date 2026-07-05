@@ -14,6 +14,13 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     UpdateStage,
     WindowPerformance,
 )
+from quant_platform_kit.strategy_lifecycle.evidence_gate import (
+    EvidenceGateResult,
+    EvidencePackage,
+    load_evidence_package,
+    validate_evidence_package,
+    validate_evidence_package_file,
+)
 
 __all__ = [
     "BacktestResult",
@@ -28,4 +35,9 @@ __all__ = [
     "UpdateLogEntry",
     "UpdateStage",
     "WindowPerformance",
+    "EvidenceGateResult",
+    "EvidencePackage",
+    "load_evidence_package",
+    "validate_evidence_package",
+    "validate_evidence_package_file",
 ]

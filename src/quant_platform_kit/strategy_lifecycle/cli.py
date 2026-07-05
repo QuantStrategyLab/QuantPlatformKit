@@ -158,6 +158,27 @@ def _run_lifecycle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_evidence(args: argparse.Namespace) -> int:
+    _print(f"[evidence] Validating package file={args.file}")
+    validate_evidence_package_file = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.evidence_gate",
+        "validate_evidence_package_file",
+    )
+    result = validate_evidence_package_file(args.file)
+    if getattr(args, "json", False):
+        import json
+
+        _print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+    else:
+        status = "valid" if result.valid else "invalid"
+        _print(f"[evidence] status={status} issues={len(result.issues)} warnings={len(result.warnings)}")
+        for item in result.issues:
+            _print(f"  - issue: {item}")
+        for item in result.warnings:
+            _print(f"  - warning: {item}")
+    return 0 if result.valid else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="quant-lifecycle", description="Quant strategy lifecycle CLI.")
     parser.add_argument("--version", action="version", version="quant-lifecycle 0.10.0")
@@ -196,6 +217,11 @@ def build_parser() -> argparse.ArgumentParser:
     autopilot.add_argument("--dry-run", action="store_true")
     autopilot.add_argument("--no-issues", action="store_true")
     autopilot.set_defaults(func=_run_autopilot)
+
+    evidence = subparsers.add_parser("evidence", help="Validate a strategy promotion evidence package.")
+    evidence.add_argument("--file", required=True)
+    evidence.add_argument("--json", action="store_true")
+    evidence.set_defaults(func=_run_evidence)
 
     lifecycle = subparsers.add_parser("lifecycle", help="Run the full lifecycle pipeline.")
     lifecycle.add_argument("--domain", default="us_equity")
