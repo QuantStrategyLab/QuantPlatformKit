@@ -21,6 +21,10 @@ from quant_platform_kit.strategy_lifecycle.evidence_gate import (
     validate_evidence_package,
     validate_evidence_package_file,
 )
+from quant_platform_kit.strategy_lifecycle.live_candidate_notifications import (
+    LiveCandidateNotificationEvent,
+    build_live_candidate_notification,
+)
 
 __all__ = [
     "BacktestResult",
@@ -37,7 +41,9 @@ __all__ = [
     "WindowPerformance",
     "EvidenceGateResult",
     "EvidencePackage",
+    "LiveCandidateNotificationEvent",
     "load_evidence_package",
+    "build_live_candidate_notification",
     "validate_evidence_package",
     "validate_evidence_package_file",
 ]
