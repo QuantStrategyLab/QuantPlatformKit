@@ -145,7 +145,7 @@ Strategy profiles expose a common contract:
 | `name` | str | Profile name (snake_case) |
 | `domain` | str | Market domain (`us_equity`, `hk_equity`, `crypto`, `quant_combo`) |
 | `compatible_platforms` | list[str] | Allowed platform IDs |
-| `status` | str | `research_enabled` or `runtime_enabled` |
+| `status` | str | lifecycle stage, for example `research_backtest_only`, `shadow_candidate`, `live_candidate`, or `runtime_enabled` |
 | `evaluate()` | function | The pure decision function: `(ctx: StrategyContext) -> StrategyDecision` |
 
 Strategy packages and their coverage:
@@ -158,7 +158,7 @@ Strategy packages and their coverage:
 | `crypto-strategies` | Crypto | Live pool rotation, BTC DCA, trend rotation, equity combo | BinancePlatform |
 | `quant-us-combo-strategies` | US Combo | Russell Top50 + IBIT (50/50), leveraged combo (TQQQ/SOXL/BOXX + SPY MA200) | Schwab, IBKR, LongBridge, Firstrade |
 
-Catalog metadata is published through `get_runtime_enabled_profiles()` which platforms call to discover available strategies. Status promotion gates (`research_enabled` -> `runtime_enabled`) require passing evidence checks (backtest performance, drawdown limits, slippage tolerance).
+Catalog metadata is published through lifecycle-aware profile helpers which platforms call to discover available strategies. Status promotion gates (`research_backtest_only` -> `shadow_candidate` -> `live_candidate` -> `runtime_enabled`) require passing evidence checks (backtest performance, drawdown limits, slippage tolerance).
 
 ### 2.3 Snapshot Layer
 
@@ -375,7 +375,7 @@ Exclusion lists handle strategies that are technically compatible but not yet ap
 
 ```python
 SCHWAB_EXCLUDED_LIVE_PROFILES = [
-    "tecl_xlk_trend_income",          # research_enabled, not cleared for live
+    "tecl_xlk_trend_income",          # research_backtest_only, not cleared for live
     "soxl_soxx_trend_income",         # awaiting promo gate signoff
 ]
 ```
