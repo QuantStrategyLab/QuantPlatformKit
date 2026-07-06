@@ -1,5 +1,14 @@
 # QuantPlatformKit
 
+
+## QSL 架构角色
+
+- **层级**：`核心共享库`。
+- **职责**：共享 runtime contracts 和平台 adapters。
+- **事实源/归属**：稳定 contracts、broker adapters、runtime helpers、notifications、risk utilities。
+- **消费对象**：platforms、strategies、pipelines、lifecycle tooling。
+- **禁止事项**：决定哪个策略 live 或保存环境 secrets。
+
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。

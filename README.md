@@ -1,5 +1,14 @@
 # QuantPlatformKit
 
+
+## QSL architecture role
+
+- **Layer**: `core`.
+- **Responsibility**: shared runtime contracts and platform adapters.
+- **Owns**: stable contracts, broker adapters, runtime helpers, notifications, risk utilities.
+- **Consumes**: platforms, strategies, pipelines, lifecycle tooling.
+- **Must not**: decide which strategy is live or store environment-specific secrets.
+
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
