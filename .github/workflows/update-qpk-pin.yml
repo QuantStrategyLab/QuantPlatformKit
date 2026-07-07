@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths-ignore:
       - "QPK_PIN"
+      - "qsl-pins.txt"
       - "constraints.txt"
       - "docs/**"
       - "**.md"
@@ -25,7 +26,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Update QPK_PIN and constraints
+      - name: Update QPK_PIN and pin manifests
         id: update
         run: |
           SHA=$(git rev-parse HEAD)
@@ -39,8 +40,12 @@ jobs:
             pkg="${pair%%:*}"
             repo="${pair##*:}"
             RSHA=$(git ls-remote "https://github.com/QuantStrategyLab/$repo.git" HEAD | cut -f1)
-            [ -n "$RSHA" ] && sed -i "s|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" constraints.txt || true
+            if [ -n "$RSHA" ]; then
+              sed -i "s|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" qsl-pins.txt
+              sed -i "s|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" constraints.txt
+            fi
           done
+          sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" qsl-pins.txt
           sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" constraints.txt
 
           if git diff --quiet; then
@@ -72,10 +77,11 @@ jobs:
           # would conflict until downstream repos update those pins, so keep this
           # check focused on the package refs generated above.
           failed=0
+          pin_file="qsl-pins.txt"
           for dep in us-equity-strategies hk-equity-strategies cn-equity-strategies crypto-strategies; do
             echo "Checking $dep..."
             log_file="$(mktemp)"
-            if python -m pip install --dry-run --no-deps -c constraints.txt "$dep" >"${log_file}" 2>&1; then
+            if python -m pip install --dry-run --no-deps -c "$pin_file" "$dep" >"${log_file}" 2>&1; then
               echo "  $dep OK"
             else
               echo "  $dep FAILED"
@@ -98,10 +104,10 @@ jobs:
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ github.token }}
-          commit-message: "chore: auto-update QPK_PIN and constraints.txt"
-          title: "chore: auto-update QPK_PIN and constraints.txt"
+          commit-message: "chore: auto-update QPK_PIN and pin manifests"
+          title: "chore: auto-update QPK_PIN and pin manifests"
           body: |
-            Automated update of QPK_PIN and dependency constraint SHAs.
+            Automated update of QPK_PIN and QSL Git SHA pin manifests.
 
             Compatibility checks passed ✅ — all downstream-critical QPK modules verified importable.
 
@@ -120,7 +126,7 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
           ## QPK pin update PR not created
 
-          The generated `QPK_PIN` / `constraints.txt` update was verified, but repository policy prevented `GITHUB_TOKEN` from creating a pull request.
+          The generated `QPK_PIN` / `qsl-pins.txt` / `constraints.txt` update was verified, but repository policy prevented `GITHUB_TOKEN` from creating a pull request.
 
           Manual follow-up:
           - Enable the repository setting that allows GitHub Actions to create pull requests, or

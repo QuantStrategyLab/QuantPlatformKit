@@ -36,11 +36,16 @@ jobs:
           import tempfile
           from pathlib import Path
 
+          constraint_path = Path("qsl-pins.txt")
+          if not constraint_path.exists():
+              constraint_path = Path("constraints.txt")
+          print(f"Validating dependency refs from {constraint_path}")
+
           pattern = re.compile(
               r"^(?P<package>[A-Za-z0-9_.-]+)\s+@\s+git\+(?P<url>https://github\.com/QuantStrategyLab/[^@]+\.git)@(?P<ref>[A-Za-z0-9_.-]+)\s*$"
           )
           failures = []
-          for line in Path("constraints.txt").read_text(encoding="utf-8").splitlines():
+          for line in constraint_path.read_text(encoding="utf-8").splitlines():
               stripped = line.strip()
               if not stripped or stripped.startswith("#"):
                   continue
