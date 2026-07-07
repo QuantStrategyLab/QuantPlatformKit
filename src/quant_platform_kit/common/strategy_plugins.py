@@ -925,6 +925,72 @@ def _strategy_plugin_consumption_policy(signal: StrategyPluginSignal) -> Mapping
     return policy if isinstance(policy, Mapping) else {}
 
 
+def _strategy_plugin_value_is_present(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        return bool(normalized) and normalized not in {"none", "null", "unbounded", "unlimited", "infinite", "inf"}
+    if isinstance(value, Mapping):
+        return any(_strategy_plugin_value_is_present(item) for item in value.values())
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return any(_strategy_plugin_value_is_present(item) for item in value)
+    return bool(value)
+
+
+def _strategy_plugin_find_field_value(value: Any, field_names: frozenset[str]) -> Any | None:
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if key in field_names and _strategy_plugin_value_is_present(item):
+                return item
+            found = _strategy_plugin_find_field_value(item, field_names)
+            if found is not None:
+                return found
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        for item in value:
+            found = _strategy_plugin_find_field_value(item, field_names)
+            if found is not None:
+                return found
+    return None
+
+
+def _strategy_plugin_has_auditable_position_control(signal: StrategyPluginSignal) -> bool:
+    controls = _strategy_plugin_execution_controls(signal)
+    policy = _strategy_plugin_consumption_policy(signal)
+    if not (
+        _as_bool(controls.get("position_control_allowed"), default=False)
+        or _as_bool(policy.get("position_control_allowed"), default=False)
+    ):
+        return False
+    if _strategy_plugin_consumption_status(signal) != "automation_approved":
+        return False
+    payload = getattr(signal, "payload", {}) or {}
+    if not isinstance(payload, Mapping):
+        return False
+    evidence_sources: tuple[Any, ...] = (controls, payload)
+    return all(
+        _strategy_plugin_find_field_value(evidence_sources, field_names) is not None
+        for field_names in (
+            frozenset({"evidence_package_id", "evidence_package", "package_id"}),
+            frozenset(
+                {
+                    "evidence_valid_until",
+                    "evidence_valid_until_at",
+                    "evidence_expires_at",
+                    "valid_until",
+                    "valid_until_at",
+                    "expires_at",
+                }
+            ),
+            frozenset({"bounded_budget", "budget", "budget_limit"}),
+        )
+    )
+
+
 def _strategy_plugin_consumption_status(signal: StrategyPluginSignal) -> str:
     controls = _strategy_plugin_execution_controls(signal)
     status = _optional_string(controls.get("consumption_evidence_status"))
@@ -965,6 +1031,7 @@ def _strategy_plugin_auto_consumption_allowed(signal: StrategyPluginSignal, *, a
         action in STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS
         and _strategy_plugin_policy_allows_position_control(signal)
         and _strategy_plugin_consumption_status(signal) == "automation_approved"
+        and _strategy_plugin_has_auditable_position_control(signal)
     )
 
 
@@ -1141,10 +1208,7 @@ def _is_strategy_position_control_notice(signal: StrategyPluginSignal, *, action
         return False
     if not _as_bool(controls.get("strategy_runtime_metadata_allowed"), default=False):
         return False
-    if not _as_bool(controls.get("position_control_allowed"), default=False):
-        return False
-    evidence_status = _normalize_strategy_plugin_field(controls.get("consumption_evidence_status"))
-    return evidence_status == "automation_approved"
+    return _strategy_plugin_has_auditable_position_control(signal)
 
 
 def _is_strategy_manual_review_notification_delegated(signal: StrategyPluginSignal) -> bool:

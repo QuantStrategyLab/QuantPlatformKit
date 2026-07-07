@@ -72,6 +72,22 @@ def _signal_payload(*, strategy="tqqq_growth_income", plugin="crisis_response_sh
     }
 
 
+def _auditable_position_control_controls():
+    return {
+        **_signal_payload()["execution_controls"],
+        "strategy_runtime_metadata_allowed": True,
+        "position_control_allowed": True,
+        "consumption_evidence_status": "automation_approved",
+        "evidence_package_id": "pkg_001",
+        "evidence_valid_until": "2026-08-01T00:00:00Z",
+        "bounded_budget": {
+            "name": "position_control",
+            "amount": 0.4,
+            "unit": "fraction",
+        },
+    }
+
+
 class StrategyPluginsTests(unittest.TestCase):
     def test_parse_strategy_plugin_mounts_uses_artifact_mode_not_platform_mode(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -625,12 +641,7 @@ class StrategyPluginsTests(unittest.TestCase):
                 "canonical_route": "risk_off",
                 "suggested_action": "defend",
                 "would_trade_if_enabled": True,
-                "execution_controls": {
-                    **_signal_payload()["execution_controls"],
-                    "strategy_runtime_metadata_allowed": True,
-                    "position_control_allowed": True,
-                    "consumption_evidence_status": "automation_approved",
-                },
+                "execution_controls": _auditable_position_control_controls(),
             }
         )
         translations = {
@@ -654,6 +665,44 @@ class StrategyPluginsTests(unittest.TestCase):
             (
                 "plugin=Market Regime|enabled=yes|route=risk off|action=defend",
                 "consumption=auto-defend",
+            ),
+        )
+
+    def test_strategy_plugin_auto_position_control_without_auditable_evidence_is_not_auto_consumed(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "canonical_route": "risk_off",
+                "suggested_action": "defend",
+                "would_trade_if_enabled": True,
+                "execution_controls": {
+                    **_signal_payload()["execution_controls"],
+                    "strategy_runtime_metadata_allowed": True,
+                    "position_control_allowed": True,
+                    "consumption_evidence_status": "automation_approved",
+                },
+            }
+        )
+        translations = {
+            "strategy_plugin_line": "plugin={plugin}|enabled={enabled}|route={route}|action={action}",
+            "strategy_plugin_enabled_true": "yes",
+            "strategy_plugin_name_market_regime_control": "Market Regime",
+            "strategy_plugin_route_risk_off": "risk off",
+            "strategy_plugin_action_defend": "defend",
+            "strategy_plugin_consumption_loaded_not_applied": "consumption=loaded-not-applied",
+        }
+
+        self.assertTrue(should_alert_strategy_plugin_signal(signal))
+        self.assertEqual(
+            build_strategy_plugin_notification_lines(
+                [signal],
+                translator=lambda key, **kwargs: translations.get(key, key).format(**kwargs)
+                if kwargs
+                else translations.get(key, key),
+            ),
+            (
+                "plugin=Market Regime|enabled=yes|route=risk off|action=defend",
+                "consumption=loaded-not-applied",
             ),
         )
 
@@ -820,12 +869,7 @@ class StrategyPluginsTests(unittest.TestCase):
                 "canonical_route": "risk_off",
                 "suggested_action": "defend",
                 "would_trade_if_enabled": True,
-                "execution_controls": {
-                    **_signal_payload()["execution_controls"],
-                    "strategy_runtime_metadata_allowed": True,
-                    "position_control_allowed": True,
-                    "consumption_evidence_status": "automation_approved",
-                },
+                "execution_controls": _auditable_position_control_controls(),
             }
         )
 
@@ -890,6 +934,13 @@ class StrategyPluginsTests(unittest.TestCase):
                     "strategy_runtime_metadata_allowed": True,
                     "position_control_allowed": True,
                     "consumption_evidence_status": "automation_approved",
+                    "evidence_package_id": "pkg_001",
+                    "evidence_valid_until": "2026-08-01T00:00:00Z",
+                    "bounded_budget": {
+                        "name": "position_control",
+                        "amount": 0.4,
+                        "unit": "fraction",
+                    },
                     "manual_review_notification_delegated": True,
                     "manual_review_notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
                     "manual_review_notification_delegate": (
