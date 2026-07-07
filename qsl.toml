@@ -1,7 +1,7 @@
 tier = "core"
 ring = 0
 allow_legacy = true
-legacy_reason = "constraints.txt remains for pinned downstream git deps and update-qpk-pin workflow."
+legacy_reason = "constraints.txt remains as the pip-compatible mirror for qsl-pins.txt and update-qpk-pin workflow."
 
 [compat]
 bundle = "2026.07.1"

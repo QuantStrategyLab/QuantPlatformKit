@@ -1,5 +1,5 @@
-# pip-compatible constraints mirror for QSL internal Git SHA pins.
-# Source of truth: qsl-pins.txt (mirrored by update-qpk-pin.yml on every push to QPK main).
+# QSL internal Git SHA pins — source of truth.
+# Auto-updated by update-qpk-pin.yml on every push to QPK main.
 
 quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@d3a629f82f6dbb6c11488ae15c0c66f368c19f5b
 us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@4041018434a5a83597d8798faee98f650362de0d
