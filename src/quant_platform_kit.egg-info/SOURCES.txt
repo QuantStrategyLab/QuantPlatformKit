@@ -117,7 +117,9 @@ src/quant_platform_kit/strategy_lifecycle/contracts.py
 src/quant_platform_kit/strategy_lifecycle/drift_alerts.py
 src/quant_platform_kit/strategy_lifecycle/drift_detector.py
 src/quant_platform_kit/strategy_lifecycle/drift_policy.py
+src/quant_platform_kit/strategy_lifecycle/evidence_gate.py
 src/quant_platform_kit/strategy_lifecycle/health_dashboard.py
+src/quant_platform_kit/strategy_lifecycle/live_candidate_notifications.py
 src/quant_platform_kit/strategy_lifecycle/market_regime.py
 src/quant_platform_kit/strategy_lifecycle/param_optimizer.py
 src/quant_platform_kit/strategy_lifecycle/param_search_space.py
@@ -155,6 +157,8 @@ tests/test_lifecycle_ai_provider.py
 tests/test_lifecycle_cli.py
 tests/test_lifecycle_contracts.py
 tests/test_lifecycle_drift.py
+tests/test_lifecycle_evidence_gate.py
+tests/test_lifecycle_live_candidate_notifications.py
 tests/test_lifecycle_metrics.py
 tests/test_lifecycle_performance_store.py
 tests/test_lifecycle_reviewer.py
@@ -169,6 +173,7 @@ tests/test_notification_events.py
 tests/test_notification_localization.py
 tests/test_notification_redaction.py
 tests/test_package_version.py
+tests/test_qsl_compat_metadata.py
 tests/test_quantconnect.py
 tests/test_runtime_assembly.py
 tests/test_runtime_config.py
@@ -182,6 +187,7 @@ tests/test_schwab_portfolio.py
 tests/test_small_account_compatibility.py
 tests/test_strategies.py
 tests/test_strategy_contracts.py
+tests/test_strategy_evidence_package_validator.py
 tests/test_strategy_plugin_alert_dispatcher.py
 tests/test_strategy_plugin_artifacts.py
 tests/test_strategy_plugin_email_notifications.py
@@ -190,3 +196,4 @@ tests/test_strategy_plugin_sms_notifications.py
 tests/test_strategy_plugin_telegram_notifications.py
 tests/test_strategy_plugins.py
 tests/test_telegram.py
+tests/test_validate_strategy_evidence_package.py

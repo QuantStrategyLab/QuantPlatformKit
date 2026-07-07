@@ -11,6 +11,15 @@ Dynamic: license-file
 
 # QuantPlatformKit
 
+
+## QSL architecture role
+
+- **Layer**: `core`.
+- **Responsibility**: shared runtime contracts and platform adapters.
+- **Owns**: stable contracts, broker adapters, runtime helpers, notifications, risk utilities.
+- **Consumes**: platforms, strategies, pipelines, lifecycle tooling.
+- **Must not**: decide which strategy is live or store environment-specific secrets.
+
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
@@ -52,6 +61,7 @@ Production schedules should live in domain repositories and call this CLI or the
 quant-lifecycle monitor --domain us_equity
 quant-lifecycle drift --domain us_equity
 quant-lifecycle autopilot --domain us_equity --dry-run
+quant-lifecycle evidence --file path/to/evidence.json
 quant-lifecycle dashboard --format all
 ```
 
@@ -105,6 +115,9 @@ rw.update_secret("my-token", "new-token-value")
 ```
 
 ## Useful docs
+- [`docs/strategy_lifecycle_policy.md`](docs/strategy_lifecycle_policy.md)
+- [`docs/strategy_portfolio_action_matrix.md`](docs/strategy_portfolio_action_matrix.md)
+- [`docs/evidence_package_template.md`](docs/evidence_package_template.md)
 
 - [`docs/platform_notification_outcomes.md`](docs/platform_notification_outcomes.md)
 - [`docs/platform_notification_outcomes.zh-CN.md`](docs/platform_notification_outcomes.zh-CN.md)
