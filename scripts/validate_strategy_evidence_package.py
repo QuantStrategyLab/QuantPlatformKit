@@ -31,6 +31,24 @@ REQUIRED_ARTIFACTS = (
     "risk_report",
     "kelly_readiness_report",
 )
+REQUIRED_RISK_METRICS = (
+    "sharpe_ratio",
+    "sortino_ratio",
+    "max_drawdown",
+    "annualized_return",
+    "annualized_volatility",
+    "calmar_ratio",
+    "information_ratio",
+    "var_95",
+    "cvar_95",
+    "turnover",
+    "trade_count",
+    "win_rate",
+    "profit_factor",
+)
+REQUIRED_RISK_BENCHMARK = ("name", "alpha", "beta")
+REQUIRED_RISK_COST_STRESS = ("slippage_bps", "commission_bps", "passed")
+REQUIRED_RISK_OOS = ("window_start", "window_end", "locked")
 SHA256_RE = re.compile(r"^[A-Fa-f0-9]{64}$")
 
 
@@ -104,6 +122,54 @@ def validate_payload(payload: Any) -> list[str]:
     risk = payload.get("risk")
     if not isinstance(risk, dict):
         issues.append("risk must be an object")
+    else:
+        metrics = risk.get("metrics")
+        if not isinstance(metrics, dict):
+            issues.append("risk.metrics must be an object")
+        else:
+            for field in REQUIRED_RISK_METRICS:
+                value = metrics.get(field)
+                if field == "trade_count":
+                    if not _is_int(value):
+                        issues.append("risk.metrics.trade_count must be an integer")
+                    elif value < 0:
+                        issues.append("risk.metrics.trade_count must be >= 0")
+                elif not _is_number(value):
+                    issues.append(f"risk.metrics.{field} must be a number")
+            if _is_number(metrics.get("win_rate")):
+                win_rate = metrics["win_rate"]
+                if win_rate < 0 or win_rate > 1:
+                    issues.append("risk.metrics.win_rate must be between 0 and 1")
+
+        benchmark = risk.get("benchmark")
+        if not isinstance(benchmark, dict):
+            issues.append("risk.benchmark must be an object")
+        else:
+            _check_non_empty_string(benchmark, "name", issues, prefix="risk.benchmark")
+            if not _is_number(benchmark.get("alpha")):
+                issues.append("risk.benchmark.alpha must be a number")
+            if not _is_number(benchmark.get("beta")):
+                issues.append("risk.benchmark.beta must be a number")
+
+        cost_stress = risk.get("cost_stress")
+        if not isinstance(cost_stress, dict):
+            issues.append("risk.cost_stress must be an object")
+        else:
+            if not _is_number(cost_stress.get("slippage_bps")):
+                issues.append("risk.cost_stress.slippage_bps must be a number")
+            if not _is_number(cost_stress.get("commission_bps")):
+                issues.append("risk.cost_stress.commission_bps must be a number")
+            if not isinstance(cost_stress.get("passed"), bool):
+                issues.append("risk.cost_stress.passed must be a boolean")
+
+        oos = risk.get("oos")
+        if not isinstance(oos, dict):
+            issues.append("risk.oos must be an object")
+        else:
+            _check_non_empty_string(oos, "window_start", issues, prefix="risk.oos")
+            _check_non_empty_string(oos, "window_end", issues, prefix="risk.oos")
+            if not isinstance(oos.get("locked"), bool):
+                issues.append("risk.oos.locked must be a boolean")
 
     kelly_readiness = payload.get("kelly_readiness")
     if not isinstance(kelly_readiness, dict):
@@ -159,6 +225,14 @@ def _check_non_empty_string(
     label = f"{prefix}.{field}" if prefix else field
     if not isinstance(value, str) or not value.strip():
         issues.append(f"{label} must be a non-empty string")
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def _is_datetime_string(value: str) -> bool:

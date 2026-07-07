@@ -79,7 +79,7 @@
       "$ref": "#/$defs/validation_block"
     },
     "risk": {
-      "type": "object"
+      "$ref": "#/$defs/risk_block"
     },
     "kelly_readiness": {
       "$ref": "#/$defs/kelly_readiness_block"
@@ -144,6 +144,127 @@
           "type": "boolean",
           "const": false,
           "default": false
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk_block": {
+      "type": "object",
+      "required": [
+        "metrics",
+        "benchmark",
+        "cost_stress",
+        "oos"
+      ],
+      "properties": {
+        "metrics": {
+          "$ref": "#/$defs/risk_metrics_block"
+        },
+        "benchmark": {
+          "$ref": "#/$defs/risk_benchmark_block"
+        },
+        "cost_stress": {
+          "$ref": "#/$defs/risk_cost_stress_block"
+        },
+        "oos": {
+          "$ref": "#/$defs/risk_oos_block"
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk_metrics_block": {
+      "type": "object",
+      "required": [
+        "sharpe_ratio",
+        "sortino_ratio",
+        "max_drawdown",
+        "annualized_return",
+        "annualized_volatility",
+        "calmar_ratio",
+        "information_ratio",
+        "var_95",
+        "cvar_95",
+        "turnover",
+        "trade_count",
+        "win_rate",
+        "profit_factor"
+      ],
+      "properties": {
+        "sharpe_ratio": { "type": "number" },
+        "sortino_ratio": { "type": "number" },
+        "max_drawdown": { "type": "number" },
+        "annualized_return": { "type": "number" },
+        "annualized_volatility": { "type": "number" },
+        "calmar_ratio": { "type": "number" },
+        "information_ratio": { "type": "number" },
+        "var_95": { "type": "number" },
+        "cvar_95": { "type": "number" },
+        "turnover": { "type": "number" },
+        "trade_count": { "type": "integer", "minimum": 0 },
+        "win_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "profit_factor": { "type": "number" }
+      },
+      "additionalProperties": true
+    },
+    "risk_benchmark_block": {
+      "type": "object",
+      "required": [
+        "name",
+        "alpha",
+        "beta"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "alpha": {
+          "type": "number"
+        },
+        "beta": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk_cost_stress_block": {
+      "type": "object",
+      "required": [
+        "slippage_bps",
+        "commission_bps",
+        "passed"
+      ],
+      "properties": {
+        "slippage_bps": {
+          "type": "number"
+        },
+        "commission_bps": {
+          "type": "number"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "risk_oos_block": {
+      "type": "object",
+      "required": [
+        "window_start",
+        "window_end",
+        "locked"
+      ],
+      "properties": {
+        "window_start": {
+          "type": "string",
+          "minLength": 1
+        },
+        "window_end": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locked": {
+          "type": "boolean"
         }
       },
       "additionalProperties": true

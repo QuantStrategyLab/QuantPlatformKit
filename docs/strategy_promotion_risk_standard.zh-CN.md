@@ -22,6 +22,39 @@
 - `kelly_ready` 不能替代回测、OOS、成本、风险、数据完整性和插件门槛。
 - 如果只有 `kelly_ready`，策略仍应停留在非 live 状态。
 
+## 风险指标最低标准
+
+证据包里的 `risk` 必须至少包含以下内容：
+
+- `risk.metrics.sharpe_ratio`
+- `risk.metrics.sortino_ratio`
+- `risk.metrics.max_drawdown`
+- `risk.metrics.annualized_return`
+- `risk.metrics.annualized_volatility`
+- `risk.metrics.calmar_ratio`
+- `risk.metrics.information_ratio`
+- `risk.metrics.var_95`
+- `risk.metrics.cvar_95`
+- `risk.metrics.turnover`
+- `risk.metrics.trade_count`
+- `risk.metrics.win_rate`
+- `risk.metrics.profit_factor`
+- `risk.benchmark.name`
+- `risk.benchmark.alpha`
+- `risk.benchmark.beta`
+- `risk.cost_stress.slippage_bps`
+- `risk.cost_stress.commission_bps`
+- `risk.cost_stress.passed`
+- `risk.oos.window_start`
+- `risk.oos.window_end`
+- `risk.oos.locked`
+
+要求：
+
+- 缺任一项，都不算可审计的风险证据包。
+- `risk.metrics` 允许保留额外字段，但不能只给一个宽松 object。
+- `full_kelly_allowed=false` 仍然只是 Kelly 上限约束，**不能**替代上述风险指标。
+
 ## Evidence package 必备文件
 
 策略晋级前，证据包必须同时包含以下文件：

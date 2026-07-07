@@ -37,7 +37,38 @@ def _valid_payload() -> dict[str, object]:
             "oos_passed": True,
             "overfit_report_present": True,
         },
-        "risk": {},
+        "risk": {
+            "metrics": {
+                "sharpe_ratio": 1.42,
+                "sortino_ratio": 2.15,
+                "max_drawdown": -0.12,
+                "annualized_return": 0.18,
+                "annualized_volatility": 0.22,
+                "calmar_ratio": 1.5,
+                "information_ratio": 0.83,
+                "var_95": -0.03,
+                "cvar_95": -0.05,
+                "turnover": 1.8,
+                "trade_count": 128,
+                "win_rate": 0.57,
+                "profit_factor": 1.34,
+            },
+            "benchmark": {
+                "name": "SPY",
+                "alpha": 0.02,
+                "beta": 0.95,
+            },
+            "cost_stress": {
+                "slippage_bps": 2.5,
+                "commission_bps": 0.8,
+                "passed": True,
+            },
+            "oos": {
+                "window_start": "2026-01-01",
+                "window_end": "2026-06-30",
+                "locked": True,
+            },
+        },
         "kelly_readiness": {
             "level": "K2",
             "full_kelly_allowed": False,
@@ -99,3 +130,13 @@ def test_full_kelly_allowed_is_rejected(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "kelly_readiness.full_kelly_allowed must be false" in result.stderr
+
+
+def test_missing_risk_metric_fails(tmp_path: Path) -> None:
+    payload = _valid_payload()
+    del payload["risk"]["metrics"]["win_rate"]
+
+    result = _run_validator(tmp_path, payload)
+
+    assert result.returncode == 1
+    assert "risk.metrics.win_rate must be a number" in result.stderr
