@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantplatformkit.local/schemas/strategy-evidence-package.schema.json",
+  "title": "Strategy Evidence Package",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "profile",
+    "market",
+    "requested_stage",
+    "generated_at",
+    "evidence_package_id",
+    "artifacts",
+    "validation",
+    "risk",
+    "kelly_readiness",
+    "ai_optimization"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "market": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requested_stage": {
+      "type": "string",
+      "enum": [
+        "research_backtest_only",
+        "ai_monitored_candidate",
+        "shadow_candidate",
+        "live_candidate",
+        "runtime_enabled"
+      ]
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evidence_package_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifacts": {
+      "type": "object",
+      "required": [
+        "returns",
+        "trades",
+        "positions",
+        "config",
+        "data_manifest",
+        "candidate_registry",
+        "benchmark_registry",
+        "cost_model",
+        "risk_report",
+        "kelly_readiness_report"
+      ],
+      "properties": {
+        "returns": { "$ref": "#/$defs/artifact_reference" },
+        "trades": { "$ref": "#/$defs/artifact_reference" },
+        "positions": { "$ref": "#/$defs/artifact_reference" },
+        "config": { "$ref": "#/$defs/artifact_reference" },
+        "data_manifest": { "$ref": "#/$defs/artifact_reference" },
+        "candidate_registry": { "$ref": "#/$defs/artifact_reference" },
+        "benchmark_registry": { "$ref": "#/$defs/artifact_reference" },
+        "cost_model": { "$ref": "#/$defs/artifact_reference" },
+        "risk_report": { "$ref": "#/$defs/artifact_reference" },
+        "kelly_readiness_report": { "$ref": "#/$defs/artifact_reference" }
+      },
+      "additionalProperties": true
+    },
+    "validation": {
+      "$ref": "#/$defs/validation_block"
+    },
+    "risk": {
+      "type": "object"
+    },
+    "kelly_readiness": {
+      "$ref": "#/$defs/kelly_readiness_block"
+    },
+    "ai_optimization": {
+      "type": "object"
+    }
+  },
+  "$defs": {
+    "artifact_reference": {
+      "type": "object",
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": true
+    },
+    "validation_block": {
+      "type": "object",
+      "required": [
+        "oos_passed",
+        "overfit_report_present"
+      ],
+      "properties": {
+        "oos_passed": {
+          "type": "boolean"
+        },
+        "overfit_report_present": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": true
+    },
+    "kelly_readiness_block": {
+      "type": "object",
+      "required": [
+        "level",
+        "full_kelly_allowed"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "K0",
+            "K1",
+            "K2",
+            "K3",
+            "K4"
+          ]
+        },
+        "full_kelly_allowed": {
+          "type": "boolean",
+          "const": false,
+          "default": false
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
