@@ -41,6 +41,13 @@ def _auto_consumable_signal():
             "strategy_runtime_metadata_allowed": True,
             "position_control_allowed": True,
             "consumption_evidence_status": "automation_approved",
+            "evidence_package_id": "pkg_001",
+            "evidence_valid_until": "2026-08-01T00:00:00Z",
+            "bounded_budget": {
+                "name": "position_control",
+                "amount": 0.4,
+                "unit": "fraction",
+            },
         },
     )
 

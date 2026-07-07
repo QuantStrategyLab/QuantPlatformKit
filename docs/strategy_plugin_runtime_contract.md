@@ -204,6 +204,10 @@ the matching `notification_targets` artifact. The plugin-alert stream remains
 for non-delegated manual-review or notification-only cases, including
 `notification_targets`, `blocked`, `watch_only`, and `notify_manual_review`
 routes.
+Automatic position control also requires auditable evidence: an
+`evidence_package_id`, a validity field such as `evidence_valid_until`, and a
+`bounded_budget`; if any of those are missing, treat the signal as review-only
+or loaded-not-applied rather than a real auto-position-control signal.
 
 Platforms may still choose their delivery sinks, but shared escalation helpers
 are available for email, SMS, push, and Telegram:

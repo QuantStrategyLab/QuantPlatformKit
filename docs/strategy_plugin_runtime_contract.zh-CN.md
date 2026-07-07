@@ -182,6 +182,9 @@ notification target；这类委托告警只从对应 `notification_targets` arti
 发送一次。插件告警流只保留给未委托的人工复核或 notification-only 场景，
 包括 `notification_targets`、`blocked`、`watch_only` 和
 `notify_manual_review` 路线。
+自动仓位控制还必须带可审计证据：`evidence_package_id`、有效期字段
+（如 `evidence_valid_until`）和 `bounded_budget`；缺少任一项时，只能按
+普通复核/加载态处理，不能当作真正的自动仓位信号。
 
 平台仍可选择自己的投递 sink；共享 helper 已提供 email、SMS、push 和
 Telegram 的聚合入口：
