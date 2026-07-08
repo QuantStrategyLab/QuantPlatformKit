@@ -497,7 +497,7 @@ class DriftDetectionContext:
     backtest: "BacktestResult | None" = None
     policy_drift: object = None  # DriftPolicy
     previous_status: object = None  # DriftStatus | None
-    regime: object = None  # RegimeContext | None
+    regime: object = None  # MarketRegimeResult | None
 
     @property
     def strategy_profile(self) -> str:
