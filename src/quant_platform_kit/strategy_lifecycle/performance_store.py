@@ -282,6 +282,24 @@ class PerformanceStore:
                     entries.append(entry)
         return tuple(entries)
 
+    # ── live runs (per-evaluate / per-execution records) ─────────
+
+    def _live_run_key(self, domain: str, strategy_profile: str, recorded_at: str) -> str:
+        safe_time = recorded_at.replace(":", "-")
+        return f"live_runs/{_clean_key(domain)}/{_clean_key(strategy_profile)}/{safe_time}.json"
+
+    def save_live_run_record(
+        self,
+        strategy_profile: str,
+        domain: str,
+        payload: Mapping[str, Any],
+    ) -> None:
+        recorded_at = str(payload.get("recorded_at") or _now_iso())
+        self._write(
+            self._live_run_key(domain, strategy_profile, recorded_at),
+            {**dict(payload), "schema_version": SCHEMA_VERSION},
+        )
+
     # ── dashboard ────────────────────────────────────────────────
 
     def _dashboard_key(self) -> str:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
@@ -167,3 +167,50 @@ def run_monitor(
         snapshots.append(snapshot)
 
     return snapshots
+
+
+def _serialize_decision(decision: Any) -> dict[str, Any]:
+    positions = getattr(decision, "positions", ()) or ()
+    serialized_positions: list[dict[str, Any]] = []
+    for position in positions:
+        serialized_positions.append(
+            {
+                "symbol": str(getattr(position, "symbol", "") or ""),
+                "target_weight": float(getattr(position, "target_weight", 0.0) or 0.0),
+                "role": str(getattr(position, "role", "") or ""),
+            }
+        )
+    return {
+        "positions": serialized_positions,
+        "risk_flags": list(getattr(decision, "risk_flags", ()) or ()),
+        "diagnostics": dict(getattr(decision, "diagnostics", {}) or {}),
+    }
+
+
+class PerformanceMonitor:
+    """Per-run performance / decision recorder for live strategy entrypoints."""
+
+    def __init__(self, store: PerformanceStore | None = None) -> None:
+        self._store = store or PerformanceStore.from_env()
+
+    def record(
+        self,
+        profile_id: str,
+        decision: Any,
+        execution_result: Mapping[str, Any] | None = None,
+        *,
+        domain: str = "",
+    ) -> dict[str, Any]:
+        profile = str(profile_id or "").strip()
+        if not profile:
+            return {"ok": False, "skipped": "empty_profile"}
+
+        payload = {
+            "strategy_profile": profile,
+            "domain": str(domain or "").strip(),
+            "recorded_at": _now_iso(),
+            "decision": _serialize_decision(decision),
+            "execution_result": dict(execution_result or {}),
+        }
+        self._store.save_live_run_record(profile, str(domain or "").strip(), payload)
+        return {"ok": True, "profile": profile, "domain": str(domain or "").strip()}
