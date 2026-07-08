@@ -102,6 +102,31 @@ class RiskEngine:
         # Conservative aggregation: worst-case route
         return aggregate_risk_signals(signals, regime_context=regime_context)
 
+    def assess(
+        self,
+        decision: Any,
+        portfolio_snapshot: Any,
+        *,
+        market_data: Mapping[str, Any] | None = None,
+    ) -> RiskAction:
+        """Assess whether a strategy decision is allowed under current risk context."""
+        md: dict[str, Any] = dict(market_data or {})
+        md["portfolio_snapshot"] = portfolio_snapshot
+        md["strategy_decision"] = decision
+
+        assessment = self.evaluate(md)
+        resolved = self.resolve(assessment)
+
+        if resolved.action in {"blocked", "risk_off"}:
+            return RiskAction(
+                action="reject",
+                reason=resolved.reason,
+                budget_scalar=0.0,
+                leverage_scalar=0.0,
+                risk_asset_scalar=0.0,
+            )
+        return RiskAction(action="approve", reason="risk_engine_passed")
+
     def resolve(
         self,
         assessment: RiskAssessment,
