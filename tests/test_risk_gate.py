@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from quant_platform_kit.risk.contracts import ROUTE_BLOCKED, RiskSignal
 from quant_platform_kit.risk.engine import RiskEngine
-from quant_platform_kit.risk.gate import apply_risk_gate
+from quant_platform_kit.risk.gate import apply_risk_gate, enrich_decision_risk_diagnostics
 from quant_platform_kit.strategy_contracts import PositionTarget, StrategyDecision
 
 
@@ -113,3 +113,27 @@ class ApplyRiskGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnrichDecisionRiskDiagnosticsTests(unittest.TestCase):
+    def test_enrich_sets_fields(self) -> None:
+        decision = _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.50),))
+        enriched = enrich_decision_risk_diagnostics(
+            decision,
+            unrealized_pnl_pct=-0.05,
+            consecutive_losses=2,
+        )
+        self.assertEqual(enriched.diagnostics.get("unrealized_pnl_pct"), -0.05)
+        self.assertEqual(enriched.diagnostics.get("consecutive_losses"), 2)
+        self.assertEqual(len(enriched.positions), 1)
+
+    def test_enrich_noop_when_unset(self) -> None:
+        decision = _decision()
+        enriched = enrich_decision_risk_diagnostics(decision)
+        self.assertIs(enriched, decision)
+
+    def test_enrich_then_gate_rejects_stop_loss(self) -> None:
+        decision = _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.50),))
+        enriched = enrich_decision_risk_diagnostics(decision, unrealized_pnl_pct=-0.25)
+        result = apply_risk_gate(enriched)
+        self.assertEqual(result.risk_flags, ("rejected:stop_loss",))

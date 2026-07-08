@@ -18,6 +18,33 @@ _STOP_LOSS_THRESHOLD = -0.20
 _MAX_CONSECUTIVE_LOSSES = 5
 
 
+
+def enrich_decision_risk_diagnostics(
+    decision: StrategyDecision,
+    *,
+    unrealized_pnl_pct: float | None = None,
+    consecutive_losses: int | None = None,
+) -> StrategyDecision:
+    """Attach stop-loss / circuit-breaker diagnostics used by apply_risk_gate.
+
+    Platforms should call this after computing portfolio PnL / trade streak,
+    before ``apply_risk_gate``. Missing values are left unset (gate skips those
+    checks).
+    """
+    diagnostics = dict(decision.diagnostics or {})
+    if unrealized_pnl_pct is not None:
+        diagnostics["unrealized_pnl_pct"] = float(unrealized_pnl_pct)
+    if consecutive_losses is not None:
+        diagnostics["consecutive_losses"] = int(consecutive_losses)
+    if diagnostics == dict(decision.diagnostics or {}):
+        return decision
+    return StrategyDecision(
+        positions=decision.positions,
+        budgets=decision.budgets,
+        risk_flags=decision.risk_flags,
+        diagnostics=diagnostics,
+    )
+
 def apply_risk_gate(
     decision: StrategyDecision,
     *,
