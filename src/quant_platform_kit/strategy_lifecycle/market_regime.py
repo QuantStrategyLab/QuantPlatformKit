@@ -31,7 +31,7 @@ class MarketRegime(str, enum.Enum):
 
 
 @dataclass(frozen=True)
-class RegimeContext:
+class MarketRegimeResult:
     """Snapshot of current market regime with supporting metrics."""
 
     regime: MarketRegime
@@ -54,6 +54,26 @@ class RegimeContext:
     # Regime shift detection
     regime_changed: bool = False
     previous_regime: MarketRegime | None = None
+
+
+
+    def to_risk_context(self):
+        """Adapt to risk.contracts.RegimeContext for RiskEngine consumption."""
+        from quant_platform_kit.risk.contracts import RegimeContext as RiskRegimeContext
+
+        # Map lifecycle MarketRegime enum → risk regime string constants.
+        regime_value = getattr(self.regime, "value", str(self.regime))
+        corr = self.avg_pairwise_correlation
+        if corr != corr:  # NaN
+            corr = 0.0
+        return RiskRegimeContext(
+            as_of=self.as_of.isoformat() if hasattr(self.as_of, "isoformat") else str(self.as_of),
+            volatility_percentile=float(self.volatility_20d_percentile),
+            pairwise_correlation=float(corr),
+            regime=str(regime_value),
+            vix_level=None,
+            credit_spread=None,
+        )
 
 
 @dataclass(frozen=True)
@@ -132,7 +152,7 @@ class RegimeDetector:
         *,
         benchmark_returns: pd.Series | None = None,
         universe_returns: pd.DataFrame | None = None,
-    ) -> RegimeContext:
+    ) -> MarketRegimeResult:
         """Detect the current market regime.
 
         Args:
@@ -140,11 +160,11 @@ class RegimeDetector:
             universe_returns: DataFrame of returns for multiple assets (for correlation).
 
         Returns:
-            RegimeContext with regime classification and supporting metrics.
+            MarketRegimeResult with regime classification and supporting metrics.
         """
         bm = normalize_return_series(benchmark_returns) if benchmark_returns is not None else self._benchmark
         if bm is None or len(bm) < self.MIN_HISTORY_DAYS:
-            return RegimeContext(
+            return MarketRegimeResult(
                 regime=MarketRegime.UNKNOWN,
                 as_of=date.today(),
                 volatility_20d=float("nan"),
@@ -181,7 +201,7 @@ class RegimeDetector:
         changed = previous is not None and previous != regime
         self._last_regime = regime
 
-        return RegimeContext(
+        return MarketRegimeResult(
             regime=regime,
             as_of=date.today(),
             volatility_20d=vol_20d,
@@ -251,7 +271,7 @@ def detect_market_regime(
     domain: str,
     *,
     benchmark_symbol: str | None = None,
-) -> RegimeContext:
+) -> MarketRegimeResult:
     """Detect market regime for a domain using available return data.
 
     This is a convenience wrapper that auto-discovers benchmark data.

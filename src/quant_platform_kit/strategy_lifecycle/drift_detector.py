@@ -16,7 +16,7 @@ from quant_platform_kit.strategy_lifecycle.drift_policy import DriftPolicy
 from quant_platform_kit.strategy_lifecycle.market_regime import (
     DynamicDriftThresholds,
     MarketRegime,
-    RegimeContext,
+    MarketRegimeResult,
 )
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
@@ -83,7 +83,7 @@ def detect_drift(
     backtest: BacktestResult | None = None,
     policy: DriftPolicy | None = None,
     previous_status: DriftStatus | None = None,
-    regime: RegimeContext | None = None,
+    regime: MarketRegimeResult | None = None,
 ) -> DriftResult:
     """Analyze a performance snapshot for drift against backtest expectations.
 
