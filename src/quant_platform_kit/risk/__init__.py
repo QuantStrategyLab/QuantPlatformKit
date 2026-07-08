@@ -18,7 +18,7 @@ from quant_platform_kit.risk.engine import (
     aggregate_risk_signals,
     build_risk_engine,
 )
-from quant_platform_kit.risk.gate import apply_risk_gate
+from quant_platform_kit.risk.gate import apply_risk_gate, enrich_decision_risk_diagnostics
 
 __all__ = [
     "RegimeContext",
@@ -29,5 +29,6 @@ __all__ = [
     "RiskSignal",
     "aggregate_risk_signals",
     "apply_risk_gate",
+    "enrich_decision_risk_diagnostics",
     "build_risk_engine",
 ]
