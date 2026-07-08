@@ -6,11 +6,14 @@ and persists StrategyPerformanceSnapshot records to the performance store.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from quant_platform_kit.strategy_lifecycle.contracts import StrategyPerformanceSnapshot
 from quant_platform_kit.strategy_lifecycle.performance_metrics import (
@@ -214,3 +217,66 @@ class PerformanceMonitor:
         }
         self._store.save_live_run_record(profile, str(domain or "").strip(), payload)
         return {"ok": True, "profile": profile, "domain": str(domain or "").strip()}
+
+    def record_execution(
+        self,
+        profile_id: str,
+        execution_result: Mapping[str, Any],
+        *,
+        domain: str = "",
+        decision: Any | None = None,
+    ) -> dict[str, Any]:
+        """Persist platform-layer execution telemetry after order routing."""
+        profile = str(profile_id or "").strip()
+        if not profile:
+            return {"ok": False, "skipped": "empty_profile"}
+        if not execution_result:
+            return {"ok": False, "skipped": "empty_execution_result"}
+
+        payload: dict[str, Any] = {
+            "strategy_profile": profile,
+            "domain": str(domain or "").strip(),
+            "recorded_at": _now_iso(),
+            "record_kind": "execution",
+            "execution_result": dict(execution_result),
+        }
+        if decision is not None:
+            payload["decision"] = _serialize_decision(decision)
+        self._store.save_live_run_record(profile, str(domain or "").strip(), payload)
+        return {"ok": True, "profile": profile, "domain": str(domain or "").strip()}
+
+
+def infer_strategy_domain(profile_id: str, *, explicit_domain: str = "") -> str:
+    domain = str(explicit_domain or "").strip()
+    if domain:
+        return domain
+    profile = str(profile_id or "").strip().lower()
+    if profile.startswith("cn_"):
+        return "cn_equity"
+    if profile.startswith("hk_"):
+        return "hk_equity"
+    if profile.startswith("crypto_"):
+        return "crypto"
+    return "us_equity"
+
+
+def try_record_platform_execution(
+    profile_id: str,
+    execution_result: Mapping[str, Any] | None,
+    *,
+    domain: str = "",
+    decision: Any | None = None,
+) -> None:
+    """Best-effort execution recorder for platform runtimes; never raises."""
+    try:
+        if not execution_result:
+            return
+        monitor = PerformanceMonitor()
+        monitor.record_execution(
+            profile_id,
+            execution_result,
+            domain=infer_strategy_domain(profile_id, explicit_domain=domain),
+            decision=decision,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.warning("PerformanceMonitor.record_execution failed: %s", exc)
