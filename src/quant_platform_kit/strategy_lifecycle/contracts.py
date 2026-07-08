@@ -283,6 +283,26 @@ class BacktestResult:
 
 
 @dataclass(frozen=True)
+class SensitivityReport:
+    """Results from a parameter-grid sensitivity sweep."""
+
+    strategy_profile: str
+    domain: str
+    base_params: Mapping[str, Any]
+    results: tuple[BacktestResult, ...] = ()
+    combination_count: int = 0
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "strategy_profile": self.strategy_profile,
+            "domain": self.domain,
+            "base_params": dict(self.base_params),
+            "combination_count": self.combination_count,
+            "results": [r.to_dict() for r in self.results],
+        }
+
+
+@dataclass(frozen=True)
 class ParamSearchSpace:
     """Definition of the search space for one strategy's parameters."""
 
