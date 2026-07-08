@@ -1,5 +1,29 @@
 """Notification integrations."""
 
+from .renderer_base import (  # noqa: F401 — shared renderer primitives
+    as_float_or_none,
+    build_timing_audit_lines,
+    build_tqqq_risk_control_lines,
+    compact_dashboard_lines,
+    effective_volatility_delever_threshold,
+    format_percent,
+    format_percentile,
+    format_sample_count,
+    format_signal_snapshot_line,
+    format_tqqq_volatility_delever_allocation_detail,
+    format_volatility_delever_threshold_detail,
+    is_compact_dashboard_audit_line,
+    is_truthy,
+    localize_price_source_label,
+    localize_timing_contract,
+    present,
+    relabel_dashboard_cash_labels,
+    resolve_execution,
+    split_detail_segment,
+    split_labeled_text,
+    translator_uses_zh,
+)
+
 from .cycle_channel import (
     CYCLE_CHANNEL_DINGTALK,
     CYCLE_CHANNEL_FEISHU,
@@ -86,6 +110,29 @@ from .webhook import (
 )
 
 __all__ = [
+    # renderer_base
+    "as_float_or_none",
+    "build_timing_audit_lines",
+    "build_tqqq_risk_control_lines",
+    "compact_dashboard_lines",
+    "effective_volatility_delever_threshold",
+    "format_percent",
+    "format_percentile",
+    "format_sample_count",
+    "format_signal_snapshot_line",
+    "format_tqqq_volatility_delever_allocation_detail",
+    "format_volatility_delever_threshold_detail",
+    "is_compact_dashboard_audit_line",
+    "is_truthy",
+    "localize_price_source_label",
+    "localize_timing_contract",
+    "present",
+    "relabel_dashboard_cash_labels",
+    "resolve_execution",
+    "split_detail_segment",
+    "split_labeled_text",
+    "translator_uses_zh",
+    # channels
     "CYCLE_CHANNEL_DINGTALK",
     "CYCLE_CHANNEL_FEISHU",
     "CYCLE_CHANNEL_SERVERCHAN",

@@ -3,6 +3,7 @@ README.md
 pyproject.toml
 setup.py
 src/quant_platform_kit/__init__.py
+src/quant_platform_kit/position_sizing.py
 src/quant_platform_kit/strategy_contracts.py
 src/quant_platform_kit.egg-info/PKG-INFO
 src/quant_platform_kit.egg-info/SOURCES.txt
@@ -99,6 +100,8 @@ src/quant_platform_kit/quantconnect/models.py
 src/quant_platform_kit/risk/__init__.py
 src/quant_platform_kit/risk/contracts.py
 src/quant_platform_kit/risk/engine.py
+src/quant_platform_kit/risk/gate.py
+src/quant_platform_kit/risk/portfolio_diagnostics.py
 src/quant_platform_kit/schwab/__init__.py
 src/quant_platform_kit/schwab/auth.py
 src/quant_platform_kit/schwab/execution.py
@@ -132,6 +135,7 @@ src/quant_platform_kit/strategy_lifecycle/shadow_validator.py
 src/quant_platform_kit/strategy_lifecycle/strategy_health_score.py
 src/quant_platform_kit/strategy_lifecycle/update_orchestrator.py
 src/quant_platform_kit/strategy_lifecycle/update_policy.py
+tests/test_backtest_orchestrator.py
 tests/test_binance_account.py
 tests/test_binance_client.py
 tests/test_binance_execution.py
@@ -173,9 +177,12 @@ tests/test_notification_events.py
 tests/test_notification_localization.py
 tests/test_notification_redaction.py
 tests/test_package_version.py
+tests/test_portfolio_diagnostics.py
+tests/test_position_sizing.py
 tests/test_qsl_compat_metadata.py
 tests/test_qsl_pin_manifests.py
 tests/test_quantconnect.py
+tests/test_risk_gate.py
 tests/test_runtime_assembly.py
 tests/test_runtime_config.py
 tests/test_runtime_logging.py
