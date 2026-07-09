@@ -27,6 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip uv
+          type -p gh >/dev/null || (type -p apt-get >/dev/null && sudo apt-get update -qq && sudo apt-get install -y -qq gh)
 
       - name: Open downstream pin sync PRs
         id: sync
@@ -46,19 +47,19 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
           ## Downstream QPK pin PRs were not opened
 
-          Missing org/repo secret: `QSL_REPO_SYNC_TOKEN`
+          Missing repository secret: `QSL_REPO_SYNC_TOKEN` on **QuantPlatformKit**.
 
-          **Common cause:** `QuantPlatformKit` is a **public** repository. Org secrets with
-          `Private repositories` visibility are not injected into public repos.
+          Org-level secrets are **not** injected reliably into this public repo on GitHub Free.
+          Configure a **repository secret** instead (see `docs/qpk_sync_token.zh-CN.md`).
 
-          **Fix (org admin):** Organization → Settings → Secrets and variables → Actions →
-          `QSL_REPO_SYNC_TOKEN` → Repository access → **All repositories** (same as `TG_TOKEN`).
+          Quick bootstrap (org admin, local `gh` login):
 
-          **Alternative:** copy the PAT to a repository secret on `QuantPlatformKit`.
+          ```bash
+          gh secret set QSL_REPO_SYNC_TOKEN --repo QuantStrategyLab/QuantPlatformKit --body "$(gh auth token)"
+          ```
 
-          Expected PAT scope:
-          - `repo` on QuantStrategyLab downstream repositories
-          - permission to push branches and create pull requests
+          Production: use a dedicated fine-grained PAT (`contents:write`, `pull_requests:write`, `metadata:read`)
+          scoped to QuantStrategyLab downstream repos.
           MD
 
       - name: Summarize opened PRs
