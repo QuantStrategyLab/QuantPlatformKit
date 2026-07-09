@@ -8,27 +8,36 @@
 
 ## 一次性配置（org admin）
 
-### 方案 A：专用 Fine-grained PAT（推荐，可设 1 年过期）
+### 方案 A：Classic PAT（推荐，可选 No expiration）
+
+1. 打开：https://github.com/settings/tokens/new?scopes=repo&description=QSL-Repo-Sync
+2. 勾选 **repo**，Expiration 选 **No expiration**（若 org 强制上限则选最长）。
+3. 生成后执行：
+
+   ```bash
+   gh secret set QSL_REPO_SYNC_TOKEN --repo QuantStrategyLab/QuantPlatformKit
+   ```
+
+### 方案 B：Fine-grained PAT（org 通常最长 1 年）
 
 1. 打开预填模板（需 Pigbibi 登录 GitHub）：
 
-   https://github.com/settings/personal-access-tokens/new?name=QSL-Repo-Sync&description=QuantPlatformKit+downstream+QPK+pin+automation&target_name=QuantStrategyLab&expires_in=365&contents=write&pull_requests=write&metadata=read
+   https://github.com/settings/personal-access-tokens/new?name=QSL-Repo-Sync&description=QuantPlatformKit+downstream+QPK+pin+automation&target_name=QuantStrategyLab&expires_in=366&contents=write&pull_requests=write&metadata=read
 
 2. Repository access 选 **All repositories**（或至少九仓策略 + 四平台 + Binance）。
 3. 生成后执行：
 
    ```bash
    gh secret set QSL_REPO_SYNC_TOKEN --repo QuantStrategyLab/QuantPlatformKit
-   # 粘贴 PAT，回车
    ```
 
-### 方案 B：临时用 gh 登录 token（已用于首次 bootstrap）
+### 方案 C：临时 bootstrap（仅首次）
 
 ```bash
 gh secret set QSL_REPO_SYNC_TOKEN --repo QuantStrategyLab/QuantPlatformKit --body "$(gh auth token)"
 ```
 
-OAuth token 会随 `gh auth login` 刷新而失效，仅适合 bootstrap；生产请用方案 A。
+OAuth token 会随 `gh auth login` 刷新而失效；生产请用方案 A 或 B。
 
 ## 验真
 
