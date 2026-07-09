@@ -300,6 +300,49 @@ class PerformanceStore:
             {**dict(payload), "schema_version": SCHEMA_VERSION},
         )
 
+    def list_live_run_records(
+        self,
+        domain: str,
+        *,
+        strategy_profile: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Load persisted live evaluation/execution records for a domain."""
+        prefix = f"live_runs/{_clean_key(domain)}/"
+        if strategy_profile:
+            prefix = f"{prefix}{_clean_key(strategy_profile)}/"
+
+        records: list[dict[str, Any]] = []
+
+        local_dir = self._local_path(prefix)
+        if local_dir.exists():
+            for path in sorted(local_dir.rglob("*.json")):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if isinstance(data, Mapping):
+                    records.append(dict(data))
+
+        if self.cloud_bucket:
+            for key in self._list_cloud_keys(prefix):
+                data = self._read_cloud_json(key)
+                if data:
+                    records.append(dict(data))
+
+        deduped: dict[str, dict[str, Any]] = {}
+        for record in records:
+            dedupe_key = "|".join(
+                [
+                    str(record.get("strategy_profile") or ""),
+                    str(record.get("recorded_at") or ""),
+                    str(record.get("record_kind") or ""),
+                ]
+            )
+            deduped[dedupe_key] = record
+        ordered = list(deduped.values())
+        ordered.sort(key=lambda item: str(item.get("recorded_at") or ""))
+        return ordered
+
     # ── dashboard ────────────────────────────────────────────────
 
     def _dashboard_key(self) -> str:
