@@ -12,6 +12,7 @@ from quant_platform_kit.strategy_lifecycle.live_equity import (
     extract_equity_value,
     live_run_records_to_return_series,
     resolve_consecutive_losses,
+    stamp_consecutive_losses_on_snapshot,
 )
 from quant_platform_kit.strategy_lifecycle.performance_monitor import PerformanceMonitor
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
@@ -92,6 +93,52 @@ class LiveEquityTests(unittest.TestCase):
                     store=store,
                 )
             )
+
+    def test_stamp_consecutive_losses_on_snapshot(self) -> None:
+        from datetime import datetime, timezone
+
+        from quant_platform_kit.common.models import PortfolioSnapshot
+
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            for day, equity in (
+                ("2026-07-01T10:00:00+00:00", 100.0),
+                ("2026-07-02T10:00:00+00:00", 98.0),
+                ("2026-07-03T10:00:00+00:00", 96.0),
+            ):
+                store.save_live_run_record(
+                    "global_etf_rotation",
+                    "us_equity",
+                    {
+                        "strategy_profile": "global_etf_rotation",
+                        "domain": "us_equity",
+                        "recorded_at": day,
+                        "record_kind": "execution",
+                        "execution_result": {"total_equity": equity},
+                    },
+                )
+            snapshot = PortfolioSnapshot(
+                as_of=datetime.now(timezone.utc),
+                total_equity=96.0,
+                positions=(),
+                metadata={},
+            )
+            stamped = stamp_consecutive_losses_on_snapshot(
+                snapshot,
+                strategy_profile="global_etf_rotation",
+                domain="us_equity",
+                store=store,
+            )
+            self.assertIsNot(stamped, snapshot)
+            self.assertEqual(stamped.metadata["consecutive_losses"], 2)
+
+            preserved = stamp_consecutive_losses_on_snapshot(
+                stamped,
+                strategy_profile="global_etf_rotation",
+                domain="us_equity",
+                store=store,
+            )
+            self.assertIs(preserved, stamped)
 
 
 class ReturnCollectorLiveRunTests(unittest.TestCase):
