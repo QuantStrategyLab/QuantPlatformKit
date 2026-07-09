@@ -103,7 +103,7 @@ jobs:
         continue-on-error: true
         uses: peter-evans/create-pull-request@v7
         with:
-          token: ${{ github.token }}
+          token: ${{ secrets.QSL_REPO_SYNC_TOKEN || github.token }}
           commit-message: "chore: auto-update QPK_PIN and pin manifests"
           title: "chore: auto-update QPK_PIN and pin manifests"
           body: |
@@ -126,12 +126,9 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
           ## QPK pin update PR not created
 
-          The generated `QPK_PIN` / `qsl-pins.txt` / `constraints.txt` update was verified, but repository policy prevented `GITHUB_TOKEN` from creating a pull request.
+          The generated `QPK_PIN` / `qsl-pins.txt` / `constraints.txt` update was verified, but PR creation failed.
 
-          Manual follow-up:
-          - Enable the repository setting that allows GitHub Actions to create pull requests, or
-          - Run the pin update manually from a reviewed maintainer branch.
-
-          This workflow intentionally does not fall back to a PAT-based bypass.
+          Ensure `QSL_REPO_SYNC_TOKEN` is configured as a **QuantPlatformKit repository secret**
+          (see `docs/qpk_repo_sync_auth.zh-CN.md`). Org policy blocks `GITHUB_TOKEN` PR creation.
           MD
           echo "::warning::QPK pin update PR was not created because repository policy blocks GitHub Actions PR creation."
