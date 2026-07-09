@@ -1,0 +1,62 @@
+name: Open Downstream QPK Pin PRs
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "QPK_PIN"
+      - "qsl-pins.txt"
+      - "constraints.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  open-prs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install tooling
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip uv
+
+      - name: Open downstream pin sync PRs
+        id: sync
+        env:
+          QSL_REPO_SYNC_TOKEN: ${{ secrets.QSL_REPO_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${QSL_REPO_SYNC_TOKEN:-}" ]; then
+            echo "missing_token=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python3 scripts/open_downstream_qpk_pin_prs.py | tee downstream-prs.txt
+
+      - name: Summarize missing token
+        if: steps.sync.outputs.missing_token == 'true'
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+          ## Downstream QPK pin PRs were not opened
+
+          Missing org/repo secret: `QSL_REPO_SYNC_TOKEN`
+
+          Expected scope:
+          - `repo` on the QuantStrategyLab downstream repositories
+          - permission to push branches and create pull requests
+          MD
+
+      - name: Summarize opened PRs
+        if: steps.sync.outputs.missing_token != 'true'
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
+          ## Downstream QPK pin PR results
+          MD
+          cat downstream-prs.txt >> "$GITHUB_STEP_SUMMARY"
