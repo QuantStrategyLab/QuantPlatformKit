@@ -50,7 +50,7 @@ jobs:
           Missing repository secret: `QSL_REPO_SYNC_TOKEN` on **QuantPlatformKit**.
 
           Org-level secrets are **not** injected reliably into this public repo on GitHub Free.
-          Configure a **repository secret** instead (see `docs/qpk_sync_token.zh-CN.md`).
+          Configure a **repository secret** instead (see `docs/qpk_repo_sync_auth.zh-CN.md`).
 
           Quick bootstrap (org admin, local `gh` login):
 
