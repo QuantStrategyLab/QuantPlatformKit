@@ -101,6 +101,65 @@ def live_run_records_to_return_series(records: Sequence[Mapping[str, Any]]) -> p
     return returns.astype(float)
 
 
+def count_consecutive_losses(returns: pd.Series | Sequence[Any] | None) -> int:
+    """Count trailing negative daily returns (zeros / NaN break the streak)."""
+    if returns is None:
+        return 0
+    if isinstance(returns, pd.Series):
+        values = [float(value) for value in returns.dropna().tolist()]
+    else:
+        values = []
+        for value in returns:
+            try:
+                parsed = float(value)
+            except (TypeError, ValueError):
+                continue
+            if parsed != parsed:  # NaN
+                continue
+            values.append(parsed)
+    streak = 0
+    for value in reversed(values):
+        if value < 0.0:
+            streak += 1
+            continue
+        break
+    return streak
+
+
+def consecutive_losses_from_live_run_records(
+    records: Sequence[Mapping[str, Any]],
+) -> int:
+    """Derive consecutive loss streak from persisted live equity snapshots."""
+    return count_consecutive_losses(live_run_records_to_return_series(records))
+
+
+def resolve_consecutive_losses(
+    *,
+    domain: str,
+    strategy_profile: str,
+    store: Any | None = None,
+) -> int | None:
+    """Load live-run equity history and return trailing consecutive losses.
+
+    Returns ``None`` when history is insufficient (fewer than two equity points).
+    """
+    profile = str(strategy_profile or "").strip()
+    market = str(domain or "").strip()
+    if not profile or not market:
+        return None
+
+    if store is None:
+        from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+
+        store = PerformanceStore.from_env()
+
+    records = store.list_live_run_records(market, strategy_profile=profile)
+    series = live_run_records_to_return_series(records)
+    if series.empty:
+        return None
+    return count_consecutive_losses(series)
+
+
 def group_live_run_records_by_profile(
     records: Sequence[Mapping[str, Any]],
 ) -> dict[str, list[Mapping[str, Any]]]:
