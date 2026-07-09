@@ -85,6 +85,7 @@ src/quant_platform_kit/notifications/cycle_channel.py
 src/quant_platform_kit/notifications/email.py
 src/quant_platform_kit/notifications/events.py
 src/quant_platform_kit/notifications/push.py
+src/quant_platform_kit/notifications/renderer_base.py
 src/quant_platform_kit/notifications/sms.py
 src/quant_platform_kit/notifications/strategy_plugin_alerts.py
 src/quant_platform_kit/notifications/strategy_plugin_email.py
@@ -123,6 +124,7 @@ src/quant_platform_kit/strategy_lifecycle/drift_policy.py
 src/quant_platform_kit/strategy_lifecycle/evidence_gate.py
 src/quant_platform_kit/strategy_lifecycle/health_dashboard.py
 src/quant_platform_kit/strategy_lifecycle/live_candidate_notifications.py
+src/quant_platform_kit/strategy_lifecycle/live_equity.py
 src/quant_platform_kit/strategy_lifecycle/market_regime.py
 src/quant_platform_kit/strategy_lifecycle/param_optimizer.py
 src/quant_platform_kit/strategy_lifecycle/param_search_space.py
@@ -164,8 +166,10 @@ tests/test_lifecycle_drift.py
 tests/test_lifecycle_evidence_gate.py
 tests/test_lifecycle_live_candidate_notifications.py
 tests/test_lifecycle_metrics.py
+tests/test_lifecycle_performance_monitor.py
 tests/test_lifecycle_performance_store.py
 tests/test_lifecycle_reviewer.py
+tests/test_live_return_collector.py
 tests/test_longbridge_auth.py
 tests/test_longbridge_execution.py
 tests/test_longbridge_market_data.py
@@ -179,6 +183,7 @@ tests/test_notification_redaction.py
 tests/test_package_version.py
 tests/test_portfolio_diagnostics.py
 tests/test_position_sizing.py
+tests/test_qpk_pin_consistency.py
 tests/test_qsl_compat_metadata.py
 tests/test_qsl_pin_manifests.py
 tests/test_quantconnect.py
