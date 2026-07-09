@@ -7,8 +7,11 @@ from pathlib import Path
 import pandas as pd
 
 from quant_platform_kit.strategy_lifecycle.live_equity import (
+    consecutive_losses_from_live_run_records,
+    count_consecutive_losses,
     extract_equity_value,
     live_run_records_to_return_series,
+    resolve_consecutive_losses,
 )
 from quant_platform_kit.strategy_lifecycle.performance_monitor import PerformanceMonitor
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
@@ -35,6 +38,60 @@ class LiveEquityTests(unittest.TestCase):
         )
         self.assertEqual(len(series), 1)
         self.assertAlmostEqual(float(series.iloc[0]), 0.01)
+
+    def test_count_consecutive_losses_trailing_only(self) -> None:
+        self.assertEqual(count_consecutive_losses(pd.Series([-0.01, 0.02, -0.01, -0.03])), 2)
+        self.assertEqual(count_consecutive_losses(pd.Series([-0.01, -0.02, 0.0])), 0)
+        self.assertEqual(count_consecutive_losses(pd.Series(dtype=float)), 0)
+
+    def test_consecutive_losses_from_live_run_records(self) -> None:
+        streak = consecutive_losses_from_live_run_records(
+            [
+                {"recorded_at": "2026-07-01T10:00:00+00:00", "total_equity": 100.0},
+                {"recorded_at": "2026-07-02T10:00:00+00:00", "total_equity": 99.0},
+                {"recorded_at": "2026-07-03T10:00:00+00:00", "total_equity": 97.0},
+                {"recorded_at": "2026-07-04T10:00:00+00:00", "total_equity": 98.0},
+                {"recorded_at": "2026-07-05T10:00:00+00:00", "total_equity": 96.0},
+                {"recorded_at": "2026-07-06T10:00:00+00:00", "total_equity": 95.0},
+            ]
+        )
+        # returns: -1%, -2.02%, +1.03%, -2.04%, -1.04% → trailing streak 2
+        self.assertEqual(streak, 2)
+
+    def test_resolve_consecutive_losses_from_store(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            for day, equity in (
+                ("2026-07-01T10:00:00+00:00", 100.0),
+                ("2026-07-02T10:00:00+00:00", 98.0),
+                ("2026-07-03T10:00:00+00:00", 96.0),
+            ):
+                store.save_live_run_record(
+                    "global_etf_rotation",
+                    "us_equity",
+                    {
+                        "strategy_profile": "global_etf_rotation",
+                        "domain": "us_equity",
+                        "recorded_at": day,
+                        "record_kind": "execution",
+                        "execution_result": {"total_equity": equity},
+                    },
+                )
+            self.assertEqual(
+                resolve_consecutive_losses(
+                    domain="us_equity",
+                    strategy_profile="global_etf_rotation",
+                    store=store,
+                ),
+                2,
+            )
+            self.assertIsNone(
+                resolve_consecutive_losses(
+                    domain="us_equity",
+                    strategy_profile="missing_profile",
+                    store=store,
+                )
+            )
 
 
 class ReturnCollectorLiveRunTests(unittest.TestCase):
