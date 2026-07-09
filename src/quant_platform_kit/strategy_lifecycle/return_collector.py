@@ -7,7 +7,12 @@ from typing import Mapping, Sequence
 
 import pandas as pd
 
+from quant_platform_kit.strategy_lifecycle.live_equity import (
+    group_live_run_records_by_profile,
+    live_run_records_to_return_series,
+)
 from quant_platform_kit.strategy_lifecycle.performance_metrics import normalize_return_matrix
+from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 # Per-market default artifact directories — override via env vars.
 _DEFAULT_ARTIFACT_ROOTS: Mapping[str, str] = {
@@ -36,10 +41,12 @@ class ReturnCollector:
         *,
         artifact_roots: Mapping[str, str | Path] | None = None,
         projects_root: Path | None = None,
+        store: PerformanceStore | None = None,
     ):
         import os
 
         self._projects_root = projects_root or Path(os.environ.get("QUANT_PROJECTS_ROOT", str(Path.cwd())))
+        self._store = store
         roots: dict[str, Path] = {}
         merged = dict(_DEFAULT_ARTIFACT_ROOTS)
         if artifact_roots:
@@ -92,6 +99,37 @@ class ReturnCollector:
                 strategies[col_str] = series
         return strategies
 
+    def _store_instance(self) -> PerformanceStore:
+        if self._store is not None:
+            return self._store
+        return PerformanceStore.from_env()
+
+    def collect_from_live_runs(self, domain: str) -> Mapping[str, pd.Series]:
+        """Build per-strategy return series from persisted live run equity snapshots."""
+        records = self._store_instance().list_live_run_records(domain)
+        grouped = group_live_run_records_by_profile(records)
+        return {
+            profile: live_run_records_to_return_series(profile_records)
+            for profile, profile_records in grouped.items()
+            if live_run_records_to_return_series(profile_records).size > 0
+        }
+
+    def _merge_return_series(
+        self,
+        existing: Mapping[str, pd.Series],
+        incoming: Mapping[str, pd.Series],
+    ) -> dict[str, pd.Series]:
+        merged = dict(existing)
+        for profile, series in incoming.items():
+            if profile not in merged or merged[profile].empty:
+                merged[profile] = series
+                continue
+            if series.empty:
+                continue
+            combined = pd.concat([merged[profile], series]).sort_index()
+            merged[profile] = combined[~combined.index.duplicated(keep="last")]
+        return merged
+
     def collect(
         self,
         domain: str,
@@ -105,26 +143,25 @@ class ReturnCollector:
         If multiple matrices are found (e.g., different portfolios), merges them.
         """
         paths = self.discover_return_matrices(domain)
-        if not paths:
-            return {}
-
         all_strategies: dict[str, pd.Series] = {}
-        for path in paths:
-            try:
-                frame = self.read_return_matrix(path, date_column=date_column)
-            except Exception:
-                continue
-            strategies = self.extract_strategy_columns(
-                frame, domain=domain, benchmark_columns=benchmark_columns
-            )
-            for name, series in strategies.items():
-                if name in all_strategies:
-                    # Merge: keep the longer series
-                    if len(series) > len(all_strategies[name]):
+        if paths:
+            for path in paths:
+                try:
+                    frame = self.read_return_matrix(path, date_column=date_column)
+                except Exception:
+                    continue
+                strategies = self.extract_strategy_columns(
+                    frame, domain=domain, benchmark_columns=benchmark_columns
+                )
+                for name, series in strategies.items():
+                    if name in all_strategies:
+                        if len(series) > len(all_strategies[name]):
+                            all_strategies[name] = series
+                    else:
                         all_strategies[name] = series
-                else:
-                    all_strategies[name] = series
-        return all_strategies
+
+        live_series = self.collect_from_live_runs(domain)
+        return self._merge_return_series(all_strategies, live_series)
 
     def collect_benchmark(
         self,
