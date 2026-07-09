@@ -160,6 +160,59 @@ def resolve_consecutive_losses(
     return count_consecutive_losses(series)
 
 
+def stamp_consecutive_losses_on_snapshot(
+    portfolio_snapshot: Any | None,
+    *,
+    strategy_profile: str,
+    domain: str = "",
+    store: Any | None = None,
+    logger: Any | None = None,
+) -> Any | None:
+    """Stamp trailing consecutive_losses onto portfolio metadata before evaluate.
+
+    No-op when snapshot is missing, the field is already set, or history is
+    insufficient. Never raises — platforms should call this best-effort.
+    """
+    if portfolio_snapshot is None:
+        return None
+    metadata = dict(getattr(portfolio_snapshot, "metadata", None) or {})
+    if metadata.get("consecutive_losses") is not None:
+        return portfolio_snapshot
+    try:
+        from quant_platform_kit.strategy_lifecycle.performance_monitor import infer_strategy_domain
+
+        streak = resolve_consecutive_losses(
+            domain=infer_strategy_domain(strategy_profile, explicit_domain=domain),
+            strategy_profile=strategy_profile,
+            store=store,
+        )
+    except Exception as exc:  # pragma: no cover - defensive platform boundary
+        if callable(logger):
+            logger(
+                "strategy_consecutive_losses_resolve_failed | "
+                f"profile={strategy_profile} error_type={type(exc).__name__} error={exc}"
+            )
+        return portfolio_snapshot
+    if streak is None:
+        return portfolio_snapshot
+    metadata["consecutive_losses"] = int(streak)
+    try:
+        from dataclasses import is_dataclass, replace as dc_replace
+
+        if is_dataclass(portfolio_snapshot) and not isinstance(portfolio_snapshot, type):
+            return dc_replace(portfolio_snapshot, metadata=metadata)
+    except Exception:
+        pass
+    if hasattr(portfolio_snapshot, "_replace"):
+        return portfolio_snapshot._replace(metadata=metadata)
+    # Last resort: mutate if object allows it (tests / SimpleNamespace).
+    try:
+        object.__setattr__(portfolio_snapshot, "metadata", metadata)
+        return portfolio_snapshot
+    except Exception:
+        return portfolio_snapshot
+
+
 def group_live_run_records_by_profile(
     records: Sequence[Mapping[str, Any]],
 ) -> dict[str, list[Mapping[str, Any]]]:
