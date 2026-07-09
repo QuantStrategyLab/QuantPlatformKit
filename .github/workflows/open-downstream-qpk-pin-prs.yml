@@ -48,8 +48,16 @@ jobs:
 
           Missing org/repo secret: `QSL_REPO_SYNC_TOKEN`
 
-          Expected scope:
-          - `repo` on the QuantStrategyLab downstream repositories
+          **Common cause:** `QuantPlatformKit` is a **public** repository. Org secrets with
+          `Private repositories` visibility are not injected into public repos.
+
+          **Fix (org admin):** Organization → Settings → Secrets and variables → Actions →
+          `QSL_REPO_SYNC_TOKEN` → Repository access → **All repositories** (same as `TG_TOKEN`).
+
+          **Alternative:** copy the PAT to a repository secret on `QuantPlatformKit`.
+
+          Expected PAT scope:
+          - `repo` on QuantStrategyLab downstream repositories
           - permission to push branches and create pull requests
           MD
 
