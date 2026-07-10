@@ -12,6 +12,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "workflow_call:" in workflow
     assert "strategy_domain:" in workflow
     assert "snapshot_repository:" in workflow
+    assert "snapshot_repository_token:" in workflow
     assert "snapshot_checkout_path:" in workflow
     assert "ai_gateway_service_url:" in workflow
     assert "codex_audit_service_url:" in workflow
@@ -19,7 +20,9 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || \'\' }}' in workflow
     assert "Validate trusted caller" in workflow
     assert "Untrusted reusable workflow caller" in workflow
-    assert "snapshot_repository must match caller repository" in workflow
+    assert "snapshot_repository mismatch for caller" in workflow
+    assert "Fork pull_request callers are not trusted" in workflow
+    assert "snapshot_repository_token is required for private cross-repo snapshot checkout" in workflow
     assert "quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}" in workflow
     assert (
         "quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot "
@@ -28,7 +31,8 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts" in workflow
     assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
     assert 'path: ${{ inputs.snapshot_checkout_path }}' in workflow
-    assert 'ref: ${{ steps.quant-platform-kit-ref.outputs.ref }}' in workflow
+    assert 'token: ${{ secrets.snapshot_repository_token || github.token }}' in workflow
+    assert 'ref: ${{ github.workflow_sha }}' in workflow
     assert 'GH_TOKEN: ${{ github.token }}' in workflow
     assert "create_issues_for_domain" in workflow
     assert 'CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}' in workflow
