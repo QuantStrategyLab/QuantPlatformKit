@@ -30,6 +30,7 @@ _MULTIPLE_TESTING_METHODS = {"dsr", "pbo", "spa", "reality_check", "fdr", "other
 _RFC3339_DATETIME = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
 )
+_RFC3339_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def validate_research_spec(payload: Any) -> list[str]:
@@ -325,6 +326,8 @@ def _validate_parameters(value: Any, issues: list[str]) -> None:
                 issues.append(f"{label}.bounds must contain two numbers")
             elif kind == "integer" and isinstance(bounds, list) and not all(_is_int(item) for item in bounds):
                 issues.append(f"{label}.bounds must contain integers for kind=integer")
+            if kind == "integer" and "step" in parameter and not _is_int(parameter["step"]):
+                issues.append(f"{label}.step must be an integer for kind=integer")
         elif kind == "choice":
             if "choices" not in parameter:
                 issues.append(f"{label}.choices must be a non-empty array for kind=choice")
@@ -430,7 +433,7 @@ def _check_const(payload: dict[str, Any], field: str, expected: object, issues: 
 
 
 def _parse_date(value: Any) -> date | None:
-    if not isinstance(value, str):
+    if not isinstance(value, str) or not _RFC3339_DATE.fullmatch(value):
         return None
     try:
         return date.fromisoformat(value)

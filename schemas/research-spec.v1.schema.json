@@ -147,10 +147,23 @@
     },
     "evaluation_window": {
       "type": "object",
+      "x-qpk-date-order": {
+        "earlier": "/start_date",
+        "later": "/end_date",
+        "allow_equal": true
+      },
       "required": ["start_date", "end_date"],
       "properties": {
-        "start_date": { "type": "string", "format": "date" },
-        "end_date": { "type": "string", "format": "date" }
+        "start_date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
       },
       "additionalProperties": true
     },

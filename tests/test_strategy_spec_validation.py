@@ -13,6 +13,7 @@ from quant_platform_kit.strategy_lifecycle.spec_validation import (
     validate_research_spec,
     validate_strategy_spec_file,
 )
+from quant_platform_kit.strategy_lifecycle.spec_cli import main as spec_cli_main
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,17 +120,34 @@ def test_valid_research_spec_passes() -> None:
 
 
 def test_versioned_json_schemas_match_validator_versions() -> None:
+    def load_schema(name: str) -> dict[str, object]:
+        def reject_duplicate_keys(pairs):
+            result = {}
+            for key, value in pairs:
+                assert key not in result, f"duplicate schema key: {key}"
+                result[key] = value
+            return result
+
+        return json.loads(
+            (ROOT / "schemas" / name).read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_keys,
+        )
+
     for name, version in (
         ("research-spec.v1.schema.json", RESEARCH_SPEC_SCHEMA_VERSION),
         ("optimization-spec.v1.schema.json", OPTIMIZATION_SPEC_SCHEMA_VERSION),
     ):
-        schema = json.loads((ROOT / "schemas" / name).read_text(encoding="utf-8"))
+        schema = load_schema(name)
         assert schema["properties"]["schema_version"]["const"] == version
-    research_schema = json.loads((ROOT / "schemas" / "research-spec.v1.schema.json").read_text(encoding="utf-8"))
+    research_schema = load_schema("research-spec.v1.schema.json")
     assert research_schema["$defs"]["evaluation"]["x-qpk-exclusive-date-order"] == {
         "earlier": "/in_sample/end_date",
         "later": "/out_of_sample/start_date",
     }
+    assert research_schema["$defs"]["evaluation_window"]["x-qpk-date-order"]["allow_equal"] is True
+    optimization_schema = load_schema("optimization-spec.v1.schema.json")
+    assert optimization_schema["properties"]["allowed_parameters"]["x-qpk-unique-by"] == "name"
+    assert len(optimization_schema["$defs"]["parameter"]["allOf"]) == 3
 
 
 def test_research_spec_rejects_unlocked_or_overlapping_oos() -> None:
@@ -176,6 +194,18 @@ def test_research_spec_rejects_naive_or_date_only_timestamps() -> None:
 
     assert "created_at must be an ISO date-time" in issues
     assert "data.as_of must be an ISO date-time" in issues
+
+
+def test_research_spec_rejects_non_rfc3339_date_forms() -> None:
+    payload = _research_spec()
+    evaluation = payload["evaluation"]
+    assert isinstance(evaluation, dict)
+    evaluation["in_sample"] = {"start_date": "20160101", "end_date": "2022-W52-6"}
+
+    issues = validate_research_spec(payload)
+
+    assert "evaluation.in_sample.start_date must be an ISO date" in issues
+    assert "evaluation.in_sample.end_date must be an ISO date" in issues
 
 
 def test_research_spec_requires_four_layer_benchmarks() -> None:
@@ -236,12 +266,14 @@ def test_optimization_spec_rejects_schema_invalid_optional_parameter_fields_and_
     assert isinstance(promotion, dict)
     parameters.append({"name": "rebalance_rule", "kind": "choice", "choices": ["monthly"], "step": 0})
     parameters.append({"name": "enabled", "kind": "boolean", "bounds": "bad"})
+    parameters.append({"name": "integer_step", "kind": "integer", "bounds": [1, 3], "step": 0.5})
     promotion["max_fractional_kelly"] = 1
 
     issues = validate_optimization_spec(payload)
 
     assert "allowed_parameters[2].step must be a number > 0" in issues
     assert "allowed_parameters[3].bounds must contain two numbers" in issues
+    assert "allowed_parameters[4].step must be an integer for kind=integer" in issues
     assert "promotion.max_fractional_kelly must be a number in (0, 1)" in issues
 
 
@@ -260,6 +292,8 @@ def test_file_and_cli_validation_are_evidence_gate_friendly(tmp_path: Path) -> N
     assert validate_strategy_spec_file(non_standard_json_path) == [
         "invalid JSON: non-standard JSON constant 'NaN'"
     ]
+    assert spec_cli_main([str(valid_path)]) == 0
+    assert "quant-strategy-spec" in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     valid_proc = subprocess.run(
         [sys.executable, "scripts/validate_strategy_spec.py", str(valid_path)],

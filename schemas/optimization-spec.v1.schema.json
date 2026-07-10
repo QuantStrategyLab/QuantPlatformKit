@@ -31,6 +31,7 @@
     "allowed_parameters": {
       "type": "array",
       "minItems": 1,
+      "x-qpk-unique-by": "name",
       "items": { "$ref": "#/$defs/parameter" }
     },
     "objective": { "$ref": "#/$defs/objective" },
@@ -83,7 +84,20 @@
         {
           "if": {
             "required": ["kind"],
-            "properties": { "kind": { "enum": ["integer", "number"] } }
+            "properties": { "kind": { "const": "integer" } }
+          },
+          "then": {
+            "required": ["bounds"],
+            "properties": {
+              "bounds": { "items": { "type": "integer" } },
+              "step": { "type": "integer", "exclusiveMinimum": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["kind"],
+            "properties": { "kind": { "const": "number" } }
           },
           "then": { "required": ["bounds"] }
         },
@@ -95,24 +109,7 @@
           "then": { "required": ["choices"] }
         }
       ],
-      "additionalProperties": true,
-      "allOf": [
-        {
-          "if": { "properties": { "kind": { "const": "integer" } } },
-          "then": {
-            "required": ["bounds"],
-            "properties": { "bounds": { "items": { "type": "integer" } } }
-          }
-        },
-        {
-          "if": { "properties": { "kind": { "const": "number" } } },
-          "then": { "required": ["bounds"] }
-        },
-        {
-          "if": { "properties": { "kind": { "const": "choice" } } },
-          "then": { "required": ["choices"] }
-        }
-      ]
+      "additionalProperties": true
     },
     "objective": {
       "type": "object",

@@ -16,19 +16,22 @@ Schemas are stored in `schemas/`.  Python validation is deliberately dependency
 free so an evidence gate can consume the same artifact without installing a
 JSON Schema runtime.
 
-`research_spec.v1` uses the QPK extension
-`x-qpk-exclusive-date-order` for the sibling date ordering that standard JSON
-Schema cannot express.  QPK's validator and CLI enforce this extension; a
-generic JSON Schema-only consumer must not be used as a promotion gate.
+The schemas use QPK extensions for invariants that standard JSON Schema cannot
+express: sibling date ordering (`x-qpk-date-order` and
+`x-qpk-exclusive-date-order`) and parameter-name uniqueness
+(`x-qpk-unique-by`). QPK's validator and CLI enforce these extensions; a generic
+JSON Schema-only consumer must not be used as a promotion gate.
 
 ```bash
-python scripts/validate_strategy_spec.py path/to/spec.json
+quant-strategy-spec path/to/spec.json
 ```
 
 The command is silent on success, prints field-level contract violations to
 stderr on failure, and returns a non-zero exit code.  Code integrations may
 use `validate_research_spec`, `validate_optimization_spec`, or
 `validate_strategy_spec_file` from `quant_platform_kit.strategy_lifecycle`.
+Source checkouts may use `python scripts/validate_strategy_spec.py` as an
+equivalent compatibility wrapper.
 
 ## v1 safety rules
 
