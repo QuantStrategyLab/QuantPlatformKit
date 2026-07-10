@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 import unittest
 from unittest import mock
@@ -147,6 +148,43 @@ class DriftDetectorTests(unittest.TestCase):
                 run_drift_detection("us_equity", store=sentinel_store)  # type: ignore[arg-type]
 
         collector_factory.assert_called_once_with(store=sentinel_store)
+
+    def test_baseline_lineage_policy_handles_legacy_history_explicitly(self) -> None:
+        snapshot = _make_snapshot()
+        backtest = _make_backtest()
+        legacy_previous = replace(
+            detect_drift(snapshot, backtest=backtest),
+            baseline_param_set_id=None,
+        )
+
+        def run(policy: str, accepted_backtest: BacktestResult | None = backtest):
+            active_store = mock.Mock()
+            active_store.load_latest_snapshot.return_value = snapshot
+            active_store.load_latest_drift.return_value = legacy_previous
+            baseline_store = mock.Mock()
+            baseline_store.load_latest_backtest.return_value = accepted_backtest
+
+            collector = mock.Mock()
+            collector.collect.return_value = {snapshot.strategy_profile: pd.Series([0.01])}
+            with mock.patch(
+                "quant_platform_kit.strategy_lifecycle.return_collector.ReturnCollector",
+                return_value=collector,
+            ):
+                result = run_drift_detection(
+                    snapshot.domain,
+                    strategy_profile=snapshot.strategy_profile,
+                    store=active_store,
+                    baseline_store=baseline_store,
+                    baseline_lineage_policy=policy,
+                )[0]
+            return result
+
+        self.assertEqual(run("compatible").previous_status, legacy_previous.status)
+        self.assertIsNone(run("strict").previous_status)
+        self.assertIsNone(run("strict", accepted_backtest=None).previous_status)
+
+        with self.assertRaisesRegex(ValueError, "baseline_lineage_policy"):
+            run("unknown")
 
 
 if __name__ == "__main__":

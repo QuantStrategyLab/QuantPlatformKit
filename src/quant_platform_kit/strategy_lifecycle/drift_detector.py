@@ -138,10 +138,12 @@ def run_drift_detection(
     store: PerformanceStore | None = None,
     baseline_store: PerformanceStore | None = None,
     previous_drift_store: PerformanceStore | None = None,
+    baseline_lineage_policy: str = "compatible",
 ) -> list[DriftResult]:
     """Run drift detection with explicit baseline and transition-state stores."""
     store = store or PerformanceStore.from_env()
-    explicit_baseline_store = baseline_store is not None
+    if baseline_lineage_policy not in {"compatible", "strict"}:
+        raise ValueError("baseline_lineage_policy must be compatible or strict")
     baseline_store = baseline_store or store
     read_previous = previous_drift_store or store
     policy = policy or DriftPolicy.load_default()
@@ -170,7 +172,7 @@ def run_drift_detection(
         current_baseline_id = backtest.param_set_id if backtest else None
         if previous:
             previous_baseline_id = previous.baseline_param_set_id
-            if explicit_baseline_store:
+            if baseline_lineage_policy == "strict":
                 if not (previous_baseline_id and current_baseline_id and previous_baseline_id == current_baseline_id):
                     previous = None
             elif previous_baseline_id and current_baseline_id and previous_baseline_id != current_baseline_id:
