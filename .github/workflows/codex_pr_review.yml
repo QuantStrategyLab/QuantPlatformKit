@@ -16,7 +16,6 @@ concurrency:
 
 jobs:
   review:
-    if: github.event.pull_request.head.repo.full_name == github.repository
     uses: QuantStrategyLab/AIAuditBridge/.github/workflows/codex_pr_review.yml@main
     with:
       caller_concurrency_key: pr-${{ github.event.pull_request.number || github.run_id }}
