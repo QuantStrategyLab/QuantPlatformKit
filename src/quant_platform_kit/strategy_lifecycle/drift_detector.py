@@ -135,10 +135,12 @@ def run_drift_detection(
     fail_on_empty: bool = True,
     store: PerformanceStore | None = None,
     baseline_store: PerformanceStore | None = None,
+    previous_drift_store: PerformanceStore | None = None,
 ) -> list[DriftResult]:
-    """Run drift detection, optionally reading accepted baselines from another store."""
+    """Run drift detection with explicit baseline and transition-state stores."""
     store = store or PerformanceStore.from_env()
     baseline_store = baseline_store or store
+    previous_drift_store = previous_drift_store or store
     policy = policy or DriftPolicy.load_default()
 
     from quant_platform_kit.strategy_lifecycle.return_collector import ReturnCollector
@@ -161,7 +163,7 @@ def run_drift_detection(
             missing_snapshots += 1
             continue
         backtest = baseline_store.load_latest_backtest(domain, profile)
-        previous = baseline_store.load_latest_drift(domain, profile)
+        previous = previous_drift_store.load_latest_drift(domain, profile)
         result = detect_drift(snapshot, backtest=backtest, policy=policy,
                               previous_status=previous.status if previous else None)
         store.save_drift_result(result)
