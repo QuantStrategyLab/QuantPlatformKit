@@ -102,13 +102,21 @@ class PerformanceStore:
         clean = _clean_key(key)
         return f"{prefix}/{clean}" if prefix else clean
 
+    def _cloud_uri(self, key: str) -> str:
+        return f"gs://{self.cloud_bucket}/{self._cloud_path(key)}"
+
+    def _cloud_key(self, uri: str) -> str:
+        bucket_prefix = f"gs://{self.cloud_bucket}/"
+        path = uri[len(bucket_prefix) :] if uri.startswith(bucket_prefix) else uri
+        prefix = self.cloud_prefix.strip("/")
+        return path[len(prefix) + 1 :] if prefix and path.startswith(f"{prefix}/") else path
+
     def _read_cloud_json(self, key: str) -> dict[str, Any] | None:
         if not self.cloud_bucket:
             return None
         try:
             store = self._object_store()
-            path = self._cloud_path(key)
-            raw = store.read_bytes(self.cloud_bucket, path)
+            raw = store.read_bytes(self._cloud_uri(key))
             data = json.loads(raw.decode("utf-8"))
             return data if isinstance(data, Mapping) else None
         except Exception:
@@ -118,15 +126,17 @@ class PerformanceStore:
         if not self.cloud_bucket:
             return
         store = self._object_store()
-        path = self._cloud_path(key)
-        store.write_bytes(self.cloud_bucket, path, json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
+        store.write_bytes(
+            self._cloud_uri(key),
+            json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+        )
 
     def _list_cloud_keys(self, prefix: str) -> list[str]:
         if not self.cloud_bucket:
             return []
         try:
             store = self._object_store()
-            return store.list_keys(self.cloud_bucket, self._cloud_path(prefix))
+            return [self._cloud_key(uri) for uri in store.list(self._cloud_uri(prefix))]
         except Exception:
             return []
 

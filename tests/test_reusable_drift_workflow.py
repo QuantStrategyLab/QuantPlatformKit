@@ -15,9 +15,11 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "snapshot_repository_token:" in workflow
     assert "snapshot_checkout_path:" in workflow
     assert "ai_gateway_service_url:" in workflow
+    assert "quant_platform_kit_ref:" in workflow
     assert "lifecycle_performance_bucket:" in workflow
     assert "caller_event_name:" in workflow
     assert "caller_pr_head_repository:" in workflow
+    assert "lifecycle_preflight_artifact:" in workflow
     assert "codex_audit_service_url:" in workflow
     assert 'python-version: ${{ inputs.python_version }}' in workflow
     assert "LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}" in workflow
@@ -38,7 +40,10 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
     assert 'path: ${{ inputs.snapshot_checkout_path }}' in workflow
     assert 'token: ${{ secrets.snapshot_repository_token || github.token }}' in workflow
-    assert 'ref: ${{ github.workflow_sha }}' in workflow
+    assert 'ref: ${{ inputs.quant_platform_kit_ref }}' in workflow
+    assert "Download lifecycle preflight artifact" in workflow
+    assert "actions/download-artifact@v4" in workflow
+    assert "name: ${{ inputs.lifecycle_preflight_artifact }}" in workflow
     assert 'GH_TOKEN: ${{ github.token }}' in workflow
     assert 'os.environ["CODEX_AUDIT_ORG"] = owner' in workflow
     assert 'os.environ["CODEX_AUDIT_ORCHESTRATOR_REPO"] = repository' in workflow
