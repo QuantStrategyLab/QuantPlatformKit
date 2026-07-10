@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,11 @@ if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
 from check_qpk_pin_consistency import get_qpk_pin_sha
+
+
+QSL_QPK_REQUIREMENT_RE = re.compile(
+    r"(quant-platform-kit\s*@\s*git\+https://github\.com/QuantStrategyLab/QuantPlatformKit\.git@)[a-f0-9]{40}"
+)
 
 
 @dataclass(frozen=True)
@@ -53,6 +59,20 @@ def maybe_run_uv_lock(repo_dir: Path) -> bool:
     return True
 
 
+def update_qsl_compat_qpk_pin(repo_dir: Path, qpk_sha: str) -> bool:
+    qsl_path = repo_dir / "qsl.toml"
+    if not qsl_path.is_file():
+        return False
+
+    original = qsl_path.read_text(encoding="utf-8")
+    updated, replacements = QSL_QPK_REQUIREMENT_RE.subn(rf"\g<1>{qpk_sha}", original)
+    if replacements == 0 or updated == original:
+        return False
+
+    qsl_path.write_text(updated, encoding="utf-8")
+    return True
+
+
 def update_repo(repo_dir: Path, qpk_pin: Path) -> bool:
     script = SCRIPT_ROOT / "check_qpk_pin_consistency.py"
     run(
@@ -60,6 +80,7 @@ def update_repo(repo_dir: Path, qpk_pin: Path) -> bool:
         cwd=repo_dir,
     )
     maybe_run_uv_lock(repo_dir)
+    update_qsl_compat_qpk_pin(repo_dir, get_qpk_pin_sha(pin_file=qpk_pin))
     return has_changes(repo_dir)
 
 
