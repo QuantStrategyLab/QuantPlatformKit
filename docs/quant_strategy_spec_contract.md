@@ -12,9 +12,10 @@ runtime interfaces.
 | `ResearchSpec` | `research_spec.v1` | Freeze a falsifiable hypothesis, PIT data revision, four-layer benchmarks, net cost model, OOS plan, and complete trial ledger before evaluation. |
 | `OptimizationSpec` | `optimization_spec.v1` | Freeze optimization inputs, permitted parameter ranges, constrained objective, nested WFA, locked holdout, multiple-testing control, cost stress, stop rules, and human-only promotion. |
 
-Schemas are stored in `schemas/`.  Python validation is deliberately dependency
-free so an evidence gate can consume the same artifact without installing a
-JSON Schema runtime.
+Schemas are stored as package data under `quant_platform_kit/schemas/`, so they
+remain available in installed wheels. Python validation is deliberately
+dependency free so an evidence gate can consume the same artifact without
+installing a JSON Schema runtime.
 
 The schemas use QPK extensions for invariants that standard JSON Schema cannot
 express: sibling date ordering (`x-qpk-date-order` and

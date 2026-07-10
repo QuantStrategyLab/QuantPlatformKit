@@ -210,6 +210,7 @@ def validate_strategy_spec_file(path: str | Path) -> list[str]:
         payload = json.loads(
             spec_path.read_text(encoding="utf-8"),
             parse_constant=_reject_non_json_constant,
+            object_pairs_hook=_reject_duplicate_object_keys,
         )
     except FileNotFoundError:
         return [f"file not found: {spec_path}"]
@@ -463,3 +464,12 @@ def _is_int(value: Any) -> bool:
 
 def _reject_non_json_constant(value: str) -> None:
     raise ValueError(f"non-standard JSON constant {value!r}")
+
+
+def _reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"duplicate object key {key!r}")
+        payload[key] = value
+    return payload

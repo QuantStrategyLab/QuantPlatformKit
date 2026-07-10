@@ -129,7 +129,7 @@ def test_versioned_json_schemas_match_validator_versions() -> None:
             return result
 
         return json.loads(
-            (ROOT / "schemas" / name).read_text(encoding="utf-8"),
+            (ROOT / "src" / "quant_platform_kit" / "schemas" / name).read_text(encoding="utf-8"),
             object_pairs_hook=reject_duplicate_keys,
         )
 
@@ -284,6 +284,11 @@ def test_file_and_cli_validation_are_evidence_gate_friendly(tmp_path: Path) -> N
     invalid_path.write_text(json.dumps({"schema_version": "unknown.v1"}), encoding="utf-8")
     non_standard_json_path = tmp_path / "non-standard.json"
     non_standard_json_path.write_text('{"schema_version": NaN}', encoding="utf-8")
+    duplicate_key_path = tmp_path / "duplicate-key.json"
+    duplicate_key_path.write_text(
+        '{"schema_version": "research_spec.v1", "schema_version": "optimization_spec.v1"}',
+        encoding="utf-8",
+    )
 
     assert validate_strategy_spec_file(valid_path) == []
     assert validate_strategy_spec_file(invalid_path) == [
@@ -291,6 +296,9 @@ def test_file_and_cli_validation_are_evidence_gate_friendly(tmp_path: Path) -> N
     ]
     assert validate_strategy_spec_file(non_standard_json_path) == [
         "invalid JSON: non-standard JSON constant 'NaN'"
+    ]
+    assert validate_strategy_spec_file(duplicate_key_path) == [
+        "invalid JSON: duplicate object key 'schema_version'"
     ]
     assert spec_cli_main([str(valid_path)]) == 0
     assert "quant-strategy-spec" in (ROOT / "pyproject.toml").read_text(encoding="utf-8")
