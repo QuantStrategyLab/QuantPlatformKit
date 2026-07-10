@@ -39,7 +39,17 @@ def _run_drift(args: argparse.Namespace) -> int:
         "quant_platform_kit.strategy_lifecycle.drift_detector",
         "run_drift_detection",
     )
-    results = run_drift_detection(domain=args.domain, strategy_profile=args.strategy)
+    baseline_store = None
+    if getattr(args, "baseline_local_root", None):
+        from pathlib import Path
+        from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+
+        baseline_store = PerformanceStore(local_root=Path(args.baseline_local_root))
+    results = run_drift_detection(
+        domain=args.domain,
+        strategy_profile=args.strategy,
+        baseline_store=baseline_store,
+    )
     critical_count = sum(1 for item in results if getattr(getattr(item, "status", None), "value", None) == "critical")
     review_count = sum(1 for item in results if getattr(getattr(item, "status", None), "value", None) == "review")
     _print(f"[drift] {len(results)} strategies checked, {critical_count} critical, {review_count} review")
@@ -233,6 +243,7 @@ def build_parser() -> argparse.ArgumentParser:
     drift.add_argument("--strategy", default=None)
     drift.add_argument("--no-alerts", action="store_true")
     drift.add_argument("--dry-run-alerts", action="store_true")
+    drift.add_argument("--baseline-local-root", default=None)
     drift.set_defaults(func=_run_drift)
 
     optimize = subparsers.add_parser("optimize", help="Run parameter optimization for one strategy.")
