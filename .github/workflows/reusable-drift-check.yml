@@ -24,10 +24,6 @@ on:
         required: false
         type: string
         default: ""
-      quant_platform_kit_ref:
-        required: false
-        type: string
-        default: "main"
       drift_issue_owner:
         required: false
         type: string
@@ -143,7 +139,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
-          ref: ${{ inputs.quant_platform_kit_ref }}
+          ref: ${{ github.workflow_sha }}
           path: external/QuantPlatformKit
 
       - name: Set up Python
