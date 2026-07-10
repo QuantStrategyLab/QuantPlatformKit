@@ -95,7 +95,24 @@
           "then": { "required": ["choices"] }
         }
       ],
-      "additionalProperties": true
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "integer" } } },
+          "then": {
+            "required": ["bounds"],
+            "properties": { "bounds": { "items": { "type": "integer" } } }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "number" } } },
+          "then": { "required": ["bounds"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "choice" } } },
+          "then": { "required": ["choices"] }
+        }
+      ]
     },
     "objective": {
       "type": "object",
@@ -190,7 +207,7 @@
         "requires_human_approval": { "const": true },
         "automatic_risk_increase_allowed": { "const": false },
         "full_kelly_allowed": { "const": false },
-        "max_fractional_kelly": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+        "max_fractional_kelly": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 }
       },
       "additionalProperties": true
     }

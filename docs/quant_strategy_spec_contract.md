@@ -16,6 +16,11 @@ Schemas are stored in `schemas/`.  Python validation is deliberately dependency
 free so an evidence gate can consume the same artifact without installing a
 JSON Schema runtime.
 
+`research_spec.v1` uses the QPK extension
+`x-qpk-exclusive-date-order` for the sibling date ordering that standard JSON
+Schema cannot express.  QPK's validator and CLI enforce this extension; a
+generic JSON Schema-only consumer must not be used as a promotion gate.
+
 ```bash
 python scripts/validate_strategy_spec.py path/to/spec.json
 ```
@@ -27,8 +32,8 @@ use `validate_research_spec`, `validate_optimization_spec`, or
 
 ## v1 safety rules
 
-- Research evaluation requires a locked OOS interval, at least three
-  walk-forward folds, PIT and survivorship checks,
+- Research evaluation requires non-overlapping in-sample/OOS ranges, a locked
+  OOS interval, at least three walk-forward folds, PIT and survivorship checks,
   net-of-cost accounting, all-trial recording, and capital/passive/risk-matched/
   simple-rule benchmarks.
 - Optimization can only vary declared parameters.  It requires frozen data,

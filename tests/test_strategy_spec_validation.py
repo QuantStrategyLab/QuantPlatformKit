@@ -125,9 +125,14 @@ def test_versioned_json_schemas_match_validator_versions() -> None:
     ):
         schema = json.loads((ROOT / "schemas" / name).read_text(encoding="utf-8"))
         assert schema["properties"]["schema_version"]["const"] == version
+    research_schema = json.loads((ROOT / "schemas" / "research-spec.v1.schema.json").read_text(encoding="utf-8"))
+    assert research_schema["$defs"]["evaluation"]["x-qpk-exclusive-date-order"] == {
+        "earlier": "/in_sample/end_date",
+        "later": "/out_of_sample/start_date",
+    }
 
 
-def test_research_spec_rejects_unlocked_oos() -> None:
+def test_research_spec_rejects_unlocked_or_overlapping_oos() -> None:
     payload = _research_spec()
     evaluation = payload["evaluation"]
     assert isinstance(evaluation, dict)
@@ -140,6 +145,7 @@ def test_research_spec_rejects_unlocked_oos() -> None:
     issues = validate_research_spec(payload)
 
     assert "evaluation.out_of_sample.locked must be True" in issues
+    assert "evaluation.in_sample must end before evaluation.out_of_sample starts" in issues
 
 
 def test_research_spec_rejects_numeric_boolean_stand_ins() -> None:
@@ -220,6 +226,23 @@ def test_optimization_spec_rejects_non_scalar_choice_values() -> None:
     issues = validate_optimization_spec(payload)
 
     assert "allowed_parameters[2].choices must contain only strings, numbers, or booleans" in issues
+
+
+def test_optimization_spec_rejects_schema_invalid_optional_parameter_fields_and_full_kelly() -> None:
+    payload = _optimization_spec()
+    parameters = payload["allowed_parameters"]
+    promotion = payload["promotion"]
+    assert isinstance(parameters, list)
+    assert isinstance(promotion, dict)
+    parameters.append({"name": "rebalance_rule", "kind": "choice", "choices": ["monthly"], "step": 0})
+    parameters.append({"name": "enabled", "kind": "boolean", "bounds": "bad"})
+    promotion["max_fractional_kelly"] = 1
+
+    issues = validate_optimization_spec(payload)
+
+    assert "allowed_parameters[2].step must be a number > 0" in issues
+    assert "allowed_parameters[3].bounds must contain two numbers" in issues
+    assert "promotion.max_fractional_kelly must be a number in (0, 1)" in issues
 
 
 def test_file_and_cli_validation_are_evidence_gate_friendly(tmp_path: Path) -> None:

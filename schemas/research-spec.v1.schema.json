@@ -156,6 +156,10 @@
     },
     "evaluation": {
       "type": "object",
+      "x-qpk-exclusive-date-order": {
+        "earlier": "/in_sample/end_date",
+        "later": "/out_of_sample/start_date"
+      },
       "required": ["frozen_before_oos", "in_sample", "out_of_sample", "walk_forward"],
       "properties": {
         "frozen_before_oos": { "const": true },

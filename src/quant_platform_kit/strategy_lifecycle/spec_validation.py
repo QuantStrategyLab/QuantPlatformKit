@@ -90,10 +90,12 @@ def validate_research_spec(payload: Any) -> list[str]:
     evaluation = _check_object(payload, "evaluation", issues)
     if evaluation is not None:
         _check_const(evaluation, "frozen_before_oos", True, issues, prefix="evaluation")
-        _validate_date_window(evaluation.get("in_sample"), "evaluation.in_sample", issues)
-        _validate_date_window(evaluation.get("out_of_sample"), "evaluation.out_of_sample", issues)
+        in_sample = _validate_date_window(evaluation.get("in_sample"), "evaluation.in_sample", issues)
+        out_of_sample = _validate_date_window(evaluation.get("out_of_sample"), "evaluation.out_of_sample", issues)
         if isinstance(evaluation.get("out_of_sample"), dict):
             _check_const(evaluation["out_of_sample"], "locked", True, issues, prefix="evaluation.out_of_sample")
+        if in_sample is not None and out_of_sample is not None and in_sample[1] >= out_of_sample[0]:
+            issues.append("evaluation.in_sample must end before evaluation.out_of_sample starts")
         _validate_walk_forward(evaluation.get("walk_forward"), "evaluation.walk_forward", issues)
 
     trial_ledger = _check_object(payload, "trial_ledger", issues)
@@ -177,8 +179,8 @@ def validate_optimization_spec(payload: Any) -> list[str]:
         _check_const(promotion, "automatic_risk_increase_allowed", False, issues, prefix="promotion")
         _check_const(promotion, "full_kelly_allowed", False, issues, prefix="promotion")
         fractional_kelly = promotion.get("max_fractional_kelly")
-        if not _is_number(fractional_kelly) or not 0 < fractional_kelly <= 1:
-            issues.append("promotion.max_fractional_kelly must be a number in (0, 1]")
+        if not _is_number(fractional_kelly) or not 0 < fractional_kelly < 1:
+            issues.append("promotion.max_fractional_kelly must be a number in (0, 1)")
 
     return issues
 
@@ -304,22 +306,28 @@ def _validate_parameters(value: Any, issues: list[str]) -> None:
         if kind not in _OPTIMIZATION_PARAMETER_KINDS:
             issues.append(f"{label}.kind must be integer, number, choice, or boolean")
             continue
-        if kind in {"integer", "number"}:
-            bounds = parameter.get("bounds")
+        bounds = parameter.get("bounds")
+        if "bounds" in parameter:
             if not isinstance(bounds, list) or len(bounds) != 2 or not all(_is_number(item) for item in bounds):
                 issues.append(f"{label}.bounds must contain two numbers")
             elif bounds[0] >= bounds[1]:
                 issues.append(f"{label}.bounds lower value must be less than upper value")
-            elif kind == "integer" and not all(_is_int(item) for item in bounds):
-                issues.append(f"{label}.bounds must contain integers for kind=integer")
-            if "step" in parameter and (not _is_number(parameter["step"]) or parameter["step"] <= 0):
-                issues.append(f"{label}.step must be a number > 0")
-        elif kind == "choice":
-            choices = parameter.get("choices")
+        choices = parameter.get("choices")
+        if "choices" in parameter:
             if not isinstance(choices, list) or not choices:
-                issues.append(f"{label}.choices must be a non-empty array for kind=choice")
+                issues.append(f"{label}.choices must be a non-empty array")
             elif not all(isinstance(item, (str, bool)) or _is_number(item) for item in choices):
                 issues.append(f"{label}.choices must contain only strings, numbers, or booleans")
+        if "step" in parameter and (not _is_number(parameter["step"]) or parameter["step"] <= 0):
+            issues.append(f"{label}.step must be a number > 0")
+        if kind in {"integer", "number"}:
+            if "bounds" not in parameter:
+                issues.append(f"{label}.bounds must contain two numbers")
+            elif kind == "integer" and isinstance(bounds, list) and not all(_is_int(item) for item in bounds):
+                issues.append(f"{label}.bounds must contain integers for kind=integer")
+        elif kind == "choice":
+            if "choices" not in parameter:
+                issues.append(f"{label}.choices must be a non-empty array for kind=choice")
 
 
 def _validate_nested_walk_forward(value: Any, issues: list[str]) -> None:
