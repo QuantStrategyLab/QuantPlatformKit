@@ -20,6 +20,10 @@ on:
         required: false
         type: string
         default: ""
+      lifecycle_performance_bucket:
+        required: false
+        type: string
+        default: ""
       caller_event_name:
         required: true
         type: string
@@ -46,7 +50,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       STRATEGY_DOMAIN: ${{ inputs.strategy_domain }}
       QUANT_PROJECTS_ROOT: ${{ github.workspace }}/external
-      LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
+      LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
       LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
 
     steps:
@@ -157,7 +161,15 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python - <<'PY'
+          import os
+
           from quant_platform_kit.strategy_lifecycle.codex_integration import create_issues_for_domain
+
+          owner, _, repository = os.environ["GITHUB_REPOSITORY"].partition("/")
+          if not owner or not repository:
+              raise RuntimeError("GITHUB_REPOSITORY must identify the reusable workflow caller")
+          os.environ["CODEX_AUDIT_ORG"] = owner
+          os.environ["CODEX_AUDIT_ORCHESTRATOR_REPO"] = repository
           results = create_issues_for_domain("${{ inputs.strategy_domain }}")
           created = [item for item in results if item.get("issue_url")]
           print({"created_issues": len(created), "results": len(results)})
