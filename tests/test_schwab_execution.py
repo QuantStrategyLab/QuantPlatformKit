@@ -6,14 +6,20 @@ import unittest
 from unittest.mock import patch
 
 from quant_platform_kit.common.models import OrderIntent
-from quant_platform_kit.schwab.execution import submit_equity_order
+from quant_platform_kit.schwab.execution import fetch_order_status, submit_equity_order
 
 
 class FakeResponse:
-    def __init__(self, status_code=201, text="", headers=None):
+    def __init__(self, status_code=201, text="", headers=None, json_payload=None):
         self.status_code = status_code
         self.text = text
         self.headers = headers or {}
+        self._json_payload = json_payload
+
+    def json(self):
+        if self._json_payload is None:
+            raise ValueError("no json payload")
+        return self._json_payload
 
 
 class FakeClient:
@@ -22,6 +28,10 @@ class FakeClient:
 
     def place_order(self, account_hash, order):
         self.last_call = (account_hash, order)
+        return self.response
+
+    def get_order(self, order_id, account_hash):
+        self.last_order_lookup = (order_id, account_hash)
         return self.response
 
 
@@ -82,6 +92,33 @@ class SchwabExecutionTests(unittest.TestCase):
         self.assertEqual(order["orderLegCollection"][0]["quantityType"], "DOLLARS")
         self.assertEqual(order["orderLegCollection"][0]["quantity"], 50.0)
         self.assertEqual(order["orderLegCollection"][0]["instrument"]["symbol"], "QQQM")
+
+    def test_fetch_order_status_reads_execution_legs(self) -> None:
+        client = FakeClient(
+            FakeResponse(
+                200,
+                json_payload={
+                    "status": "FILLED",
+                    "filledQuantity": 3,
+                    "orderActivityCollection": [
+                        {
+                            "executionLegs": [
+                                {"quantity": 1, "price": 100.0},
+                                {"quantity": 2, "price": 101.0},
+                            ]
+                        }
+                    ],
+                },
+            )
+        )
+
+        status = fetch_order_status(client, "acct-hash", "OID-123")
+
+        self.assertEqual(client.last_order_lookup, ("OID-123", "acct-hash"))
+        self.assertEqual(status["status"], "FILLED")
+        self.assertEqual(status["executed_qty"], 3.0)
+        self.assertAlmostEqual(status["executed_price"], (1 * 100.0 + 2 * 101.0) / 3)
+        self.assertEqual(status["broker_order_id"], "OID-123")
 
 
 if __name__ == "__main__":

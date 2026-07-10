@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from quant_platform_kit.common.order_status import normalize_order_status_payload
 from quant_platform_kit.common.models import ExecutionReport, OrderIntent
 
 MIN_DOLLAR_BUY_NOTIONAL_USD = 1.0
@@ -86,3 +87,20 @@ def submit_equity_order(api_client: Any, account_hash: str, order_intent: OrderI
             "detail": f"{response.status_code} {response.text}",
         },
     )
+
+
+def fetch_order_status(api_client: Any, account_hash: str, order_id: str) -> dict[str, Any] | None:
+    response = api_client.get_order(order_id, account_hash)
+    status_code = getattr(response, "status_code", None)
+    if status_code not in (200, 201):
+        return None
+    try:
+        payload = response.json()
+    except Exception:
+        return None
+    normalized = normalize_order_status_payload(payload)
+    if normalized is None:
+        return None
+    if not normalized.get("broker_order_id"):
+        normalized["broker_order_id"] = str(order_id or "").strip() or None
+    return normalized
