@@ -123,7 +123,9 @@ def detect_drift(
         strategy_profile=snapshot.strategy_profile, domain=snapshot.domain,
         as_of=snapshot.as_of, drift_score=round(drift_score, 4),
         status=status, dimensions=dimensions,
-        previous_status=previous_status, escalated=escalated,
+        previous_status=previous_status,
+        baseline_param_set_id=backtest.param_set_id if backtest else None,
+        escalated=escalated,
     )
 
 
@@ -163,7 +165,9 @@ def run_drift_detection(
             missing_snapshots += 1
             continue
         backtest = baseline_store.load_latest_backtest(domain, profile)
-        previous = read_previous.load_latest_drift(domain, profile) if read_previous else None
+        previous = store.load_latest_drift(domain, profile)
+        if baseline_store is not store and previous and previous.baseline_param_set_id != (backtest.param_set_id if backtest else None):
+            previous = None
         result = detect_drift(snapshot, backtest=backtest, policy=policy,
                               previous_status=previous.status if previous else None)
         store.save_drift_result(result)
