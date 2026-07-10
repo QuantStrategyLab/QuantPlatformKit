@@ -49,6 +49,7 @@ def _run_drift(args: argparse.Namespace) -> int:
         domain=args.domain,
         strategy_profile=args.strategy,
         baseline_store=baseline_store,
+        baseline_lineage_policy="strict" if getattr(args, "strict_baseline_lineage", False) else "compatible",
     )
     critical_count = sum(1 for item in results if getattr(getattr(item, "status", None), "value", None) == "critical")
     review_count = sum(1 for item in results if getattr(getattr(item, "status", None), "value", None) == "review")
@@ -244,6 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
     drift.add_argument("--no-alerts", action="store_true")
     drift.add_argument("--dry-run-alerts", action="store_true")
     drift.add_argument("--baseline-local-root", default=None)
+    drift.add_argument("--strict-baseline-lineage", action="store_true")
     drift.set_defaults(func=_run_drift)
 
     optimize = subparsers.add_parser("optimize", help="Run parameter optimization for one strategy.")
