@@ -22,6 +22,13 @@ from check_qpk_pin_consistency import get_qpk_pin_sha
 QSL_QPK_REQUIREMENT_RE = re.compile(
     r"(quant-platform-kit\s*@\s*git\+https://github\.com/QuantStrategyLab/QuantPlatformKit\.git@)[a-f0-9]{40}"
 )
+QSL_REQUIRES_TABLE_RE = re.compile(
+    r"(?ms)^[ \t]*(?P<header>\[qsl\.requires\][^\n]*\n)(?P<body>.*?)(?=^[ \t]*\[|\Z)"
+)
+QSL_QPK_REQUIRES_MAP_RE = re.compile(
+    r"""(^[ \t]*(?:["']quant-platform-kit["']|quant-platform-kit|["']quant_platform_kit["']|quant_platform_kit)\s*=\s*)(['"])[a-f0-9]{40}(\2)""",
+    re.MULTILINE,
+)
 
 
 @dataclass(frozen=True)
@@ -65,7 +72,17 @@ def update_qsl_compat_qpk_pin(repo_dir: Path, qpk_sha: str) -> bool:
         return False
 
     original = qsl_path.read_text(encoding="utf-8")
-    updated, replacements = QSL_QPK_REQUIREMENT_RE.subn(rf"\g<1>{qpk_sha}", original)
+    updated, requirement_replacements = QSL_QPK_REQUIREMENT_RE.subn(rf"\g<1>{qpk_sha}", original)
+    requires_map_replacements = 0
+
+    def update_requires_table(match: re.Match[str]) -> str:
+        nonlocal requires_map_replacements
+        body, replacements = QSL_QPK_REQUIRES_MAP_RE.subn(rf"\g<1>\g<2>{qpk_sha}\g<3>", match.group("body"))
+        requires_map_replacements += replacements
+        return match.group("header") + body
+
+    updated = QSL_REQUIRES_TABLE_RE.sub(update_requires_table, updated)
+    replacements = requirement_replacements + requires_map_replacements
     if replacements == 0 or updated == original:
         return False
 
