@@ -16,8 +16,6 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "snapshot_checkout_path:" in workflow
     assert "ai_gateway_service_url:" in workflow
     assert "lifecycle_performance_bucket:" in workflow
-    assert "drift_issue_owner:" in workflow
-    assert "drift_issue_repository:" in workflow
     assert "caller_event_name:" in workflow
     assert "caller_pr_head_repository:" in workflow
     assert "codex_audit_service_url:" in workflow
@@ -42,8 +40,8 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'token: ${{ secrets.snapshot_repository_token || github.token }}' in workflow
     assert 'ref: ${{ github.workflow_sha }}' in workflow
     assert 'GH_TOKEN: ${{ github.token }}' in workflow
-    assert 'CODEX_AUDIT_ORG: ${{ inputs.drift_issue_owner }}' in workflow
-    assert 'CODEX_AUDIT_ORCHESTRATOR_REPO: ${{ inputs.drift_issue_repository }}' in workflow
+    assert 'os.environ["CODEX_AUDIT_ORG"] = owner' in workflow
+    assert 'os.environ["CODEX_AUDIT_ORCHESTRATOR_REPO"] = repository' in workflow
     assert "create_issues_for_domain" in workflow
     assert 'CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}' in workflow
     assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
