@@ -101,6 +101,30 @@ class BacktestOrchestratorTests(unittest.TestCase):
 
         self.assertEqual(persisted.param_version, 7)
 
+    def test_persist_result_clamps_explicit_zero_param_version(self) -> None:
+        result = BacktestResult(
+            strategy_profile="test_strat",
+            domain="us_equity",
+            param_set_id="candidate",
+            params={"lookback": 30},
+            param_version=7,
+            sharpe_ratio=1.3,
+            cagr=0.12,
+            max_drawdown=-0.08,
+            observation_count=252,
+        )
+
+        persisted = self.orchestrator.persist_result(
+            result,
+            strategy_profile="test_strat",
+            domain="us_equity",
+            params={"lookback": 30},
+            param_set_id="persisted",
+            param_version=0,
+        )
+
+        self.assertEqual(persisted.param_version, 1)
+
     def test_run_raises_without_runner(self) -> None:
         with self.assertRaises(ValueError):
             self.orchestrator.run("test_strat", domain="cn_equity", params={})
