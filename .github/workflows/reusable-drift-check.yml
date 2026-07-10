@@ -159,7 +159,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.lifecycle_preflight_artifact }}
-          path: ${{ env.LIFECYCLE_LOCAL_ROOT }}
+          path: ${{ github.workspace }}
 
       - name: Build lifecycle performance snapshots
         run: quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}

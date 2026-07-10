@@ -44,6 +44,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "Download lifecycle preflight artifact" in workflow
     assert "actions/download-artifact@v4" in workflow
     assert "name: ${{ inputs.lifecycle_preflight_artifact }}" in workflow
+    assert "path: ${{ github.workspace }}" in workflow
     assert 'GH_TOKEN: ${{ github.token }}' in workflow
     assert 'os.environ["CODEX_AUDIT_ORG"] = owner' in workflow
     assert 'os.environ["CODEX_AUDIT_ORCHESTRATOR_REPO"] = repository' in workflow
