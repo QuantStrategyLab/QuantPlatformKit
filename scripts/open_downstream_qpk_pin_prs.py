@@ -74,6 +74,14 @@ def create_branch_commit_and_pr(
     branch = f"auto/qpk-pin-sync-{qpk_sha[:12]}"
     remote_url = f"https://x-access-token:{token}@github.com/QuantStrategyLab/{repo.name}.git"
     run(["git", "checkout", "-B", branch], cwd=repo_dir)
+    run(
+        ["git", "config", "user.name", os.environ.get("QSL_PIN_SYNC_GIT_NAME", "QuantStrategyLab QPK Sync")],
+        cwd=repo_dir,
+    )
+    run(
+        ["git", "config", "user.email", os.environ.get("QSL_PIN_SYNC_GIT_EMAIL", "qpk-sync@users.noreply.github.com")],
+        cwd=repo_dir,
+    )
     run(["git", "add", "-A"], cwd=repo_dir)
     run(
         [
