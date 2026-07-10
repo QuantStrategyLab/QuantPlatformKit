@@ -141,6 +141,7 @@ def run_drift_detection(
 ) -> list[DriftResult]:
     """Run drift detection with explicit baseline and transition-state stores."""
     store = store or PerformanceStore.from_env()
+    explicit_baseline_store = baseline_store is not None
     baseline_store = baseline_store or store
     read_previous = previous_drift_store or store
     policy = policy or DriftPolicy.load_default()
@@ -167,8 +168,10 @@ def run_drift_detection(
         backtest = baseline_store.load_latest_backtest(domain, profile)
         previous = read_previous.load_latest_drift(domain, profile)
         current_baseline_id = backtest.param_set_id if backtest else None
-        if previous and previous.baseline_param_set_id and current_baseline_id and previous.baseline_param_set_id != current_baseline_id:
-            previous = None
+        if previous and current_baseline_id:
+            previous_baseline_id = previous.baseline_param_set_id
+            if (explicit_baseline_store and not previous_baseline_id) or (previous_baseline_id and previous_baseline_id != current_baseline_id):
+                previous = None
         result = detect_drift(snapshot, backtest=backtest, policy=policy,
                               previous_status=previous.status if previous else None)
         store.save_drift_result(result)
