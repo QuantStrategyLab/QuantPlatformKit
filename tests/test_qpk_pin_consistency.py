@@ -87,6 +87,7 @@ override-dependencies = [
             qsl_path.write_text(
                 "[qsl.requires]\n"
                 f'quant_platform_kit = "{STALE}"\n'
+                f'quant-platform-kit = "{STALE}"\n'
                 f'crypto_strategies = "{STALE}"\n'
                 "\n[runtime]\n"
                 f'quant_platform_kit = "{STALE}"\n',
@@ -97,6 +98,7 @@ override-dependencies = [
             updated = qsl_path.read_text(encoding="utf-8")
 
         self.assertIn(f'quant_platform_kit = "{TARGET}"', updated)
+        self.assertIn(f'quant-platform-kit = "{TARGET}"', updated)
         self.assertIn(f'crypto_strategies = "{STALE}"', updated)
         self.assertIn(f'[runtime]\nquant_platform_kit = "{STALE}"', updated)
 
