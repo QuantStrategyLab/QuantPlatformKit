@@ -269,14 +269,16 @@ class PerformanceStore:
             candidates.append((_backtest_sort_key(result, key), result))
         if not candidates:
             return None
-        candidates.sort(key=lambda item: item[0])
-        return candidates[-1][1]
+        baseline_candidates = [item for item in candidates if _is_baseline_backtest(item[1])]
+        selected = baseline_candidates or candidates
+        selected.sort(key=lambda item: item[0])
+        return selected[-1][1]
 
     # ── optimization ─────────────────────────────────────────────
 
     def _proposal_key(self, proposal: OptimizationProposal) -> str:
         version = proposal.proposed_metrics.param_version if proposal.proposed_metrics else 1
-        stamp = _clean_key(proposal.computed_at or proposal.strategy_profile or _now_iso()).replace("/", "_")
+        stamp = _clean_key(proposal.computed_at or _now_iso()).replace("/", "_")
         return (
             f"optimization/{_clean_key(proposal.domain)}/{_clean_key(proposal.strategy_profile)}/"
             f"proposal_v{version}_{stamp}.json"
@@ -289,14 +291,17 @@ class PerformanceStore:
         )
 
     def load_proposal(self, domain: str, strategy_profile: str, version: int) -> OptimizationProposal | None:
-        prefix = f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/proposal_v{version}"
-        exact_key = f"{prefix}.json"
+        prefix = f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/proposal_v{version}_"
+        exact_key = f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/proposal_v{version}.json"
         keys = list(dict.fromkeys([exact_key, *self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
         candidates: list[tuple[str, OptimizationProposal]] = []
         for key in keys:
             data = self._read(key)
             proposal = _proposal_from_dict(data) if data else None
             if proposal is not None:
+                result_version = proposal.proposed_metrics.param_version if proposal.proposed_metrics else 1
+                if int(result_version) != int(version):
+                    continue
                 candidates.append((str(proposal.computed_at or ""), proposal))
         if not candidates:
             return None
@@ -545,13 +550,22 @@ def _backtest_sort_key(result: BacktestResult, key: str) -> tuple[str, int, str]
     return (computed_at, int(result.param_version or 0), str(key))
 
 
+def _is_baseline_backtest(result: BacktestResult) -> bool:
+    marker = str(result.param_set_id or "").strip().lower()
+    return "_baseline" in marker or marker.startswith("baseline")
+
+
 def _proposal_from_dict(data: Mapping[str, Any]) -> OptimizationProposal | None:
     try:
+        current_metrics = _backtest_from_dict(data["current_metrics"]) if isinstance(data.get("current_metrics"), Mapping) else None
+        proposed_metrics = _backtest_from_dict(data["proposed_metrics"]) if isinstance(data.get("proposed_metrics"), Mapping) else None
         return OptimizationProposal(
             strategy_profile=str(data.get("strategy_profile", "")),
             domain=str(data.get("domain", "")),
             current_params=dict(data.get("current_params", {})),
+            current_metrics=current_metrics,
             proposed_params=dict(data.get("proposed_params", {})),
+            proposed_metrics=proposed_metrics,
             improvement_score=float(data.get("improvement_score", 0)),
             confidence=float(data.get("confidence", 0)),
             recommendation=str(data.get("recommendation", "")),

@@ -386,7 +386,10 @@ def _auto_register_runner(orchestrator: BacktestOrchestrator, domain: str) -> No
     import importlib
 
     adapter_map = {
-        "us_equity": ("us_equity_snapshot_pipelines.lifecycle.backtest_wrapper",),
+        "us_equity": (
+            "us_equity_snapshot_pipelines.lifecycle.backtest_wrapper",
+            "us_equity_snapshot_pipelines.strategy_lifecycle.backtest_wrapper",
+        ),
         "crypto": (
             "crypto_live_pool_pipelines.strategy_lifecycle.backtest_wrapper",
             "strategy_lifecycle.backtest_wrapper",

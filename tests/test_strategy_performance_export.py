@@ -170,6 +170,45 @@ class StrategyPerformanceExportTests(unittest.TestCase):
             self.assertIsNotNone(loaded)
             self.assertEqual(loaded.param_set_id, "wf1")
 
+    def test_performance_store_prefers_baseline_backtest_over_newer_walk_forward(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            baseline = BacktestResult(
+                strategy_profile="crypto_live_pool_rotation",
+                domain="crypto",
+                param_set_id="crypto_live_pool_rotation_baseline_deadbeef",
+                params={},
+                param_version=2,
+                sharpe_ratio=1.0,
+                calmar_ratio=1.0,
+                max_drawdown=-0.1,
+                cagr=0.2,
+                volatility=0.2,
+                win_rate=0.55,
+                computed_at="2026-06-28T00:00:00Z",
+            )
+            wf = BacktestResult(
+                strategy_profile="crypto_live_pool_rotation",
+                domain="crypto",
+                param_set_id="crypto_live_pool_rotation_wf0",
+                params={},
+                param_version=2,
+                sharpe_ratio=1.3,
+                calmar_ratio=1.2,
+                max_drawdown=-0.08,
+                cagr=0.24,
+                volatility=0.22,
+                win_rate=0.58,
+                computed_at="2026-06-29T00:00:00Z",
+            )
+            store.save_backtest_result(baseline)
+            store.save_backtest_result(wf)
+
+            loaded = store.load_latest_backtest("crypto", "crypto_live_pool_rotation")
+
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.param_set_id, baseline.param_set_id)
+
     def test_performance_store_keeps_multiple_proposals_same_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
@@ -228,6 +267,66 @@ class StrategyPerformanceExportTests(unittest.TestCase):
             self.assertEqual(len(files), 2)
             self.assertIsNotNone(loaded)
             self.assertEqual(loaded.proposed_params["top_n"], 10)
+
+    def test_performance_store_load_proposal_does_not_cross_version_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            v1_metrics = BacktestResult(
+                strategy_profile="crypto_live_pool_rotation",
+                domain="crypto",
+                param_set_id="candidate_v1",
+                params={},
+                param_version=1,
+                sharpe_ratio=1.0,
+                calmar_ratio=1.0,
+                max_drawdown=-0.1,
+                cagr=0.2,
+                volatility=0.2,
+                win_rate=0.55,
+                computed_at="2026-06-28T00:00:00Z",
+            )
+            v10_metrics = BacktestResult(
+                strategy_profile="crypto_live_pool_rotation",
+                domain="crypto",
+                param_set_id="candidate_v10",
+                params={},
+                param_version=10,
+                sharpe_ratio=1.5,
+                calmar_ratio=1.4,
+                max_drawdown=-0.07,
+                cagr=0.3,
+                volatility=0.24,
+                win_rate=0.61,
+                computed_at="2026-06-29T00:00:00Z",
+            )
+            store.save_proposal(
+                OptimizationProposal(
+                    strategy_profile="crypto_live_pool_rotation",
+                    domain="crypto",
+                    current_params={"top_n": 6},
+                    proposed_params={"top_n": 8},
+                    proposed_metrics=v1_metrics,
+                    recommendation="review",
+                    computed_at="2026-06-28T00:00:00Z",
+                )
+            )
+            store.save_proposal(
+                OptimizationProposal(
+                    strategy_profile="crypto_live_pool_rotation",
+                    domain="crypto",
+                    current_params={"top_n": 8},
+                    proposed_params={"top_n": 10},
+                    proposed_metrics=v10_metrics,
+                    recommendation="promote",
+                    computed_at="2026-06-29T00:00:00Z",
+                )
+            )
+
+            loaded = store.load_proposal("crypto", "crypto_live_pool_rotation", version=1)
+
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(loaded.proposed_metrics.param_version, 1)
 
 
 if __name__ == "__main__":

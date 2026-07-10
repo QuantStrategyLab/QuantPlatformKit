@@ -29,3 +29,4 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'GH_TOKEN: ${{ github.token }}' in workflow
     assert 'CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}' in workflow
     assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
+    assert 'ref: 9ff297375acbc54afa910d828248812212b5d7f2' in workflow
