@@ -180,10 +180,10 @@ class DriftResult:
     status: DriftStatus
     dimensions: Mapping[str, DriftDimension] = field(default_factory=dict)
     previous_status: DriftStatus | None = None
-    baseline_param_set_id: str | None = None
     escalated: bool = False
     cooldown_active: bool = False
     alert_suppressed: bool = False
+    baseline_param_set_id: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {

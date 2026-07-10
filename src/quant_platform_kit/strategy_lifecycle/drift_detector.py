@@ -166,7 +166,7 @@ def run_drift_detection(
             continue
         backtest = baseline_store.load_latest_backtest(domain, profile)
         previous = read_previous.load_latest_drift(domain, profile)
-        if baseline_store is not store and previous and previous.baseline_param_set_id != (backtest.param_set_id if backtest else None):
+        if previous and previous.baseline_param_set_id != (backtest.param_set_id if backtest else None):
             previous = None
         result = detect_drift(snapshot, backtest=backtest, policy=policy,
                               previous_status=previous.status if previous else None)
