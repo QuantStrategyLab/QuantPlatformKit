@@ -21,8 +21,8 @@ jobs:
     with:
       caller_concurrency_key: pr-${{ github.event.pull_request.number || github.run_id }}
       allow_unconfigured_backend: false
-      api_fallback_enabled: false
-      direct_api_primary_enabled: false
+      api_fallback_enabled: "false"
+      direct_api_primary_enabled: "false"
     secrets: inherit
     permissions:
       contents: read
