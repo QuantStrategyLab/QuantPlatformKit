@@ -43,8 +43,6 @@
       "low"
     ],
     "timeout_minutes": 20,
-    "max_diff_lines": 2400,
-    "auto_converge_after": 0,
-    "block_on_review_failure": true
+    "max_diff_lines": 2400
   }
 }
