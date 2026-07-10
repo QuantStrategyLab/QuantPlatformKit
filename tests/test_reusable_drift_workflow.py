@@ -44,6 +44,14 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "Download lifecycle preflight artifact" in workflow
     assert "actions/download-artifact@v4" in workflow
     assert "name: ${{ inputs.lifecycle_preflight_artifact }}" in workflow
+    assert "path: ${{ runner.temp }}/lifecycle-preflight" in workflow
+    assert "Restore lifecycle preflight inputs" in workflow
+    assert "snapshot_checkout_path must remain under external/" in workflow
+    assert "lifecycle preflight artifact must not contain symlinks" in workflow
+    assert "snapshot checkout resolved outside the external workspace" in workflow
+    assert "snapshot checkout must not contain symlinks" in workflow
+    assert 'rm -rf -- "$LIFECYCLE_LOCAL_ROOT" "$snapshot_target"' in workflow
+    assert 'cp -a "$lifecycle_source/." "$LIFECYCLE_LOCAL_ROOT/"' in workflow
     assert 'GH_TOKEN: ${{ github.token }}' in workflow
     assert 'os.environ["CODEX_AUDIT_ORG"] = owner' in workflow
     assert 'os.environ["CODEX_AUDIT_ORCHESTRATOR_REPO"] = repository' in workflow
