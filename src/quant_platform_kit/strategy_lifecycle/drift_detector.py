@@ -161,7 +161,7 @@ def run_drift_detection(
             missing_snapshots += 1
             continue
         backtest = baseline_store.load_latest_backtest(domain, profile)
-        previous = store.load_latest_drift(domain, profile)
+        previous = baseline_store.load_latest_drift(domain, profile)
         result = detect_drift(snapshot, backtest=backtest, policy=policy,
                               previous_status=previous.status if previous else None)
         store.save_drift_result(result)
