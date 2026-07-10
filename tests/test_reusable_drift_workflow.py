@@ -15,11 +15,15 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "snapshot_repository_token:" in workflow
     assert "snapshot_checkout_path:" in workflow
     assert "ai_gateway_service_url:" in workflow
+    assert "lifecycle_performance_bucket:" in workflow
+    assert "quant_platform_kit_ref:" in workflow
+    assert "drift_issue_owner:" in workflow
+    assert "drift_issue_repository:" in workflow
     assert "caller_event_name:" in workflow
     assert "caller_pr_head_repository:" in workflow
     assert "codex_audit_service_url:" in workflow
     assert 'python-version: ${{ inputs.python_version }}' in workflow
-    assert 'LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || \'\' }}' in workflow
+    assert "LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}" in workflow
     assert "Validate trusted caller" in workflow
     assert "Untrusted reusable workflow caller" in workflow
     assert "caller_event_name must be provided by the caller workflow" in workflow
@@ -37,8 +41,10 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
     assert 'path: ${{ inputs.snapshot_checkout_path }}' in workflow
     assert 'token: ${{ secrets.snapshot_repository_token || github.token }}' in workflow
-    assert 'ref: ${{ github.workflow_sha }}' in workflow
+    assert 'ref: ${{ inputs.quant_platform_kit_ref }}' in workflow
     assert 'GH_TOKEN: ${{ github.token }}' in workflow
+    assert 'CODEX_AUDIT_ORG: ${{ inputs.drift_issue_owner }}' in workflow
+    assert 'CODEX_AUDIT_ORCHESTRATOR_REPO: ${{ inputs.drift_issue_repository }}' in workflow
     assert "create_issues_for_domain" in workflow
     assert 'CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}' in workflow
     assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
