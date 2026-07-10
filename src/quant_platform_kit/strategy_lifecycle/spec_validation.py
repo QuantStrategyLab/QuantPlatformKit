@@ -8,6 +8,7 @@ installation.  The matching JSON Schema files remain the interchange contract.
 from __future__ import annotations
 
 import json
+import math
 import re
 from datetime import date, datetime
 from pathlib import Path
@@ -205,11 +206,16 @@ def validate_strategy_spec_file(path: str | Path) -> list[str]:
 
     spec_path = Path(path)
     try:
-        payload = json.loads(spec_path.read_text(encoding="utf-8"))
+        payload = json.loads(
+            spec_path.read_text(encoding="utf-8"),
+            parse_constant=_reject_non_json_constant,
+        )
     except FileNotFoundError:
         return [f"file not found: {spec_path}"]
     except json.JSONDecodeError as exc:
         return [f"invalid JSON: {exc.msg} (line {exc.lineno}, column {exc.colno})"]
+    except ValueError as exc:
+        return [f"invalid JSON: {exc}"]
     except OSError as exc:
         return [f"failed to read file: {exc}"]
     return validate_strategy_spec(payload)
@@ -412,7 +418,8 @@ def _check_datetime(
 
 
 def _check_const(payload: dict[str, Any], field: str, expected: object, issues: list[str], *, prefix: str) -> None:
-    if payload.get(field) != expected:
+    value = payload.get(field)
+    if type(value) is not type(expected) or value != expected:
         issues.append(f"{prefix}.{field} must be {expected!r}")
 
 
@@ -438,8 +445,12 @@ def _parse_datetime(value: str) -> datetime | None:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _reject_non_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant {value!r}")

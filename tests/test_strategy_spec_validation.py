@@ -143,6 +143,23 @@ def test_research_spec_rejects_unlocked_or_overlapping_oos() -> None:
     assert "evaluation.in_sample must end before evaluation.out_of_sample starts" in issues
 
 
+def test_research_spec_rejects_numeric_boolean_stand_ins() -> None:
+    payload = _research_spec()
+    evaluation = payload["evaluation"]
+    trial_ledger = payload["trial_ledger"]
+    assert isinstance(evaluation, dict)
+    assert isinstance(trial_ledger, dict)
+    out_of_sample = evaluation["out_of_sample"]
+    assert isinstance(out_of_sample, dict)
+    out_of_sample["locked"] = 1
+    trial_ledger["record_all_trials"] = 1
+
+    issues = validate_research_spec(payload)
+
+    assert "evaluation.out_of_sample.locked must be True" in issues
+    assert "trial_ledger.record_all_trials must be True" in issues
+
+
 def test_research_spec_rejects_naive_or_date_only_timestamps() -> None:
     payload = _research_spec()
     payload["created_at"] = "2026-07-11"
@@ -211,10 +228,15 @@ def test_file_and_cli_validation_are_evidence_gate_friendly(tmp_path: Path) -> N
     valid_path.write_text(json.dumps(_research_spec()), encoding="utf-8")
     invalid_path = tmp_path / "invalid-spec.json"
     invalid_path.write_text(json.dumps({"schema_version": "unknown.v1"}), encoding="utf-8")
+    non_standard_json_path = tmp_path / "non-standard.json"
+    non_standard_json_path.write_text('{"schema_version": NaN}', encoding="utf-8")
 
     assert validate_strategy_spec_file(valid_path) == []
     assert validate_strategy_spec_file(invalid_path) == [
         "schema_version must be one of research_spec.v1, optimization_spec.v1"
+    ]
+    assert validate_strategy_spec_file(non_standard_json_path) == [
+        "invalid JSON: non-standard JSON constant 'NaN'"
     ]
 
     valid_proc = subprocess.run(
