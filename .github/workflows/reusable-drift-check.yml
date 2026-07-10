@@ -159,7 +159,37 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.lifecycle_preflight_artifact }}
-          path: ${{ github.workspace }}
+          path: ${{ runner.temp }}/lifecycle-preflight
+
+      - name: Restore lifecycle preflight inputs
+        if: inputs.lifecycle_preflight_artifact != ''
+        env:
+          PREFLIGHT_BUNDLE_ROOT: ${{ runner.temp }}/lifecycle-preflight
+          SNAPSHOT_CHECKOUT_PATH: ${{ inputs.snapshot_checkout_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$SNAPSHOT_CHECKOUT_PATH" in
+            external/*) ;;
+            *) echo "::error::snapshot_checkout_path must remain under external/"; exit 1 ;;
+          esac
+          if [[ "$SNAPSHOT_CHECKOUT_PATH" == *".."* ]]; then
+            echo "::error::snapshot_checkout_path must not contain traversal segments"
+            exit 1
+          fi
+          if find "$PREFLIGHT_BUNDLE_ROOT" -type l -print -quit | grep -q .; then
+            echo "::error::lifecycle preflight artifact must not contain symlinks"
+            exit 1
+          fi
+          lifecycle_source="$PREFLIGHT_BUNDLE_ROOT/data/lifecycle_store"
+          snapshot_source="$PREFLIGHT_BUNDLE_ROOT/$SNAPSHOT_CHECKOUT_PATH/data/output"
+          if [ ! -d "$lifecycle_source" ] || [ ! -d "$snapshot_source" ]; then
+            echo "::error::lifecycle preflight artifact is missing required allowlisted directories"
+            exit 1
+          fi
+          mkdir -p "$LIFECYCLE_LOCAL_ROOT" "$GITHUB_WORKSPACE/$SNAPSHOT_CHECKOUT_PATH/data/output"
+          cp -a "$lifecycle_source/." "$LIFECYCLE_LOCAL_ROOT/"
+          cp -a "$snapshot_source/." "$GITHUB_WORKSPACE/$SNAPSHOT_CHECKOUT_PATH/data/output/"
 
       - name: Build lifecycle performance snapshots
         run: quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}
