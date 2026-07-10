@@ -157,10 +157,14 @@ class DriftDetectorTests(unittest.TestCase):
             baseline_param_set_id=None,
         )
 
-        def run(policy: str, accepted_backtest: BacktestResult | None = backtest):
+        def run(
+            policy: str,
+            accepted_backtest: BacktestResult | None = backtest,
+            previous=legacy_previous,
+        ):
             active_store = mock.Mock()
             active_store.load_latest_snapshot.return_value = snapshot
-            active_store.load_latest_drift.return_value = legacy_previous
+            active_store.load_latest_drift.return_value = previous
             baseline_store = mock.Mock()
             baseline_store.load_latest_backtest.return_value = accepted_backtest
 
@@ -182,6 +186,14 @@ class DriftDetectorTests(unittest.TestCase):
         self.assertEqual(run("compatible").previous_status, legacy_previous.status)
         self.assertIsNone(run("strict").previous_status)
         self.assertIsNone(run("strict", accepted_backtest=None).previous_status)
+        lineage_previous = detect_drift(snapshot, backtest=backtest)
+        self.assertIsNone(
+            run(
+                "compatible",
+                accepted_backtest=None,
+                previous=lineage_previous,
+            ).previous_status
+        )
 
         with self.assertRaisesRegex(ValueError, "baseline_lineage_policy"):
             run("unknown")

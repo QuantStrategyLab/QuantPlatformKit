@@ -175,7 +175,7 @@ def run_drift_detection(
             if baseline_lineage_policy == "strict":
                 if not (previous_baseline_id and current_baseline_id and previous_baseline_id == current_baseline_id):
                     previous = None
-            elif previous_baseline_id and current_baseline_id and previous_baseline_id != current_baseline_id:
+            elif previous_baseline_id and current_baseline_id != previous_baseline_id:
                 previous = None
         result = detect_drift(snapshot, backtest=backtest, policy=policy,
                               previous_status=previous.status if previous else None)
