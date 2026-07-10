@@ -187,9 +187,21 @@ jobs:
             echo "::error::lifecycle preflight artifact is missing required allowlisted directories"
             exit 1
           fi
+          snapshot_root="$GITHUB_WORKSPACE/$SNAPSHOT_CHECKOUT_PATH"
+          resolved_snapshot_root="$(realpath "$snapshot_root")"
+          case "$resolved_snapshot_root" in
+            "$GITHUB_WORKSPACE"/external/*) ;;
+            *) echo "::error::snapshot checkout resolved outside the external workspace"; exit 1 ;;
+          esac
+          if find "$snapshot_root" -type l -print -quit | grep -q .; then
+            echo "::error::snapshot checkout must not contain symlinks"
+            exit 1
+          fi
+          snapshot_target="$snapshot_root/data/output"
+          rm -rf -- "$LIFECYCLE_LOCAL_ROOT" "$snapshot_target"
           mkdir -p "$LIFECYCLE_LOCAL_ROOT" "$GITHUB_WORKSPACE/$SNAPSHOT_CHECKOUT_PATH/data/output"
           cp -a "$lifecycle_source/." "$LIFECYCLE_LOCAL_ROOT/"
-          cp -a "$snapshot_source/." "$GITHUB_WORKSPACE/$SNAPSHOT_CHECKOUT_PATH/data/output/"
+          cp -a "$snapshot_source/." "$snapshot_target/"
 
       - name: Build lifecycle performance snapshots
         run: quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}
