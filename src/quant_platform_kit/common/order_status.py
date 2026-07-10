@@ -71,14 +71,12 @@ def _extract_first_value(payload: Any, *candidate_keys: str) -> Any:
     return None
 
 
-def _extract_executed_price_from_activities(payload: Any) -> float | None:
+def _iter_execution_legs(payload: Any):
     if not isinstance(payload, Mapping):
-        return None
+        return
     activities = payload.get("orderActivityCollection") or payload.get("order_activity_collection")
     if not isinstance(activities, list):
-        return None
-    total_qty = 0.0
-    total_notional = 0.0
+        return
     for activity in activities:
         if not isinstance(activity, Mapping):
             continue
@@ -86,22 +84,44 @@ def _extract_executed_price_from_activities(payload: Any) -> float | None:
         if not isinstance(legs, list):
             continue
         for leg in legs:
-            if not isinstance(leg, Mapping):
-                continue
-            quantity = _float_or_none(
-                leg.get("quantity")
-                or leg.get("executedQuantity")
-                or leg.get("executed_quantity")
-            )
-            price = _float_or_none(
-                leg.get("price")
-                or leg.get("executionPrice")
-                or leg.get("execution_price")
-            )
-            if quantity is None or quantity <= 0.0 or price is None or price <= 0.0:
-                continue
-            total_qty += quantity
-            total_notional += quantity * price
+            if isinstance(leg, Mapping):
+                yield leg
+
+
+def _extract_executed_qty_from_activities(payload: Any) -> float | None:
+    total_qty = 0.0
+    for leg in _iter_execution_legs(payload):
+        quantity = _float_or_none(
+            leg.get("quantity")
+            or leg.get("executedQuantity")
+            or leg.get("executed_quantity")
+        )
+        if quantity is None or quantity <= 0.0:
+            continue
+        total_qty += quantity
+    if total_qty <= 0.0:
+        return None
+    return total_qty
+
+
+def _extract_executed_price_from_activities(payload: Any) -> float | None:
+    total_qty = 0.0
+    total_notional = 0.0
+    for leg in _iter_execution_legs(payload):
+        quantity = _float_or_none(
+            leg.get("quantity")
+            or leg.get("executedQuantity")
+            or leg.get("executed_quantity")
+        )
+        price = _float_or_none(
+            leg.get("price")
+            or leg.get("executionPrice")
+            or leg.get("execution_price")
+        )
+        if quantity is None or quantity <= 0.0 or price is None or price <= 0.0:
+            continue
+        total_qty += quantity
+        total_notional += quantity * price
     if total_qty <= 0.0:
         return None
     return total_notional / total_qty
@@ -133,23 +153,22 @@ def normalize_order_status_payload(payload: Any) -> dict[str, Any] | None:
         )
         or ""
     ).strip()
-    executed_qty = _float_or_none(
-        _extract_first_value(
-            payload,
-            "executed_qty",
-            "executed_quantity",
-            "filled_quantity",
-            "filled_qty",
-            "filled",
-            "filledQuantity",
-            "filledShares",
-            "executedShares",
-            "quantityFilled",
-            "quantity",
-            "shares",
-            "qty",
+    executed_qty = _extract_executed_qty_from_activities(payload)
+    if executed_qty is None:
+        executed_qty = _float_or_none(
+            _extract_first_value(
+                payload,
+                "executed_qty",
+                "executed_quantity",
+                "filled_quantity",
+                "filled_qty",
+                "filled",
+                "filledQuantity",
+                "filledShares",
+                "executedShares",
+                "quantityFilled",
+            )
         )
-    )
     executed_price = _extract_executed_price_from_activities(payload)
     if executed_price is None:
         executed_price = _float_or_none(
@@ -163,10 +182,6 @@ def normalize_order_status_payload(payload: Any) -> dict[str, Any] | None:
                 "average_price",
                 "fill_price",
                 "filled_price",
-                "price",
-                "limit_price",
-                "limitPrice",
-                "submitted_price",
             )
         )
     broker_order_id = _extract_first_value(

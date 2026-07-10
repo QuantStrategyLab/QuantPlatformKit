@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from quant_platform_kit.common.order_status import compute_confirmed_sell_release_value
+from quant_platform_kit.common.order_status import (
+    compute_confirmed_sell_release_value,
+    normalize_order_status_payload,
+)
 
 
 class OrderStatusHelpersTests(unittest.TestCase):
@@ -54,6 +57,36 @@ class OrderStatusHelpersTests(unittest.TestCase):
 
         self.assertEqual(observed["call"], ("ctx-1", "OID-2"))
         self.assertEqual(released, 100.0)
+
+    def test_normalize_order_status_payload_does_not_treat_submitted_order_values_as_fills(self) -> None:
+        normalized = normalize_order_status_payload(
+            {
+                "status": "ACCEPTED",
+                "quantity": 10,
+                "limitPrice": 100.0,
+            }
+        )
+
+        self.assertEqual(normalized["executed_qty"], 0.0)
+        self.assertEqual(normalized["executed_price"], 0.0)
+
+    def test_normalize_order_status_payload_aggregates_execution_leg_quantities(self) -> None:
+        normalized = normalize_order_status_payload(
+            {
+                "status": "FILLED",
+                "orderActivityCollection": [
+                    {
+                        "executionLegs": [
+                            {"quantity": 1, "price": 100.0},
+                            {"quantity": 2, "price": 110.0},
+                        ]
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(normalized["executed_qty"], 3.0)
+        self.assertAlmostEqual(normalized["executed_price"], 320.0 / 3.0)
 
 
 if __name__ == "__main__":
