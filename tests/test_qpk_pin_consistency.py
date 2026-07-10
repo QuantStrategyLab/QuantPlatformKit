@@ -9,6 +9,7 @@ from scripts.check_qpk_pin_consistency import (
     extract_qpk_shas,
     extract_override_qpk_sha,
 )
+from scripts.open_downstream_qpk_pin_prs import update_qsl_compat_qpk_pin
 
 
 TARGET = "8378e939d9324ea63a0f45c9f21ba0e2eeb1cfff"
@@ -60,6 +61,25 @@ override-dependencies = [
 """
         override = extract_override_qpk_sha(pyproject)
         self.assertEqual("1111111111111111111111111111111111111111", override)
+
+    def test_update_qsl_compat_qpk_pin_rewrites_only_qpk_requirement(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qsl_path = Path(tmp) / "qsl.toml"
+            qsl_path.write_text(
+                "[compat]\n"
+                "requires = [\n"
+                f'  "pandas>=2.0",\n'
+                f'  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@{STALE}",\n'
+                f'  "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@{STALE}",\n'
+                "]\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(update_qsl_compat_qpk_pin(Path(tmp), TARGET))
+            updated = qsl_path.read_text(encoding="utf-8")
+
+        self.assertIn(f"QuantPlatformKit.git@{TARGET}", updated)
+        self.assertIn(f"UsEquityStrategies.git@{STALE}", updated)
 
 
 if __name__ == "__main__":
