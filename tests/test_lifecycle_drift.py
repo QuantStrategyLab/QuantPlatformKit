@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 import unittest
+from unittest import mock
 
 import pandas as pd
 
@@ -124,12 +125,28 @@ class DriftDetectorTests(unittest.TestCase):
             def collect(self, _domain: str) -> dict[str, pd.Series]:
                 return {}
 
-        with unittest.mock.patch(
+        with mock.patch(
             "quant_platform_kit.strategy_lifecycle.return_collector.ReturnCollector",
             return_value=EmptyCollector(),
         ):
             with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
                 run_drift_detection("us_equity")
+
+    def test_run_drift_detection_passes_supplied_store_to_return_collector(self) -> None:
+        sentinel_store = object()
+
+        class EmptyCollector:
+            def collect(self, _domain: str) -> dict[str, pd.Series]:
+                return {}
+
+        with mock.patch(
+            "quant_platform_kit.strategy_lifecycle.return_collector.ReturnCollector",
+            return_value=EmptyCollector(),
+        ) as collector_factory:
+            with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
+                run_drift_detection("us_equity", store=sentinel_store)  # type: ignore[arg-type]
+
+        collector_factory.assert_called_once_with(store=sentinel_store)
 
 
 if __name__ == "__main__":

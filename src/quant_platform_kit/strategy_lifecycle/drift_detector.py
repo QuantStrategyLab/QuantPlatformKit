@@ -140,7 +140,7 @@ def run_drift_detection(
     policy = policy or DriftPolicy.load_default()
 
     from quant_platform_kit.strategy_lifecycle.return_collector import ReturnCollector
-    collector = ReturnCollector()
+    collector = ReturnCollector(store=store)
     discovered = collector.collect(domain)
     profiles = [strategy_profile] if strategy_profile else sorted(discovered)
     if not profiles:

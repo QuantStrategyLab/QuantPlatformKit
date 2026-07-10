@@ -71,6 +71,10 @@ class StrategyPerformanceExportTests(unittest.TestCase):
                 benchmark_cagr=0.14,
                 benchmark_max_drawdown=-0.2,
                 excess_cagr=0.08,
+                oos_sharpe=1.1,
+                oos_calmar=1.0,
+                oos_max_drawdown=-0.11,
+                walk_forward_stability=0.93,
                 computed_at="2026-06-29T00:00:00Z",
             )
             store.save_snapshot(snapshot)
@@ -85,7 +89,10 @@ class StrategyPerformanceExportTests(unittest.TestCase):
             exported = payload["snapshots"][0]
             self.assertEqual(exported["current_metrics"]["sharpe"], 1.2)
             self.assertEqual(exported["baseline_metrics"]["sharpe"], 1.4)
+            self.assertEqual(exported["baseline_metrics"]["oos_sharpe"], 1.1)
+            self.assertEqual(exported["baseline_metrics"]["walk_forward_stability"], 0.93)
             self.assertEqual(exported["metadata"]["window_days"], 126)
+            self.assertEqual(exported["metadata"]["backtest_computed_at"], "2026-06-29T00:00:00Z")
             self.assertTrue(output.exists())
             on_disk = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(on_disk["schema_version"], "strategy_performance.v2")

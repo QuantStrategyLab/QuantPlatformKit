@@ -540,14 +540,31 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
             param_version=int(data.get("param_version", 1)),
             sharpe_ratio=float(data["sharpe_ratio"]) if data.get("sharpe_ratio") is not None else None,
             calmar_ratio=float(data["calmar_ratio"]) if data.get("calmar_ratio") is not None else None,
+            sortino_ratio=float(data["sortino_ratio"]) if data.get("sortino_ratio") is not None else None,
             max_drawdown=float(data["max_drawdown"]) if data.get("max_drawdown") is not None else None,
             cagr=float(data["cagr"]) if data.get("cagr") is not None else None,
             volatility=float(data["volatility"]) if data.get("volatility") is not None else None,
             win_rate=float(data["win_rate"]) if data.get("win_rate") is not None else None,
+            total_return=float(data["total_return"]) if data.get("total_return") is not None else None,
             start_date=date.fromisoformat(str(data["start_date"])) if data.get("start_date") else None,
             end_date=date.fromisoformat(str(data["end_date"])) if data.get("end_date") else None,
             observation_count=int(data.get("observation_count", 0)),
             benchmark_symbol=str(data.get("benchmark_symbol", "")),
+            benchmark_cagr=float(data["benchmark_cagr"]) if data.get("benchmark_cagr") is not None else None,
+            benchmark_max_drawdown=(
+                float(data["benchmark_max_drawdown"]) if data.get("benchmark_max_drawdown") is not None else None
+            ),
+            excess_cagr=float(data["excess_cagr"]) if data.get("excess_cagr") is not None else None,
+            oos_sharpe=float(data["oos_sharpe"]) if data.get("oos_sharpe") is not None else None,
+            oos_calmar=float(data["oos_calmar"]) if data.get("oos_calmar") is not None else None,
+            oos_max_drawdown=float(data["oos_max_drawdown"]) if data.get("oos_max_drawdown") is not None else None,
+            walk_forward_stability=(
+                float(data["walk_forward_stability"]) if data.get("walk_forward_stability") is not None else None
+            ),
+            run_id=str(data.get("run_id", "")),
+            run_duration_seconds=float(data.get("run_duration_seconds", 0.0) or 0.0),
+            source_script=str(data.get("source_script", "")),
+            computed_at=str(data.get("computed_at", "")),
         )
     except Exception:
         return None
