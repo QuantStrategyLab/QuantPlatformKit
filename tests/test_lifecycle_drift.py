@@ -5,13 +5,15 @@ from __future__ import annotations
 from datetime import date
 import unittest
 
+import pandas as pd
+
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
     DriftStatus,
     StrategyPerformanceSnapshot,
     WindowPerformance,
 )
-from quant_platform_kit.strategy_lifecycle.drift_detector import detect_drift
+from quant_platform_kit.strategy_lifecycle.drift_detector import detect_drift, run_drift_detection
 
 
 def _make_snapshot(sharpe: float = 1.5, cagr: float = 0.18, dd: float = -0.12,
@@ -116,6 +118,18 @@ class DriftDetectorTests(unittest.TestCase):
         self.assertEqual(d["strategy_profile"], "test_strat")
         self.assertEqual(d["domain"], "us_equity")
         self.assertIn("dimensions", d)
+
+    def test_run_drift_detection_fails_closed_when_no_profiles_found(self) -> None:
+        class EmptyCollector:
+            def collect(self, _domain: str) -> dict[str, pd.Series]:
+                return {}
+
+        with unittest.mock.patch(
+            "quant_platform_kit.strategy_lifecycle.return_collector.ReturnCollector",
+            return_value=EmptyCollector(),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
+                run_drift_detection("us_equity")
 
 
 if __name__ == "__main__":

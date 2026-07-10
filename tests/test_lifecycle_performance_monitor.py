@@ -4,10 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
 from quant_platform_kit.common.strategy_contracts import PositionTarget, StrategyDecision
 from quant_platform_kit.strategy_lifecycle.performance_monitor import (
     PerformanceMonitor,
     infer_strategy_domain,
+    run_monitor,
     try_record_platform_execution,
 )
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
@@ -59,6 +62,14 @@ class PerformanceMonitorTests(unittest.TestCase):
 
     def test_try_record_platform_execution_swallows_errors(self) -> None:
         try_record_platform_execution("", {"status": "ok"})
+
+    def test_run_monitor_fails_closed_when_no_profiles_found(self) -> None:
+        class EmptyCollector:
+            def collect(self, _domain: str) -> dict[str, pd.Series]:
+                return {}
+
+        with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
+            run_monitor("us_equity", collector=EmptyCollector())
 
 
 if __name__ == "__main__":

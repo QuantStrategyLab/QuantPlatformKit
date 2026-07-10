@@ -4,9 +4,9 @@ Follows the same local+cloud pattern as alert_marker.py.
 Data is organized under partitioned GCS paths:
 
     gs://{bucket}/daily/{domain}/{strategy}/{date}.json
-    gs://{bucket}/backtest/{domain}/{strategy}/backtest_v{n}.json
+    gs://{bucket}/backtest/{domain}/{strategy}/backtest_v{n}_{stamp}.json
     gs://{bucket}/drift/{domain}/{strategy}/drift_{date}.json
-    gs://{bucket}/optimization/{domain}/{strategy}/proposal_v{n}.json
+    gs://{bucket}/optimization/{domain}/{strategy}/proposal_v{n}_{stamp}.json
     gs://{bucket}/dashboard/aggregated_health.json
     gs://{bucket}/audit/updates/{strategy}/{entry_id}.json
 """
@@ -160,6 +160,25 @@ class PerformanceStore:
         self._write_local_json(key, payload)
         self._write_cloud_json(key, payload)
 
+    def _list_local_json_keys(self, prefix: str) -> list[str]:
+        base_root = (self.local_root or DEFAULT_LOCAL_ROOT).resolve()
+        local_dir = self._local_path(prefix)
+        keys: list[str] = []
+        if local_dir.exists():
+            paths = sorted(local_dir.rglob("*.json"))
+        else:
+            parent = local_dir.parent
+            if not parent.exists():
+                return []
+            stem = local_dir.name
+            paths = sorted(path for path in parent.glob(f"{stem}*.json") if path.is_file())
+        for path in paths:
+            try:
+                keys.append(path.resolve().relative_to(base_root).as_posix())
+            except ValueError:
+                continue
+        return keys
+
     # ── snapshots ────────────────────────────────────────────────
 
     def _snapshot_key(self, snapshot: StrategyPerformanceSnapshot) -> str:
@@ -180,11 +199,7 @@ class PerformanceStore:
         keys = self._list_cloud_keys(prefix)
         if not keys:
             # fall back to local
-            local_dir = self._local_path(prefix)
-            if local_dir.exists():
-                keys = sorted(f.name for f in local_dir.glob("*.json"))
-            else:
-                return None
+            keys = self._list_local_json_keys(prefix)
         if not keys:
             return None
         latest_key = sorted(keys)[-1]
@@ -219,45 +234,74 @@ class PerformanceStore:
         prefix = f"drift/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
         keys = self._list_cloud_keys(prefix)
         if not keys:
+            keys = self._list_local_json_keys(prefix)
+        if not keys:
             return None
         data = self._read(sorted(keys)[-1])
         return _drift_from_dict(data) if data else None
 
     # ── backtest ─────────────────────────────────────────────────
 
-    def _backtest_key(self, domain: str, strategy_profile: str, version: int) -> str:
-        return f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/backtest_v{version}.json"
+    def _backtest_key(self, result: BacktestResult) -> str:
+        stamp = _clean_key(result.computed_at or result.run_id or result.param_set_id or _now_iso()).replace("/", "_")
+        return (
+            f"backtest/{_clean_key(result.domain)}/{_clean_key(result.strategy_profile)}/"
+            f"backtest_v{result.param_version}_{stamp}.json"
+        )
 
     def save_backtest_result(self, result: BacktestResult) -> None:
         self._write(
-            self._backtest_key(result.domain, result.strategy_profile, result.param_version),
+            self._backtest_key(result),
             {**result.to_dict(), "schema_version": SCHEMA_VERSION},
         )
 
     def load_latest_backtest(self, domain: str, strategy_profile: str) -> BacktestResult | None:
         prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
-        keys = self._list_cloud_keys(prefix)
+        keys = list(dict.fromkeys([*self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
         if not keys:
             return None
-        data = self._read(sorted(keys)[-1])
-        return _backtest_from_dict(data) if data else None
+        candidates: list[tuple[tuple[str, int, str], BacktestResult]] = []
+        for key in keys:
+            data = self._read(key)
+            result = _backtest_from_dict(data) if data else None
+            if result is None:
+                continue
+            candidates.append((_backtest_sort_key(result, key), result))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return candidates[-1][1]
 
     # ── optimization ─────────────────────────────────────────────
 
-    def _proposal_key(self, domain: str, strategy_profile: str, version: int) -> str:
-        return f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/proposal_v{version}.json"
+    def _proposal_key(self, proposal: OptimizationProposal) -> str:
+        version = proposal.proposed_metrics.param_version if proposal.proposed_metrics else 1
+        stamp = _clean_key(proposal.computed_at or proposal.strategy_profile or _now_iso()).replace("/", "_")
+        return (
+            f"optimization/{_clean_key(proposal.domain)}/{_clean_key(proposal.strategy_profile)}/"
+            f"proposal_v{version}_{stamp}.json"
+        )
 
     def save_proposal(self, proposal: OptimizationProposal) -> None:
-        version = (proposal.proposed_metrics.param_version if proposal.proposed_metrics else 1)
         self._write(
-            self._proposal_key(proposal.domain, proposal.strategy_profile, version),
+            self._proposal_key(proposal),
             {**proposal.to_dict(), "schema_version": SCHEMA_VERSION},
         )
 
     def load_proposal(self, domain: str, strategy_profile: str, version: int) -> OptimizationProposal | None:
-        key = self._proposal_key(domain, strategy_profile, version)
-        data = self._read(key)
-        return _proposal_from_dict(data) if data else None
+        prefix = f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/proposal_v{version}"
+        exact_key = f"{prefix}.json"
+        keys = list(dict.fromkeys([exact_key, *self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
+        candidates: list[tuple[str, OptimizationProposal]] = []
+        for key in keys:
+            data = self._read(key)
+            proposal = _proposal_from_dict(data) if data else None
+            if proposal is not None:
+                candidates.append((str(proposal.computed_at or ""), proposal))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return candidates[-1][1]
 
     # ── audit ────────────────────────────────────────────────────
 
@@ -273,6 +317,8 @@ class PerformanceStore:
     def load_audit_entries(self, strategy_profile: str, limit: int = 20) -> tuple[UpdateLogEntry, ...]:
         prefix = f"audit/updates/{_clean_key(strategy_profile)}/"
         keys = self._list_cloud_keys(prefix)
+        if not keys:
+            keys = self._list_local_json_keys(prefix)
         entries: list[UpdateLogEntry] = []
         for key in sorted(keys, reverse=True)[:limit]:
             data = self._read(key)
@@ -281,6 +327,32 @@ class PerformanceStore:
                 if entry:
                     entries.append(entry)
         return tuple(entries)
+
+    def list_snapshot_profiles(self, domain: str) -> tuple[str, ...]:
+        prefix = f"daily/{_clean_key(domain)}/"
+        profiles: set[str] = set()
+
+        local_dir = self._local_path(prefix)
+        if local_dir.exists():
+            for path in local_dir.iterdir():
+                if path.is_dir():
+                    profiles.add(path.name)
+
+        for key in self._list_cloud_keys(prefix):
+            normalized = str(key).replace("\\", "/")
+            cloud_prefix = self.cloud_prefix.strip("/")
+            if cloud_prefix and normalized.startswith(f"{cloud_prefix}/"):
+                normalized = normalized[len(cloud_prefix) + 1 :]
+            if not normalized.startswith(prefix):
+                idx = normalized.find(prefix)
+                if idx < 0:
+                    continue
+                normalized = normalized[idx:]
+            remainder = normalized[len(prefix) :]
+            profile = remainder.split("/", 1)[0].strip()
+            if profile:
+                profiles.add(profile)
+        return tuple(sorted(profiles))
 
     # ── live runs (per-evaluate / per-execution records) ─────────
 
@@ -466,6 +538,11 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
         )
     except Exception:
         return None
+
+
+def _backtest_sort_key(result: BacktestResult, key: str) -> tuple[str, int, str]:
+    computed_at = str(result.computed_at or "")
+    return (computed_at, int(result.param_version or 0), str(key))
 
 
 def _proposal_from_dict(data: Mapping[str, Any]) -> OptimizationProposal | None:

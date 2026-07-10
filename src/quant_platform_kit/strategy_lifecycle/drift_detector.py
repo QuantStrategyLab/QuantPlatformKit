@@ -132,6 +132,7 @@ def run_drift_detection(
     *,
     strategy_profile: str | None = None,
     policy: DriftPolicy | None = None,
+    fail_on_empty: bool = True,
     store: PerformanceStore | None = None,
 ) -> list[DriftResult]:
     """Run drift detection for all strategies in a domain."""
@@ -140,12 +141,22 @@ def run_drift_detection(
 
     from quant_platform_kit.strategy_lifecycle.return_collector import ReturnCollector
     collector = ReturnCollector()
-    profiles = [strategy_profile] if strategy_profile else sorted(collector.collect(domain))
+    discovered = collector.collect(domain)
+    profiles = [strategy_profile] if strategy_profile else sorted(discovered)
+    if not profiles:
+        if fail_on_empty:
+            raise RuntimeError(
+                f"No strategy return series found for domain={domain!r}; "
+                "set QUANT_PROJECTS_ROOT or persist lifecycle performance artifacts before drift detection."
+            )
+        return []
 
     results: list[DriftResult] = []
+    missing_snapshots = 0
     for profile in profiles:
         snapshot = store.load_latest_snapshot(domain, profile)
         if snapshot is None:
+            missing_snapshots += 1
             continue
         backtest = store.load_latest_backtest(domain, profile)
         previous = store.load_latest_drift(domain, profile)
@@ -153,6 +164,11 @@ def run_drift_detection(
                               previous_status=previous.status if previous else None)
         store.save_drift_result(result)
         results.append(result)
+    if not results and fail_on_empty:
+        raise RuntimeError(
+            f"No drift checks completed for domain={domain!r}; "
+            f"profiles={len(profiles)}, missing_snapshots={missing_snapshots}."
+        )
     return results
 
 

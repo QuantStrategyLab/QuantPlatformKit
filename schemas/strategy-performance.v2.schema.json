@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.dev/schemas/strategy-performance.v2.schema.json",
+  "title": "strategy_performance.v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "metrics_kind",
+    "repo",
+    "generated_at",
+    "snapshots"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "strategy_performance.v2"
+    },
+    "metrics_kind": {
+      "const": "performance"
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "snapshots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "strategy_profile",
+          "schema_version",
+          "metrics_kind",
+          "current_metrics",
+          "baseline_metrics"
+        ],
+        "properties": {
+          "strategy_profile": {
+            "type": "string",
+            "minLength": 1
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "strategy_performance.v2"
+          },
+          "metrics_kind": {
+            "const": "performance"
+          },
+          "current_metrics": {
+            "$ref": "#/$defs/performanceMetrics"
+          },
+          "baseline_metrics": {
+            "$ref": "#/$defs/performanceMetrics"
+          },
+          "source": {
+            "type": "string"
+          },
+          "generated_at": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "$defs": {
+    "performanceMetrics": {
+      "type": "object",
+      "required": [
+        "sharpe",
+        "cagr",
+        "calmar",
+        "win_rate",
+        "max_dd"
+      ],
+      "properties": {
+        "sharpe": {
+          "type": "number"
+        },
+        "cagr": {
+          "type": "number"
+        },
+        "calmar": {
+          "type": "number"
+        },
+        "win_rate": {
+          "type": "number"
+        },
+        "max_dd": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
