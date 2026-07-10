@@ -49,7 +49,7 @@ def _run_drift(args: argparse.Namespace) -> int:
         domain=args.domain,
         strategy_profile=args.strategy,
         baseline_store=baseline_store,
-        baseline_lineage_policy="strict" if getattr(args, "strict_baseline_lineage", False) else "compatible",
+        baseline_lineage_policy="strict" if getattr(args, "strict_baseline_lineage", False) else "auto",
     )
     critical_count = sum(1 for item in results if getattr(getattr(item, "status", None), "value", None) == "critical")
     review_count = sum(1 for item in results if getattr(getattr(item, "status", None), "value", None) == "review")

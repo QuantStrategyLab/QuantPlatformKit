@@ -161,10 +161,13 @@ class DriftDetectorTests(unittest.TestCase):
             policy: str,
             accepted_backtest: BacktestResult | None = backtest,
             previous=legacy_previous,
+            *,
+            external_baseline: bool = True,
         ):
             active_store = mock.Mock()
             active_store.load_latest_snapshot.return_value = snapshot
             active_store.load_latest_drift.return_value = previous
+            active_store.load_latest_backtest.return_value = accepted_backtest
             baseline_store = mock.Mock()
             baseline_store.load_latest_backtest.return_value = accepted_backtest
 
@@ -178,22 +181,29 @@ class DriftDetectorTests(unittest.TestCase):
                     snapshot.domain,
                     strategy_profile=snapshot.strategy_profile,
                     store=active_store,
-                    baseline_store=baseline_store,
+                    baseline_store=baseline_store if external_baseline else None,
                     baseline_lineage_policy=policy,
                 )[0]
             return result
 
-        self.assertEqual(run("compatible").previous_status, legacy_previous.status)
+        self.assertEqual(
+            run("auto", external_baseline=False).previous_status,
+            legacy_previous.status,
+        )
+        self.assertIsNone(run("auto").previous_status)
         self.assertIsNone(run("strict").previous_status)
         self.assertIsNone(run("strict", accepted_backtest=None).previous_status)
         lineage_previous = detect_drift(snapshot, backtest=backtest)
         self.assertIsNone(
             run(
-                "compatible",
+                "auto",
                 accepted_backtest=None,
                 previous=lineage_previous,
             ).previous_status
         )
+
+        with self.assertRaisesRegex(ValueError, "external baseline store"):
+            run("compatible")
 
         with self.assertRaisesRegex(ValueError, "baseline_lineage_policy"):
             run("unknown")
