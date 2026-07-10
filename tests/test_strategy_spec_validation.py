@@ -165,6 +165,15 @@ def test_research_spec_requires_four_layer_benchmarks() -> None:
     assert "benchmarks missing required kinds: capital, risk_matched, simple_rule" in issues
 
 
+def test_research_spec_allows_multiple_comparators_of_the_same_kind() -> None:
+    payload = _research_spec()
+    benchmarks = payload["benchmarks"]
+    assert isinstance(benchmarks, list)
+    benchmarks.append({"benchmark_id": "qqq.buy-and-hold", "kind": "passive"})
+
+    assert validate_research_spec(payload) == []
+
+
 def test_valid_optimization_spec_passes() -> None:
     assert validate_optimization_spec(_optimization_spec()) == []
 
@@ -184,6 +193,17 @@ def test_optimization_spec_rejects_holdout_reuse_full_kelly_and_missing_cost_str
     assert "validation.locked_holdout.reused_for_selection must be False" in issues
     assert "validation.cost_stress.multipliers must include 1, 2, and 3" in issues
     assert "promotion.full_kelly_allowed must be False" in issues
+
+
+def test_optimization_spec_rejects_non_scalar_choice_values() -> None:
+    payload = _optimization_spec()
+    parameters = payload["allowed_parameters"]
+    assert isinstance(parameters, list)
+    parameters.append({"name": "rebalance_rule", "kind": "choice", "choices": [{"weekly": 5}]})
+
+    issues = validate_optimization_spec(payload)
+
+    assert "allowed_parameters[2].choices must contain only strings, numbers, or booleans" in issues
 
 
 def test_file_and_cli_validation_are_evidence_gate_friendly(tmp_path: Path) -> None:

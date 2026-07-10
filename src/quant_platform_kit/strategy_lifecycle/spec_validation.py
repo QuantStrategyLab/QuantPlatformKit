@@ -240,8 +240,6 @@ def _validate_benchmarks(value: Any, issues: list[str]) -> None:
         kind = benchmark.get("kind")
         if kind not in _RESEARCH_REQUIRED_BENCHMARK_KINDS | {"production"}:
             issues.append(f"{label}.kind must be capital, passive, risk_matched, simple_rule, or production")
-        elif kind in kinds:
-            issues.append(f"{label}.kind must not duplicate {kind!r}")
         else:
             kinds.add(kind)
 
@@ -316,6 +314,8 @@ def _validate_parameters(value: Any, issues: list[str]) -> None:
             choices = parameter.get("choices")
             if not isinstance(choices, list) or not choices:
                 issues.append(f"{label}.choices must be a non-empty array for kind=choice")
+            elif not all(isinstance(item, (str, bool)) or _is_number(item) for item in choices):
+                issues.append(f"{label}.choices must contain only strings, numbers, or booleans")
 
 
 def _validate_nested_walk_forward(value: Any, issues: list[str]) -> None:
