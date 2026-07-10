@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -89,8 +90,20 @@ def _run_validator(tmp_path: Path, payload: dict[str, object]) -> subprocess.Com
     )
 
 
+def _materialize_artifacts(tmp_path: Path, payload: dict[str, object]) -> None:
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir(exist_ok=True)
+    artifact_file = artifacts_dir / "example.json"
+    artifact_file.write_text('{"ok": true}', encoding="utf-8")
+    sha256 = hashlib.sha256(artifact_file.read_bytes()).hexdigest()
+    for artifact in payload["artifacts"].values():
+        artifact["sha256"] = sha256
+
+
 def test_valid_evidence_package_returns_zero(tmp_path: Path) -> None:
-    result = _run_validator(tmp_path, _valid_payload())
+    payload = _valid_payload()
+    _materialize_artifacts(tmp_path, payload)
+    result = _run_validator(tmp_path, payload)
 
     assert result.returncode == 0, result.stderr or result.stdout
 

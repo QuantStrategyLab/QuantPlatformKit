@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import itertools
 import uuid
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
@@ -72,6 +73,49 @@ class BacktestOrchestrator:
     def get_runner(self, domain: str) -> BacktestRunner | None:
         return self._runners.get(domain)
 
+    def persist_result(
+        self,
+        result: BacktestResult,
+        *,
+        strategy_profile: str,
+        domain: str,
+        params: Mapping[str, Any],
+        param_set_id: str = "",
+        param_version: int = 1,
+    ) -> BacktestResult:
+        enriched = BacktestResult(
+            strategy_profile=strategy_profile,
+            domain=domain,
+            param_set_id=param_set_id or result.param_set_id or _run_id(),
+            params=dict(params),
+            param_version=max(param_version, 1),
+            sharpe_ratio=result.sharpe_ratio,
+            calmar_ratio=result.calmar_ratio,
+            sortino_ratio=result.sortino_ratio,
+            max_drawdown=result.max_drawdown,
+            cagr=result.cagr,
+            volatility=result.volatility,
+            win_rate=result.win_rate,
+            total_return=result.total_return,
+            start_date=result.start_date,
+            end_date=result.end_date,
+            observation_count=result.observation_count,
+            benchmark_symbol=result.benchmark_symbol,
+            benchmark_cagr=result.benchmark_cagr,
+            benchmark_max_drawdown=result.benchmark_max_drawdown,
+            excess_cagr=result.excess_cagr,
+            oos_sharpe=result.oos_sharpe,
+            oos_calmar=result.oos_calmar,
+            oos_max_drawdown=result.oos_max_drawdown,
+            walk_forward_stability=result.walk_forward_stability,
+            run_id=result.run_id or _run_id(),
+            run_duration_seconds=result.run_duration_seconds,
+            source_script=result.source_script or "backtest_orchestrator",
+            computed_at=result.computed_at or _now_iso(),
+        )
+        self._store.save_backtest_result(enriched)
+        return enriched
+
     def run(
         self,
         strategy_profile: str,
@@ -105,38 +149,20 @@ class BacktestOrchestrator:
             raise ValueError(f"No BacktestRunner registered for domain={domain!r}. Available: {sorted(self._runners)}")
 
         result = runner.run(strategy_profile, params, start_date=start_date, end_date=end_date)
-
-        # Enrich with metadata
-        enriched = BacktestResult(
+        if result.start_date is None or result.end_date is None:
+            result = replace(
+                result,
+                start_date=result.start_date or start_date,
+                end_date=result.end_date or end_date,
+            )
+        return self.persist_result(
+            result,
             strategy_profile=strategy_profile,
             domain=domain,
-            param_set_id=param_set_id or _run_id(),
-            params=dict(params),
-            param_version=max(param_version, 1),
-            sharpe_ratio=result.sharpe_ratio,
-            calmar_ratio=result.calmar_ratio,
-            sortino_ratio=result.sortino_ratio,
-            max_drawdown=result.max_drawdown,
-            cagr=result.cagr,
-            volatility=result.volatility,
-            win_rate=result.win_rate,
-            total_return=result.total_return,
-            start_date=result.start_date or start_date,
-            end_date=result.end_date or end_date,
-            observation_count=result.observation_count,
-            benchmark_symbol=result.benchmark_symbol,
-            benchmark_cagr=result.benchmark_cagr,
-            benchmark_max_drawdown=result.benchmark_max_drawdown,
-            excess_cagr=result.excess_cagr,
-            run_id=_run_id(),
-            run_duration_seconds=result.run_duration_seconds,
-            source_script=result.source_script or "backtest_orchestrator",
-            computed_at=_now_iso(),
+            params=params,
+            param_set_id=param_set_id,
+            param_version=param_version,
         )
-
-        # Persist
-        self._store.save_backtest_result(enriched)
-        return enriched
 
     def run_latest(self, strategy_profile: str, *, domain: str) -> BacktestResult | None:
         """Load the latest persisted backtest result for a strategy."""

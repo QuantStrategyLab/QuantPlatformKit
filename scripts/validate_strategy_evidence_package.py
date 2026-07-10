@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sys
@@ -52,7 +53,7 @@ REQUIRED_RISK_OOS = ("window_start", "window_end", "locked")
 SHA256_RE = re.compile(r"^[A-Fa-f0-9]{64}$")
 
 
-def validate_payload(payload: Any) -> list[str]:
+def validate_payload(payload: Any, *, base_dir: Path | None = None) -> list[str]:
     issues: list[str] = []
 
     if not isinstance(payload, dict):
@@ -104,6 +105,15 @@ def validate_payload(payload: Any) -> list[str]:
             sha256 = artifact.get("sha256")
             if not isinstance(sha256, str) or not SHA256_RE.fullmatch(sha256):
                 issues.append(f"artifacts.{name}.sha256 must be a 64-character hex string")
+                continue
+            if base_dir is not None:
+                _validate_artifact_file(
+                    name=name,
+                    artifact=artifact,
+                    expected_sha256=sha256,
+                    base_dir=base_dir,
+                    issues=issues,
+                )
 
     validation = payload.get("validation")
     if not isinstance(validation, dict):
@@ -198,7 +208,7 @@ def validate_file(path: str | Path) -> list[str]:
         return [f"invalid JSON: {exc.msg} (line {exc.lineno}, column {exc.colno})"]
     except OSError as exc:
         return [f"failed to read file: {exc}"]
-    return validate_payload(payload)
+    return validate_payload(payload, base_dir=evidence_path.parent)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -244,6 +254,41 @@ def _is_datetime_string(value: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _validate_artifact_file(
+    *,
+    name: str,
+    artifact: dict[str, Any],
+    expected_sha256: str,
+    base_dir: Path,
+    issues: list[str],
+) -> None:
+    raw_path = str(artifact.get("path") or "").strip()
+    label = f"artifacts.{name}"
+    if not raw_path:
+        return
+    path = Path(raw_path)
+    if path.is_absolute():
+        issues.append(f"{label}.path must be repo-relative, got absolute path")
+        return
+
+    resolved = (base_dir / path).resolve()
+    try:
+        resolved.relative_to(base_dir.resolve())
+    except ValueError:
+        issues.append(f"{label}.path must stay within the evidence package directory")
+        return
+
+    if not resolved.is_file():
+        issues.append(f"{label}.path does not exist: {raw_path}")
+        return
+
+    actual_sha256 = hashlib.sha256(resolved.read_bytes()).hexdigest()
+    if actual_sha256.lower() != expected_sha256.lower():
+        issues.append(
+            f"{label}.sha256 mismatch: expected {expected_sha256.lower()}, got {actual_sha256.lower()}"
+        )
 
 
 if __name__ == "__main__":

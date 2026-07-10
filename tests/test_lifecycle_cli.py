@@ -112,6 +112,55 @@ class LifecycleCliTests(unittest.TestCase):
 
         self.assertEqual(result, 1)
 
+    def test_export_performance_command_passes_expected_args(self) -> None:
+        observed = {}
+
+        def fake_load_callable(_module_name: str, _function_name: str):
+            def fake_export(domain: str, **kwargs):
+                observed["domain"] = domain
+                observed.update(kwargs)
+                return {"snapshots": [object()]}
+
+            return fake_export
+
+        with patch.object(cli, "_load_callable", fake_load_callable):
+            result = cli.main([
+                "export-performance",
+                "--domain",
+                "crypto",
+                "--repo",
+                "QuantStrategyLab/CryptoLivePoolPipelines",
+                "--profile",
+                "crypto_live_pool_rotation",
+                "--output",
+                "data/output/strategy_metrics.json",
+            ])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            observed,
+            {
+                "domain": "crypto",
+                "repo": "QuantStrategyLab/CryptoLivePoolPipelines",
+                "strategy_profiles": ["crypto_live_pool_rotation"],
+                "output_path": "data/output/strategy_metrics.json",
+            },
+        )
+
+    def test_doctor_command_returns_non_zero_when_not_ok(self) -> None:
+        def fake_load_callable(_module_name: str, _function_name: str):
+            return lambda domain, **_kwargs: {
+                "ok": False,
+                "profiles_discovered": 1,
+                "issues": ["missing lifecycle backtest"],
+                "domain": domain,
+            }
+
+        with patch.object(cli, "_load_callable", fake_load_callable):
+            result = cli.main(["doctor", "--domain", "us_equity", "--require-backtest"])
+
+        self.assertEqual(result, 1)
+
     def test_lifecycle_command_runs_real_steps(self) -> None:
         calls = []
 

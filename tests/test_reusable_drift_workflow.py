@@ -1,0 +1,36 @@
+from pathlib import Path
+
+
+def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1]
+        / ".github"
+        / "workflows"
+        / "reusable-drift-check.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "workflow_call:" in workflow
+    assert "strategy_domain:" in workflow
+    assert "snapshot_repository:" in workflow
+    assert "snapshot_checkout_path:" in workflow
+    assert "ai_gateway_service_url:" in workflow
+    assert "codex_audit_service_url:" in workflow
+    assert 'python-version: ${{ inputs.python_version }}' in workflow
+    assert 'LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || \'\' }}' in workflow
+    assert "Validate trusted caller" in workflow
+    assert "Untrusted reusable workflow caller" in workflow
+    assert "snapshot_repository must match caller repository" in workflow
+    assert "quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}" in workflow
+    assert (
+        "quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot "
+        "--require-backtest --max-freshness-days 7"
+    ) in workflow
+    assert "quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts" in workflow
+    assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
+    assert 'path: ${{ inputs.snapshot_checkout_path }}' in workflow
+    assert 'ref: ${{ steps.quant-platform-kit-ref.outputs.ref }}' in workflow
+    assert 'GH_TOKEN: ${{ github.token }}' in workflow
+    assert "create_issues_for_domain" in workflow
+    assert 'CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}' in workflow
+    assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
+    assert 'ref: 9ff297375acbc54afa910d828248812212b5d7f2' in workflow

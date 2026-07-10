@@ -1,0 +1,156 @@
+name: Reusable Drift Check
+
+on:
+  workflow_call:
+    inputs:
+      strategy_domain:
+        required: true
+        type: string
+      snapshot_repository:
+        required: true
+        type: string
+      snapshot_checkout_path:
+        required: true
+        type: string
+      python_version:
+        required: false
+        type: string
+        default: "3.11"
+      ai_gateway_service_url:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      codex_audit_service_url:
+        required: false
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      STRATEGY_DOMAIN: ${{ inputs.strategy_domain }}
+      QUANT_PROJECTS_ROOT: ${{ github.workspace }}/external
+      LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
+      LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
+
+    steps:
+      - name: Resolve QuantPlatformKit ref
+        id: quant-platform-kit-ref
+        shell: bash
+        run: |
+          set -euo pipefail
+          workflow_ref="${{ github.workflow_ref }}"
+          ref="${workflow_ref##*@}"
+          case "$ref" in
+            refs/heads/*)
+              ref="${ref#refs/heads/}"
+              ;;
+            refs/tags/*)
+              ref="${ref#refs/tags/}"
+              ;;
+          esac
+          if [ -z "$ref" ]; then
+            ref="main"
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Validate trusted caller
+        shell: bash
+        run: |
+          set -euo pipefail
+          caller_repo="${{ github.repository }}"
+          snapshot_repo="${{ inputs.snapshot_repository }}"
+          case "$caller_repo" in
+            QuantStrategyLab/CnEquityStrategies|QuantStrategyLab/HkEquityStrategies|QuantStrategyLab/UsEquityStrategies|QuantStrategyLab/CryptoStrategies)
+              ;;
+            *)
+              echo "::error::Untrusted reusable workflow caller: $caller_repo"
+              exit 1
+              ;;
+          esac
+          if [ "$snapshot_repo" != "$caller_repo" ]; then
+            echo "::error::snapshot_repository must match caller repository: $snapshot_repo"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Checkout snapshot pipeline repo
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.snapshot_repository }}
+          ref: main
+          path: ${{ inputs.snapshot_checkout_path }}
+
+      - name: Checkout QuantPlatformKit
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/QuantPlatformKit
+          ref: ${{ steps.quant-platform-kit-ref.outputs.ref }}
+          path: external/QuantPlatformKit
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ inputs.python_version }}
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install -e . pandas
+          python -m pip install --no-deps -e external/QuantPlatformKit
+
+      - name: Build lifecycle performance snapshots
+        run: quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}
+
+      - name: Validate lifecycle prerequisites
+        run: quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7
+
+      - name: Run drift detection
+        run: quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts
+
+      - name: Sync drift alerts to GitHub Issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          from quant_platform_kit.strategy_lifecycle.codex_integration import create_issues_for_domain
+          results = create_issues_for_domain("${{ inputs.strategy_domain }}")
+          created = [item for item in results if item.get("issue_url")]
+          print({"created_issues": len(created), "results": len(results)})
+          PY
+
+      - name: Checkout AIAuditBridge
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/AIAuditBridge
+          ref: 9ff297375acbc54afa910d828248812212b5d7f2
+          path: external/AIAuditBridge
+
+      - name: Dual-review critical drift
+        env:
+          AIAUDIT_BRIDGE_ROOT: external/AIAuditBridge
+          CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}
+          AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}
+        run: |
+          script="external/AIAuditBridge/scripts/run_drift_dual_review.py"
+          if [ ! -f "$script" ]; then
+            echo "::notice::dual-review scripts unavailable; skipping until AIAuditBridge is merged"
+            exit 0
+          fi
+          if [ -z "${CODEX_AUDIT_SERVICE_URL:-}" ]; then
+            echo "::notice::CODEX_AUDIT_SERVICE_URL not configured; skipping dual-review dispatch"
+            exit 0
+          fi
+          PYTHONPATH=external/AIAuditBridge python "$script" \
+            --domain "${STRATEGY_DOMAIN}" --dispatch

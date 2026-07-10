@@ -113,23 +113,24 @@ def _deploy_params(
     current_version: int, store: PerformanceStore,
     can_auto_approve: bool,
 ) -> dict[str, Any]:
-    """Write config and record deployment."""
-    patch = write_params_to_config(proposal, dry_run=False)
+    """Create a config patch and require downstream deployment confirmation."""
+    patch = write_params_to_config(proposal, dry_run=True)
     new_version = patch["params_overrides"]["version"]
     record_audit_entry(
-        strategy, domain, UpdateStage.DEPLOYED,
+        strategy, domain, UpdateStage.PATCH_CREATED,
         operator="auto_optimizer",
         param_version_from=current_version, param_version_to=new_version,
         params_before=proposal.current_params, params_after=proposal.proposed_params,
-        reason=f"Deployed v{new_version}: improvement={proposal.improvement_score:.3f}",
+        reason=f"Config patch created for v{new_version}: improvement={proposal.improvement_score:.3f}",
         approval_source="auto" if can_auto_approve else "manual",
         improvement_score=proposal.improvement_score,
     )
     return {
-        "stage": "deployed", "strategy": strategy, "domain": domain,
+        "stage": "patch_created", "strategy": strategy, "domain": domain,
         "from_version": current_version, "to_version": new_version,
         "improvement_score": proposal.improvement_score,
-        "reason": f"Parameters deployed: v{current_version} → v{new_version}",
+        "patch": patch,
+        "reason": "Config patch created; deployment requires runtime confirmation before marking deployed.",
     }
 
 

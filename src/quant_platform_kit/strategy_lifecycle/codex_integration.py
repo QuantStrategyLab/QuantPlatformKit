@@ -470,16 +470,18 @@ def _process_optimization_decision(
         entry["ai_review"] = verdict.to_dict()
 
         if verdict.verdict == "approve":
-            entry["auto_deployed"] = True
-            entry["update_result"] = process_update_from_proposal(
+            update_result = process_update_from_proposal(
                 proposal, auto_approve=True, store=store,
             )
+            entry["update_result"] = update_result
+            entry["auto_deployed"] = update_result.get("stage") in {"deployed", "runtime_confirmed"}
         elif verdict.verdict == "escalate":
             llm_v = llm_enhanced_review(proposal, drift=drift, dry_run=dry_run)
             entry["llm_review"] = llm_v.to_dict()
             if llm_v.verdict == "approve":
-                entry["auto_deployed"] = True
-                entry["note"] = "Deployed after LLM review"
+                entry["auto_deployed"] = False
+                entry["escalated_to_human"] = True
+                entry["note"] = "LLM approved proposal, but deployment remains manual until patch is applied and runtime is confirmed"
             else:
                 entry["auto_deployed"] = False
                 entry["escalated_to_human"] = True

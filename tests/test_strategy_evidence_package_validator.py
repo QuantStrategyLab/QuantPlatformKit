@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -145,7 +146,15 @@ def test_cli_exit_code_for_invalid_json(tmp_path: Path) -> None:
 
 def test_cli_exit_code_for_valid_file(tmp_path: Path) -> None:
     path = tmp_path / "evidence.json"
-    path.write_text(json.dumps(_valid_payload()), encoding="utf-8")
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    artifact_file = artifacts_dir / "example.json"
+    artifact_file.write_text('{"ok": true}', encoding="utf-8")
+    sha256 = hashlib.sha256(artifact_file.read_bytes()).hexdigest()
+    payload = _valid_payload()
+    for artifact in payload["artifacts"].values():
+        artifact["sha256"] = sha256
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
     proc = subprocess.run(
         [sys.executable, "scripts/validate_strategy_evidence_package.py", str(path)],
@@ -158,3 +167,27 @@ def test_cli_exit_code_for_valid_file(tmp_path: Path) -> None:
     assert proc.returncode == 0
     assert proc.stdout == ""
     assert proc.stderr == ""
+
+
+def test_validate_file_rejects_missing_artifact_file(tmp_path: Path) -> None:
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps(_valid_payload()), encoding="utf-8")
+
+    issues = validate_file(path)
+
+    assert "artifacts.returns.path does not exist: artifacts/example.json" in issues
+
+
+def test_validate_file_rejects_sha256_mismatch(tmp_path: Path) -> None:
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+    artifact_file = artifacts_dir / "example.json"
+    artifact_file.write_text('{"ok": true}', encoding="utf-8")
+
+    payload = _valid_payload()
+    path = tmp_path / "evidence.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    issues = validate_file(path)
+
+    assert any("artifacts.returns.sha256 mismatch" in issue for issue in issues)

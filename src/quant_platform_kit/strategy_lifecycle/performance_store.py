@@ -4,9 +4,9 @@ Follows the same local+cloud pattern as alert_marker.py.
 Data is organized under partitioned GCS paths:
 
     gs://{bucket}/daily/{domain}/{strategy}/{date}.json
-    gs://{bucket}/backtest/{domain}/{strategy}/backtest_v{n}.json
+    gs://{bucket}/backtest/{domain}/{strategy}/backtest_v{n}_{stamp}.json
     gs://{bucket}/drift/{domain}/{strategy}/drift_{date}.json
-    gs://{bucket}/optimization/{domain}/{strategy}/proposal_v{n}.json
+    gs://{bucket}/optimization/{domain}/{strategy}/proposal_v{n}_{stamp}.json
     gs://{bucket}/dashboard/aggregated_health.json
     gs://{bucket}/audit/updates/{strategy}/{entry_id}.json
 """
@@ -160,6 +160,25 @@ class PerformanceStore:
         self._write_local_json(key, payload)
         self._write_cloud_json(key, payload)
 
+    def _list_local_json_keys(self, prefix: str) -> list[str]:
+        base_root = (self.local_root or DEFAULT_LOCAL_ROOT).resolve()
+        local_dir = self._local_path(prefix)
+        keys: list[str] = []
+        if local_dir.exists():
+            paths = sorted(local_dir.rglob("*.json"))
+        else:
+            parent = local_dir.parent
+            if not parent.exists():
+                return []
+            stem = local_dir.name
+            paths = sorted(path for path in parent.glob(f"{stem}*.json") if path.is_file())
+        for path in paths:
+            try:
+                keys.append(path.resolve().relative_to(base_root).as_posix())
+            except ValueError:
+                continue
+        return keys
+
     # ── snapshots ────────────────────────────────────────────────
 
     def _snapshot_key(self, snapshot: StrategyPerformanceSnapshot) -> str:
@@ -180,11 +199,7 @@ class PerformanceStore:
         keys = self._list_cloud_keys(prefix)
         if not keys:
             # fall back to local
-            local_dir = self._local_path(prefix)
-            if local_dir.exists():
-                keys = sorted(f.name for f in local_dir.glob("*.json"))
-            else:
-                return None
+            keys = self._list_local_json_keys(prefix)
         if not keys:
             return None
         latest_key = sorted(keys)[-1]
@@ -219,45 +234,87 @@ class PerformanceStore:
         prefix = f"drift/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
         keys = self._list_cloud_keys(prefix)
         if not keys:
+            keys = self._list_local_json_keys(prefix)
+        if not keys:
             return None
         data = self._read(sorted(keys)[-1])
         return _drift_from_dict(data) if data else None
 
     # ── backtest ─────────────────────────────────────────────────
 
-    def _backtest_key(self, domain: str, strategy_profile: str, version: int) -> str:
-        return f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/backtest_v{version}.json"
+    def _backtest_key(self, result: BacktestResult) -> str:
+        stamp = _clean_key(result.computed_at or result.run_id or result.param_set_id or _now_iso()).replace("/", "_")
+        return (
+            f"backtest/{_clean_key(result.domain)}/{_clean_key(result.strategy_profile)}/"
+            f"backtest_v{result.param_version}_{stamp}.json"
+        )
 
     def save_backtest_result(self, result: BacktestResult) -> None:
         self._write(
-            self._backtest_key(result.domain, result.strategy_profile, result.param_version),
+            self._backtest_key(result),
             {**result.to_dict(), "schema_version": SCHEMA_VERSION},
         )
 
     def load_latest_backtest(self, domain: str, strategy_profile: str) -> BacktestResult | None:
         prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
-        keys = self._list_cloud_keys(prefix)
+        keys = list(dict.fromkeys([*self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
         if not keys:
             return None
-        data = self._read(sorted(keys)[-1])
-        return _backtest_from_dict(data) if data else None
+        candidates: list[tuple[tuple[str, int, str], BacktestResult]] = []
+        for key in keys:
+            data = self._read(key)
+            result = _backtest_from_dict(data) if data else None
+            if result is None:
+                continue
+            candidates.append((_backtest_sort_key(result, key), result))
+        if not candidates:
+            return None
+        baseline_candidates = [item for item in candidates if _is_baseline_backtest(item[1])]
+        selected = baseline_candidates or candidates
+        selected.sort(key=lambda item: item[0])
+        return selected[-1][1]
 
     # ── optimization ─────────────────────────────────────────────
 
-    def _proposal_key(self, domain: str, strategy_profile: str, version: int) -> str:
-        return f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/proposal_v{version}.json"
+    def _proposal_key(self, proposal: OptimizationProposal) -> str:
+        version = proposal.proposed_metrics.param_version if proposal.proposed_metrics else 1
+        stamp = _clean_key(proposal.computed_at or _now_iso()).replace("/", "_")
+        return (
+            f"optimization/{_clean_key(proposal.domain)}/{_clean_key(proposal.strategy_profile)}/"
+            f"proposal_v{version}_{stamp}.json"
+        )
 
     def save_proposal(self, proposal: OptimizationProposal) -> None:
-        version = (proposal.proposed_metrics.param_version if proposal.proposed_metrics else 1)
         self._write(
-            self._proposal_key(proposal.domain, proposal.strategy_profile, version),
+            self._proposal_key(proposal),
             {**proposal.to_dict(), "schema_version": SCHEMA_VERSION},
         )
 
     def load_proposal(self, domain: str, strategy_profile: str, version: int) -> OptimizationProposal | None:
-        key = self._proposal_key(domain, strategy_profile, version)
-        data = self._read(key)
-        return _proposal_from_dict(data) if data else None
+        directory_prefix = f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
+        proposal_stem = f"proposal_v{version}"
+        exact_key = f"{directory_prefix}{proposal_stem}.json"
+        stamped_prefix = f"{proposal_stem}_"
+        cloud_keys = [key for key in self._list_cloud_keys(directory_prefix) if Path(key).name.startswith(stamped_prefix)]
+        local_keys = [key for key in self._list_local_json_keys(directory_prefix) if Path(key).name.startswith(stamped_prefix)]
+        keys = list(
+            dict.fromkeys(
+                [exact_key, *cloud_keys, *local_keys]
+            )
+        )
+        candidates: list[tuple[str, OptimizationProposal]] = []
+        for key in keys:
+            data = self._read(key)
+            proposal = _proposal_from_dict(data) if data else None
+            if proposal is not None:
+                result_version = proposal.proposed_metrics.param_version if proposal.proposed_metrics else 1
+                if int(result_version) != int(version):
+                    continue
+                candidates.append((str(proposal.computed_at or ""), proposal))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0])
+        return candidates[-1][1]
 
     # ── audit ────────────────────────────────────────────────────
 
@@ -273,6 +330,8 @@ class PerformanceStore:
     def load_audit_entries(self, strategy_profile: str, limit: int = 20) -> tuple[UpdateLogEntry, ...]:
         prefix = f"audit/updates/{_clean_key(strategy_profile)}/"
         keys = self._list_cloud_keys(prefix)
+        if not keys:
+            keys = self._list_local_json_keys(prefix)
         entries: list[UpdateLogEntry] = []
         for key in sorted(keys, reverse=True)[:limit]:
             data = self._read(key)
@@ -281,6 +340,32 @@ class PerformanceStore:
                 if entry:
                     entries.append(entry)
         return tuple(entries)
+
+    def list_snapshot_profiles(self, domain: str) -> tuple[str, ...]:
+        prefix = f"daily/{_clean_key(domain)}/"
+        profiles: set[str] = set()
+
+        local_dir = self._local_path(prefix)
+        if local_dir.exists():
+            for path in local_dir.iterdir():
+                if path.is_dir():
+                    profiles.add(path.name)
+
+        for key in self._list_cloud_keys(prefix):
+            normalized = str(key).replace("\\", "/")
+            cloud_prefix = self.cloud_prefix.strip("/")
+            if cloud_prefix and normalized.startswith(f"{cloud_prefix}/"):
+                normalized = normalized[len(cloud_prefix) + 1 :]
+            if not normalized.startswith(prefix):
+                idx = normalized.find(prefix)
+                if idx < 0:
+                    continue
+                normalized = normalized[idx:]
+            remainder = normalized[len(prefix) :]
+            profile = remainder.split("/", 1)[0].strip()
+            if profile:
+                profiles.add(profile)
+        return tuple(sorted(profiles))
 
     # ── live runs (per-evaluate / per-execution records) ─────────
 
@@ -455,26 +540,57 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
             param_version=int(data.get("param_version", 1)),
             sharpe_ratio=float(data["sharpe_ratio"]) if data.get("sharpe_ratio") is not None else None,
             calmar_ratio=float(data["calmar_ratio"]) if data.get("calmar_ratio") is not None else None,
+            sortino_ratio=float(data["sortino_ratio"]) if data.get("sortino_ratio") is not None else None,
             max_drawdown=float(data["max_drawdown"]) if data.get("max_drawdown") is not None else None,
             cagr=float(data["cagr"]) if data.get("cagr") is not None else None,
             volatility=float(data["volatility"]) if data.get("volatility") is not None else None,
             win_rate=float(data["win_rate"]) if data.get("win_rate") is not None else None,
+            total_return=float(data["total_return"]) if data.get("total_return") is not None else None,
             start_date=date.fromisoformat(str(data["start_date"])) if data.get("start_date") else None,
             end_date=date.fromisoformat(str(data["end_date"])) if data.get("end_date") else None,
             observation_count=int(data.get("observation_count", 0)),
             benchmark_symbol=str(data.get("benchmark_symbol", "")),
+            benchmark_cagr=float(data["benchmark_cagr"]) if data.get("benchmark_cagr") is not None else None,
+            benchmark_max_drawdown=(
+                float(data["benchmark_max_drawdown"]) if data.get("benchmark_max_drawdown") is not None else None
+            ),
+            excess_cagr=float(data["excess_cagr"]) if data.get("excess_cagr") is not None else None,
+            oos_sharpe=float(data["oos_sharpe"]) if data.get("oos_sharpe") is not None else None,
+            oos_calmar=float(data["oos_calmar"]) if data.get("oos_calmar") is not None else None,
+            oos_max_drawdown=float(data["oos_max_drawdown"]) if data.get("oos_max_drawdown") is not None else None,
+            walk_forward_stability=(
+                float(data["walk_forward_stability"]) if data.get("walk_forward_stability") is not None else None
+            ),
+            run_id=str(data.get("run_id", "")),
+            run_duration_seconds=float(data.get("run_duration_seconds", 0.0) or 0.0),
+            source_script=str(data.get("source_script", "")),
+            computed_at=str(data.get("computed_at", "")),
         )
     except Exception:
         return None
 
 
+def _backtest_sort_key(result: BacktestResult, key: str) -> tuple[str, int, str]:
+    computed_at = str(result.computed_at or "")
+    return (computed_at, int(result.param_version or 0), str(key))
+
+
+def _is_baseline_backtest(result: BacktestResult) -> bool:
+    marker = str(result.param_set_id or "").strip().lower()
+    return "_baseline" in marker or marker.startswith("baseline")
+
+
 def _proposal_from_dict(data: Mapping[str, Any]) -> OptimizationProposal | None:
     try:
+        current_metrics = _backtest_from_dict(data["current_metrics"]) if isinstance(data.get("current_metrics"), Mapping) else None
+        proposed_metrics = _backtest_from_dict(data["proposed_metrics"]) if isinstance(data.get("proposed_metrics"), Mapping) else None
         return OptimizationProposal(
             strategy_profile=str(data.get("strategy_profile", "")),
             domain=str(data.get("domain", "")),
             current_params=dict(data.get("current_params", {})),
+            current_metrics=current_metrics,
             proposed_params=dict(data.get("proposed_params", {})),
+            proposed_metrics=proposed_metrics,
             improvement_score=float(data.get("improvement_score", 0)),
             confidence=float(data.get("confidence", 0)),
             recommendation=str(data.get("recommendation", "")),

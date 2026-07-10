@@ -46,6 +46,7 @@ def run_monitor(
     output_dir: str | None = None,
     windows: Sequence[int] = DEFAULT_WINDOWS,
     min_observations: int = 10,
+    fail_on_empty: bool = True,
     store: PerformanceStore | None = None,
     collector: ReturnCollector | None = None,
 ) -> list[StrategyPerformanceSnapshot]:
@@ -57,6 +58,7 @@ def run_monitor(
         output_dir: Optional local directory to write snapshot JSON files.
         windows: Trading-day windows to compute (default: 21, 63, 126, 252, 756).
         min_observations: Minimum observations required for a valid series.
+        fail_on_empty: Raise when no usable return series can be monitored.
         store: PerformanceStore instance; auto-created from env if None.
         collector: ReturnCollector instance; auto-created if None.
 
@@ -69,6 +71,11 @@ def run_monitor(
     # 1. Collect returns
     all_returns = collector.collect(domain)
     if not all_returns:
+        if fail_on_empty:
+            raise RuntimeError(
+                f"No strategy return series found for domain={domain!r}; "
+                "set QUANT_PROJECTS_ROOT or persist lifecycle performance artifacts before monitoring."
+            )
         return []
 
     profiles = [strategy_profile] if strategy_profile else sorted(all_returns.keys())
@@ -168,6 +175,12 @@ def run_monitor(
             out_path.write_text(json.dumps(snapshot.to_dict(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
         snapshots.append(snapshot)
+
+    if not snapshots and fail_on_empty:
+        raise RuntimeError(
+            f"No usable return series passed validation for domain={domain!r}; "
+            f"profiles={len(profiles)}, min_observations={min_observations}."
+        )
 
     return snapshots
 

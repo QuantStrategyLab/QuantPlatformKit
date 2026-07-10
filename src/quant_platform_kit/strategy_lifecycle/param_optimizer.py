@@ -386,20 +386,54 @@ def _auto_register_runner(orchestrator: BacktestOrchestrator, domain: str) -> No
     import importlib
 
     adapter_map = {
-        "us_equity": "us_equity_snapshot_pipelines.strategy_lifecycle.backtest_wrapper",
-        "crypto": "crypto_live_pool_pipelines.strategy_lifecycle.backtest_wrapper",
-        "hk_equity": "hk_equity_snapshot_pipelines.strategy_lifecycle.backtest_wrapper",
-        "cn_equity": "cn_equity_snapshot_pipelines.strategy_lifecycle.backtest_wrapper",
+        "us_equity": (
+            "us_equity_snapshot_pipelines.strategy_lifecycle.backtest_wrapper",
+            "us_equity_snapshot_pipelines.lifecycle.backtest_wrapper",
+            "strategy_lifecycle.backtest_wrapper",
+        ),
+        "crypto": (
+            "crypto_live_pool_pipelines.strategy_lifecycle.backtest_wrapper",
+            "strategy_lifecycle.backtest_wrapper",
+        ),
+        "hk_equity": (
+            "hk_equity_snapshot_pipelines.strategy_lifecycle.backtest_wrapper",
+            "strategy_lifecycle.backtest_wrapper",
+        ),
+        "cn_equity": (
+            "cn_equity_snapshot_pipelines.strategy_lifecycle.backtest_wrapper",
+            "strategy_lifecycle.backtest_wrapper",
+        ),
     }
 
-    module_path = adapter_map.get(domain)
-    if module_path is None:
+    module_paths = adapter_map.get(domain)
+    if module_paths is None:
         return
 
-    try:
-        module = importlib.import_module(module_path)
+    errors: list[str] = []
+    for module_path in module_paths:
+        try:
+            module = importlib.import_module(module_path)
+        except ImportError as exc:
+            errors.append(f"{module_path}: {exc}")
+            continue
+
         runner_factory = getattr(module, "build_backtest_runner", None)
-        if runner_factory is not None:
-            orchestrator.register_runner(domain, runner_factory())
-    except ImportError:
-        pass
+        if runner_factory is None:
+            errors.append(f"{module_path}: missing build_backtest_runner()")
+            continue
+
+        runner = runner_factory()
+        runner_kind = str(getattr(runner, "runner_kind", "real") or "real").strip().lower()
+        if runner_kind != "real":
+            raise RuntimeError(
+                f"BacktestRunner for domain={domain!r} is marked runner_kind={runner_kind!r}; "
+                "placeholder runners are blocked from lifecycle optimization."
+            )
+
+        orchestrator.register_runner(domain, runner)
+        return
+
+    raise RuntimeError(
+        f"Unable to register BacktestRunner for domain={domain!r}. "
+        f"Tried: {', '.join(module_paths)}. Errors: {' | '.join(errors) or 'none'}"
+    )

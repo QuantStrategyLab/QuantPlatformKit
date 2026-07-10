@@ -402,8 +402,10 @@ class UpdateStage(str, enum.Enum):
     SHADOW_REJECTED = "shadow_rejected"
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"
+    PATCH_CREATED = "patch_created"
     DENIED = "denied"
     DEPLOYED = "deployed"
+    RUNTIME_CONFIRMED = "runtime_confirmed"
     ROLLED_BACK = "rolled_back"
 
 

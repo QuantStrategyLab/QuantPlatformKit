@@ -179,6 +179,44 @@ def _run_evidence(args: argparse.Namespace) -> int:
     return 0 if result.valid else 1
 
 
+def _run_export_performance(args: argparse.Namespace) -> int:
+    _print(f"[export-performance] Exporting strategy_performance.v2 for domain={args.domain}")
+    export_strategy_performance = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.performance_export",
+        "export_strategy_performance",
+    )
+    payload = export_strategy_performance(
+        args.domain,
+        repo=args.repo,
+        strategy_profiles=args.profile,
+        output_path=args.output,
+    )
+    _print(f"[export-performance] Exported {len(payload.get('snapshots', []))} snapshots")
+    return 0
+
+
+def _run_doctor(args: argparse.Namespace) -> int:
+    _print(f"[doctor] Checking lifecycle health for domain={args.domain}")
+    doctor_lifecycle = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.doctor",
+        "doctor_lifecycle",
+    )
+    result = doctor_lifecycle(
+        args.domain,
+        require_snapshot=args.require_snapshot,
+        require_backtest=args.require_backtest,
+        require_drift=args.require_drift,
+        max_freshness_days=args.max_freshness_days,
+    )
+    _print(
+        f"[doctor] profiles={result.get('profiles_discovered', 0)} "
+        f"issues={len(result.get('issues', []))} ok={result.get('ok', False)}"
+    )
+    for issue in result.get("issues", []):
+        _print(f"  - issue: {issue}")
+    return 0 if result.get("ok") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="quant-lifecycle", description="Quant strategy lifecycle CLI.")
     parser.add_argument("--version", action="version", version="quant-lifecycle 0.10.0")
@@ -222,6 +260,21 @@ def build_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--file", required=True)
     evidence.add_argument("--json", action="store_true")
     evidence.set_defaults(func=_run_evidence)
+
+    export_performance = subparsers.add_parser("export-performance", help="Export canonical strategy_performance.v2 payload.")
+    export_performance.add_argument("--domain", required=True)
+    export_performance.add_argument("--repo", required=True)
+    export_performance.add_argument("--profile", action="append", default=None)
+    export_performance.add_argument("--output", required=True)
+    export_performance.set_defaults(func=_run_export_performance)
+
+    doctor = subparsers.add_parser("doctor", help="Validate lifecycle data prerequisites for a domain.")
+    doctor.add_argument("--domain", required=True)
+    doctor.add_argument("--require-snapshot", action="store_true")
+    doctor.add_argument("--require-backtest", action="store_true")
+    doctor.add_argument("--require-drift", action="store_true")
+    doctor.add_argument("--max-freshness-days", type=int, default=None)
+    doctor.set_defaults(func=_run_doctor)
 
     lifecycle = subparsers.add_parser("lifecycle", help="Run the full lifecycle pipeline.")
     lifecycle.add_argument("--domain", default="us_equity")
