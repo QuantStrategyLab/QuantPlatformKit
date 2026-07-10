@@ -16,6 +16,13 @@ on:
         required: false
         type: string
         default: "3.11"
+      ai_gateway_service_url:
+        required: false
+        type: string
+        default: ""
+    secrets:
+      codex_audit_service_url:
+        required: false
 
 permissions:
   contents: read
@@ -94,7 +101,7 @@ jobs:
 
       - name: Sync drift alerts to GitHub Issues
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python scripts/run_drift_github_issues.py
 
@@ -108,8 +115,8 @@ jobs:
       - name: Dual-review critical drift
         env:
           AIAUDIT_BRIDGE_ROOT: external/AIAuditBridge
-          CODEX_AUDIT_SERVICE_URL: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
-          AI_GATEWAY_SERVICE_URL: ${{ vars.AI_GATEWAY_SERVICE_URL }}
+          CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}
+          AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}
         run: |
           script="external/AIAuditBridge/scripts/run_drift_dual_review.py"
           if [ ! -f "$script" ]; then
