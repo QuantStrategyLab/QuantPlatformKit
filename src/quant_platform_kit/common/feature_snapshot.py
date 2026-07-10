@@ -13,6 +13,8 @@ from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
+from .strategies import normalize_profile_name
+
 
 DEFAULT_SNAPSHOT_DATE_COLUMNS = ("as_of", "snapshot_date")
 DEFAULT_MAX_SNAPSHOT_MONTH_LAG = 1
@@ -39,17 +41,7 @@ _MANIFEST_DIAGNOSTIC_FIELDS = (
 
 
 def _normalize_strategy_profile_label(value: object) -> str:
-    label = str(value or "").strip()
-    if not label:
-        return ""
-    try:
-        from us_equity_strategies.catalog import resolve_canonical_profile
-    except Exception:
-        return label
-    try:
-        return str(resolve_canonical_profile(label)).strip()
-    except Exception:
-        return label
+    return normalize_profile_name(str(value or "").strip())
 
 
 def _normalize_contract_version_label(value: object) -> str:

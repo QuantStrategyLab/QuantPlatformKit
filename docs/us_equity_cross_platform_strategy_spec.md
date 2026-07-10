@@ -178,6 +178,10 @@ stable contract:
 - freshness rule
 - optional manifest/checksum rule
 
+Feature-snapshot manifests and config names must already use canonical profile
+keys. Retired aliases are rejected by shared guards instead of being silently
+resolved inside `QuantPlatformKit`.
+
 The platform runtime owns:
 
 - artifact transport

@@ -151,13 +151,17 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
                 {"platform": "schwab", "total_equity": 100.0},
                 domain="us_equity",
             )
+            first_record = store.list_live_run_records("us_equity", strategy_profile="global_etf_rotation")[0]
+            second_recorded_at = (
+                pd.Timestamp(first_record["recorded_at"]).normalize() + pd.Timedelta(days=1, hours=10)
+            ).isoformat()
             # Second record on a later day so pct_change has one observation.
             second = store._local_path("live_runs/us_equity/global_etf_rotation/manual-day2.json")
             second.parent.mkdir(parents=True, exist_ok=True)
             second.write_text(
                 (
                     '{"strategy_profile":"global_etf_rotation","domain":"us_equity",'
-                    '"recorded_at":"2026-07-10T10:00:00+00:00","record_kind":"execution",'
+                    f'"recorded_at":"{second_recorded_at}","record_kind":"execution",'
                     '"execution_result":{"total_equity":102.0}}'
                 ),
                 encoding="utf-8",
