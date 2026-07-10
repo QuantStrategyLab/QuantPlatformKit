@@ -8,6 +8,7 @@ installation.  The matching JSON Schema files remain the interchange contract.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,9 @@ _RESEARCH_REQUIRED_BENCHMARK_KINDS = {
 _OPTIMIZATION_PARAMETER_KINDS = {"integer", "number", "choice", "boolean"}
 _SEARCH_METHODS = {"grid", "random", "bayesian"}
 _MULTIPLE_TESTING_METHODS = {"dsr", "pbo", "spa", "reality_check", "fdr", "other_equivalent"}
+_RFC3339_DATETIME = re.compile(
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+)
 
 
 def validate_research_spec(payload: Any) -> list[str]:
@@ -423,6 +427,8 @@ def _parse_date(value: Any) -> date | None:
 
 def _parse_datetime(value: str) -> datetime | None:
     candidate = value.strip()
+    if not _RFC3339_DATETIME.fullmatch(candidate):
+        return None
     if candidate.endswith("Z"):
         candidate = f"{candidate[:-1]}+00:00"
     try:

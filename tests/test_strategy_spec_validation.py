@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -142,6 +143,19 @@ def test_research_spec_rejects_unlocked_or_overlapping_oos() -> None:
     assert "evaluation.in_sample must end before evaluation.out_of_sample starts" in issues
 
 
+def test_research_spec_rejects_naive_or_date_only_timestamps() -> None:
+    payload = _research_spec()
+    payload["created_at"] = "2026-07-11"
+    data = payload["data"]
+    assert isinstance(data, dict)
+    data["as_of"] = "2026-07-10T23:00:00"
+
+    issues = validate_research_spec(payload)
+
+    assert "created_at must be an ISO date-time" in issues
+    assert "data.as_of must be an ISO date-time" in issues
+
+
 def test_research_spec_requires_four_layer_benchmarks() -> None:
     payload = _research_spec()
     payload["benchmarks"] = [{"benchmark_id": "spy", "kind": "passive"}]
@@ -188,6 +202,7 @@ def test_file_and_cli_validation_are_evidence_gate_friendly(tmp_path: Path) -> N
         cwd=ROOT,
         capture_output=True,
         text=True,
+        env={**os.environ, "PYTHONPATH": ""},
         check=False,
     )
     invalid_proc = subprocess.run(
@@ -195,6 +210,7 @@ def test_file_and_cli_validation_are_evidence_gate_friendly(tmp_path: Path) -> N
         cwd=ROOT,
         capture_output=True,
         text=True,
+        env={**os.environ, "PYTHONPATH": ""},
         check=False,
     )
 

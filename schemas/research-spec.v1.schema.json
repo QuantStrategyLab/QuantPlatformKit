@@ -22,14 +22,24 @@
     "spec_id": { "type": "string", "minLength": 1 },
     "strategy_profile": { "type": "string", "minLength": 1 },
     "domain": { "type": "string", "minLength": 1 },
-    "created_at": { "type": "string", "format": "date-time" },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
     "hypothesis": { "$ref": "#/$defs/hypothesis" },
     "reproducibility": { "$ref": "#/$defs/reproducibility" },
     "data": { "$ref": "#/$defs/data" },
     "benchmarks": {
       "type": "array",
       "minItems": 4,
-      "items": { "$ref": "#/$defs/benchmark" }
+      "items": { "$ref": "#/$defs/benchmark" },
+      "allOf": [
+        { "$ref": "#/$defs/required_capital_benchmark" },
+        { "$ref": "#/$defs/required_passive_benchmark" },
+        { "$ref": "#/$defs/required_risk_matched_benchmark" },
+        { "$ref": "#/$defs/required_simple_rule_benchmark" }
+      ]
     },
     "cost_model": { "$ref": "#/$defs/cost_model" },
     "evaluation": { "$ref": "#/$defs/evaluation" },
@@ -71,7 +81,11 @@
       "properties": {
         "manifest_id": { "type": "string", "minLength": 1 },
         "revision": { "type": "string", "minLength": 1 },
-        "as_of": { "type": "string", "format": "date-time" },
+        "as_of": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+        },
         "point_in_time_validated": { "const": true },
         "survivorship_bias_controlled": { "const": true }
       },
@@ -88,6 +102,38 @@
         }
       },
       "additionalProperties": true
+    },
+    "required_capital_benchmark": {
+      "contains": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": { "kind": { "const": "capital" } }
+      },
+      "minContains": 1
+    },
+    "required_passive_benchmark": {
+      "contains": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": { "kind": { "const": "passive" } }
+      },
+      "minContains": 1
+    },
+    "required_risk_matched_benchmark": {
+      "contains": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": { "kind": { "const": "risk_matched" } }
+      },
+      "minContains": 1
+    },
+    "required_simple_rule_benchmark": {
+      "contains": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": { "kind": { "const": "simple_rule" } }
+      },
+      "minContains": 1
     },
     "cost_model": {
       "type": "object",
