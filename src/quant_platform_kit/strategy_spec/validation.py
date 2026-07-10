@@ -443,7 +443,7 @@ def _parse_date(value: Any) -> date | None:
 
 
 def _parse_datetime(value: str) -> datetime | None:
-    candidate = value.strip()
+    candidate = value
     if not _RFC3339_DATETIME.fullmatch(candidate):
         return None
     if candidate.endswith("Z"):

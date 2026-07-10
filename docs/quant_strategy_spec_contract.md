@@ -30,7 +30,8 @@ quant-strategy-spec path/to/spec.json
 The command is silent on success, prints field-level contract violations to
 stderr on failure, and returns a non-zero exit code.  Code integrations may
 use `validate_research_spec`, `validate_optimization_spec`, or
-`validate_strategy_spec_file` from `quant_platform_kit.strategy_lifecycle`.
+`validate_strategy_spec_file` from the lightweight
+`quant_platform_kit.strategy_spec` package.
 Source checkouts may use `python scripts/validate_strategy_spec.py` as an
 equivalent compatibility wrapper.
 

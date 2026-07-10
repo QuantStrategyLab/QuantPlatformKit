@@ -14,7 +14,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     UpdateStage,
     WindowPerformance,
 )
-from quant_platform_kit.strategy_lifecycle.spec_validation import (
+from quant_platform_kit.strategy_spec import (
     OPTIMIZATION_SPEC_SCHEMA_VERSION,
     RESEARCH_SPEC_SCHEMA_VERSION,
     validate_optimization_spec,

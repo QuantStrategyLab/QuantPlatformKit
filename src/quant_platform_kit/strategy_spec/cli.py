@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from quant_platform_kit.strategy_lifecycle.spec_validation import validate_strategy_spec_file
+from quant_platform_kit.strategy_spec.validation import validate_strategy_spec_file
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -6,14 +6,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from quant_platform_kit.strategy_lifecycle.spec_validation import (
+from quant_platform_kit.strategy_spec import (
     OPTIMIZATION_SPEC_SCHEMA_VERSION,
     RESEARCH_SPEC_SCHEMA_VERSION,
     validate_optimization_spec,
     validate_research_spec,
     validate_strategy_spec_file,
 )
-from quant_platform_kit.strategy_lifecycle.spec_cli import main as spec_cli_main
+from quant_platform_kit.strategy_spec.cli import main as spec_cli_main
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -194,6 +194,13 @@ def test_research_spec_rejects_naive_or_date_only_timestamps() -> None:
 
     assert "created_at must be an ISO date-time" in issues
     assert "data.as_of must be an ISO date-time" in issues
+
+
+def test_research_spec_rejects_timestamp_whitespace() -> None:
+    payload = _research_spec()
+    payload["created_at"] = " 2026-07-11T00:00:00Z "
+
+    assert "created_at must be an ISO date-time" in validate_research_spec(payload)
 
 
 def test_research_spec_rejects_non_rfc3339_date_forms() -> None:
