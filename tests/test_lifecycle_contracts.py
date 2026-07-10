@@ -136,6 +136,25 @@ class ContractsTests(unittest.TestCase):
         )
         self.assertTrue(drift.escalated)
 
+    def test_drift_result_preserves_legacy_positional_flags(self) -> None:
+        drift = DriftResult(
+            "t",
+            "us",
+            date(2026, 6, 1),
+            0.6,
+            DriftStatus.REVIEW,
+            {},
+            DriftStatus.WATCH,
+            True,
+            True,
+            True,
+        )
+
+        self.assertTrue(drift.escalated)
+        self.assertTrue(drift.cooldown_active)
+        self.assertTrue(drift.alert_suppressed)
+        self.assertIsNone(drift.baseline_param_set_id)
+
     def test_backtest_result(self) -> None:
         bt = BacktestResult(
             strategy_profile="p", domain="us", param_set_id="default",
