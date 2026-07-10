@@ -194,6 +194,16 @@ class DriftDetectorTests(unittest.TestCase):
         self.assertIsNone(run("strict").previous_status)
         self.assertIsNone(run("strict", accepted_backtest=None).previous_status)
         lineage_previous = detect_drift(snapshot, backtest=backtest)
+        rotated_backtest = replace(backtest, param_set_id="rotated-baseline")
+        self.assertEqual(
+            run(
+                "auto",
+                accepted_backtest=rotated_backtest,
+                previous=lineage_previous,
+                external_baseline=False,
+            ).previous_status,
+            lineage_previous.status,
+        )
         self.assertIsNone(
             run(
                 "auto",
