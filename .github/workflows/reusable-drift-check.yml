@@ -41,9 +41,6 @@ jobs:
       LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
       - name: Resolve QuantPlatformKit ref
         id: quant-platform-kit-ref
         shell: bash
@@ -63,6 +60,28 @@ jobs:
             ref="main"
           fi
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Validate trusted caller
+        shell: bash
+        run: |
+          set -euo pipefail
+          caller_repo="${{ github.repository }}"
+          snapshot_repo="${{ inputs.snapshot_repository }}"
+          case "$caller_repo" in
+            QuantStrategyLab/CnEquityStrategies|QuantStrategyLab/HkEquityStrategies|QuantStrategyLab/UsEquityStrategies|QuantStrategyLab/CryptoStrategies)
+              ;;
+            *)
+              echo "::error::Untrusted reusable workflow caller: $caller_repo"
+              exit 1
+              ;;
+          esac
+          if [ "$snapshot_repo" != "$caller_repo" ]; then
+            echo "::error::snapshot_repository must match caller repository: $snapshot_repo"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v6
 
       - name: Checkout snapshot pipeline repo
         uses: actions/checkout@v6

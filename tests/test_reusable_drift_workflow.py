@@ -17,6 +17,9 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "codex_audit_service_url:" in workflow
     assert 'python-version: ${{ inputs.python_version }}' in workflow
     assert 'LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || \'\' }}' in workflow
+    assert "Validate trusted caller" in workflow
+    assert "Untrusted reusable workflow caller" in workflow
+    assert "snapshot_repository must match caller repository" in workflow
     assert "quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}" in workflow
     assert (
         "quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot "

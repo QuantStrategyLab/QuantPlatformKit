@@ -291,9 +291,17 @@ class PerformanceStore:
         )
 
     def load_proposal(self, domain: str, strategy_profile: str, version: int) -> OptimizationProposal | None:
-        prefix = f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/proposal_v{version}_"
-        exact_key = f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/proposal_v{version}.json"
-        keys = list(dict.fromkeys([exact_key, *self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
+        directory_prefix = f"optimization/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
+        proposal_stem = f"proposal_v{version}"
+        exact_key = f"{directory_prefix}{proposal_stem}.json"
+        stamped_prefix = f"{proposal_stem}_"
+        cloud_keys = [key for key in self._list_cloud_keys(directory_prefix) if Path(key).name.startswith(stamped_prefix)]
+        local_keys = [key for key in self._list_local_json_keys(directory_prefix) if Path(key).name.startswith(stamped_prefix)]
+        keys = list(
+            dict.fromkeys(
+                [exact_key, *cloud_keys, *local_keys]
+            )
+        )
         candidates: list[tuple[str, OptimizationProposal]] = []
         for key in keys:
             data = self._read(key)

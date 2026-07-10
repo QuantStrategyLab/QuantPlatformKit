@@ -268,36 +268,36 @@ class StrategyPerformanceExportTests(unittest.TestCase):
             self.assertIsNotNone(loaded)
             self.assertEqual(loaded.proposed_params["top_n"], 10)
 
-    def test_performance_store_load_proposal_does_not_cross_version_boundary(self) -> None:
+    def test_load_proposal_does_not_match_higher_version_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
-            v1_metrics = BacktestResult(
+            v3_metrics = BacktestResult(
                 strategy_profile="crypto_live_pool_rotation",
                 domain="crypto",
-                param_set_id="candidate_v1",
-                params={},
-                param_version=1,
-                sharpe_ratio=1.0,
+                param_set_id="candidate_v3",
+                params={"top_n": 8},
+                param_version=3,
+                sharpe_ratio=1.1,
                 calmar_ratio=1.0,
-                max_drawdown=-0.1,
+                max_drawdown=-0.12,
                 cagr=0.2,
-                volatility=0.2,
-                win_rate=0.55,
-                computed_at="2026-06-28T00:00:00Z",
+                volatility=0.22,
+                win_rate=0.56,
+                computed_at="2026-06-29T00:00:00Z",
             )
-            v10_metrics = BacktestResult(
+            v30_metrics = BacktestResult(
                 strategy_profile="crypto_live_pool_rotation",
                 domain="crypto",
-                param_set_id="candidate_v10",
-                params={},
-                param_version=10,
-                sharpe_ratio=1.5,
-                calmar_ratio=1.4,
-                max_drawdown=-0.07,
-                cagr=0.3,
-                volatility=0.24,
-                win_rate=0.61,
-                computed_at="2026-06-29T00:00:00Z",
+                param_set_id="candidate_v30",
+                params={"top_n": 12},
+                param_version=30,
+                sharpe_ratio=1.4,
+                calmar_ratio=1.2,
+                max_drawdown=-0.09,
+                cagr=0.24,
+                volatility=0.20,
+                win_rate=0.59,
+                computed_at="2026-06-30T00:00:00Z",
             )
             store.save_proposal(
                 OptimizationProposal(
@@ -305,9 +305,9 @@ class StrategyPerformanceExportTests(unittest.TestCase):
                     domain="crypto",
                     current_params={"top_n": 6},
                     proposed_params={"top_n": 8},
-                    proposed_metrics=v1_metrics,
+                    proposed_metrics=v3_metrics,
                     recommendation="review",
-                    computed_at="2026-06-28T00:00:00Z",
+                    computed_at="2026-06-29T00:00:00Z",
                 )
             )
             store.save_proposal(
@@ -315,18 +315,17 @@ class StrategyPerformanceExportTests(unittest.TestCase):
                     strategy_profile="crypto_live_pool_rotation",
                     domain="crypto",
                     current_params={"top_n": 8},
-                    proposed_params={"top_n": 10},
-                    proposed_metrics=v10_metrics,
+                    proposed_params={"top_n": 12},
+                    proposed_metrics=v30_metrics,
                     recommendation="promote",
-                    computed_at="2026-06-29T00:00:00Z",
+                    computed_at="2026-06-30T00:00:00Z",
                 )
             )
 
-            loaded = store.load_proposal("crypto", "crypto_live_pool_rotation", version=1)
+            loaded = store.load_proposal("crypto", "crypto_live_pool_rotation", version=3)
 
             self.assertIsNotNone(loaded)
-            assert loaded is not None
-            self.assertEqual(loaded.proposed_metrics.param_version, 1)
+            self.assertEqual(loaded.proposed_params["top_n"], 8)
 
 
 if __name__ == "__main__":

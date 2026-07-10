@@ -31,6 +31,24 @@ class ParamOptimizerRunnerRegistrationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "Unable to register BacktestRunner"):
                 _auto_register_runner(orchestrator, "crypto")
 
+    def test_auto_register_runner_falls_back_to_legacy_us_equity_module(self) -> None:
+        orchestrator = BacktestOrchestrator()
+
+        class RealRunner:
+            runner_kind = "real"
+
+        fake_module = SimpleNamespace(build_backtest_runner=lambda: RealRunner())
+
+        def _import(name: str) -> SimpleNamespace:
+            if name == "us_equity_snapshot_pipelines.strategy_lifecycle.backtest_wrapper":
+                return fake_module
+            raise ImportError(f"missing {name}")
+
+        with patch("importlib.import_module", side_effect=_import):
+            _auto_register_runner(orchestrator, "us_equity")
+
+        self.assertIsNotNone(orchestrator.get_runner("us_equity"))
+
 
 if __name__ == "__main__":
     unittest.main()
