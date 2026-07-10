@@ -102,6 +102,22 @@ override-dependencies = [
         self.assertIn(f'crypto_strategies = "{STALE}"', updated)
         self.assertIn(f'[runtime]\nquant_platform_kit = "{STALE}"', updated)
 
+    def test_update_qsl_compat_qpk_pin_rewrites_single_quoted_qsl_requires_map(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            qsl_path = Path(tmp) / "qsl.toml"
+            qsl_path.write_text(
+                "[qsl.requires]\n"
+                f"quant_platform_kit = '{STALE}'\n"
+                f"'quant-platform-kit' = '{STALE}'\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(update_qsl_compat_qpk_pin(Path(tmp), TARGET))
+            updated = qsl_path.read_text(encoding="utf-8")
+
+        self.assertIn(f"quant_platform_kit = '{TARGET}'", updated)
+        self.assertIn(f"'quant-platform-kit' = '{TARGET}'", updated)
+
 
 if __name__ == "__main__":
     unittest.main()
