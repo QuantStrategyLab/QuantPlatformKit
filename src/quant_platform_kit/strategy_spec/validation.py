@@ -455,7 +455,11 @@ def _parse_datetime(value: str) -> datetime | None:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    return isinstance(value, float) and math.isfinite(value)
 
 
 def _is_int(value: Any) -> bool:

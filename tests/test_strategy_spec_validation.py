@@ -284,6 +284,15 @@ def test_optimization_spec_rejects_schema_invalid_optional_parameter_fields_and_
     assert "promotion.max_fractional_kelly must be a number in (0, 1)" in issues
 
 
+def test_optimization_spec_handles_huge_json_integers_without_crashing() -> None:
+    payload = _optimization_spec()
+    promotion = payload["promotion"]
+    assert isinstance(promotion, dict)
+    promotion["max_fractional_kelly"] = 10**1000
+
+    assert "promotion.max_fractional_kelly must be a number in (0, 1)" in validate_optimization_spec(payload)
+
+
 def test_file_and_cli_validation_are_evidence_gate_friendly(tmp_path: Path) -> None:
     valid_path = tmp_path / "research-spec.json"
     valid_path.write_text(json.dumps(_research_spec()), encoding="utf-8")
