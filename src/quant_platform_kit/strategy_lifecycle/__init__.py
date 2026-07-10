@@ -14,6 +14,14 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     UpdateStage,
     WindowPerformance,
 )
+from quant_platform_kit.strategy_spec import (
+    OPTIMIZATION_SPEC_SCHEMA_VERSION,
+    RESEARCH_SPEC_SCHEMA_VERSION,
+    validate_optimization_spec,
+    validate_research_spec,
+    validate_strategy_spec,
+    validate_strategy_spec_file,
+)
 from quant_platform_kit.strategy_lifecycle.evidence_gate import (
     EvidenceGateResult,
     EvidencePackage,
@@ -34,6 +42,8 @@ __all__ = [
     "OptimizationProposal",
     "ParamDimension",
     "ParamSearchSpace",
+    "RESEARCH_SPEC_SCHEMA_VERSION",
+    "OPTIMIZATION_SPEC_SCHEMA_VERSION",
     "StrategyHealthScore",
     "StrategyPerformanceSnapshot",
     "UpdateLogEntry",
@@ -46,4 +56,8 @@ __all__ = [
     "build_live_candidate_notification",
     "validate_evidence_package",
     "validate_evidence_package_file",
+    "validate_optimization_spec",
+    "validate_research_spec",
+    "validate_strategy_spec",
+    "validate_strategy_spec_file",
 ]

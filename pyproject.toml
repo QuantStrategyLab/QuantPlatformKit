@@ -16,12 +16,16 @@ dependencies = []
 
 [project.scripts]
 quant-lifecycle = "quant_platform_kit.strategy_lifecycle.cli:main"
+quant-strategy-spec = "quant_platform_kit.strategy_spec.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+quant_platform_kit = ["schemas/*.json"]
 
 [tool.ruff]
 target-version = "py310"

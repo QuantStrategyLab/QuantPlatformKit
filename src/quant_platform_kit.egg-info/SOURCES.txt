@@ -104,6 +104,8 @@ src/quant_platform_kit/risk/contracts.py
 src/quant_platform_kit/risk/engine.py
 src/quant_platform_kit/risk/gate.py
 src/quant_platform_kit/risk/portfolio_diagnostics.py
+src/quant_platform_kit/schemas/optimization-spec.v1.schema.json
+src/quant_platform_kit/schemas/research-spec.v1.schema.json
 src/quant_platform_kit/schwab/__init__.py
 src/quant_platform_kit/schwab/auth.py
 src/quant_platform_kit/schwab/execution.py
@@ -140,6 +142,9 @@ src/quant_platform_kit/strategy_lifecycle/shadow_validator.py
 src/quant_platform_kit/strategy_lifecycle/strategy_health_score.py
 src/quant_platform_kit/strategy_lifecycle/update_orchestrator.py
 src/quant_platform_kit/strategy_lifecycle/update_policy.py
+src/quant_platform_kit/strategy_spec/__init__.py
+src/quant_platform_kit/strategy_spec/cli.py
+src/quant_platform_kit/strategy_spec/validation.py
 tests/test_backtest_orchestrator.py
 tests/test_binance_account.py
 tests/test_binance_client.py
@@ -216,6 +221,7 @@ tests/test_strategy_plugin_push_notifications.py
 tests/test_strategy_plugin_sms_notifications.py
 tests/test_strategy_plugin_telegram_notifications.py
 tests/test_strategy_plugins.py
+tests/test_strategy_spec_validation.py
 tests/test_telegram.py
 tests/test_update_orchestrator.py
 tests/test_validate_strategy_evidence_package.py

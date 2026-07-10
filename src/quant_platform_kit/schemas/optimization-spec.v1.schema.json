@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantplatformkit.local/schemas/optimization-spec.v1.schema.json",
+  "title": "OptimizationSpec v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "spec_id",
+    "research_spec_id",
+    "strategy_profile",
+    "created_at",
+    "frozen_inputs",
+    "allowed_parameters",
+    "objective",
+    "search",
+    "validation",
+    "stop_rules",
+    "promotion"
+  ],
+  "properties": {
+    "schema_version": { "const": "optimization_spec.v1" },
+    "spec_id": { "type": "string", "minLength": 1 },
+    "research_spec_id": { "type": "string", "minLength": 1 },
+    "strategy_profile": { "type": "string", "minLength": 1 },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "frozen_inputs": { "$ref": "#/$defs/frozen_inputs" },
+    "allowed_parameters": {
+      "type": "array",
+      "minItems": 1,
+      "x-qpk-unique-by": "name",
+      "items": { "$ref": "#/$defs/parameter" }
+    },
+    "objective": { "$ref": "#/$defs/objective" },
+    "search": { "$ref": "#/$defs/search" },
+    "validation": { "$ref": "#/$defs/validation" },
+    "stop_rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "promotion": { "$ref": "#/$defs/promotion" }
+  },
+  "$defs": {
+    "frozen_inputs": {
+      "type": "object",
+      "required": ["data_manifest_id", "universe_id", "benchmark_ids", "cost_model_id", "code_revision"],
+      "properties": {
+        "data_manifest_id": { "type": "string", "minLength": 1 },
+        "universe_id": { "type": "string", "minLength": 1 },
+        "benchmark_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "cost_model_id": { "type": "string", "minLength": 1 },
+        "code_revision": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    "parameter": {
+      "type": "object",
+      "required": ["name", "kind"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["integer", "number", "choice", "boolean"] },
+        "bounds": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "number" }
+        },
+        "choices": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": ["string", "number", "boolean"] }
+        },
+        "step": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["kind"],
+            "properties": { "kind": { "const": "integer" } }
+          },
+          "then": {
+            "required": ["bounds"],
+            "properties": {
+              "bounds": { "items": { "type": "integer" } },
+              "step": { "type": "integer", "exclusiveMinimum": 0 }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["kind"],
+            "properties": { "kind": { "const": "number" } }
+          },
+          "then": { "required": ["bounds"] }
+        },
+        {
+          "if": {
+            "required": ["kind"],
+            "properties": { "kind": { "const": "choice" } }
+          },
+          "then": { "required": ["choices"] }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "objective": {
+      "type": "object",
+      "required": ["primary_metric", "hard_constraints"],
+      "properties": {
+        "primary_metric": { "type": "string", "minLength": 1 },
+        "secondary_metrics": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "hard_constraints": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      },
+      "additionalProperties": true
+    },
+    "search": {
+      "type": "object",
+      "required": ["method", "max_trials", "random_seed"],
+      "properties": {
+        "method": { "enum": ["grid", "random", "bayesian"] },
+        "max_trials": { "type": "integer", "minimum": 1 },
+        "random_seed": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "validation": {
+      "type": "object",
+      "required": ["nested_walk_forward", "locked_holdout", "multiple_testing", "cost_stress"],
+      "properties": {
+        "nested_walk_forward": {
+          "type": "object",
+          "required": ["enabled", "fold_count", "selection_scope"],
+          "properties": {
+            "enabled": { "const": true },
+            "fold_count": { "type": "integer", "minimum": 3 },
+            "selection_scope": { "const": "train_validation_only" }
+          },
+          "additionalProperties": true
+        },
+        "locked_holdout": {
+          "type": "object",
+          "required": ["enabled", "reused_for_selection"],
+          "properties": {
+            "enabled": { "const": true },
+            "reused_for_selection": { "const": false }
+          },
+          "additionalProperties": true
+        },
+        "multiple_testing": {
+          "type": "object",
+          "required": ["method", "trial_ledger_id", "record_all_trials"],
+          "properties": {
+            "method": { "enum": ["dsr", "pbo", "spa", "reality_check", "fdr", "other_equivalent"] },
+            "trial_ledger_id": { "type": "string", "minLength": 1 },
+            "record_all_trials": { "const": true }
+          },
+          "additionalProperties": true
+        },
+        "cost_stress": {
+          "type": "object",
+          "required": ["multipliers", "required_pass"],
+          "properties": {
+            "multipliers": {
+              "type": "array",
+              "minItems": 3,
+              "items": { "type": "number", "minimum": 1 },
+              "allOf": [
+                { "contains": { "const": 1 } },
+                { "contains": { "const": 2 } },
+                { "contains": { "const": 3 } }
+              ]
+            },
+            "required_pass": { "const": true }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "promotion": {
+      "type": "object",
+      "required": [
+        "requires_human_approval",
+        "automatic_risk_increase_allowed",
+        "full_kelly_allowed",
+        "max_fractional_kelly"
+      ],
+      "properties": {
+        "requires_human_approval": { "const": true },
+        "automatic_risk_increase_allowed": { "const": false },
+        "full_kelly_allowed": { "const": false },
+        "max_fractional_kelly": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
