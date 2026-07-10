@@ -43,6 +43,7 @@ src/quant_platform_kit/common/indicators.py
 src/quant_platform_kit/common/market_signal_artifacts.py
 src/quant_platform_kit/common/models.py
 src/quant_platform_kit/common/notification_localization.py
+src/quant_platform_kit/common/order_status.py
 src/quant_platform_kit/common/port_adapters.py
 src/quant_platform_kit/common/ports.py
 src/quant_platform_kit/common/quantity.py
@@ -180,6 +181,7 @@ tests/test_models.py
 tests/test_notification_events.py
 tests/test_notification_localization.py
 tests/test_notification_redaction.py
+tests/test_order_status.py
 tests/test_package_version.py
 tests/test_portfolio_diagnostics.py
 tests/test_position_sizing.py
