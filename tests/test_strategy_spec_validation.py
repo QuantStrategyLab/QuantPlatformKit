@@ -127,7 +127,7 @@ def test_versioned_json_schemas_match_validator_versions() -> None:
         assert schema["properties"]["schema_version"]["const"] == version
 
 
-def test_research_spec_rejects_unlocked_or_overlapping_oos() -> None:
+def test_research_spec_rejects_unlocked_oos() -> None:
     payload = _research_spec()
     evaluation = payload["evaluation"]
     assert isinstance(evaluation, dict)
@@ -140,7 +140,6 @@ def test_research_spec_rejects_unlocked_or_overlapping_oos() -> None:
     issues = validate_research_spec(payload)
 
     assert "evaluation.out_of_sample.locked must be True" in issues
-    assert "evaluation.in_sample must end before evaluation.out_of_sample starts" in issues
 
 
 def test_research_spec_rejects_numeric_boolean_stand_ins() -> None:

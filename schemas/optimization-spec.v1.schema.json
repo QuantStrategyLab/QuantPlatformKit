@@ -164,7 +164,12 @@
             "multipliers": {
               "type": "array",
               "minItems": 3,
-              "items": { "type": "number", "minimum": 1 }
+              "items": { "type": "number", "minimum": 1 },
+              "allOf": [
+                { "contains": { "const": 1 } },
+                { "contains": { "const": 2 } },
+                { "contains": { "const": 3 } }
+              ]
             },
             "required_pass": { "const": true }
           },

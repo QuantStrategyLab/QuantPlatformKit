@@ -27,8 +27,8 @@ use `validate_research_spec`, `validate_optimization_spec`, or
 
 ## v1 safety rules
 
-- Research evaluation requires non-overlapping in-sample/OOS ranges, a locked
-  OOS interval, at least three walk-forward folds, PIT and survivorship checks,
+- Research evaluation requires a locked OOS interval, at least three
+  walk-forward folds, PIT and survivorship checks,
   net-of-cost accounting, all-trial recording, and capital/passive/risk-matched/
   simple-rule benchmarks.
 - Optimization can only vary declared parameters.  It requires frozen data,

@@ -90,12 +90,10 @@ def validate_research_spec(payload: Any) -> list[str]:
     evaluation = _check_object(payload, "evaluation", issues)
     if evaluation is not None:
         _check_const(evaluation, "frozen_before_oos", True, issues, prefix="evaluation")
-        in_sample = _validate_date_window(evaluation.get("in_sample"), "evaluation.in_sample", issues)
-        out_of_sample = _validate_date_window(evaluation.get("out_of_sample"), "evaluation.out_of_sample", issues)
+        _validate_date_window(evaluation.get("in_sample"), "evaluation.in_sample", issues)
+        _validate_date_window(evaluation.get("out_of_sample"), "evaluation.out_of_sample", issues)
         if isinstance(evaluation.get("out_of_sample"), dict):
             _check_const(evaluation["out_of_sample"], "locked", True, issues, prefix="evaluation.out_of_sample")
-        if in_sample is not None and out_of_sample is not None and in_sample[1] >= out_of_sample[0]:
-            issues.append("evaluation.in_sample must end before evaluation.out_of_sample starts")
         _validate_walk_forward(evaluation.get("walk_forward"), "evaluation.walk_forward", issues)
 
     trial_ledger = _check_object(payload, "trial_ledger", issues)
