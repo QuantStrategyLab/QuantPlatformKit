@@ -20,8 +20,17 @@ on:
         required: false
         type: string
         default: ""
+      caller_event_name:
+        required: true
+        type: string
+      caller_pr_head_repository:
+        required: false
+        type: string
+        default: ""
     secrets:
       codex_audit_service_url:
+        required: false
+      snapshot_repository_token:
         required: false
 
 permissions:
@@ -41,42 +50,65 @@ jobs:
       LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
 
     steps:
-      - name: Resolve QuantPlatformKit ref
-        id: quant-platform-kit-ref
-        shell: bash
-        run: |
-          set -euo pipefail
-          workflow_ref="${{ github.workflow_ref }}"
-          ref="${workflow_ref##*@}"
-          case "$ref" in
-            refs/heads/*)
-              ref="${ref#refs/heads/}"
-              ;;
-            refs/tags/*)
-              ref="${ref#refs/tags/}"
-              ;;
-          esac
-          if [ -z "$ref" ]; then
-            ref="main"
-          fi
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
-
       - name: Validate trusted caller
+        env:
+          CALLER_REPOSITORY: ${{ github.repository }}
+          CALLER_EVENT_NAME: ${{ inputs.caller_event_name }}
+          CALLER_PR_HEAD_REPOSITORY: ${{ inputs.caller_pr_head_repository }}
+          SNAPSHOT_REPOSITORY: ${{ inputs.snapshot_repository }}
+          SNAPSHOT_REPOSITORY_TOKEN: ${{ secrets.snapshot_repository_token }}
         shell: bash
         run: |
           set -euo pipefail
-          caller_repo="${{ github.repository }}"
-          snapshot_repo="${{ inputs.snapshot_repository }}"
+          caller_repo="$CALLER_REPOSITORY"
+          caller_event="$CALLER_EVENT_NAME"
+          caller_pr_head_repo="$CALLER_PR_HEAD_REPOSITORY"
+          snapshot_repo="$SNAPSHOT_REPOSITORY"
+          expected_snapshot_repo=""
           case "$caller_repo" in
-            QuantStrategyLab/CnEquityStrategies|QuantStrategyLab/HkEquityStrategies|QuantStrategyLab/UsEquityStrategies|QuantStrategyLab/CryptoStrategies)
+            QuantStrategyLab/CnEquityStrategies)
+              expected_snapshot_repo="QuantStrategyLab/CnEquitySnapshotPipelines"
+              ;;
+            QuantStrategyLab/HkEquityStrategies)
+              expected_snapshot_repo="QuantStrategyLab/HkEquitySnapshotPipelines"
+              ;;
+            QuantStrategyLab/UsEquityStrategies)
+              expected_snapshot_repo="QuantStrategyLab/UsEquitySnapshotPipelines"
+              ;;
+            QuantStrategyLab/CryptoStrategies)
+              expected_snapshot_repo="QuantStrategyLab/CryptoLivePoolPipelines"
               ;;
             *)
               echo "::error::Untrusted reusable workflow caller: $caller_repo"
               exit 1
               ;;
           esac
-          if [ "$snapshot_repo" != "$caller_repo" ]; then
-            echo "::error::snapshot_repository must match caller repository: $snapshot_repo"
+          case "$caller_event" in
+            schedule|workflow_dispatch)
+              ;;
+            pull_request|pull_request_target)
+              if [ -n "$caller_pr_head_repo" ] && [ "$caller_pr_head_repo" != "$caller_repo" ]; then
+                echo "::error::Fork pull_request callers are not trusted: $caller_pr_head_repo"
+              else
+                echo "::error::pull_request callers are not trusted: $caller_repo"
+              fi
+              exit 1
+              ;;
+            "")
+              echo "::error::caller_event_name must be provided by the caller workflow"
+              exit 1
+              ;;
+            *)
+              echo "::error::Unsupported caller_event_name: $caller_event"
+              exit 1
+              ;;
+          esac
+          if [ "$snapshot_repo" != "$expected_snapshot_repo" ]; then
+            echo "::error::snapshot_repository mismatch for caller $caller_repo: $snapshot_repo"
+            exit 1
+          fi
+          if [ "$snapshot_repo" != "$caller_repo" ] && [ -z "$SNAPSHOT_REPOSITORY_TOKEN" ]; then
+            echo "::error::snapshot_repository_token is required for private cross-repo snapshot checkout"
             exit 1
           fi
 
@@ -88,13 +120,14 @@ jobs:
         with:
           repository: ${{ inputs.snapshot_repository }}
           ref: main
+          token: ${{ secrets.snapshot_repository_token || github.token }}
           path: ${{ inputs.snapshot_checkout_path }}
 
       - name: Checkout QuantPlatformKit
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
-          ref: ${{ steps.quant-platform-kit-ref.outputs.ref }}
+          ref: ${{ github.workflow_sha }}
           path: external/QuantPlatformKit
 
       - name: Set up Python

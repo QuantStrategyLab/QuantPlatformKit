@@ -81,14 +81,14 @@ class BacktestOrchestrator:
         domain: str,
         params: Mapping[str, Any],
         param_set_id: str = "",
-        param_version: int = 1,
+        param_version: int | None = None,
     ) -> BacktestResult:
         enriched = BacktestResult(
             strategy_profile=strategy_profile,
             domain=domain,
             param_set_id=param_set_id or result.param_set_id or _run_id(),
             params=dict(params),
-            param_version=max(param_version, 1),
+            param_version=max(int((result.param_version if param_version is None else param_version) or 1), 1),
             sharpe_ratio=result.sharpe_ratio,
             calmar_ratio=result.calmar_ratio,
             sortino_ratio=result.sortino_ratio,
