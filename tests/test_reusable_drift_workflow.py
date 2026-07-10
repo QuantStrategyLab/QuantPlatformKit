@@ -15,11 +15,16 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "snapshot_repository_token:" in workflow
     assert "snapshot_checkout_path:" in workflow
     assert "ai_gateway_service_url:" in workflow
+    assert "caller_event_name:" in workflow
+    assert "caller_pr_head_repository:" in workflow
     assert "codex_audit_service_url:" in workflow
     assert 'python-version: ${{ inputs.python_version }}' in workflow
     assert 'LIFECYCLE_PERFORMANCE_BUCKET: ${{ vars.LIFECYCLE_PERFORMANCE_BUCKET || \'\' }}' in workflow
     assert "Validate trusted caller" in workflow
     assert "Untrusted reusable workflow caller" in workflow
+    assert "caller_event_name must be provided by the caller workflow" in workflow
+    assert "Unsupported caller_event_name" in workflow
+    assert "pull_request callers are not trusted" in workflow
     assert "snapshot_repository mismatch for caller" in workflow
     assert "Fork pull_request callers are not trusted" in workflow
     assert "snapshot_repository_token is required for private cross-repo snapshot checkout" in workflow

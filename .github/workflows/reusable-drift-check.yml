@@ -20,6 +20,13 @@ on:
         required: false
         type: string
         default: ""
+      caller_event_name:
+        required: true
+        type: string
+      caller_pr_head_repository:
+        required: false
+        type: string
+        default: ""
     secrets:
       codex_audit_service_url:
         required: false
@@ -46,14 +53,16 @@ jobs:
       - name: Validate trusted caller
         env:
           CALLER_REPOSITORY: ${{ github.repository }}
-          EVENT_NAME: ${{ github.event_name }}
-          PULL_REQUEST_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          CALLER_EVENT_NAME: ${{ inputs.caller_event_name }}
+          CALLER_PR_HEAD_REPOSITORY: ${{ inputs.caller_pr_head_repository }}
           SNAPSHOT_REPOSITORY: ${{ inputs.snapshot_repository }}
           SNAPSHOT_REPOSITORY_TOKEN: ${{ secrets.snapshot_repository_token }}
         shell: bash
         run: |
           set -euo pipefail
           caller_repo="$CALLER_REPOSITORY"
+          caller_event="$CALLER_EVENT_NAME"
+          caller_pr_head_repo="$CALLER_PR_HEAD_REPOSITORY"
           snapshot_repo="$SNAPSHOT_REPOSITORY"
           expected_snapshot_repo=""
           case "$caller_repo" in
@@ -74,10 +83,26 @@ jobs:
               exit 1
               ;;
           esac
-          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$PULL_REQUEST_HEAD_REPOSITORY" ] && [ "$PULL_REQUEST_HEAD_REPOSITORY" != "$caller_repo" ]; then
-            echo "::error::Fork pull_request callers are not trusted: $PULL_REQUEST_HEAD_REPOSITORY"
-            exit 1
-          fi
+          case "$caller_event" in
+            schedule|workflow_dispatch)
+              ;;
+            pull_request|pull_request_target)
+              if [ -n "$caller_pr_head_repo" ] && [ "$caller_pr_head_repo" != "$caller_repo" ]; then
+                echo "::error::Fork pull_request callers are not trusted: $caller_pr_head_repo"
+              else
+                echo "::error::pull_request callers are not trusted: $caller_repo"
+              fi
+              exit 1
+              ;;
+            "")
+              echo "::error::caller_event_name must be provided by the caller workflow"
+              exit 1
+              ;;
+            *)
+              echo "::error::Unsupported caller_event_name: $caller_event"
+              exit 1
+              ;;
+          esac
           if [ "$snapshot_repo" != "$expected_snapshot_repo" ]; then
             echo "::error::snapshot_repository mismatch for caller $caller_repo: $snapshot_repo"
             exit 1
