@@ -178,6 +178,10 @@ adapter 可以描述：
 - 新鲜度规则
 - 是否需要 manifest / checksum
 
+`feature_snapshot` 的 manifest 里的 `strategy_profile` / `config_name`
+必须直接使用 canonical profile key。已经退役的 alias 会被共享 guard
+直接拒绝，不再由 `QuantPlatformKit` 静默兜底解析。
+
 平台仓库负责：
 
 - artifact transport

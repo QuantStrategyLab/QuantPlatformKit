@@ -1,5 +1,5 @@
 tier = "core"
-ring = 0
+upgrade_ring = "ring_a"
 allow_legacy = true
 legacy_reason = "constraints.txt remains as the pip-compatible mirror for qsl-pins.txt and update-qpk-pin workflow."
 
