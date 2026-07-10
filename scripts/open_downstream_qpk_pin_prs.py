@@ -26,7 +26,7 @@ QSL_REQUIRES_TABLE_RE = re.compile(
     r"(?ms)^[ \t]*(?P<header>\[qsl\.requires\][^\n]*\n)(?P<body>.*?)(?=^[ \t]*\[|\Z)"
 )
 QSL_QPK_REQUIRES_MAP_RE = re.compile(
-    r'(^[ \t]*(?:"quant-platform-kit"|quant_platform_kit)\s*=\s*")[a-f0-9]{40}(")',
+    r'(^[ \t]*(?:"quant-platform-kit"|quant-platform-kit|"quant_platform_kit"|quant_platform_kit)\s*=\s*")[a-f0-9]{40}(")',
     re.MULTILINE,
 )
 
