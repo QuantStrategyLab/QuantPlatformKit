@@ -68,7 +68,7 @@ def validate_review(payload: Any) -> list[str]:
         blocking = []
     elif any(not isinstance(item, str) for item in blocking):
         issues.append("blocking_reason_codes must contain strings")
-    failed = [gate for gate in gates if isinstance(gate, dict) and gate.get("status") in {"fail", "insufficient_evidence"}]
+    failed = [gate for gate in gates if isinstance(gate, dict) and gate.get("status") in {"fail", "insufficient_evidence", "not_applicable"}]
     if failed and not blocking:
         issues.append("failed or insufficient hard gates require blocking_reason_codes")
     if payload.get("promotion_allowed") is not False:
