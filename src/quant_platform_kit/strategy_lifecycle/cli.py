@@ -6,6 +6,7 @@ import argparse
 import importlib
 import sys
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from typing import Any
 
 
@@ -44,7 +45,10 @@ def _run_drift(args: argparse.Namespace) -> int:
         from pathlib import Path
         from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
-        baseline_store = PerformanceStore(local_root=Path(args.baseline_local_root))
+        baseline_store = replace(
+            PerformanceStore.from_env(),
+            local_root=Path(args.baseline_local_root),
+        )
     baseline_lineage_policy = "migration" if getattr(args, "allow_legacy_baseline_history", False) else (
         "strict" if getattr(args, "strict_baseline_lineage", False) else "auto"
     )

@@ -224,7 +224,11 @@ def run_drift_detection(
         else:
             result = detect_drift(snapshot, backtest=backtest, policy=policy,
                                   previous_status=previous.status if previous else None)
-        store.save_drift_result(result)
+        if backtest is not None or not (
+            previous_before_lineage_check is not None
+            and previous_before_lineage_check.as_of == snapshot.as_of
+        ):
+            store.save_drift_result(result)
         results.append(result)
     if not results and fail_on_empty:
         raise RuntimeError(

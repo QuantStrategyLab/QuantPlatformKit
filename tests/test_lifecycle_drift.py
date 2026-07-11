@@ -250,7 +250,7 @@ class DriftDetectorTests(unittest.TestCase):
                 baseline_lineage_policy="strict",
             )[0]
             active_store.load_latest_drift.side_effect = None
-            active_store.load_latest_drift.return_value = missing_baseline_result
+            active_store.load_latest_drift.return_value = previous
             recovered_result = run_drift_detection(
                 snapshot.domain,
                 strategy_profile=snapshot.strategy_profile,
@@ -267,7 +267,7 @@ class DriftDetectorTests(unittest.TestCase):
         self.assertEqual(missing_baseline_result.dimensions, {})
         self.assertEqual(recovered_result.previous_status, previous.status)
         self.assertTrue(recovered_result.baseline_available)
-        self.assertEqual(active_store.save_drift_result.call_count, 2)
+        active_store.save_drift_result.assert_called_once_with(recovered_result)
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from quant_platform_kit.strategy_lifecycle import cli
+from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 
 class LifecycleCliTests(unittest.TestCase):
@@ -119,7 +120,14 @@ class LifecycleCliTests(unittest.TestCase):
                 return lambda _events, **_kwargs: {}
             raise AssertionError(function_name)
 
-        with patch.object(cli, "_load_callable", fake_load_callable):
+        environment_store = PerformanceStore(
+            cloud_bucket="accepted-bucket",
+            cloud_prefix="lifecycle",
+        )
+        with (
+            patch.object(cli, "_load_callable", fake_load_callable),
+            patch.object(PerformanceStore, "from_env", return_value=environment_store),
+        ):
             result = cli.main([
                 "drift",
                 "--baseline-local-root",
@@ -129,6 +137,8 @@ class LifecycleCliTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         self.assertEqual(observed["baseline_lineage_policy"], "migration")
+        self.assertEqual(observed["baseline_store"].cloud_bucket, "accepted-bucket")
+        self.assertEqual(observed["baseline_store"].cloud_prefix, "lifecycle")
 
     def test_update_returns_non_zero_for_error_stage(self) -> None:
         def fake_load_callable(_module_name: str, _function_name: str):
