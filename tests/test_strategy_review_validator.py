@@ -72,6 +72,13 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         self.assertTrue(any("sample_count" in issue for issue in issues))
         self.assertTrue(any("oos_folds" in issue for issue in issues))
 
+    def test_reason_code_arrays_must_contain_strings(self) -> None:
+        payload = _review()
+        payload["hard_gates"][0]["reason_codes"] = [123]  # type: ignore[index]
+        payload["blocking_reason_codes"] = [False]
+        issues = MODULE.validate_review(payload)
+        self.assertTrue(any("must contain strings" in issue for issue in issues))
+
 
 if __name__ == "__main__":
     unittest.main()

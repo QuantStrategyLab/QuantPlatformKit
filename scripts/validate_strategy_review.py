@@ -38,6 +38,8 @@ def validate_review(payload: Any) -> list[str]:
         for field in ("reason_codes", "evidence_refs"):
             if not isinstance(gate.get(field), list):
                 issues.append(f"{gate.get('id', '<unknown>')}.{field} must be an array")
+            elif any(not isinstance(item, str) for item in gate[field]):
+                issues.append(f"{gate.get('id', '<unknown>')}.{field} must contain strings")
 
     score = payload.get("score")
     if not isinstance(score, (int, float)) or isinstance(score, bool) or not 0 <= score <= 100:
@@ -64,6 +66,8 @@ def validate_review(payload: Any) -> list[str]:
     if not isinstance(blocking, list):
         issues.append("blocking_reason_codes must be an array")
         blocking = []
+    elif any(not isinstance(item, str) for item in blocking):
+        issues.append("blocking_reason_codes must contain strings")
     failed = [gate for gate in gates if isinstance(gate, dict) and gate.get("status") in {"fail", "insufficient_evidence"}]
     if failed and not blocking:
         issues.append("failed or insufficient hard gates require blocking_reason_codes")

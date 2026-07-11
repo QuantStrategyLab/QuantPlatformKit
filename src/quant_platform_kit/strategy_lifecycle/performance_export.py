@@ -86,6 +86,12 @@ def _assert_required_metrics(metrics: Mapping[str, Any], *, label: str) -> None:
         raise ValueError(f"{label} missing required metrics: {', '.join(missing)}")
 
 
+def _merge_provenance(snapshot_value: str, backtest_value: str, *, label: str) -> str:
+    if snapshot_value and backtest_value and snapshot_value != backtest_value:
+        raise ValueError(f"conflicting {label}: snapshot={snapshot_value!r}, backtest={backtest_value!r}")
+    return snapshot_value or backtest_value
+
+
 def export_strategy_performance(
     domain: str,
     *,
@@ -131,8 +137,8 @@ def export_strategy_performance(
                     "window_end": window.end_date.isoformat(),
                     "snapshot_computed_at": snapshot.computed_at,
                     "backtest_computed_at": backtest.computed_at,
-                    "source_revision": snapshot.source_revision or backtest.source_revision,
-                    "cost_model": snapshot.cost_model or backtest.cost_model,
+                    "source_revision": _merge_provenance(snapshot.source_revision, backtest.source_revision, label="source_revision"),
+                    "cost_model": _merge_provenance(snapshot.cost_model, backtest.cost_model, label="cost_model"),
                     "data_timestamp": snapshot.as_of.isoformat(),
                 },
             }

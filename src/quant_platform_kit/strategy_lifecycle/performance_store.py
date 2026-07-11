@@ -505,6 +505,8 @@ def _snapshot_from_dict(data: Mapping[str, Any]) -> StrategyPerformanceSnapshot 
             data_freshness_days=int(data.get("data_freshness_days", 0)),
             source_artifact_path=str(data.get("source_artifact_path", "")),
             computed_at=str(data.get("computed_at", "")),
+            source_revision=str(data.get("source_revision", "")),
+            cost_model=str(data.get("cost_model", "")),
         )
     except Exception:
         return None
@@ -588,6 +590,8 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
             run_duration_seconds=float(data.get("run_duration_seconds", 0.0) or 0.0),
             source_script=str(data.get("source_script", "")),
             computed_at=str(data.get("computed_at", "")),
+            source_revision=str(data.get("source_revision", "")),
+            cost_model=str(data.get("cost_model", "")),
         )
     except Exception:
         return None
