@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.dev/schemas/strategy-review.v1.schema.json",
+  "title": "Strategy Review Result v1",
+  "type": "object",
+  "required": ["schema_version", "profile", "decision", "promotion_allowed", "score", "hard_gates", "scorecard", "blocking_reason_codes", "evidence"],
+  "properties": {
+    "schema_version": { "const": "strategy_review.v1" },
+    "profile": { "type": "string", "minLength": 1 },
+    "decision": { "enum": ["pass", "fail", "insufficient_evidence"] },
+    "promotion_allowed": { "type": "boolean", "const": false },
+    "score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "hard_gates": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "reason_codes", "evidence_refs"],
+        "properties": {
+          "id": { "pattern": "^H([1-9]|1[0-2])$" },
+          "status": { "enum": ["pass", "fail", "insufficient_evidence", "not_applicable"] },
+          "reason_codes": { "type": "array", "items": { "type": "string" } },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "scorecard": { "type": "object" },
+    "blocking_reason_codes": { "type": "array", "items": { "type": "string" } },
+    "evidence": {
+      "type": "object",
+      "required": ["metrics_kind", "data_source", "sample_count", "oos_folds", "cost_model", "placeholder_metrics"],
+      "properties": {
+        "metrics_kind": { "const": "performance" },
+        "data_source": { "type": "string", "minLength": 1 },
+        "sample_count": { "type": "integer", "minimum": 0 },
+        "oos_folds": { "type": "integer", "minimum": 0 },
+        "cost_model": { "type": "string", "minLength": 1 },
+        "placeholder_metrics": { "const": false }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

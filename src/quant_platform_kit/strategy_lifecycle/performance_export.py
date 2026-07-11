@@ -131,6 +131,9 @@ def export_strategy_performance(
                     "window_end": window.end_date.isoformat(),
                     "snapshot_computed_at": snapshot.computed_at,
                     "backtest_computed_at": backtest.computed_at,
+                    "source_revision": snapshot.source_revision or backtest.source_revision,
+                    "cost_model": snapshot.cost_model or backtest.cost_model,
+                    "data_timestamp": snapshot.as_of.isoformat(),
                 },
             }
         )
