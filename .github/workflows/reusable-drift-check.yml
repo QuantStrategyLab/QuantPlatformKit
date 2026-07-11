@@ -66,6 +66,7 @@ jobs:
       QUANT_PROJECTS_ROOT: ${{ github.workspace }}/external
       LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
       LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
+      CRYPTO_LIFECYCLE_PREFLIGHT_ROOT: ${{ runner.temp }}/lifecycle-preflight
 
     steps:
       - name: Validate trusted caller
@@ -203,6 +204,7 @@ jobs:
           mkdir -p "$LIFECYCLE_LOCAL_ROOT" "$GITHUB_WORKSPACE/$SNAPSHOT_CHECKOUT_PATH/data/output"
           cp -a "$lifecycle_source/." "$LIFECYCLE_LOCAL_ROOT/"
           cp -a "$snapshot_source/." "$snapshot_target/"
+          echo "CRYPTO_LIFECYCLE_PREFLIGHT_ROOT=$PREFLIGHT_BUNDLE_ROOT" >> "$GITHUB_ENV"
 
       - name: Build lifecycle performance snapshots
         run: quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}
