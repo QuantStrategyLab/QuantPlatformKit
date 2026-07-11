@@ -98,6 +98,12 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         self.assertTrue(any("sample_count" in issue for issue in issues))
         self.assertTrue(any("oos_folds" in issue for issue in issues))
 
+    def test_decision_and_recommendation_must_be_consistent(self) -> None:
+        payload = _review()
+        payload["decision"] = "pass"
+        payload["decision_packet"] = {**payload["decision_packet"], "evidence_sufficiency": "sufficient", "system_recommendation": "reject_rollback", "allowed_human_decisions": ["reject_rollback"]}
+        self.assertTrue(any("approval recommendation" in issue for issue in MODULE.validate_review(payload)))
+
     def test_reason_code_arrays_must_contain_strings(self) -> None:
         payload = _review()
         payload["hard_gates"][0]["reason_codes"] = [123]  # type: ignore[index]

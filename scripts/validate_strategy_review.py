@@ -186,6 +186,12 @@ def validate_review(payload: Any) -> list[str]:
             or packet.get("system_recommendation") != "insufficient_evidence"
         ):
             issues.append("decision=insufficient_evidence requires matching packet state")
+        if payload.get("decision") == "pass" and packet.get("system_recommendation") not in {
+            "approve_research", "approve_shadow", "approve_canary", "approve_live"
+        }:
+            issues.append("decision=pass requires an approval recommendation")
+        if payload.get("decision") == "fail" and packet.get("system_recommendation") != "reject_rollback":
+            issues.append("decision=fail requires a reject_rollback recommendation")
         if packet.get("evidence_sufficiency") == "insufficient_evidence" and any(item != "approve_research" and item != "reject_rollback" for item in allowed or []):
             issues.append("insufficient evidence cannot allow shadow, canary, or live approval")
         promotive = {"approve_shadow", "approve_canary", "approve_live"}
