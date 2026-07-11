@@ -116,6 +116,15 @@ def validate_review(payload: Any) -> list[str]:
             isinstance(gate, dict) and gate.get("status") != "pass" for gate in gates
         ):
             issues.append("approval recommendation requires every hard gate to pass")
+        promotive = packet.get("system_recommendation") in {"approve_shadow", "approve_canary", "approve_live"}
+        if payload.get("decision") == "pass" or promotive:
+            if not isinstance(evidence, dict) or evidence.get("sample_count", 0) <= 0 or evidence.get("oos_folds", 0) < 3:
+                issues.append("passing review requires positive sample_count and at least 3 oos_folds")
+            if not isinstance(packet.get("technical_evidence_refs"), list) or not packet["technical_evidence_refs"]:
+                issues.append("passing review requires technical evidence references")
+            for gate in gates:
+                if isinstance(gate, dict) and gate.get("status") == "pass" and not gate.get("evidence_refs"):
+                    issues.append(f"{gate.get('id', '<unknown>')} pass requires evidence_refs")
 
     blocking = payload.get("blocking_reason_codes")
     if not isinstance(blocking, list):

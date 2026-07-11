@@ -105,6 +105,13 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         payload["decision_packet"]["system_recommendation"] = "approve_research"  # type: ignore[index]
         self.assertTrue(any("every hard gate" in issue for issue in MODULE.validate_review(payload)))
 
+    def test_pass_requires_real_samples_folds_and_evidence_refs(self) -> None:
+        payload = _review(decision="pass")
+        payload["hard_gates"] = [{**gate, "status": "pass"} for gate in payload["hard_gates"]]
+        payload["decision_packet"]["system_recommendation"] = "approve_research"  # type: ignore[index]
+        issues = MODULE.validate_review(payload)
+        self.assertTrue(any("positive sample_count" in issue for issue in issues))
+
 
 if __name__ == "__main__":
     unittest.main()
