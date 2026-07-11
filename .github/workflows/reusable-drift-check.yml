@@ -57,7 +57,9 @@ permissions:
 jobs:
   drift:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A critical drift can require up to three sequential primary reviews.  Each
+    # service review has a 15-minute budget plus its polling grace period.
+    timeout-minutes: 60
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
       STRATEGY_DOMAIN: ${{ inputs.strategy_domain }}

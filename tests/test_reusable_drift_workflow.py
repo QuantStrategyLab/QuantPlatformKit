@@ -10,6 +10,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     ).read_text(encoding="utf-8")
 
     assert "workflow_call:" in workflow
+    assert "timeout-minutes: 60" in workflow
     assert "strategy_domain:" in workflow
     assert "snapshot_repository:" in workflow
     assert "snapshot_repository_token:" in workflow
