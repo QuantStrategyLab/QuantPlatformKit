@@ -32,6 +32,8 @@ def _review(**overrides: object) -> dict[str, object]:
             "oos_folds": 0,
             "cost_model": "not_available",
             "placeholder_metrics": False,
+            "source_revision": "fixture-rev",
+            "data_timestamp": "2026-07-11T00:00:00Z",
         },
         "decision_packet": {
             "strategy_what": "策略做什么尚待真实证据确认",

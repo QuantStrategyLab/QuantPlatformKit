@@ -55,6 +55,9 @@ def validate_review(payload: Any) -> list[str]:
         for field in ("data_source", "cost_model"):
             if not isinstance(evidence.get(field), str) or not evidence[field].strip():
                 issues.append(f"evidence.{field} must be a non-empty string")
+        for field in ("source_revision", "data_timestamp"):
+            if not isinstance(evidence.get(field), str) or not evidence[field].strip():
+                issues.append(f"evidence.{field} must be a non-empty string")
         if evidence.get("placeholder_metrics") is not False:
             issues.append("placeholder metrics are not admissible evidence")
         if not isinstance(evidence.get("sample_count"), int) or isinstance(evidence.get("sample_count"), bool) or evidence["sample_count"] < 0:

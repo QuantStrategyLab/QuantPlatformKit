@@ -16,14 +16,15 @@
       "maxItems": 12,
       "items": {
         "type": "object",
-        "required": ["id", "status", "reason_codes", "evidence_refs"],
-        "properties": {
+          "required": ["id", "status", "reason_codes", "evidence_refs"],
+          "properties": {
           "id": { "type": "string", "pattern": "^H([1-9]|1[0-2])$" },
+          "name": { "type": "string" },
           "status": { "enum": ["pass", "fail", "insufficient_evidence", "not_applicable"] },
           "reason_codes": { "type": "array", "items": { "type": "string" } },
           "evidence_refs": { "type": "array", "items": { "type": "string" } }
         },
-        "additionalProperties": true
+        "additionalProperties": false
       },
       "allOf": [
         { "contains": { "type": "object", "properties": { "id": { "const": "H1" } }, "required": ["id"] } },
@@ -40,20 +41,24 @@
         { "contains": { "type": "object", "properties": { "id": { "const": "H12" } }, "required": ["id"] } }
       ]
     },
-    "scorecard": { "type": "object" },
+    "scorecard": { "type": "object", "properties": { "total": { "type": "number" }, "max": { "type": "number" }, "scored_gates": { "type": "integer" } }, "additionalProperties": false },
     "blocking_reason_codes": { "type": "array", "items": { "type": "string" } },
     "evidence": {
       "type": "object",
-      "required": ["metrics_kind", "data_source", "sample_count", "oos_folds", "cost_model", "placeholder_metrics"],
+      "required": ["metrics_kind", "data_source", "sample_count", "oos_folds", "cost_model", "placeholder_metrics", "source_revision", "data_timestamp"],
       "properties": {
         "metrics_kind": { "const": "performance" },
         "data_source": { "type": "string", "minLength": 1 },
         "sample_count": { "type": "integer", "minimum": 0 },
         "oos_folds": { "type": "integer", "minimum": 0 },
         "cost_model": { "type": "string", "minLength": 1 },
-        "placeholder_metrics": { "const": false }
+        "placeholder_metrics": { "const": false },
+        "source_revision": { "type": "string", "minLength": 1 },
+        "data_timestamp": { "type": "string", "minLength": 1 },
+        "generated_at": { "type": "string" },
+        "missing_artifacts": { "type": "array", "items": { "type": "string" } }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     },
     "decision_packet": {
       "type": "object",
@@ -80,7 +85,7 @@
             "funding_leverage_risk_override_requires_human": { "const": true },
             "hard_risk_auto_pause_rollback": { "const": true }
           },
-          "additionalProperties": true
+          "additionalProperties": false
         },
         "allowed_human_decisions": {
           "type": "array",
@@ -89,8 +94,8 @@
           "items": { "enum": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"] }
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
     }
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }
