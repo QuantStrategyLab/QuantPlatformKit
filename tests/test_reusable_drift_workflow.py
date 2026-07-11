@@ -31,7 +31,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "pull_request callers are not trusted" in workflow
     assert "snapshot_repository mismatch for caller" in workflow
     assert "Fork pull_request callers are not trusted" in workflow
-    assert "snapshot_repository_token is required for private cross-repo snapshot checkout" in workflow
+    assert "SNAPSHOT_REPOSITORY_TOKEN:" not in workflow
     assert "quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}" in workflow
     assert (
         "quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot "

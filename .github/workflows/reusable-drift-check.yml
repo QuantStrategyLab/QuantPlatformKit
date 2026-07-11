@@ -72,7 +72,6 @@ jobs:
           CALLER_EVENT_NAME: ${{ inputs.caller_event_name }}
           CALLER_PR_HEAD_REPOSITORY: ${{ inputs.caller_pr_head_repository }}
           SNAPSHOT_REPOSITORY: ${{ inputs.snapshot_repository }}
-          SNAPSHOT_REPOSITORY_TOKEN: ${{ secrets.snapshot_repository_token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -121,10 +120,6 @@ jobs:
           esac
           if [ "$snapshot_repo" != "$expected_snapshot_repo" ]; then
             echo "::error::snapshot_repository mismatch for caller $caller_repo: $snapshot_repo"
-            exit 1
-          fi
-          if [ "$snapshot_repo" != "$caller_repo" ] && [ -z "$SNAPSHOT_REPOSITORY_TOKEN" ]; then
-            echo "::error::snapshot_repository_token is required for private cross-repo snapshot checkout"
             exit 1
           fi
 
