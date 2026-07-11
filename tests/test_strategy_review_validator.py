@@ -54,6 +54,15 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         payload = _review(decision="pass")
         self.assertTrue(any("cannot be pass" in issue for issue in MODULE.validate_review(payload)))
 
+    def test_unknown_decision_is_rejected(self) -> None:
+        self.assertTrue(any("decision must be" in issue for issue in MODULE.validate_review(_review(decision="unknown"))))
+
+    def test_empty_provenance_is_rejected(self) -> None:
+        payload = _review(evidence={**_review()["evidence"], "data_source": "", "cost_model": " "})
+        issues = MODULE.validate_review(payload)
+        self.assertTrue(any("data_source" in issue for issue in issues))
+        self.assertTrue(any("cost_model" in issue for issue in issues))
+
 
 if __name__ == "__main__":
     unittest.main()

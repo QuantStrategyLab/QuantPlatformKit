@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 STATUSES = {"pass", "fail", "insufficient_evidence", "not_applicable"}
+DECISIONS = {"pass", "fail", "insufficient_evidence"}
 
 
 def validate_review(payload: Any) -> list[str]:
@@ -17,6 +18,8 @@ def validate_review(payload: Any) -> list[str]:
         return ["top-level JSON must be an object"]
     if payload.get("schema_version") != "strategy_review.v1":
         issues.append("schema_version must be strategy_review.v1")
+    if payload.get("decision") not in DECISIONS:
+        issues.append("decision must be pass, fail, or insufficient_evidence")
     if not isinstance(payload.get("profile"), str) or not payload["profile"].strip():
         issues.append("profile must be a non-empty string")
     gates = payload.get("hard_gates")
@@ -45,6 +48,9 @@ def validate_review(payload: Any) -> list[str]:
     else:
         if evidence.get("metrics_kind") != "performance":
             issues.append("evidence.metrics_kind must be performance")
+        for field in ("data_source", "cost_model"):
+            if not isinstance(evidence.get(field), str) or not evidence[field].strip():
+                issues.append(f"evidence.{field} must be a non-empty string")
         if evidence.get("placeholder_metrics") is not False:
             issues.append("placeholder metrics are not admissible evidence")
         if not isinstance(evidence.get("sample_count"), int) or evidence["sample_count"] < 0:
