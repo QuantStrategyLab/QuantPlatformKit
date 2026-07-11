@@ -62,7 +62,7 @@ def validate_review(payload: Any) -> list[str]:
         check_keys(payload["scorecard"], {"total", "max", "scored_gates"}, "scorecard")
         for field in ("total", "max"):
             value = payload["scorecard"].get(field)
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
                 issues.append(f"scorecard.{field} must be a number")
         scored_gates = payload["scorecard"].get("scored_gates")
         if not isinstance(scored_gates, int) or isinstance(scored_gates, bool):
@@ -71,7 +71,7 @@ def validate_review(payload: Any) -> list[str]:
             issues.append("scorecard.scored_gates must be in [0, 12]")
         total = payload["scorecard"].get("total")
         maximum = payload["scorecard"].get("max")
-        if isinstance(total, (int, float)) and isinstance(maximum, (int, float)) and not isinstance(total, bool) and not isinstance(maximum, bool) and not 0 <= total <= maximum:
+        if isinstance(total, (int, float)) and isinstance(maximum, (int, float)) and not isinstance(total, bool) and not isinstance(maximum, bool) and (not math.isfinite(total) or not math.isfinite(maximum) or not 0 <= total <= maximum):
             issues.append("scorecard.total must be between 0 and scorecard.max")
     evidence = payload.get("evidence")
     provenance: dict[str, Any] = {}
