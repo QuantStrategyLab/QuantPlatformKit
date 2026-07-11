@@ -14,6 +14,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "snapshot_repository:" in workflow
     assert "snapshot_repository_token:" in workflow
     assert "snapshot_checkout_path:" in workflow
+    assert "snapshot_repository_ref:" in workflow
     assert "ai_gateway_service_url:" in workflow
     assert "quant_platform_kit_ref:" in workflow
     assert "lifecycle_performance_bucket:" in workflow
@@ -38,6 +39,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     ) in workflow
     assert "quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts" in workflow
     assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
+    assert 'ref: ${{ inputs.snapshot_repository_ref }}' in workflow
     assert 'path: ${{ inputs.snapshot_checkout_path }}' in workflow
     assert 'token: ${{ secrets.snapshot_repository_token || github.token }}' in workflow
     assert 'ref: ${{ inputs.quant_platform_kit_ref }}' in workflow

@@ -12,6 +12,10 @@ on:
       snapshot_checkout_path:
         required: true
         type: string
+      snapshot_repository_ref:
+        required: false
+        type: string
+        default: "main"
       python_version:
         required: false
         type: string
@@ -131,7 +135,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: ${{ inputs.snapshot_repository }}
-          ref: main
+          ref: ${{ inputs.snapshot_repository_ref }}
           token: ${{ secrets.snapshot_repository_token || github.token }}
           path: ${{ inputs.snapshot_checkout_path }}
 
