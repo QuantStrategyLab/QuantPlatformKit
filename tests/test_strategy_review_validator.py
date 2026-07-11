@@ -149,6 +149,11 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         payload["decision_packet"]["system_recommendation"] = "reject_rollback"  # type: ignore[index]
         self.assertTrue(any("matching packet state" in issue for issue in MODULE.validate_review(payload)))
 
+    def test_canary_limits_reject_non_finite_numbers(self) -> None:
+        payload = _review()
+        payload["decision_packet"]["automation_boundary"]["canary_limits"]["max_capital"] = float("inf")  # type: ignore[index]
+        self.assertTrue(any("canary_limits" in issue for issue in MODULE.validate_review(payload)))
+
 
 if __name__ == "__main__":
     unittest.main()

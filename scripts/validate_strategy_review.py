@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -157,11 +158,11 @@ def validate_review(payload: Any) -> list[str]:
             else:
                 limits = boundary["canary_limits"]
                 checks = {
-                    "max_capital": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0,
+                    "max_capital": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0,
                     "capital_currency": lambda v: isinstance(v, str) and len(v.strip()) >= 3,
                     "max_duration_days": lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 1,
-                    "max_drawdown_fraction": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v < 1,
-                    "max_leverage": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0,
+                    "max_drawdown_fraction": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 < v < 1,
+                    "max_leverage": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0,
                     "max_concurrency": lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 1,
                 }
                 if set(limits) != set(checks) or any(not check(limits.get(key)) for key, check in checks.items()):
@@ -251,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("review", type=Path)
     args = parser.parse_args(argv)
-    issues = validate_review(json.loads(args.review.read_text(encoding="utf-8")))
+    issues = validate_review(json.loads(args.review.read_text(encoding="utf-8"), parse_constant=lambda value: (_ for _ in ()).throw(ValueError(f"non-finite JSON constant: {value}"))))
     if issues:
         for issue in issues:
             print(f"ERROR: {issue}")
