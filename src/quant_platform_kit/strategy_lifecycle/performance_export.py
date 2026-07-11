@@ -15,6 +15,7 @@ PERFORMANCE_SCHEMA_VERSION = "strategy_performance.v2"
 METRICS_KIND = "performance"
 DEFAULT_WINDOWS: tuple[int, ...] = (126, 252, 63, 21)
 REQUIRED_METRICS = ("sharpe", "cagr", "calmar", "win_rate", "max_dd")
+PROVENANCE_SENTINELS = {"", "unavailable", "legacy_missing", "unknown", "none", "null"}
 
 
 def _now_iso() -> str:
@@ -92,6 +93,10 @@ def _date_timestamp(value: date | None) -> str:
     return datetime(value.year, value.month, value.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _usable_provenance(value: str) -> bool:
+    return isinstance(value, str) and value.strip().lower() not in PROVENANCE_SENTINELS
+
+
 def export_strategy_performance(
     domain: str,
     *,
@@ -146,13 +151,13 @@ def export_strategy_performance(
                             "source_revision": snapshot.source_revision or "legacy_missing",
                             "cost_model": snapshot.cost_model or "legacy_missing",
                             "data_timestamp": _date_timestamp(snapshot.as_of),
-                            "status": "verified" if snapshot.source_revision and snapshot.cost_model else "legacy_missing",
+                            "status": "verified" if _usable_provenance(snapshot.source_revision) and _usable_provenance(snapshot.cost_model) else "legacy_missing",
                         },
                         "backtest": {
                             "source_revision": backtest.source_revision or "legacy_missing",
                             "cost_model": backtest.cost_model or "legacy_missing",
                             "data_timestamp": _date_timestamp(backtest.end_date),
-                            "status": "verified" if backtest.source_revision and backtest.cost_model and backtest.end_date else "legacy_missing",
+                            "status": "verified" if _usable_provenance(backtest.source_revision) and _usable_provenance(backtest.cost_model) and backtest.end_date else "legacy_missing",
                         },
                     },
                     "data_timestamp": snapshot.as_of.isoformat(),

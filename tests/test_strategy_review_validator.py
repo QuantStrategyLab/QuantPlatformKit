@@ -137,6 +137,12 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         payload["evidence"]["provenance"]["backtest"]["source_revision"] = "legacy_missing"  # type: ignore[index]
         self.assertTrue(any("verified" in issue for issue in MODULE.validate_review(payload)))
 
+    def test_insufficient_decision_requires_matching_packet(self) -> None:
+        payload = _review(decision="insufficient_evidence")
+        payload["decision_packet"]["evidence_sufficiency"] = "sufficient"  # type: ignore[index]
+        payload["decision_packet"]["system_recommendation"] = "reject_rollback"  # type: ignore[index]
+        self.assertTrue(any("matching packet state" in issue for issue in MODULE.validate_review(payload)))
+
 
 if __name__ == "__main__":
     unittest.main()
