@@ -34,6 +34,12 @@ _DIMENSION_SPECS = [
 ]
 
 
+def _baseline_artifact_id(backtest: BacktestResult | None) -> str | None:
+    if backtest is None:
+        return None
+    return backtest.run_id or backtest.computed_at or None
+
+
 def _compute_dimension(
     key: str, metric: str,
     actual_val: float, expected_val: float, threshold: float,
@@ -127,6 +133,8 @@ def detect_drift(
         status=status, dimensions=dimensions,
         previous_status=previous_status,
         baseline_param_set_id=backtest.param_set_id if backtest else None,
+        baseline_param_version=backtest.param_version if backtest else None,
+        baseline_artifact_id=_baseline_artifact_id(backtest),
         escalated=escalated,
     )
 
@@ -149,7 +157,7 @@ def run_drift_detection(
     it writes the accepted baseline ID into the next result.
     """
     store = store or PerformanceStore.from_env()
-    explicit_baseline_store = baseline_store is not None
+    explicit_baseline_store = baseline_store is not None and baseline_store is not store
     if baseline_lineage_policy not in {"auto", "compatible", "migration", "strict"}:
         raise ValueError("baseline_lineage_policy must be auto, compatible, migration, or strict")
     if explicit_baseline_store and baseline_lineage_policy == "compatible":
@@ -185,14 +193,34 @@ def run_drift_detection(
         previous = read_previous.load_latest_drift(domain, profile)
         previous_before_lineage_check = previous
         current_baseline_id = backtest.param_set_id if backtest else None
+        current_baseline_version = backtest.param_version if backtest else None
+        current_baseline_artifact_id = _baseline_artifact_id(backtest)
         if previous:
             previous_baseline_id = previous.baseline_param_set_id
+            previous_baseline_version = previous.baseline_param_version
+            previous_baseline_artifact_id = previous.baseline_artifact_id
             if baseline_lineage_policy == "strict":
-                if not (previous_baseline_id and current_baseline_id and previous_baseline_id == current_baseline_id):
+                if not (
+                    previous_baseline_id
+                    and current_baseline_id
+                    and previous_baseline_id == current_baseline_id
+                    and previous_baseline_version is not None
+                    and previous_baseline_version == current_baseline_version
+                    and (
+                        not current_baseline_artifact_id
+                        or previous_baseline_artifact_id == current_baseline_artifact_id
+                    )
+                ):
                     previous = None
             elif baseline_lineage_policy == "migration":
                 if current_baseline_id is None or (
                     previous_baseline_id is not None and previous_baseline_id != current_baseline_id
+                ) or (
+                    previous_baseline_version is not None
+                    and previous_baseline_version != current_baseline_version
+                ) or (
+                    previous_baseline_artifact_id is not None
+                    and previous_baseline_artifact_id != current_baseline_artifact_id
                 ):
                     previous = None
         if backtest is None:
@@ -213,6 +241,18 @@ def run_drift_detection(
                     previous_status=continuity_result.status,
                     alert_suppressed=True,
                     baseline_param_set_id=continuity_result.baseline_param_set_id,
+                    baseline_param_version=continuity_result.baseline_param_version,
+                    baseline_artifact_id=continuity_result.baseline_artifact_id,
+                    baseline_available=False,
+                )
+            elif explicit_baseline_store:
+                result = DriftResult(
+                    strategy_profile=snapshot.strategy_profile,
+                    domain=snapshot.domain,
+                    as_of=snapshot.as_of,
+                    drift_score=0.0,
+                    status=DriftStatus.REVIEW,
+                    alert_suppressed=True,
                     baseline_available=False,
                 )
             else:

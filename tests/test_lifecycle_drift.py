@@ -213,6 +213,18 @@ class DriftDetectorTests(unittest.TestCase):
         )
         self.assertEqual(missing_baseline_history.previous_status, lineage_previous.status)
         self.assertFalse(missing_baseline_history.baseline_available)
+        missing_baseline_without_history = run("strict", accepted_backtest=None, previous=None)
+        self.assertEqual(missing_baseline_without_history.status, DriftStatus.REVIEW)
+        self.assertTrue(missing_baseline_without_history.alert_suppressed)
+        self.assertFalse(missing_baseline_without_history.baseline_available)
+        versioned_backtest = replace(backtest, param_version=2)
+        self.assertIsNone(
+            run("strict", accepted_backtest=versioned_backtest, previous=lineage_previous).previous_status
+        )
+        rerun_backtest = replace(backtest, run_id="accepted-rerun")
+        self.assertIsNone(
+            run("strict", accepted_backtest=rerun_backtest, previous=lineage_previous).previous_status
+        )
         self.assertIsNone(
             run(
                 "migration",

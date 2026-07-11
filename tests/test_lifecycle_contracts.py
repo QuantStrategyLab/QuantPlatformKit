@@ -166,6 +166,8 @@ class ContractsTests(unittest.TestCase):
             drift_score=0.6,
             status=DriftStatus.REVIEW,
             baseline_param_set_id="accepted-v1",
+            baseline_param_version=2,
+            baseline_artifact_id="accepted-run-2",
             baseline_available=False,
         )
 
@@ -174,6 +176,8 @@ class ContractsTests(unittest.TestCase):
         self.assertIsNotNone(restored)
         assert restored is not None
         self.assertEqual(restored.baseline_param_set_id, "accepted-v1")
+        self.assertEqual(restored.baseline_param_version, 2)
+        self.assertEqual(restored.baseline_artifact_id, "accepted-run-2")
         self.assertFalse(restored.baseline_available)
 
     def test_backtest_result(self) -> None:

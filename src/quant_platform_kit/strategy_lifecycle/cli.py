@@ -6,7 +6,7 @@ import argparse
 import importlib
 import sys
 from collections.abc import Callable, Sequence
-from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 
@@ -34,24 +34,71 @@ def _run_monitor(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_baseline_bucket(value: str) -> tuple[str, str]:
+    location = value.strip()
+    if location.startswith("gs://"):
+        location = location[5:]
+    bucket, _, prefix = location.partition("/")
+    if not bucket:
+        raise ValueError("baseline bucket must include a bucket name")
+    return bucket, prefix.strip("/")
+
+
+def _baseline_store_from_args(args: argparse.Namespace):
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+
+    local_root = getattr(args, "baseline_local_root", None)
+    bucket_value = getattr(args, "baseline_bucket", None)
+    if not local_root and not bucket_value:
+        return None
+    if not bucket_value:
+        return PerformanceStore(local_root=Path(local_root))
+
+    bucket, prefix = _parse_baseline_bucket(bucket_value)
+    environment_store = PerformanceStore.from_env()
+    return PerformanceStore(
+        cloud_bucket=bucket,
+        cloud_prefix=prefix,
+        local_root=Path(local_root) if local_root else None,
+        project_id=environment_store.project_id,
+        client_factory=environment_store.client_factory,
+    )
+
+
+def _baseline_lineage_policy_from_args(args: argparse.Namespace) -> str:
+    allow_legacy = getattr(args, "allow_legacy_baseline_history", False)
+    strict = getattr(args, "strict_baseline_lineage", False)
+    if allow_legacy and strict:
+        raise ValueError("baseline lineage flags are mutually exclusive")
+    if allow_legacy:
+        return "migration"
+    return "strict" if strict else "auto"
+
+
+def _add_baseline_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--baseline-local-root", default=None)
+    parser.add_argument(
+        "--baseline-bucket",
+        default=None,
+        help="Accepted-baseline bucket or gs://bucket/prefix URI.",
+    )
+    lineage = parser.add_mutually_exclusive_group()
+    lineage.add_argument("--strict-baseline-lineage", action="store_true")
+    lineage.add_argument(
+        "--allow-legacy-baseline-history",
+        action="store_true",
+        help="One-time migration: reuse untagged prior drift status with an external accepted baseline.",
+    )
+
+
 def _run_drift(args: argparse.Namespace) -> int:
     _print(f"[drift] Running drift detection for domain={args.domain}")
     run_drift_detection = _load_callable(
         "quant_platform_kit.strategy_lifecycle.drift_detector",
         "run_drift_detection",
     )
-    baseline_store = None
-    if getattr(args, "baseline_local_root", None):
-        from pathlib import Path
-        from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
-
-        baseline_store = replace(
-            PerformanceStore.from_env(),
-            local_root=Path(args.baseline_local_root),
-        )
-    baseline_lineage_policy = "migration" if getattr(args, "allow_legacy_baseline_history", False) else (
-        "strict" if getattr(args, "strict_baseline_lineage", False) else "auto"
-    )
+    baseline_store = _baseline_store_from_args(args)
+    baseline_lineage_policy = _baseline_lineage_policy_from_args(args)
     results = run_drift_detection(
         domain=args.domain,
         strategy_profile=args.strategy,
@@ -153,6 +200,10 @@ def _run_lifecycle(args: argparse.Namespace) -> int:
             strategy=None,
             no_alerts=args.no_alerts,
             dry_run_alerts=args.dry_run_alerts,
+            baseline_local_root=getattr(args, "baseline_local_root", None),
+            baseline_bucket=getattr(args, "baseline_bucket", None),
+            strict_baseline_lineage=getattr(args, "strict_baseline_lineage", False),
+            allow_legacy_baseline_history=getattr(args, "allow_legacy_baseline_history", False),
         )
     )
     if drift_status != 0:
@@ -251,13 +302,7 @@ def build_parser() -> argparse.ArgumentParser:
     drift.add_argument("--strategy", default=None)
     drift.add_argument("--no-alerts", action="store_true")
     drift.add_argument("--dry-run-alerts", action="store_true")
-    drift.add_argument("--baseline-local-root", default=None)
-    drift.add_argument("--strict-baseline-lineage", action="store_true")
-    drift.add_argument(
-        "--allow-legacy-baseline-history",
-        action="store_true",
-        help="One-time migration: reuse untagged prior drift status with an external accepted baseline.",
-    )
+    _add_baseline_options(drift)
     drift.set_defaults(func=_run_drift)
 
     optimize = subparsers.add_parser("optimize", help="Run parameter optimization for one strategy.")
@@ -309,6 +354,7 @@ def build_parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--skip-optimization", action="store_true")
     lifecycle.add_argument("--no-alerts", action="store_true")
     lifecycle.add_argument("--dry-run-alerts", action="store_true")
+    _add_baseline_options(lifecycle)
     lifecycle.set_defaults(func=_run_lifecycle)
 
     return parser
