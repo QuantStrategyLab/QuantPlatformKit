@@ -235,7 +235,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/AIAuditBridge
-          ref: 1e0c62b9750f1f8b4cf7f8a96f417c768589c014
+          ref: cd35a96c4c56ba75034f7bbe3cf803e7dad3c283
           path: external/AIAuditBridge
 
       - name: Dual-review critical drift
@@ -243,7 +243,9 @@ jobs:
           AIAUDIT_BRIDGE_ROOT: external/AIAuditBridge
           CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}
           AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           script="external/AIAuditBridge/scripts/run_drift_dual_review.py"
           if [ ! -f "$script" ]; then
             echo "::notice::dual-review scripts unavailable; skipping until AIAuditBridge is merged"
@@ -253,5 +255,27 @@ jobs:
             echo "::notice::CODEX_AUDIT_SERVICE_URL not configured; skipping dual-review dispatch"
             exit 0
           fi
+          review_output="${RUNNER_TEMP}/drift-dual-review.json"
+          set +e
           PYTHONPATH=external/AIAuditBridge python "$script" \
-            --domain "${STRATEGY_DOMAIN}" --dispatch
+            --domain "${STRATEGY_DOMAIN}" --dispatch >"$review_output"
+          review_rc=$?
+          set -e
+          cat "$review_output"
+          if [ "$review_rc" -eq 3 ]; then
+            python - "$review_output" <<'PY'
+          import json
+          import sys
+
+          payload = json.load(open(sys.argv[1], encoding="utf-8"))
+          degraded = [item for item in payload.get("results", []) if item.get("degraded")]
+          if not payload.get("degraded") or not degraded:
+              raise SystemExit("exit code 3 requires degraded review results")
+          missing = [item for item in degraded if not item.get("dispatch", {}).get("github_issue")]
+          if missing:
+              raise SystemExit("degraded review requires a durable GitHub issue")
+          PY
+            echo "::warning::Dual review providers unavailable; durable issues created and critical drift alerts remain active"
+            exit 0
+          fi
+          exit "$review_rc"
