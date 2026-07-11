@@ -52,6 +52,8 @@ class StrategyPerformanceExportTests(unittest.TestCase):
                 data_freshness_days=1,
                 source_artifact_path="data/output/live_returns.csv",
                 computed_at="2026-06-30T00:00:00Z",
+                source_revision="fixture-rev",
+                cost_model="fee_10bps_slippage_5bps",
             )
             backtest = BacktestResult(
                 strategy_profile="crypto_live_pool_rotation",
@@ -76,6 +78,9 @@ class StrategyPerformanceExportTests(unittest.TestCase):
                 oos_max_drawdown=-0.11,
                 walk_forward_stability=0.93,
                 computed_at="2026-06-29T00:00:00Z",
+                end_date=date(2026, 6, 30),
+                source_revision="fixture-rev",
+                cost_model="fee_10bps_slippage_5bps",
             )
             store.save_snapshot(snapshot)
             store.save_backtest_result(backtest)
@@ -112,6 +117,23 @@ class StrategyPerformanceExportTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "Missing latest lifecycle backtest"):
                 export_strategy_performance("crypto", repo="QuantStrategyLab/CryptoLivePoolPipelines", store=store)
+
+    def test_export_preserves_conflicting_provenance_separately(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_snapshot(StrategyPerformanceSnapshot(
+                strategy_profile="crypto_live_pool_rotation", domain="crypto", platform="binance",
+                as_of=date(2026, 6, 30), windows={126: _window()}, source_revision="snapshot-rev",
+            ))
+            store.save_backtest_result(BacktestResult(
+                strategy_profile="crypto_live_pool_rotation", domain="crypto", param_set_id="baseline",
+                params={}, sharpe_ratio=1.0, calmar_ratio=1.0, max_drawdown=-0.1, cagr=0.2,
+                win_rate=0.55, end_date=date(2026, 6, 30), source_revision="backtest-rev",
+            ))
+            payload = export_strategy_performance("crypto", repo="QuantStrategyLab/CryptoLivePoolPipelines", store=store)
+            metadata = payload["snapshots"][0]["metadata"]
+            self.assertEqual(metadata["snapshot_source_revision"], "snapshot-rev")
+            self.assertEqual(metadata["backtest_source_revision"], "backtest-rev")
 
     def test_performance_store_load_latest_backtest_falls_back_to_local(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

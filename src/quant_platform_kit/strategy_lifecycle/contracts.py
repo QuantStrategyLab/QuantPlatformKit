@@ -100,6 +100,8 @@ class StrategyPerformanceSnapshot:
     data_freshness_days: int = 0
     source_artifact_path: str = ""
     computed_at: str = ""
+    source_revision: str = ""
+    cost_model: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -115,6 +117,8 @@ class StrategyPerformanceSnapshot:
             "data_freshness_days": self.data_freshness_days,
             "source_artifact_path": self.source_artifact_path,
             "computed_at": self.computed_at,
+            "source_revision": self.source_revision,
+            "cost_model": self.cost_model,
         }
 
 
@@ -256,6 +260,8 @@ class BacktestResult:
     run_duration_seconds: float = 0.0
     source_script: str = ""
     computed_at: str = ""
+    source_revision: str = ""
+    cost_model: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -287,6 +293,8 @@ class BacktestResult:
             "run_duration_seconds": self.run_duration_seconds,
             "source_script": self.source_script,
             "computed_at": self.computed_at,
+            "source_revision": self.source_revision,
+            "cost_model": self.cost_model,
         }
 
 

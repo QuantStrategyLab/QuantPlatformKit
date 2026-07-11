@@ -15,6 +15,7 @@ PERFORMANCE_SCHEMA_VERSION = "strategy_performance.v2"
 METRICS_KIND = "performance"
 DEFAULT_WINDOWS: tuple[int, ...] = (126, 252, 63, 21)
 REQUIRED_METRICS = ("sharpe", "cagr", "calmar", "win_rate", "max_dd")
+PROVENANCE_SENTINELS = {"", "unavailable", "not_available", "legacy_missing", "unknown", "none", "null"}
 
 
 def _now_iso() -> str:
@@ -86,6 +87,16 @@ def _assert_required_metrics(metrics: Mapping[str, Any], *, label: str) -> None:
         raise ValueError(f"{label} missing required metrics: {', '.join(missing)}")
 
 
+def _date_timestamp(value: date | None) -> str:
+    if value is None:
+        return "unavailable"
+    return datetime(value.year, value.month, value.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _usable_provenance(value: str) -> bool:
+    return isinstance(value, str) and value.strip().lower() not in PROVENANCE_SENTINELS
+
+
 def export_strategy_performance(
     domain: str,
     *,
@@ -113,6 +124,7 @@ def export_strategy_performance(
             raise ValueError(f"Missing latest lifecycle backtest for domain={domain!r}, profile={profile!r}")
 
         window = _window_for_snapshot(snapshot, preferred_windows)
+        snapshot_timestamp = _date_timestamp(snapshot.as_of)
         snapshots.append(
             {
                 "repo": repo,
@@ -131,6 +143,26 @@ def export_strategy_performance(
                     "window_end": window.end_date.isoformat(),
                     "snapshot_computed_at": snapshot.computed_at,
                     "backtest_computed_at": backtest.computed_at,
+                    "snapshot_source_revision": snapshot.source_revision,
+                    "backtest_source_revision": backtest.source_revision,
+                    "snapshot_cost_model": snapshot.cost_model,
+                    "backtest_cost_model": backtest.cost_model,
+                    "provenance": {
+                        "snapshot": {
+                            "source_revision": snapshot.source_revision or "legacy_missing",
+                            "cost_model": snapshot.cost_model or "legacy_missing",
+                            "data_timestamp": snapshot_timestamp,
+                            "status": "verified" if snapshot.as_of and _usable_provenance(snapshot.source_revision) and _usable_provenance(snapshot.cost_model) else "legacy_missing",
+                        },
+                        "backtest": {
+                            "source_revision": backtest.source_revision or "legacy_missing",
+                            "cost_model": backtest.cost_model or "legacy_missing",
+                            "data_timestamp": _date_timestamp(backtest.end_date),
+                            "status": "verified" if _usable_provenance(backtest.source_revision) and _usable_provenance(backtest.cost_model) and backtest.end_date else "legacy_missing",
+                        },
+                    },
+                    "snapshot_data_timestamp": snapshot_timestamp,
+                    "backtest_data_timestamp": _date_timestamp(backtest.end_date),
                 },
             }
         )
