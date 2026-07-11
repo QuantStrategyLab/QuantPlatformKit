@@ -49,7 +49,7 @@ def validate_review(payload: Any) -> list[str]:
         for field in ("reason_codes", "evidence_refs"):
             if not isinstance(gate.get(field), list):
                 issues.append(f"{gate.get('id', '<unknown>')}.{field} must be an array")
-            elif any(not isinstance(item, str) for item in gate[field]):
+            elif any(not isinstance(item, str) or not item.strip() for item in gate[field]):
                 issues.append(f"{gate.get('id', '<unknown>')}.{field} must contain strings")
 
     score = payload.get("score")
@@ -131,7 +131,7 @@ def validate_review(payload: Any) -> list[str]:
         recommendation = packet.get("system_recommendation")
         if not isinstance(recommendation, str) or recommendation not in recommendations:
             issues.append("decision_packet.system_recommendation is invalid")
-        if not isinstance(packet.get("technical_evidence_refs"), list) or any(not isinstance(item, str) for item in packet.get("technical_evidence_refs", [])):
+        if not isinstance(packet.get("technical_evidence_refs"), list) or any(not isinstance(item, str) or not item.strip() for item in packet.get("technical_evidence_refs", [])):
             issues.append("decision_packet.technical_evidence_refs must be a string array")
         boundary = packet.get("automation_boundary")
         if not isinstance(boundary, dict):
@@ -233,6 +233,11 @@ def validate_review(payload: Any) -> list[str]:
         issues.append("failed or insufficient hard gates require blocking_reason_codes")
     if payload.get("promotion_allowed") is not False:
         issues.append("promotion_allowed must be false in v1 review output")
+    if isinstance(evidence, dict) and isinstance(packet, dict) and (
+        payload.get("decision") == "pass"
+        or packet.get("system_recommendation") in {"approve_research", "approve_shadow", "approve_canary", "approve_live"}
+    ) and str(evidence.get("data_source", "")).strip().lower() in SENTINELS:
+        issues.append("approved review cannot use a provenance sentinel as evidence.data_source")
     if payload.get("decision") == "pass" and failed:
         issues.append("decision cannot be pass when a hard gate failed or lacks evidence")
     if payload.get("decision") == "pass" and blocking:

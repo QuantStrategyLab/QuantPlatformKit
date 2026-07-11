@@ -22,7 +22,7 @@
           "name": { "type": "string" },
           "status": { "enum": ["pass", "fail", "insufficient_evidence", "not_applicable"] },
           "reason_codes": { "type": "array", "items": { "type": "string" } },
-          "evidence_refs": { "type": "array", "items": { "type": "string" } }
+          "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
         },
         "additionalProperties": false
       },
@@ -77,7 +77,7 @@
         "evidence_sufficiency": { "enum": ["sufficient", "insufficient_evidence"] },
         "version_change": { "type": "string", "minLength": 1 },
         "system_recommendation": { "enum": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback", "insufficient_evidence"] },
-        "technical_evidence_refs": { "type": "array", "items": { "type": "string" } },
+        "technical_evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "automation_boundary": {
           "type": "object",
           "required": ["research_auto_after_hard_gates", "shadow_auto_after_hard_gates", "canary_mode", "canary_limits", "auto_scale_allowed", "normal_live_requires_human", "funding_leverage_risk_override_requires_human", "hard_risk_auto_pause_rollback"],
