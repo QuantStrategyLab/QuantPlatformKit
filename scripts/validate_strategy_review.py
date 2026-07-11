@@ -68,6 +68,7 @@ def validate_review(payload: Any) -> list[str]:
             issues.append("scorecard.scored_gates must be an integer")
     evidence = payload.get("evidence")
     provenance: dict[str, Any] = {}
+    missing_artifacts: list[Any] | None = None
     if not isinstance(evidence, dict):
         issues.append("evidence must be an object")
     else:
@@ -106,6 +107,9 @@ def validate_review(payload: Any) -> list[str]:
                     issues.append(f"evidence.provenance.{source}.verified requires a real timestamp")
         if evidence.get("placeholder_metrics") is not False:
             issues.append("placeholder metrics are not admissible evidence")
+        missing_artifacts = evidence.get("missing_artifacts", [])
+        if not isinstance(missing_artifacts, list) or any(not isinstance(item, str) for item in missing_artifacts):
+            issues.append("evidence.missing_artifacts must be a string array")
         if not isinstance(evidence.get("sample_count"), int) or isinstance(evidence.get("sample_count"), bool) or evidence["sample_count"] < 0:
             issues.append("evidence.sample_count must be a non-negative integer")
         if not isinstance(evidence.get("oos_folds"), int) or isinstance(evidence.get("oos_folds"), bool) or evidence["oos_folds"] < 0:
@@ -194,6 +198,8 @@ def validate_review(payload: Any) -> list[str]:
                 issues.append("passing review requires positive sample_count and at least 3 oos_folds")
             if not isinstance(packet.get("technical_evidence_refs"), list) or not packet["technical_evidence_refs"]:
                 issues.append("passing review requires technical evidence references")
+            if isinstance(missing_artifacts, list) and missing_artifacts:
+                issues.append("passing review cannot declare missing artifacts")
             for gate in gates:
                 if isinstance(gate, dict) and gate.get("status") == "pass" and not gate.get("evidence_refs"):
                     issues.append(f"{gate.get('id', '<unknown>')} pass requires evidence_refs")

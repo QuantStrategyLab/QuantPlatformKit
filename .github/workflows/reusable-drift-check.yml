@@ -203,7 +203,9 @@ jobs:
           mkdir -p "$LIFECYCLE_LOCAL_ROOT" "$GITHUB_WORKSPACE/$SNAPSHOT_CHECKOUT_PATH/data/output"
           cp -a "$lifecycle_source/." "$LIFECYCLE_LOCAL_ROOT/"
           cp -a "$snapshot_source/." "$snapshot_target/"
-          echo "CRYPTO_LIFECYCLE_PREFLIGHT_ROOT=$PREFLIGHT_BUNDLE_ROOT" >> "$GITHUB_ENV"
+          if [ "$STRATEGY_DOMAIN" = "crypto" ]; then
+            echo "CRYPTO_LIFECYCLE_PREFLIGHT_ROOT=$PREFLIGHT_BUNDLE_ROOT" >> "$GITHUB_ENV"
+          fi
 
       - name: Build lifecycle performance snapshots
         run: quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}
