@@ -57,7 +57,7 @@
     },
     "decision_packet": {
       "type": "object",
-      "required": ["strategy_what", "return_source", "loss_scenarios", "max_risk", "evidence_sufficiency", "version_change", "system_recommendation", "technical_evidence_refs"],
+      "required": ["strategy_what", "return_source", "loss_scenarios", "max_risk", "evidence_sufficiency", "version_change", "system_recommendation", "technical_evidence_refs", "automation_boundary"],
       "properties": {
         "strategy_what": { "type": "string", "minLength": 1 },
         "return_source": { "type": "string", "minLength": 1 },
@@ -67,6 +67,21 @@
         "version_change": { "type": "string", "minLength": 1 },
         "system_recommendation": { "enum": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback", "insufficient_evidence"] },
         "technical_evidence_refs": { "type": "array", "items": { "type": "string" } },
+        "automation_boundary": {
+          "type": "object",
+          "required": ["research_auto_after_hard_gates", "shadow_auto_after_hard_gates", "canary_mode", "canary_limits", "auto_scale_allowed", "normal_live_requires_human", "funding_leverage_risk_override_requires_human", "hard_risk_auto_pause_rollback"],
+          "properties": {
+            "research_auto_after_hard_gates": { "const": true },
+            "shadow_auto_after_hard_gates": { "const": true },
+            "canary_mode": { "const": "bounded_preapproved_only" },
+            "canary_limits": { "type": "object" },
+            "auto_scale_allowed": { "const": false },
+            "normal_live_requires_human": { "const": true },
+            "funding_leverage_risk_override_requires_human": { "const": true },
+            "hard_risk_auto_pause_rollback": { "const": true }
+          },
+          "additionalProperties": true
+        },
         "allowed_human_decisions": {
           "type": "array",
           "minItems": 1,

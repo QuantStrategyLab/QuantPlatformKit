@@ -42,6 +42,16 @@ def _review(**overrides: object) -> dict[str, object]:
             "version_change": "仅生成 fail-closed 评审结果",
             "system_recommendation": "insufficient_evidence",
             "technical_evidence_refs": [],
+            "automation_boundary": {
+                "research_auto_after_hard_gates": True,
+                "shadow_auto_after_hard_gates": True,
+                "canary_mode": "bounded_preapproved_only",
+                "canary_limits": {"capital": "preapproved", "duration": "preapproved", "max_drawdown": "preapproved", "max_leverage": "preapproved", "max_concurrency": "preapproved"},
+                "auto_scale_allowed": False,
+                "normal_live_requires_human": True,
+                "funding_leverage_risk_override_requires_human": True,
+                "hard_risk_auto_pause_rollback": True,
+            },
             "allowed_human_decisions": ["approve_research", "reject_rollback"],
         },
     }

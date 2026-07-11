@@ -77,6 +77,24 @@ def validate_review(payload: Any) -> list[str]:
             issues.append("decision_packet.system_recommendation is invalid")
         if not isinstance(packet.get("technical_evidence_refs"), list) or any(not isinstance(item, str) for item in packet.get("technical_evidence_refs", [])):
             issues.append("decision_packet.technical_evidence_refs must be a string array")
+        boundary = packet.get("automation_boundary")
+        if not isinstance(boundary, dict):
+            issues.append("decision_packet.automation_boundary must be an object")
+        else:
+            required_boundary = {
+                "research_auto_after_hard_gates": True,
+                "shadow_auto_after_hard_gates": True,
+                "canary_mode": "bounded_preapproved_only",
+                "auto_scale_allowed": False,
+                "normal_live_requires_human": True,
+                "funding_leverage_risk_override_requires_human": True,
+                "hard_risk_auto_pause_rollback": True,
+            }
+            for field, expected in required_boundary.items():
+                if boundary.get(field) != expected:
+                    issues.append(f"decision_packet.automation_boundary.{field} is unsafe")
+            if not isinstance(boundary.get("canary_limits"), dict):
+                issues.append("decision_packet.automation_boundary.canary_limits must be an object")
         allowed = packet.get("allowed_human_decisions")
         if not isinstance(allowed, list) or not allowed or any(item not in {"approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"} for item in allowed):
             issues.append("decision_packet.allowed_human_decisions is invalid")
