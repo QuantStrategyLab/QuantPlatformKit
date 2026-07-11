@@ -1,8 +1,8 @@
 # pip-compatible constraints mirror for QSL internal Git SHA pins.
 # Source of truth: qsl-pins.txt (mirrored by update-qpk-pin.yml on every push to QPK main).
 
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@fdae6666ba4e7c61444d87253476cee4ad02d2c1
+quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@3a7aba6bca087cc60ceb9e4486db490f1a6e3bd7
 us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@4801919e41643542bd535a4a9f39854d32a1ea3c
 hk-equity-strategies @ git+https://github.com/QuantStrategyLab/HkEquityStrategies.git@4d1d1a74916417069d208d2a2ca590f91add6e2d
-cn-equity-strategies @ git+https://github.com/QuantStrategyLab/CnEquityStrategies.git@4941bf904ae2e969b89a85e9701f654889be7ed1
-crypto-strategies @ git+https://github.com/QuantStrategyLab/CryptoStrategies.git@65cbca59d86be7bbda70ad35cde339ad2ad66fac
+cn-equity-strategies @ git+https://github.com/QuantStrategyLab/CnEquityStrategies.git@21c8d5e9950ec524d7b18e6b1ac82577f00e1700
+crypto-strategies @ git+https://github.com/QuantStrategyLab/CryptoStrategies.git@cab83edfa4747b3f81868c1a272ec6f5af0684a4
