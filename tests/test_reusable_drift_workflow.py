@@ -60,7 +60,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "create_issues_for_domain" in workflow
     assert 'CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}' in workflow
     assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
-    assert 'ref: cd35a96c4c56ba75034f7bbe3cf803e7dad3c283' in workflow
+    assert 'ref: 66b1107f7cb081ab1409e8b6ebdc6334999fa5dc' in workflow
     assert workflow.count('GH_TOKEN: ${{ github.token }}') >= 2
     assert 'if [ "$review_rc" -eq 3 ]; then' in workflow
     assert 'item.get("dispatch", {}).get("github_issue")' in workflow
