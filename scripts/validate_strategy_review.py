@@ -62,6 +62,28 @@ def validate_review(payload: Any) -> list[str]:
         if not isinstance(evidence.get("oos_folds"), int) or isinstance(evidence.get("oos_folds"), bool) or evidence["oos_folds"] < 0:
             issues.append("evidence.oos_folds must be a non-negative integer")
 
+    packet = payload.get("decision_packet")
+    packet_fields = ("strategy_what", "return_source", "loss_scenarios", "max_risk", "version_change")
+    if not isinstance(packet, dict):
+        issues.append("decision_packet must be an object")
+    else:
+        for field in packet_fields:
+            if not isinstance(packet.get(field), str) or not packet[field].strip():
+                issues.append(f"decision_packet.{field} must be a non-empty string")
+        if packet.get("evidence_sufficiency") not in {"sufficient", "insufficient_evidence"}:
+            issues.append("decision_packet.evidence_sufficiency is invalid")
+        recommendations = {"approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback", "insufficient_evidence"}
+        if packet.get("system_recommendation") not in recommendations:
+            issues.append("decision_packet.system_recommendation is invalid")
+        if not isinstance(packet.get("technical_evidence_refs"), list) or any(not isinstance(item, str) for item in packet.get("technical_evidence_refs", [])):
+            issues.append("decision_packet.technical_evidence_refs must be a string array")
+        if packet.get("evidence_sufficiency") == "insufficient_evidence" and packet.get("system_recommendation") != "insufficient_evidence":
+            issues.append("insufficient evidence requires an insufficient_evidence recommendation")
+        if packet.get("system_recommendation") in {"approve_research", "approve_shadow", "approve_canary", "approve_live"} and any(
+            isinstance(gate, dict) and gate.get("status") != "pass" for gate in gates
+        ):
+            issues.append("approval recommendation requires every hard gate to pass")
+
     blocking = payload.get("blocking_reason_codes")
     if not isinstance(blocking, list):
         issues.append("blocking_reason_codes must be an array")

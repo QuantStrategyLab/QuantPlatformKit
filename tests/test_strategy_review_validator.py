@@ -33,6 +33,17 @@ def _review(**overrides: object) -> dict[str, object]:
             "cost_model": "not_available",
             "placeholder_metrics": False,
         },
+        "decision_packet": {
+            "strategy_what": "策略做什么尚待真实证据确认",
+            "return_source": "真实 performance artifacts 未提供",
+            "loss_scenarios": "未完成回测，主要亏损场景不可确认",
+            "max_risk": "最大风险不可确认",
+            "evidence_sufficiency": "insufficient_evidence",
+            "version_change": "仅生成 fail-closed 评审结果",
+            "system_recommendation": "insufficient_evidence",
+            "technical_evidence_refs": [],
+            "allowed_human_decisions": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"],
+        },
     }
     payload.update(overrides)
     return payload
@@ -78,6 +89,11 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         payload["blocking_reason_codes"] = [False]
         issues = MODULE.validate_review(payload)
         self.assertTrue(any("must contain strings" in issue for issue in issues))
+
+    def test_approval_recommendation_requires_all_gates(self) -> None:
+        payload = _review()
+        payload["decision_packet"]["system_recommendation"] = "approve_research"  # type: ignore[index]
+        self.assertTrue(any("every hard gate" in issue for issue in MODULE.validate_review(payload)))
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
   "$id": "https://quantstrategylab.dev/schemas/strategy-review.v1.schema.json",
   "title": "Strategy Review Result v1",
   "type": "object",
-  "required": ["schema_version", "profile", "decision", "promotion_allowed", "score", "hard_gates", "scorecard", "blocking_reason_codes", "evidence"],
+  "required": ["schema_version", "profile", "decision", "promotion_allowed", "score", "hard_gates", "scorecard", "blocking_reason_codes", "evidence", "decision_packet"],
   "properties": {
     "schema_version": { "const": "strategy_review.v1" },
     "profile": { "type": "string", "minLength": 1 },
@@ -52,6 +52,24 @@
         "oos_folds": { "type": "integer", "minimum": 0 },
         "cost_model": { "type": "string", "minLength": 1 },
         "placeholder_metrics": { "const": false }
+      },
+      "additionalProperties": true
+    },
+    "decision_packet": {
+      "type": "object",
+      "required": ["strategy_what", "return_source", "loss_scenarios", "max_risk", "evidence_sufficiency", "version_change", "system_recommendation", "technical_evidence_refs"],
+      "properties": {
+        "strategy_what": { "type": "string", "minLength": 1 },
+        "return_source": { "type": "string", "minLength": 1 },
+        "loss_scenarios": { "type": "string", "minLength": 1 },
+        "max_risk": { "type": "string", "minLength": 1 },
+        "evidence_sufficiency": { "enum": ["sufficient", "insufficient_evidence"] },
+        "version_change": { "type": "string", "minLength": 1 },
+        "system_recommendation": { "enum": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback", "insufficient_evidence"] },
+        "technical_evidence_refs": { "type": "array", "items": { "type": "string" } },
+        "allowed_human_decisions": {
+          "const": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"]
+        }
       },
       "additionalProperties": true
     }
