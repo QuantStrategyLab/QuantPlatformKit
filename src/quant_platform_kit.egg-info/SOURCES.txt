@@ -222,7 +222,6 @@ tests/test_strategy_plugin_push_notifications.py
 tests/test_strategy_plugin_sms_notifications.py
 tests/test_strategy_plugin_telegram_notifications.py
 tests/test_strategy_plugins.py
-tests/test_strategy_review_validator.py
 tests/test_strategy_spec_validation.py
 tests/test_telegram.py
 tests/test_update_orchestrator.py
