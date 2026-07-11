@@ -89,7 +89,10 @@ def _assert_required_metrics(metrics: Mapping[str, Any], *, label: str) -> None:
 def _merge_provenance(snapshot_value: str, backtest_value: str, *, label: str) -> str:
     if snapshot_value and backtest_value and snapshot_value != backtest_value:
         raise ValueError(f"conflicting {label}: snapshot={snapshot_value!r}, backtest={backtest_value!r}")
-    return snapshot_value or backtest_value
+    merged = snapshot_value or backtest_value
+    if not merged.strip():
+        raise ValueError(f"missing required {label} provenance")
+    return merged
 
 
 def export_strategy_performance(

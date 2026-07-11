@@ -52,6 +52,8 @@ class StrategyPerformanceExportTests(unittest.TestCase):
                 data_freshness_days=1,
                 source_artifact_path="data/output/live_returns.csv",
                 computed_at="2026-06-30T00:00:00Z",
+                source_revision="fixture-rev",
+                cost_model="fee_10bps_slippage_5bps",
             )
             backtest = BacktestResult(
                 strategy_profile="crypto_live_pool_rotation",
@@ -76,6 +78,8 @@ class StrategyPerformanceExportTests(unittest.TestCase):
                 oos_max_drawdown=-0.11,
                 walk_forward_stability=0.93,
                 computed_at="2026-06-29T00:00:00Z",
+                source_revision="fixture-rev",
+                cost_model="fee_10bps_slippage_5bps",
             )
             store.save_snapshot(snapshot)
             store.save_backtest_result(backtest)
