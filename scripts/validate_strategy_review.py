@@ -10,7 +10,7 @@ from typing import Any
 
 STATUSES = {"pass", "fail", "insufficient_evidence", "not_applicable"}
 DECISIONS = {"pass", "fail", "insufficient_evidence"}
-SENTINELS = {"", "unavailable", "legacy_missing", "unknown", "none", "null"}
+SENTINELS = {"", "unavailable", "not_available", "legacy_missing", "unknown", "none", "null"}
 
 
 def validate_review(payload: Any) -> list[str]:
@@ -57,6 +57,13 @@ def validate_review(payload: Any) -> list[str]:
         issues.append("scorecard must be an object")
     else:
         check_keys(payload["scorecard"], {"total", "max", "scored_gates"}, "scorecard")
+        for field in ("total", "max"):
+            value = payload["scorecard"].get(field)
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                issues.append(f"scorecard.{field} must be a number")
+        scored_gates = payload["scorecard"].get("scored_gates")
+        if not isinstance(scored_gates, int) or isinstance(scored_gates, bool):
+            issues.append("scorecard.scored_gates must be an integer")
     evidence = payload.get("evidence")
     provenance: dict[str, Any] = {}
     if not isinstance(evidence, dict):

@@ -23,7 +23,7 @@ def _review(**overrides: object) -> dict[str, object]:
             {"id": f"H{i}", "status": "insufficient_evidence", "reason_codes": ["INSUFFICIENT_DATA"], "evidence_refs": []}
             for i in range(1, 13)
         ],
-        "scorecard": {"total": 0},
+        "scorecard": {"total": 0, "max": 100, "scored_gates": 0},
         "blocking_reason_codes": ["INSUFFICIENT_DATA"],
         "evidence": {
             "metrics_kind": "performance",

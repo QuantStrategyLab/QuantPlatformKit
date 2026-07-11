@@ -15,7 +15,7 @@ PERFORMANCE_SCHEMA_VERSION = "strategy_performance.v2"
 METRICS_KIND = "performance"
 DEFAULT_WINDOWS: tuple[int, ...] = (126, 252, 63, 21)
 REQUIRED_METRICS = ("sharpe", "cagr", "calmar", "win_rate", "max_dd")
-PROVENANCE_SENTINELS = {"", "unavailable", "legacy_missing", "unknown", "none", "null"}
+PROVENANCE_SENTINELS = {"", "unavailable", "not_available", "legacy_missing", "unknown", "none", "null"}
 
 
 def _now_iso() -> str:
@@ -137,7 +137,7 @@ def export_strategy_performance(
                 "generated_at": generated_at,
                 "metadata": {
                     "domain": domain,
-                    "as_of": snapshot_timestamp,
+                    "as_of": snapshot.as_of.isoformat(),
                     "window_days": window.window_days,
                     "window_start": window.start_date.isoformat(),
                     "window_end": window.end_date.isoformat(),
