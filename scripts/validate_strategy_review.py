@@ -169,6 +169,16 @@ def validate_review(payload: Any) -> list[str]:
             issues.append("decision_packet.allowed_human_decisions is invalid")
         elif len(allowed) != len(set(allowed)):
             issues.append("decision_packet.allowed_human_decisions must be unique")
+        expected_allowed = {
+            "approve_research": {"approve_research", "reject_rollback"},
+            "approve_shadow": {"approve_shadow", "reject_rollback"},
+            "approve_canary": {"approve_canary", "reject_rollback"},
+            "approve_live": {"approve_live", "reject_rollback"},
+            "reject_rollback": {"reject_rollback"},
+            "insufficient_evidence": {"approve_research", "reject_rollback"},
+        }.get(recommendation)
+        if expected_allowed is not None and set(allowed or []) != expected_allowed:
+            issues.append("decision_packet.allowed_human_decisions does not match system recommendation")
         if packet.get("evidence_sufficiency") == "insufficient_evidence" and packet.get("system_recommendation") != "insufficient_evidence":
             issues.append("insufficient evidence requires an insufficient_evidence recommendation")
         if payload.get("decision") == "insufficient_evidence" and (

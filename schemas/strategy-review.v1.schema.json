@@ -41,7 +41,7 @@
         { "contains": { "type": "object", "properties": { "id": { "const": "H12" } }, "required": ["id"] } }
       ]
     },
-    "scorecard": { "type": "object", "properties": { "total": { "type": "number" }, "max": { "type": "number" }, "scored_gates": { "type": "integer" } }, "additionalProperties": false },
+    "scorecard": { "type": "object", "required": ["total", "max", "scored_gates"], "properties": { "total": { "type": "number" }, "max": { "type": "number" }, "scored_gates": { "type": "integer" } }, "additionalProperties": false },
     "blocking_reason_codes": { "type": "array", "items": { "type": "string" } },
     "evidence": {
       "type": "object",
