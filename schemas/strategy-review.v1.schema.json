@@ -57,7 +57,7 @@
     },
     "decision_packet": {
       "type": "object",
-      "required": ["strategy_what", "return_source", "loss_scenarios", "max_risk", "evidence_sufficiency", "version_change", "system_recommendation", "technical_evidence_refs", "automation_boundary"],
+      "required": ["strategy_what", "return_source", "loss_scenarios", "max_risk", "evidence_sufficiency", "version_change", "system_recommendation", "technical_evidence_refs", "automation_boundary", "allowed_human_decisions"],
       "properties": {
         "strategy_what": { "type": "string", "minLength": 1 },
         "return_source": { "type": "string", "minLength": 1 },

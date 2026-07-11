@@ -112,6 +112,11 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         issues = MODULE.validate_review(payload)
         self.assertTrue(any("positive sample_count" in issue for issue in issues))
 
+    def test_duplicate_human_actions_are_rejected(self) -> None:
+        payload = _review()
+        payload["decision_packet"]["allowed_human_decisions"] = ["approve_research", "approve_research"]  # type: ignore[index]
+        self.assertTrue(any("must be unique" in issue for issue in MODULE.validate_review(payload)))
+
 
 if __name__ == "__main__":
     unittest.main()
