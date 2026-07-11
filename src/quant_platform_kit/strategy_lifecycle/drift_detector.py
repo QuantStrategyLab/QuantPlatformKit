@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 
+from dataclasses import replace
+
 import numpy as np
 
 from quant_platform_kit.strategy_lifecycle.contracts import (
@@ -181,6 +183,7 @@ def run_drift_detection(
             continue
         backtest = baseline_store.load_latest_backtest(domain, profile)
         previous = read_previous.load_latest_drift(domain, profile)
+        previous_before_lineage_check = previous
         current_baseline_id = backtest.param_set_id if backtest else None
         if previous:
             previous_baseline_id = previous.baseline_param_set_id
@@ -188,15 +191,37 @@ def run_drift_detection(
                 if not (previous_baseline_id and current_baseline_id and previous_baseline_id == current_baseline_id):
                     previous = None
             elif baseline_lineage_policy == "migration":
-                if previous_baseline_id is None:
-                    if current_baseline_id is None:
-                        previous = None
-                elif not (current_baseline_id and previous_baseline_id == current_baseline_id):
+                if current_baseline_id is None or (
+                    previous_baseline_id is not None and previous_baseline_id != current_baseline_id
+                ):
                     previous = None
-        result = detect_drift(snapshot, backtest=backtest, policy=policy,
-                              previous_status=previous.status if previous else None)
-        if backtest is not None:
-            store.save_drift_result(result)
+        if backtest is None:
+            continuity_result = (
+                previous_before_lineage_check
+                if baseline_lineage_policy != "migration"
+                and previous_before_lineage_check is not None
+                and previous_before_lineage_check.baseline_param_set_id
+                else None
+            )
+            if continuity_result is not None:
+                result = replace(
+                    continuity_result,
+                    as_of=snapshot.as_of,
+                    previous_status=continuity_result.status,
+                    escalated=False,
+                    alert_suppressed=True,
+                    baseline_available=False,
+                )
+            else:
+                result = replace(
+                    detect_drift(snapshot, backtest=None, policy=policy),
+                    alert_suppressed=True,
+                    baseline_available=False,
+                )
+        else:
+            result = detect_drift(snapshot, backtest=backtest, policy=policy,
+                                  previous_status=previous.status if previous else None)
+        store.save_drift_result(result)
         results.append(result)
     if not results and fail_on_empty:
         raise RuntimeError(

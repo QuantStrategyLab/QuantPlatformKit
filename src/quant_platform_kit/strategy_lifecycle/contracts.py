@@ -184,6 +184,7 @@ class DriftResult:
     cooldown_active: bool = False
     alert_suppressed: bool = False
     baseline_param_set_id: str | None = None
+    baseline_available: bool = True
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -195,6 +196,7 @@ class DriftResult:
             "dimensions": {k: v.to_dict() for k, v in self.dimensions.items()},
             "previous_status": self.previous_status.value if self.previous_status else None,
             "baseline_param_set_id": self.baseline_param_set_id,
+            "baseline_available": self.baseline_available,
             "escalated": self.escalated,
             "cooldown_active": self.cooldown_active,
             "alert_suppressed": self.alert_suppressed,

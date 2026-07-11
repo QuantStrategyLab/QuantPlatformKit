@@ -19,6 +19,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     UpdateStage,
     WindowPerformance,
 )
+from quant_platform_kit.strategy_lifecycle.performance_store import _drift_from_dict
 
 
 class ContractsTests(unittest.TestCase):
@@ -154,6 +155,26 @@ class ContractsTests(unittest.TestCase):
         self.assertTrue(drift.cooldown_active)
         self.assertTrue(drift.alert_suppressed)
         self.assertIsNone(drift.baseline_param_set_id)
+        self.assertTrue(drift.baseline_available)
+        self.assertTrue(drift.to_dict()["baseline_available"])
+
+    def test_drift_result_round_trips_baseline_availability(self) -> None:
+        drift = DriftResult(
+            strategy_profile="t",
+            domain="us",
+            as_of=date(2026, 6, 1),
+            drift_score=0.6,
+            status=DriftStatus.REVIEW,
+            baseline_param_set_id="accepted-v1",
+            baseline_available=False,
+        )
+
+        restored = _drift_from_dict(drift.to_dict())
+
+        self.assertIsNotNone(restored)
+        assert restored is not None
+        self.assertEqual(restored.baseline_param_set_id, "accepted-v1")
+        self.assertFalse(restored.baseline_available)
 
     def test_backtest_result(self) -> None:
         bt = BacktestResult(

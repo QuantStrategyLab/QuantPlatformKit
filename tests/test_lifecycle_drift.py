@@ -194,6 +194,7 @@ class DriftDetectorTests(unittest.TestCase):
         self.assertIsNone(run("strict").previous_status)
         self.assertIsNone(run("strict", accepted_backtest=None).previous_status)
         self.assertEqual(run("migration").previous_status, legacy_previous.status)
+        self.assertIsNone(run("migration", accepted_backtest=None).previous_status)
         lineage_previous = detect_drift(snapshot, backtest=backtest)
         rotated_backtest = replace(backtest, param_set_id="rotated-baseline")
         self.assertEqual(
@@ -205,13 +206,13 @@ class DriftDetectorTests(unittest.TestCase):
             ).previous_status,
             lineage_previous.status,
         )
-        self.assertIsNone(
-            run(
-                "auto",
-                accepted_backtest=None,
-                previous=lineage_previous,
-            ).previous_status
+        missing_baseline_history = run(
+            "auto",
+            accepted_backtest=None,
+            previous=lineage_previous,
         )
+        self.assertEqual(missing_baseline_history.previous_status, lineage_previous.status)
+        self.assertFalse(missing_baseline_history.baseline_available)
         self.assertIsNone(
             run(
                 "migration",
@@ -226,14 +227,14 @@ class DriftDetectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "baseline_lineage_policy"):
             run("unknown")
 
-    def test_missing_external_baseline_does_not_replace_lineage_history(self) -> None:
+    def test_missing_external_baseline_preserves_lineage_history_without_alerting(self) -> None:
         snapshot = _make_snapshot()
         previous = detect_drift(snapshot, backtest=_make_backtest())
         active_store = mock.Mock()
         active_store.load_latest_snapshot.return_value = snapshot
-        active_store.load_latest_drift.return_value = previous
+        active_store.load_latest_drift.side_effect = [previous, None]
         baseline_store = mock.Mock()
-        baseline_store.load_latest_backtest.return_value = None
+        baseline_store.load_latest_backtest.side_effect = [None, _make_backtest()]
         collector = mock.Mock()
         collector.collect.return_value = {snapshot.strategy_profile: pd.Series([0.01])}
 
@@ -241,7 +242,16 @@ class DriftDetectorTests(unittest.TestCase):
             "quant_platform_kit.strategy_lifecycle.return_collector.ReturnCollector",
             return_value=collector,
         ):
-            result = run_drift_detection(
+            missing_baseline_result = run_drift_detection(
+                snapshot.domain,
+                strategy_profile=snapshot.strategy_profile,
+                store=active_store,
+                baseline_store=baseline_store,
+                baseline_lineage_policy="strict",
+            )[0]
+            active_store.load_latest_drift.side_effect = None
+            active_store.load_latest_drift.return_value = missing_baseline_result
+            recovered_result = run_drift_detection(
                 snapshot.domain,
                 strategy_profile=snapshot.strategy_profile,
                 store=active_store,
@@ -249,8 +259,13 @@ class DriftDetectorTests(unittest.TestCase):
                 baseline_lineage_policy="strict",
             )[0]
 
-        self.assertIsNone(result.baseline_param_set_id)
-        active_store.save_drift_result.assert_not_called()
+        self.assertEqual(missing_baseline_result.baseline_param_set_id, previous.baseline_param_set_id)
+        self.assertFalse(missing_baseline_result.baseline_available)
+        self.assertEqual(missing_baseline_result.status, previous.status)
+        self.assertTrue(missing_baseline_result.alert_suppressed)
+        self.assertEqual(recovered_result.previous_status, previous.status)
+        self.assertTrue(recovered_result.baseline_available)
+        self.assertEqual(active_store.save_drift_result.call_count, 2)
 
 
 if __name__ == "__main__":
