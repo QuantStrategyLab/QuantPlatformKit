@@ -140,13 +140,20 @@ def run_drift_detection(
     previous_drift_store: PerformanceStore | None = None,
     baseline_lineage_policy: str = "auto",
 ) -> list[DriftResult]:
-    """Run drift detection with explicit baseline and transition-state stores."""
+    """Run drift detection with explicit baseline and transition-state stores.
+
+    External baselines are strict by default. ``migration`` is an explicit,
+    one-run compatibility mode for legacy drift history without a lineage ID;
+    it writes the accepted baseline ID into the next result.
+    """
     store = store or PerformanceStore.from_env()
     explicit_baseline_store = baseline_store is not None
-    if baseline_lineage_policy not in {"auto", "compatible", "strict"}:
-        raise ValueError("baseline_lineage_policy must be auto, compatible, or strict")
+    if baseline_lineage_policy not in {"auto", "compatible", "migration", "strict"}:
+        raise ValueError("baseline_lineage_policy must be auto, compatible, migration, or strict")
     if explicit_baseline_store and baseline_lineage_policy == "compatible":
         raise ValueError("compatible baseline lineage is not allowed with an external baseline store")
+    if baseline_lineage_policy == "migration" and not explicit_baseline_store:
+        raise ValueError("migration baseline lineage requires an external baseline store")
     if baseline_lineage_policy == "auto":
         baseline_lineage_policy = "strict" if explicit_baseline_store else "compatible"
     baseline_store = baseline_store or store
@@ -180,9 +187,16 @@ def run_drift_detection(
             if baseline_lineage_policy == "strict":
                 if not (previous_baseline_id and current_baseline_id and previous_baseline_id == current_baseline_id):
                     previous = None
+            elif baseline_lineage_policy == "migration":
+                if previous_baseline_id is None:
+                    if current_baseline_id is None:
+                        previous = None
+                elif not (current_baseline_id and previous_baseline_id == current_baseline_id):
+                    previous = None
         result = detect_drift(snapshot, backtest=backtest, policy=policy,
                               previous_status=previous.status if previous else None)
-        store.save_drift_result(result)
+        if backtest is not None:
+            store.save_drift_result(result)
         results.append(result)
     if not results and fail_on_empty:
         raise RuntimeError(

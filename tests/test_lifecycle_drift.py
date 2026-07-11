@@ -193,6 +193,7 @@ class DriftDetectorTests(unittest.TestCase):
         self.assertIsNone(run("auto").previous_status)
         self.assertIsNone(run("strict").previous_status)
         self.assertIsNone(run("strict", accepted_backtest=None).previous_status)
+        self.assertEqual(run("migration").previous_status, legacy_previous.status)
         lineage_previous = detect_drift(snapshot, backtest=backtest)
         rotated_backtest = replace(backtest, param_set_id="rotated-baseline")
         self.assertEqual(
@@ -211,12 +212,45 @@ class DriftDetectorTests(unittest.TestCase):
                 previous=lineage_previous,
             ).previous_status
         )
+        self.assertIsNone(
+            run(
+                "migration",
+                accepted_backtest=rotated_backtest,
+                previous=lineage_previous,
+            ).previous_status
+        )
 
         with self.assertRaisesRegex(ValueError, "external baseline store"):
             run("compatible")
 
         with self.assertRaisesRegex(ValueError, "baseline_lineage_policy"):
             run("unknown")
+
+    def test_missing_external_baseline_does_not_replace_lineage_history(self) -> None:
+        snapshot = _make_snapshot()
+        previous = detect_drift(snapshot, backtest=_make_backtest())
+        active_store = mock.Mock()
+        active_store.load_latest_snapshot.return_value = snapshot
+        active_store.load_latest_drift.return_value = previous
+        baseline_store = mock.Mock()
+        baseline_store.load_latest_backtest.return_value = None
+        collector = mock.Mock()
+        collector.collect.return_value = {snapshot.strategy_profile: pd.Series([0.01])}
+
+        with mock.patch(
+            "quant_platform_kit.strategy_lifecycle.return_collector.ReturnCollector",
+            return_value=collector,
+        ):
+            result = run_drift_detection(
+                snapshot.domain,
+                strategy_profile=snapshot.strategy_profile,
+                store=active_store,
+                baseline_store=baseline_store,
+                baseline_lineage_policy="strict",
+            )[0]
+
+        self.assertIsNone(result.baseline_param_set_id)
+        active_store.save_drift_result.assert_not_called()
 
 
 if __name__ == "__main__":

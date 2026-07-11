@@ -103,6 +103,33 @@ class LifecycleCliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(len(published["events"]), 2)
 
+    def test_drift_command_allows_explicit_legacy_baseline_migration(self) -> None:
+        observed = {}
+
+        def fake_load_callable(_module_name: str, function_name: str):
+            if function_name == "run_drift_detection":
+                def fake_run_drift_detection(**kwargs):
+                    observed.update(kwargs)
+                    return []
+
+                return fake_run_drift_detection
+            if function_name == "build_drift_alert":
+                return lambda _result: None
+            if function_name == "publish_drift_alerts":
+                return lambda _events, **_kwargs: {}
+            raise AssertionError(function_name)
+
+        with patch.object(cli, "_load_callable", fake_load_callable):
+            result = cli.main([
+                "drift",
+                "--baseline-local-root",
+                "accepted-baselines",
+                "--allow-legacy-baseline-history",
+            ])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(observed["baseline_lineage_policy"], "migration")
+
     def test_update_returns_non_zero_for_error_stage(self) -> None:
         def fake_load_callable(_module_name: str, _function_name: str):
             return lambda **_kwargs: {"stage": "error", "reason": "missing proposal"}
