@@ -26,7 +26,8 @@ def validate_review(payload: Any) -> list[str]:
     check_keys(payload, {"schema_version", "profile", "decision", "promotion_allowed", "score", "hard_gates", "scorecard", "blocking_reason_codes", "evidence", "decision_packet"}, "review")
     if payload.get("schema_version") != "strategy_review.v1":
         issues.append("schema_version must be strategy_review.v1")
-    if payload.get("decision") not in DECISIONS:
+    decision = payload.get("decision")
+    if not isinstance(decision, str) or decision not in DECISIONS:
         issues.append("decision must be pass, fail, or insufficient_evidence")
     if not isinstance(payload.get("profile"), str) or not payload["profile"].strip():
         issues.append("profile must be a non-empty string")
@@ -42,7 +43,8 @@ def validate_review(payload: Any) -> list[str]:
             issues.append("each hard gate must be an object")
             continue
         check_keys(gate, {"id", "name", "status", "reason_codes", "evidence_refs"}, f"{gate.get('id', '<unknown>')}")
-        if gate.get("status") not in STATUSES:
+        status = gate.get("status")
+        if not isinstance(status, str) or status not in STATUSES:
             issues.append(f"{gate.get('id', '<unknown>')} has invalid status")
         for field in ("reason_codes", "evidence_refs"):
             if not isinstance(gate.get(field), list):
@@ -83,12 +85,14 @@ def validate_review(payload: Any) -> list[str]:
             item = provenance.get(source)
             if not isinstance(item, dict):
                 issues.append(f"evidence.provenance.{source} must be an object")
+                provenance[source] = {}
                 continue
             check_keys(item, {"source_revision", "cost_model", "data_timestamp", "status"}, f"evidence.provenance.{source}")
             for field in ("source_revision", "cost_model", "data_timestamp"):
                 if not isinstance(item.get(field), str) or not item[field].strip():
                     issues.append(f"evidence.provenance.{source}.{field} must be non-empty")
-            if item.get("status") not in {"verified", "legacy_missing", "unavailable"}:
+            item_status = item.get("status")
+            if not isinstance(item_status, str) or item_status not in {"verified", "legacy_missing", "unavailable"}:
                 issues.append(f"evidence.provenance.{source}.status is invalid")
             if item.get("status") == "verified":
                 if str(item.get("source_revision", "")).strip().lower() in SENTINELS or str(item.get("cost_model", "")).strip().lower() in SENTINELS:
@@ -116,10 +120,12 @@ def validate_review(payload: Any) -> list[str]:
         for field in packet_fields:
             if not isinstance(packet.get(field), str) or not packet[field].strip():
                 issues.append(f"decision_packet.{field} must be a non-empty string")
-        if packet.get("evidence_sufficiency") not in {"sufficient", "insufficient_evidence"}:
+        evidence_sufficiency = packet.get("evidence_sufficiency")
+        if not isinstance(evidence_sufficiency, str) or evidence_sufficiency not in {"sufficient", "insufficient_evidence"}:
             issues.append("decision_packet.evidence_sufficiency is invalid")
         recommendations = {"approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback", "insufficient_evidence"}
-        if packet.get("system_recommendation") not in recommendations:
+        recommendation = packet.get("system_recommendation")
+        if not isinstance(recommendation, str) or recommendation not in recommendations:
             issues.append("decision_packet.system_recommendation is invalid")
         if not isinstance(packet.get("technical_evidence_refs"), list) or any(not isinstance(item, str) for item in packet.get("technical_evidence_refs", [])):
             issues.append("decision_packet.technical_evidence_refs must be a string array")
@@ -155,7 +161,7 @@ def validate_review(payload: Any) -> list[str]:
                 if set(limits) != set(checks) or any(not check(limits.get(key)) for key, check in checks.items()):
                     issues.append("decision_packet.automation_boundary.canary_limits is incomplete or invalid")
         allowed = packet.get("allowed_human_decisions")
-        if not isinstance(allowed, list) or not allowed or any(item not in {"approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"} for item in allowed):
+        if not isinstance(allowed, list) or not allowed or any(not isinstance(item, str) or item not in {"approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"} for item in allowed):
             issues.append("decision_packet.allowed_human_decisions is invalid")
         elif len(allowed) != len(set(allowed)):
             issues.append("decision_packet.allowed_human_decisions must be unique")
