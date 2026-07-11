@@ -67,6 +67,12 @@ def validate_review(payload: Any) -> list[str]:
         scored_gates = payload["scorecard"].get("scored_gates")
         if not isinstance(scored_gates, int) or isinstance(scored_gates, bool):
             issues.append("scorecard.scored_gates must be an integer")
+        elif not 0 <= scored_gates <= 12:
+            issues.append("scorecard.scored_gates must be in [0, 12]")
+        total = payload["scorecard"].get("total")
+        maximum = payload["scorecard"].get("max")
+        if isinstance(total, (int, float)) and isinstance(maximum, (int, float)) and not isinstance(total, bool) and not isinstance(maximum, bool) and not 0 <= total <= maximum:
+            issues.append("scorecard.total must be between 0 and scorecard.max")
     evidence = payload.get("evidence")
     provenance: dict[str, Any] = {}
     missing_artifacts: list[Any] | None = None
@@ -243,6 +249,11 @@ def validate_review(payload: Any) -> list[str]:
         issues.append("approved review cannot use a provenance sentinel as evidence.data_source")
     if payload.get("decision") == "pass" and failed:
         issues.append("decision cannot be pass when a hard gate failed or lacks evidence")
+    if payload.get("decision") == "pass" and isinstance(payload.get("score"), (int, float)) and isinstance(payload.get("scorecard"), dict):
+        total = payload["scorecard"].get("total")
+        maximum = payload["scorecard"].get("max")
+        if isinstance(total, (int, float)) and isinstance(maximum, (int, float)) and maximum and abs(payload["score"] - (100 * total / maximum)) > 1e-9:
+            issues.append("passing review score must match scorecard.total/max")
     if payload.get("decision") == "pass" and blocking:
         issues.append("decision cannot be pass with blocking_reason_codes")
     return issues

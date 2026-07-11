@@ -161,7 +161,8 @@ def export_strategy_performance(
                             "status": "verified" if _usable_provenance(backtest.source_revision) and _usable_provenance(backtest.cost_model) and backtest.end_date else "legacy_missing",
                         },
                     },
-                    "data_timestamp": snapshot_timestamp,
+                    "snapshot_data_timestamp": snapshot_timestamp,
+                    "backtest_data_timestamp": _date_timestamp(backtest.end_date),
                 },
             }
         )
