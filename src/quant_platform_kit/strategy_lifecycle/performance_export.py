@@ -86,6 +86,12 @@ def _assert_required_metrics(metrics: Mapping[str, Any], *, label: str) -> None:
         raise ValueError(f"{label} missing required metrics: {', '.join(missing)}")
 
 
+def _date_timestamp(value: date | None) -> str:
+    if value is None:
+        return "unavailable"
+    return datetime(value.year, value.month, value.day, tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def export_strategy_performance(
     domain: str,
     *,
@@ -139,13 +145,13 @@ def export_strategy_performance(
                         "snapshot": {
                             "source_revision": snapshot.source_revision or "legacy_missing",
                             "cost_model": snapshot.cost_model or "legacy_missing",
-                            "data_timestamp": snapshot.as_of.isoformat(),
+                            "data_timestamp": _date_timestamp(snapshot.as_of),
                             "status": "verified" if snapshot.source_revision and snapshot.cost_model else "legacy_missing",
                         },
                         "backtest": {
                             "source_revision": backtest.source_revision or "legacy_missing",
                             "cost_model": backtest.cost_model or "legacy_missing",
-                            "data_timestamp": backtest.end_date.isoformat() if backtest.end_date else "unavailable",
+                            "data_timestamp": _date_timestamp(backtest.end_date),
                             "status": "verified" if backtest.source_revision and backtest.cost_model and backtest.end_date else "legacy_missing",
                         },
                     },

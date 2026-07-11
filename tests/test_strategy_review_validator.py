@@ -122,6 +122,21 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         payload["decision_packet"]["allowed_human_decisions"] = ["approve_research", "approve_research"]  # type: ignore[index]
         self.assertTrue(any("must be unique" in issue for issue in MODULE.validate_review(payload)))
 
+    def test_verified_provenance_rejects_sentinel(self) -> None:
+        payload = _review()
+        payload["decision_packet"]["evidence_sufficiency"] = "sufficient"  # type: ignore[index]
+        payload["decision"] = "pass"
+        payload["evidence"]["sample_count"] = 10  # type: ignore[index]
+        payload["evidence"]["oos_folds"] = 3  # type: ignore[index]
+        for gate in payload["hard_gates"]:
+            gate["status"] = "pass"
+            gate["evidence_refs"] = ["artifact"]
+        payload["decision_packet"]["system_recommendation"] = "approve_research"  # type: ignore[index]
+        payload["decision_packet"]["technical_evidence_refs"] = ["artifact"]  # type: ignore[index]
+        payload["evidence"]["provenance"]["backtest"]["status"] = "verified"  # type: ignore[index]
+        payload["evidence"]["provenance"]["backtest"]["source_revision"] = "legacy_missing"  # type: ignore[index]
+        self.assertTrue(any("verified" in issue for issue in MODULE.validate_review(payload)))
+
 
 if __name__ == "__main__":
     unittest.main()

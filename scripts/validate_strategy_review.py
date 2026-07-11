@@ -10,12 +10,20 @@ from typing import Any
 
 STATUSES = {"pass", "fail", "insufficient_evidence", "not_applicable"}
 DECISIONS = {"pass", "fail", "insufficient_evidence"}
+SENTINELS = {"", "unavailable", "legacy_missing", "unknown", "none", "null"}
 
 
 def validate_review(payload: Any) -> list[str]:
     issues: list[str] = []
     if not isinstance(payload, dict):
         return ["top-level JSON must be an object"]
+    def check_keys(value: Any, allowed: set[str], label: str) -> None:
+        if isinstance(value, dict):
+            unknown = sorted(set(value) - allowed)
+            if unknown:
+                issues.append(f"{label} contains unsupported fields: {', '.join(unknown)}")
+
+    check_keys(payload, {"schema_version", "profile", "decision", "promotion_allowed", "score", "hard_gates", "scorecard", "blocking_reason_codes", "evidence", "decision_packet"}, "review")
     if payload.get("schema_version") != "strategy_review.v1":
         issues.append("schema_version must be strategy_review.v1")
     if payload.get("decision") not in DECISIONS:
@@ -33,6 +41,7 @@ def validate_review(payload: Any) -> list[str]:
         if not isinstance(gate, dict):
             issues.append("each hard gate must be an object")
             continue
+        check_keys(gate, {"id", "name", "status", "reason_codes", "evidence_refs"}, f"{gate.get('id', '<unknown>')}")
         if gate.get("status") not in STATUSES:
             issues.append(f"{gate.get('id', '<unknown>')} has invalid status")
         for field in ("reason_codes", "evidence_refs"):
@@ -46,11 +55,14 @@ def validate_review(payload: Any) -> list[str]:
         issues.append("score must be a number in [0, 100]")
     if not isinstance(payload.get("scorecard"), dict):
         issues.append("scorecard must be an object")
+    else:
+        check_keys(payload["scorecard"], {"total", "max", "scored_gates"}, "scorecard")
     evidence = payload.get("evidence")
     provenance: dict[str, Any] = {}
     if not isinstance(evidence, dict):
         issues.append("evidence must be an object")
     else:
+        check_keys(evidence, {"metrics_kind", "data_source", "sample_count", "oos_folds", "placeholder_metrics", "provenance", "generated_at", "missing_artifacts"}, "evidence")
         if evidence.get("metrics_kind") != "performance":
             issues.append("evidence.metrics_kind must be performance")
         for field in ("data_source",):
@@ -65,12 +77,15 @@ def validate_review(payload: Any) -> list[str]:
             if not isinstance(item, dict):
                 issues.append(f"evidence.provenance.{source} must be an object")
                 continue
+            check_keys(item, {"source_revision", "cost_model", "data_timestamp", "status"}, f"evidence.provenance.{source}")
             for field in ("source_revision", "cost_model", "data_timestamp"):
                 if not isinstance(item.get(field), str) or not item[field].strip():
                     issues.append(f"evidence.provenance.{source}.{field} must be non-empty")
             if item.get("status") not in {"verified", "legacy_missing", "unavailable"}:
                 issues.append(f"evidence.provenance.{source}.status is invalid")
             if item.get("status") == "verified":
+                if str(item.get("source_revision", "")).strip().lower() in SENTINELS or str(item.get("cost_model", "")).strip().lower() in SENTINELS:
+                    issues.append(f"evidence.provenance.{source}.verified cannot use sentinel provenance")
                 try:
                     from datetime import datetime
                     timestamp = datetime.fromisoformat(item["data_timestamp"].replace("Z", "+00:00"))
@@ -90,6 +105,7 @@ def validate_review(payload: Any) -> list[str]:
     if not isinstance(packet, dict):
         issues.append("decision_packet must be an object")
     else:
+        check_keys(packet, {"strategy_what", "return_source", "loss_scenarios", "max_risk", "evidence_sufficiency", "version_change", "system_recommendation", "technical_evidence_refs", "automation_boundary", "allowed_human_decisions"}, "decision_packet")
         for field in packet_fields:
             if not isinstance(packet.get(field), str) or not packet[field].strip():
                 issues.append(f"decision_packet.{field} must be a non-empty string")
@@ -104,6 +120,7 @@ def validate_review(payload: Any) -> list[str]:
         if not isinstance(boundary, dict):
             issues.append("decision_packet.automation_boundary must be an object")
         else:
+            check_keys(boundary, {"research_auto_after_hard_gates", "shadow_auto_after_hard_gates", "canary_mode", "canary_limits", "auto_scale_allowed", "normal_live_requires_human", "funding_leverage_risk_override_requires_human", "hard_risk_auto_pause_rollback"}, "automation_boundary")
             required_boundary = {
                 "research_auto_after_hard_gates": True,
                 "shadow_auto_after_hard_gates": True,
