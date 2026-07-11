@@ -252,7 +252,10 @@ def validate_review(payload: Any) -> list[str]:
     if payload.get("decision") == "pass" and isinstance(payload.get("score"), (int, float)) and isinstance(payload.get("scorecard"), dict):
         total = payload["scorecard"].get("total")
         maximum = payload["scorecard"].get("max")
-        if isinstance(total, (int, float)) and isinstance(maximum, (int, float)) and maximum and abs(payload["score"] - (100 * total / maximum)) > 1e-9:
+        scored_gates = payload["scorecard"].get("scored_gates")
+        if not isinstance(maximum, (int, float)) or maximum <= 0 or not isinstance(scored_gates, int) or scored_gates != 12:
+            issues.append("passing review requires a positive scorecard.max and all hard gates scored")
+        elif isinstance(total, (int, float)) and abs(payload["score"] - (100 * total / maximum)) > 1e-9:
             issues.append("passing review score must match scorecard.total/max")
     if payload.get("decision") == "pass" and blocking:
         issues.append("decision cannot be pass with blocking_reason_codes")

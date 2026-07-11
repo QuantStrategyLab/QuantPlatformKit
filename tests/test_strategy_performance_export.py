@@ -78,6 +78,7 @@ class StrategyPerformanceExportTests(unittest.TestCase):
                 oos_max_drawdown=-0.11,
                 walk_forward_stability=0.93,
                 computed_at="2026-06-29T00:00:00Z",
+                end_date=date(2026, 6, 30),
                 source_revision="fixture-rev",
                 cost_model="fee_10bps_slippage_5bps",
             )
@@ -127,7 +128,7 @@ class StrategyPerformanceExportTests(unittest.TestCase):
             store.save_backtest_result(BacktestResult(
                 strategy_profile="crypto_live_pool_rotation", domain="crypto", param_set_id="baseline",
                 params={}, sharpe_ratio=1.0, calmar_ratio=1.0, max_drawdown=-0.1, cagr=0.2,
-                win_rate=0.55, source_revision="backtest-rev",
+                win_rate=0.55, end_date=date(2026, 6, 30), source_revision="backtest-rev",
             ))
             payload = export_strategy_performance("crypto", repo="QuantStrategyLab/CryptoLivePoolPipelines", store=store)
             metadata = payload["snapshots"][0]["metadata"]
