@@ -42,6 +42,8 @@ def validate_review(payload: Any) -> list[str]:
     score = payload.get("score")
     if not isinstance(score, (int, float)) or isinstance(score, bool) or not 0 <= score <= 100:
         issues.append("score must be a number in [0, 100]")
+    if not isinstance(payload.get("scorecard"), dict):
+        issues.append("scorecard must be an object")
     evidence = payload.get("evidence")
     if not isinstance(evidence, dict):
         issues.append("evidence must be an object")
@@ -53,9 +55,9 @@ def validate_review(payload: Any) -> list[str]:
                 issues.append(f"evidence.{field} must be a non-empty string")
         if evidence.get("placeholder_metrics") is not False:
             issues.append("placeholder metrics are not admissible evidence")
-        if not isinstance(evidence.get("sample_count"), int) or evidence["sample_count"] < 0:
+        if not isinstance(evidence.get("sample_count"), int) or isinstance(evidence.get("sample_count"), bool) or evidence["sample_count"] < 0:
             issues.append("evidence.sample_count must be a non-negative integer")
-        if not isinstance(evidence.get("oos_folds"), int) or evidence["oos_folds"] < 0:
+        if not isinstance(evidence.get("oos_folds"), int) or isinstance(evidence.get("oos_folds"), bool) or evidence["oos_folds"] < 0:
             issues.append("evidence.oos_folds must be a non-negative integer")
 
     blocking = payload.get("blocking_reason_codes")

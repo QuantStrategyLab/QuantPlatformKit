@@ -63,6 +63,15 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         self.assertTrue(any("data_source" in issue for issue in issues))
         self.assertTrue(any("cost_model" in issue for issue in issues))
 
+    def test_missing_scorecard_and_boolean_counts_are_rejected(self) -> None:
+        payload = _review()
+        payload.pop("scorecard")
+        payload["evidence"] = {**_review()["evidence"], "sample_count": True, "oos_folds": False}
+        issues = MODULE.validate_review(payload)
+        self.assertTrue(any("scorecard" in issue for issue in issues))
+        self.assertTrue(any("sample_count" in issue for issue in issues))
+        self.assertTrue(any("oos_folds" in issue for issue in issues))
+
 
 if __name__ == "__main__":
     unittest.main()
