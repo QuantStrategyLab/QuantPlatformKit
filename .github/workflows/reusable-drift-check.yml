@@ -66,7 +66,6 @@ jobs:
       QUANT_PROJECTS_ROOT: ${{ github.workspace }}/external
       LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
       LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
-      CRYPTO_LIFECYCLE_PREFLIGHT_ROOT: ${{ runner.temp }}/lifecycle-preflight
 
     steps:
       - name: Validate trusted caller
