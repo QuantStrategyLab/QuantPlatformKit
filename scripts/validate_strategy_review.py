@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-STATUSES = {"pass", "fail", "insufficient_evidence", "not_applicable"}
+STATUSES = {"pass", "fail", "insufficient_evidence"}
 DECISIONS = {"pass", "fail", "insufficient_evidence"}
 SENTINELS = {"", "unavailable", "not_available", "legacy_missing", "unknown", "none", "null"}
 
@@ -82,6 +82,8 @@ def validate_review(payload: Any) -> list[str]:
         if not isinstance(provenance, dict):
             issues.append("evidence.provenance must be an object")
             provenance = {}
+        else:
+            check_keys(provenance, {"snapshot", "backtest"}, "evidence.provenance")
         for source in ("snapshot", "backtest"):
             item = provenance.get(source)
             if not isinstance(item, dict):
@@ -228,7 +230,7 @@ def validate_review(payload: Any) -> list[str]:
         blocking = []
     elif any(not isinstance(item, str) for item in blocking):
         issues.append("blocking_reason_codes must contain strings")
-    failed = [gate for gate in gates if isinstance(gate, dict) and gate.get("status") in {"fail", "insufficient_evidence", "not_applicable"}]
+    failed = [gate for gate in gates if isinstance(gate, dict) and gate.get("status") in {"fail", "insufficient_evidence"}]
     if failed and not blocking:
         issues.append("failed or insufficient hard gates require blocking_reason_codes")
     if payload.get("promotion_allowed") is not False:

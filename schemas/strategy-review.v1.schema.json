@@ -20,7 +20,7 @@
           "properties": {
           "id": { "type": "string", "pattern": "^H([1-9]|1[0-2])$" },
           "name": { "type": "string" },
-          "status": { "enum": ["pass", "fail", "insufficient_evidence", "not_applicable"] },
+          "status": { "enum": ["pass", "fail", "insufficient_evidence"] },
           "reason_codes": { "type": "array", "items": { "type": "string" } },
           "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
         },
