@@ -169,6 +169,7 @@ tests/test_ibkr_portfolio.py
 tests/test_ibkr_runtime_inputs.py
 tests/test_lifecycle_ai_provider.py
 tests/test_lifecycle_cli.py
+tests/test_lifecycle_codex_integration.py
 tests/test_lifecycle_contracts.py
 tests/test_lifecycle_doctor.py
 tests/test_lifecycle_drift.py
