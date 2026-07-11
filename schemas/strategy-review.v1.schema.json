@@ -68,7 +68,10 @@
         "system_recommendation": { "enum": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback", "insufficient_evidence"] },
         "technical_evidence_refs": { "type": "array", "items": { "type": "string" } },
         "allowed_human_decisions": {
-          "const": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"]
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"] }
         }
       },
       "additionalProperties": true

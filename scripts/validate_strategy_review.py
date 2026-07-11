@@ -77,8 +77,13 @@ def validate_review(payload: Any) -> list[str]:
             issues.append("decision_packet.system_recommendation is invalid")
         if not isinstance(packet.get("technical_evidence_refs"), list) or any(not isinstance(item, str) for item in packet.get("technical_evidence_refs", [])):
             issues.append("decision_packet.technical_evidence_refs must be a string array")
+        allowed = packet.get("allowed_human_decisions")
+        if not isinstance(allowed, list) or not allowed or any(item not in {"approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"} for item in allowed):
+            issues.append("decision_packet.allowed_human_decisions is invalid")
         if packet.get("evidence_sufficiency") == "insufficient_evidence" and packet.get("system_recommendation") != "insufficient_evidence":
             issues.append("insufficient evidence requires an insufficient_evidence recommendation")
+        if packet.get("evidence_sufficiency") == "insufficient_evidence" and any(item != "approve_research" and item != "reject_rollback" for item in allowed or []):
+            issues.append("insufficient evidence cannot allow shadow, canary, or live approval")
         if packet.get("system_recommendation") in {"approve_research", "approve_shadow", "approve_canary", "approve_live"} and any(
             isinstance(gate, dict) and gate.get("status") != "pass" for gate in gates
         ):

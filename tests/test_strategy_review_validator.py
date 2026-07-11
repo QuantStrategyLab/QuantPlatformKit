@@ -42,7 +42,7 @@ def _review(**overrides: object) -> dict[str, object]:
             "version_change": "仅生成 fail-closed 评审结果",
             "system_recommendation": "insufficient_evidence",
             "technical_evidence_refs": [],
-            "allowed_human_decisions": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"],
+            "allowed_human_decisions": ["approve_research", "reject_rollback"],
         },
     }
     payload.update(overrides)
