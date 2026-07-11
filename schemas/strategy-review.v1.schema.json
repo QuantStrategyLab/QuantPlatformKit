@@ -85,7 +85,19 @@
             "research_auto_after_hard_gates": { "const": true },
             "shadow_auto_after_hard_gates": { "const": true },
             "canary_mode": { "const": "bounded_preapproved_only" },
-            "canary_limits": { "type": "object" },
+            "canary_limits": {
+              "type": "object",
+              "required": ["max_capital", "capital_currency", "max_duration_days", "max_drawdown_fraction", "max_leverage", "max_concurrency"],
+              "properties": {
+                "max_capital": { "type": "number", "exclusiveMinimum": 0 },
+                "capital_currency": { "type": "string", "minLength": 3 },
+                "max_duration_days": { "type": "integer", "minimum": 1 },
+                "max_drawdown_fraction": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+                "max_leverage": { "type": "number", "exclusiveMinimum": 0 },
+                "max_concurrency": { "type": "integer", "minimum": 1 }
+              },
+              "additionalProperties": false
+            },
             "auto_scale_allowed": { "const": false },
             "normal_live_requires_human": { "const": true },
             "funding_leverage_risk_override_requires_human": { "const": true },

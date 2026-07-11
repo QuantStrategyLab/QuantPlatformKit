@@ -49,7 +49,7 @@ def _review(**overrides: object) -> dict[str, object]:
                 "research_auto_after_hard_gates": True,
                 "shadow_auto_after_hard_gates": True,
                 "canary_mode": "bounded_preapproved_only",
-                "canary_limits": {"capital": "preapproved", "duration": "preapproved", "max_drawdown": "preapproved", "max_leverage": "preapproved", "max_concurrency": "preapproved"},
+                "canary_limits": {"max_capital": 1000.0, "capital_currency": "USD", "max_duration_days": 14, "max_drawdown_fraction": 0.05, "max_leverage": 1.0, "max_concurrency": 1},
                 "auto_scale_allowed": False,
                 "normal_live_requires_human": True,
                 "funding_leverage_risk_override_requires_human": True,

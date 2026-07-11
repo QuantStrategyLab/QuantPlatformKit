@@ -146,7 +146,7 @@ def export_strategy_performance(
                             "source_revision": backtest.source_revision or "legacy_missing",
                             "cost_model": backtest.cost_model or "legacy_missing",
                             "data_timestamp": backtest.end_date.isoformat() if backtest.end_date else "unavailable",
-                            "status": "verified" if backtest.source_revision and backtest.cost_model else "legacy_missing",
+                            "status": "verified" if backtest.source_revision and backtest.cost_model and backtest.end_date else "legacy_missing",
                         },
                     },
                     "data_timestamp": snapshot.as_of.isoformat(),

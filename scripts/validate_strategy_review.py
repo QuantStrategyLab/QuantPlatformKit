@@ -47,6 +47,7 @@ def validate_review(payload: Any) -> list[str]:
     if not isinstance(payload.get("scorecard"), dict):
         issues.append("scorecard must be an object")
     evidence = payload.get("evidence")
+    provenance: dict[str, Any] = {}
     if not isinstance(evidence, dict):
         issues.append("evidence must be an object")
     else:
@@ -69,6 +70,14 @@ def validate_review(payload: Any) -> list[str]:
                     issues.append(f"evidence.provenance.{source}.{field} must be non-empty")
             if item.get("status") not in {"verified", "legacy_missing", "unavailable"}:
                 issues.append(f"evidence.provenance.{source}.status is invalid")
+            if item.get("status") == "verified":
+                try:
+                    from datetime import datetime
+                    timestamp = datetime.fromisoformat(item["data_timestamp"].replace("Z", "+00:00"))
+                    if timestamp.tzinfo is None:
+                        raise ValueError
+                except (AttributeError, TypeError, ValueError):
+                    issues.append(f"evidence.provenance.{source}.verified requires a real timestamp")
         if evidence.get("placeholder_metrics") is not False:
             issues.append("placeholder metrics are not admissible evidence")
         if not isinstance(evidence.get("sample_count"), int) or isinstance(evidence.get("sample_count"), bool) or evidence["sample_count"] < 0:
@@ -109,6 +118,18 @@ def validate_review(payload: Any) -> list[str]:
                     issues.append(f"decision_packet.automation_boundary.{field} is unsafe")
             if not isinstance(boundary.get("canary_limits"), dict):
                 issues.append("decision_packet.automation_boundary.canary_limits must be an object")
+            else:
+                limits = boundary["canary_limits"]
+                checks = {
+                    "max_capital": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0,
+                    "capital_currency": lambda v: isinstance(v, str) and len(v.strip()) >= 3,
+                    "max_duration_days": lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 1,
+                    "max_drawdown_fraction": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v < 1,
+                    "max_leverage": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0,
+                    "max_concurrency": lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 1,
+                }
+                if set(limits) != set(checks) or any(not check(limits.get(key)) for key, check in checks.items()):
+                    issues.append("decision_packet.automation_boundary.canary_limits is incomplete or invalid")
         allowed = packet.get("allowed_human_decisions")
         if not isinstance(allowed, list) or not allowed or any(item not in {"approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"} for item in allowed):
             issues.append("decision_packet.allowed_human_decisions is invalid")
