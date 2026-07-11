@@ -204,12 +204,15 @@ def run_drift_detection(
                 else None
             )
             if continuity_result is not None:
-                result = replace(
-                    continuity_result,
+                result = DriftResult(
+                    strategy_profile=snapshot.strategy_profile,
+                    domain=snapshot.domain,
                     as_of=snapshot.as_of,
+                    drift_score=0.0,
+                    status=continuity_result.status,
                     previous_status=continuity_result.status,
-                    escalated=False,
                     alert_suppressed=True,
+                    baseline_param_set_id=continuity_result.baseline_param_set_id,
                     baseline_available=False,
                 )
             else:

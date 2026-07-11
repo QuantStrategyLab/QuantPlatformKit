@@ -263,6 +263,8 @@ class DriftDetectorTests(unittest.TestCase):
         self.assertFalse(missing_baseline_result.baseline_available)
         self.assertEqual(missing_baseline_result.status, previous.status)
         self.assertTrue(missing_baseline_result.alert_suppressed)
+        self.assertEqual(missing_baseline_result.drift_score, 0.0)
+        self.assertEqual(missing_baseline_result.dimensions, {})
         self.assertEqual(recovered_result.previous_status, previous.status)
         self.assertTrue(recovered_result.baseline_available)
         self.assertEqual(active_store.save_drift_result.call_count, 2)
