@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from quant_platform_kit.strategy_lifecycle import cli
+from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 
 class LifecycleCliTests(unittest.TestCase):
@@ -103,6 +105,64 @@ class LifecycleCliTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(len(published["events"]), 2)
 
+    def test_drift_command_allows_explicit_legacy_baseline_migration(self) -> None:
+        observed = {}
+
+        def fake_load_callable(_module_name: str, function_name: str):
+            if function_name == "run_drift_detection":
+                def fake_run_drift_detection(**kwargs):
+                    observed.update(kwargs)
+                    return []
+
+                return fake_run_drift_detection
+            if function_name == "build_drift_alert":
+                return lambda _result: None
+            if function_name == "publish_drift_alerts":
+                return lambda _events, **_kwargs: {}
+            raise AssertionError(function_name)
+
+        environment_store = PerformanceStore(cloud_bucket="candidate-bucket", cloud_prefix="candidate")
+        with (
+            patch.object(cli, "_load_callable", fake_load_callable),
+            patch.object(PerformanceStore, "from_env", return_value=environment_store),
+        ):
+            result = cli.main([
+                "drift",
+                "--baseline-local-root",
+                "accepted-baselines",
+                "--allow-legacy-baseline-history",
+            ])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(observed["baseline_lineage_policy"], "migration")
+        self.assertEqual(observed["baseline_store"].local_root, Path("accepted-baselines"))
+        self.assertEqual(observed["baseline_store"].cloud_bucket, "")
+        self.assertEqual(observed["baseline_store"].cloud_prefix, "")
+
+    def test_drift_command_uses_explicit_baseline_bucket(self) -> None:
+        observed = {}
+
+        def fake_load_callable(_module_name: str, function_name: str):
+            if function_name == "run_drift_detection":
+                def fake_run_drift_detection(**kwargs):
+                    observed.update(kwargs)
+                    return []
+
+                return fake_run_drift_detection
+            if function_name == "build_drift_alert":
+                return lambda _result: None
+            if function_name == "publish_drift_alerts":
+                return lambda _events, **_kwargs: {}
+            raise AssertionError(function_name)
+
+        with patch.object(cli, "_load_callable", fake_load_callable):
+            result = cli.main(["drift", "--baseline-bucket", "gs://accepted-bucket/lifecycle"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(observed["baseline_store"].cloud_bucket, "accepted-bucket")
+        self.assertEqual(observed["baseline_store"].cloud_prefix, "lifecycle")
+        self.assertIsNone(observed["baseline_store"].local_root)
+
     def test_update_returns_non_zero_for_error_stage(self) -> None:
         def fake_load_callable(_module_name: str, _function_name: str):
             return lambda **_kwargs: {"stage": "error", "reason": "missing proposal"}
@@ -163,6 +223,7 @@ class LifecycleCliTests(unittest.TestCase):
 
     def test_lifecycle_command_runs_real_steps(self) -> None:
         calls = []
+        drift_kwargs = {}
 
         def fake_load_callable(_module_name: str, function_name: str):
             if function_name == "run_monitor":
@@ -172,8 +233,9 @@ class LifecycleCliTests(unittest.TestCase):
 
                 return fake_monitor
             if function_name == "run_drift_detection":
-                def fake_drift(**_kwargs):
+                def fake_drift(**kwargs):
                     calls.append("drift")
+                    drift_kwargs.update(kwargs)
                     return []
 
                 return fake_drift
@@ -190,10 +252,24 @@ class LifecycleCliTests(unittest.TestCase):
             raise AssertionError(function_name)
 
         with patch.object(cli, "_load_callable", fake_load_callable):
-            result = cli.main(["lifecycle", "--domain", "cn_equity", "--skip-optimization"])
+            result = cli.main([
+                "lifecycle",
+                "--domain",
+                "cn_equity",
+                "--skip-optimization",
+                "--baseline-local-root",
+                "accepted-baselines",
+                "--strict-baseline-lineage",
+            ])
 
         self.assertEqual(result, 0)
         self.assertEqual(calls, ["monitor", "drift", "dashboard"])
+        self.assertEqual(drift_kwargs["baseline_store"].local_root, Path("accepted-baselines"))
+        self.assertEqual(drift_kwargs["baseline_lineage_policy"], "strict")
+
+    def test_drift_rejects_conflicting_baseline_lineage_flags(self) -> None:
+        with self.assertRaises(SystemExit):
+            cli.main(["drift", "--strict-baseline-lineage", "--allow-legacy-baseline-history"])
 
     def test_error_returns_non_zero(self) -> None:
         def fake_load_callable(_module_name: str, _function_name: str):

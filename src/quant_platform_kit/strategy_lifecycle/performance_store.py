@@ -535,6 +535,19 @@ def _drift_from_dict(data: Mapping[str, Any]) -> DriftResult | None:
             drift_score=float(data.get("drift_score", 0)),
             status=DriftStatus(str(data.get("status", "healthy"))),
             dimensions=dimensions,
+            previous_status=DriftStatus(str(data["previous_status"])) if data.get("previous_status") else None,
+            baseline_param_set_id=str(data["baseline_param_set_id"]) if data.get("baseline_param_set_id") else None,
+            baseline_available=bool(data.get("baseline_available", True)),
+            baseline_param_version=(
+                int(data["baseline_param_version"])
+                if data.get("baseline_param_version") is not None
+                else None
+            ),
+            baseline_artifact_id=(
+                str(data["baseline_artifact_id"])
+                if data.get("baseline_artifact_id")
+                else None
+            ),
         )
     except Exception:
         return None

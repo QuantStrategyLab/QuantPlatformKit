@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 
+from dataclasses import replace
+
 import numpy as np
 
 from quant_platform_kit.strategy_lifecycle.contracts import (
@@ -30,6 +32,12 @@ _DIMENSION_SPECS = [
     ("volatility_drift", "volatility", "volatility", "volatility", "volatility_deviation_pct"),
     ("win_rate_drift", "win_rate", "win_rate", "win_rate", "win_rate_deviation_pct"),
 ]
+
+
+def _baseline_artifact_id(backtest: BacktestResult | None) -> str | None:
+    if backtest is None:
+        return None
+    return backtest.run_id or backtest.computed_at or None
 
 
 def _compute_dimension(
@@ -123,7 +131,11 @@ def detect_drift(
         strategy_profile=snapshot.strategy_profile, domain=snapshot.domain,
         as_of=snapshot.as_of, drift_score=round(drift_score, 4),
         status=status, dimensions=dimensions,
-        previous_status=previous_status, escalated=escalated,
+        previous_status=previous_status,
+        baseline_param_set_id=backtest.param_set_id if backtest else None,
+        baseline_param_version=backtest.param_version if backtest else None,
+        baseline_artifact_id=_baseline_artifact_id(backtest),
+        escalated=escalated,
     )
 
 
@@ -134,9 +146,28 @@ def run_drift_detection(
     policy: DriftPolicy | None = None,
     fail_on_empty: bool = True,
     store: PerformanceStore | None = None,
+    baseline_store: PerformanceStore | None = None,
+    previous_drift_store: PerformanceStore | None = None,
+    baseline_lineage_policy: str = "auto",
 ) -> list[DriftResult]:
-    """Run drift detection for all strategies in a domain."""
+    """Run drift detection with explicit baseline and transition-state stores.
+
+    External baselines are strict by default. ``migration`` is an explicit,
+    one-run compatibility mode for legacy drift history without a lineage ID;
+    it writes the accepted baseline ID into the next result.
+    """
     store = store or PerformanceStore.from_env()
+    explicit_baseline_store = baseline_store is not None and baseline_store is not store
+    if baseline_lineage_policy not in {"auto", "compatible", "migration", "strict"}:
+        raise ValueError("baseline_lineage_policy must be auto, compatible, migration, or strict")
+    if explicit_baseline_store and baseline_lineage_policy == "compatible":
+        raise ValueError("compatible baseline lineage is not allowed with an external baseline store")
+    if baseline_lineage_policy == "migration" and not explicit_baseline_store:
+        raise ValueError("migration baseline lineage requires an external baseline store")
+    if baseline_lineage_policy == "auto":
+        baseline_lineage_policy = "strict" if explicit_baseline_store else "compatible"
+    baseline_store = baseline_store or store
+    read_previous = previous_drift_store or store
     policy = policy or DriftPolicy.load_default()
 
     from quant_platform_kit.strategy_lifecycle.return_collector import ReturnCollector
@@ -158,11 +189,86 @@ def run_drift_detection(
         if snapshot is None:
             missing_snapshots += 1
             continue
-        backtest = store.load_latest_backtest(domain, profile)
-        previous = store.load_latest_drift(domain, profile)
-        result = detect_drift(snapshot, backtest=backtest, policy=policy,
-                              previous_status=previous.status if previous else None)
-        store.save_drift_result(result)
+        backtest = baseline_store.load_latest_backtest(domain, profile)
+        previous = read_previous.load_latest_drift(domain, profile)
+        previous_before_lineage_check = previous
+        current_baseline_id = backtest.param_set_id if backtest else None
+        current_baseline_version = backtest.param_version if backtest else None
+        current_baseline_artifact_id = _baseline_artifact_id(backtest)
+        if previous:
+            previous_baseline_id = previous.baseline_param_set_id
+            previous_baseline_version = previous.baseline_param_version
+            previous_baseline_artifact_id = previous.baseline_artifact_id
+            if baseline_lineage_policy == "strict":
+                if not (
+                    previous_baseline_id
+                    and current_baseline_id
+                    and previous_baseline_id == current_baseline_id
+                    and previous_baseline_version is not None
+                    and previous_baseline_version == current_baseline_version
+                    and (
+                        not current_baseline_artifact_id
+                        or previous_baseline_artifact_id == current_baseline_artifact_id
+                    )
+                ):
+                    previous = None
+            elif baseline_lineage_policy == "migration":
+                if current_baseline_id is None or (
+                    previous_baseline_id is not None and previous_baseline_id != current_baseline_id
+                ) or (
+                    previous_baseline_version is not None
+                    and previous_baseline_version != current_baseline_version
+                ) or (
+                    previous_baseline_artifact_id is not None
+                    and previous_baseline_artifact_id != current_baseline_artifact_id
+                ):
+                    previous = None
+        if backtest is None:
+            continuity_result = (
+                previous_before_lineage_check
+                if baseline_lineage_policy != "migration"
+                and previous_before_lineage_check is not None
+                and previous_before_lineage_check.baseline_param_set_id
+                else None
+            )
+            if continuity_result is not None:
+                result = DriftResult(
+                    strategy_profile=snapshot.strategy_profile,
+                    domain=snapshot.domain,
+                    as_of=snapshot.as_of,
+                    drift_score=0.0,
+                    status=continuity_result.status,
+                    previous_status=continuity_result.status,
+                    alert_suppressed=True,
+                    baseline_param_set_id=continuity_result.baseline_param_set_id,
+                    baseline_param_version=continuity_result.baseline_param_version,
+                    baseline_artifact_id=continuity_result.baseline_artifact_id,
+                    baseline_available=False,
+                )
+            elif explicit_baseline_store:
+                result = DriftResult(
+                    strategy_profile=snapshot.strategy_profile,
+                    domain=snapshot.domain,
+                    as_of=snapshot.as_of,
+                    drift_score=0.0,
+                    status=DriftStatus.REVIEW,
+                    alert_suppressed=True,
+                    baseline_available=False,
+                )
+            else:
+                result = replace(
+                    detect_drift(snapshot, backtest=None, policy=policy),
+                    alert_suppressed=True,
+                    baseline_available=False,
+                )
+        else:
+            result = detect_drift(snapshot, backtest=backtest, policy=policy,
+                                  previous_status=previous.status if previous else None)
+        if backtest is not None or not (
+            previous_before_lineage_check is not None
+            and previous_before_lineage_check.as_of == snapshot.as_of
+        ):
+            store.save_drift_result(result)
         results.append(result)
     if not results and fail_on_empty:
         raise RuntimeError(

@@ -403,7 +403,7 @@ def _run_drift_phase(domain: str, store: PerformanceStore) -> tuple[list, list]:
     """Phase 2: run drift detection, return (all_drifts, alerting_drifts)."""
     from quant_platform_kit.strategy_lifecycle.drift_detector import run_drift_detection
     drifts = run_drift_detection(domain, store=store)
-    alerts = [d for d in drifts if d.status != DriftStatus.HEALTHY]
+    alerts = [d for d in drifts if d.status != DriftStatus.HEALTHY and not d.alert_suppressed]
     return drifts, alerts
 
 

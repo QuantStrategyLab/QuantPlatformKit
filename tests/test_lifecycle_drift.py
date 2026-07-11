@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date
 import unittest
 from unittest import mock
@@ -147,6 +148,138 @@ class DriftDetectorTests(unittest.TestCase):
                 run_drift_detection("us_equity", store=sentinel_store)  # type: ignore[arg-type]
 
         collector_factory.assert_called_once_with(store=sentinel_store)
+
+    def test_baseline_lineage_policy_handles_legacy_history_explicitly(self) -> None:
+        snapshot = _make_snapshot()
+        backtest = _make_backtest()
+        legacy_previous = replace(
+            detect_drift(snapshot, backtest=backtest),
+            baseline_param_set_id=None,
+        )
+
+        def run(
+            policy: str,
+            accepted_backtest: BacktestResult | None = backtest,
+            previous=legacy_previous,
+            *,
+            external_baseline: bool = True,
+        ):
+            active_store = mock.Mock()
+            active_store.load_latest_snapshot.return_value = snapshot
+            active_store.load_latest_drift.return_value = previous
+            active_store.load_latest_backtest.return_value = accepted_backtest
+            baseline_store = mock.Mock()
+            baseline_store.load_latest_backtest.return_value = accepted_backtest
+
+            collector = mock.Mock()
+            collector.collect.return_value = {snapshot.strategy_profile: pd.Series([0.01])}
+            with mock.patch(
+                "quant_platform_kit.strategy_lifecycle.return_collector.ReturnCollector",
+                return_value=collector,
+            ):
+                result = run_drift_detection(
+                    snapshot.domain,
+                    strategy_profile=snapshot.strategy_profile,
+                    store=active_store,
+                    baseline_store=baseline_store if external_baseline else None,
+                    baseline_lineage_policy=policy,
+                )[0]
+            return result
+
+        self.assertEqual(
+            run("auto", external_baseline=False).previous_status,
+            legacy_previous.status,
+        )
+        self.assertIsNone(run("auto").previous_status)
+        self.assertIsNone(run("strict").previous_status)
+        self.assertIsNone(run("strict", accepted_backtest=None).previous_status)
+        self.assertEqual(run("migration").previous_status, legacy_previous.status)
+        self.assertIsNone(run("migration", accepted_backtest=None).previous_status)
+        lineage_previous = detect_drift(snapshot, backtest=backtest)
+        rotated_backtest = replace(backtest, param_set_id="rotated-baseline")
+        self.assertEqual(
+            run(
+                "auto",
+                accepted_backtest=rotated_backtest,
+                previous=lineage_previous,
+                external_baseline=False,
+            ).previous_status,
+            lineage_previous.status,
+        )
+        missing_baseline_history = run(
+            "auto",
+            accepted_backtest=None,
+            previous=lineage_previous,
+        )
+        self.assertEqual(missing_baseline_history.previous_status, lineage_previous.status)
+        self.assertFalse(missing_baseline_history.baseline_available)
+        missing_baseline_without_history = run("strict", accepted_backtest=None, previous=None)
+        self.assertEqual(missing_baseline_without_history.status, DriftStatus.REVIEW)
+        self.assertTrue(missing_baseline_without_history.alert_suppressed)
+        self.assertFalse(missing_baseline_without_history.baseline_available)
+        versioned_backtest = replace(backtest, param_version=2)
+        self.assertIsNone(
+            run("strict", accepted_backtest=versioned_backtest, previous=lineage_previous).previous_status
+        )
+        rerun_backtest = replace(backtest, run_id="accepted-rerun")
+        self.assertIsNone(
+            run("strict", accepted_backtest=rerun_backtest, previous=lineage_previous).previous_status
+        )
+        self.assertIsNone(
+            run(
+                "migration",
+                accepted_backtest=rotated_backtest,
+                previous=lineage_previous,
+            ).previous_status
+        )
+
+        with self.assertRaisesRegex(ValueError, "external baseline store"):
+            run("compatible")
+
+        with self.assertRaisesRegex(ValueError, "baseline_lineage_policy"):
+            run("unknown")
+
+    def test_missing_external_baseline_preserves_lineage_history_without_alerting(self) -> None:
+        snapshot = _make_snapshot()
+        previous = detect_drift(snapshot, backtest=_make_backtest())
+        active_store = mock.Mock()
+        active_store.load_latest_snapshot.return_value = snapshot
+        active_store.load_latest_drift.side_effect = [previous, None]
+        baseline_store = mock.Mock()
+        baseline_store.load_latest_backtest.side_effect = [None, _make_backtest()]
+        collector = mock.Mock()
+        collector.collect.return_value = {snapshot.strategy_profile: pd.Series([0.01])}
+
+        with mock.patch(
+            "quant_platform_kit.strategy_lifecycle.return_collector.ReturnCollector",
+            return_value=collector,
+        ):
+            missing_baseline_result = run_drift_detection(
+                snapshot.domain,
+                strategy_profile=snapshot.strategy_profile,
+                store=active_store,
+                baseline_store=baseline_store,
+                baseline_lineage_policy="strict",
+            )[0]
+            active_store.load_latest_drift.side_effect = None
+            active_store.load_latest_drift.return_value = previous
+            recovered_result = run_drift_detection(
+                snapshot.domain,
+                strategy_profile=snapshot.strategy_profile,
+                store=active_store,
+                baseline_store=baseline_store,
+                baseline_lineage_policy="strict",
+            )[0]
+
+        self.assertEqual(missing_baseline_result.baseline_param_set_id, previous.baseline_param_set_id)
+        self.assertFalse(missing_baseline_result.baseline_available)
+        self.assertEqual(missing_baseline_result.status, previous.status)
+        self.assertTrue(missing_baseline_result.alert_suppressed)
+        self.assertEqual(missing_baseline_result.drift_score, 0.0)
+        self.assertEqual(missing_baseline_result.dimensions, {})
+        self.assertEqual(recovered_result.previous_status, previous.status)
+        self.assertTrue(recovered_result.baseline_available)
+        active_store.save_drift_result.assert_called_once_with(recovered_result)
 
 
 if __name__ == "__main__":
