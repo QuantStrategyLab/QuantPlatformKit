@@ -135,6 +135,20 @@ def export_strategy_performance(
                     "backtest_source_revision": backtest.source_revision,
                     "snapshot_cost_model": snapshot.cost_model,
                     "backtest_cost_model": backtest.cost_model,
+                    "provenance": {
+                        "snapshot": {
+                            "source_revision": snapshot.source_revision or "legacy_missing",
+                            "cost_model": snapshot.cost_model or "legacy_missing",
+                            "data_timestamp": snapshot.as_of.isoformat(),
+                            "status": "verified" if snapshot.source_revision and snapshot.cost_model else "legacy_missing",
+                        },
+                        "backtest": {
+                            "source_revision": backtest.source_revision or "legacy_missing",
+                            "cost_model": backtest.cost_model or "legacy_missing",
+                            "data_timestamp": backtest.end_date.isoformat() if backtest.end_date else "unavailable",
+                            "status": "verified" if backtest.source_revision and backtest.cost_model else "legacy_missing",
+                        },
+                    },
                     "data_timestamp": snapshot.as_of.isoformat(),
                 },
             }

@@ -30,10 +30,11 @@ def _review(**overrides: object) -> dict[str, object]:
             "data_source": "not_available",
             "sample_count": 0,
             "oos_folds": 0,
-            "cost_model": "not_available",
             "placeholder_metrics": False,
-            "source_revision": "fixture-rev",
-            "data_timestamp": "2026-07-11T00:00:00Z",
+            "provenance": {
+                "snapshot": {"source_revision": "fixture-rev", "cost_model": "not_available", "data_timestamp": "2026-07-11T00:00:00Z", "status": "unavailable"},
+                "backtest": {"source_revision": "fixture-rev", "cost_model": "not_available", "data_timestamp": "2026-07-11T00:00:00Z", "status": "unavailable"},
+            },
         },
         "decision_packet": {
             "strategy_what": "策略做什么尚待真实证据确认",
@@ -81,7 +82,9 @@ class StrategyReviewValidatorTests(unittest.TestCase):
         self.assertTrue(any("decision must be" in issue for issue in MODULE.validate_review(_review(decision="unknown"))))
 
     def test_empty_provenance_is_rejected(self) -> None:
-        payload = _review(evidence={**_review()["evidence"], "data_source": "", "cost_model": " "})
+        evidence = {**_review()["evidence"], "data_source": ""}
+        evidence["provenance"] = {**evidence["provenance"], "snapshot": {**evidence["provenance"]["snapshot"], "cost_model": " "}}
+        payload = _review(evidence=evidence)
         issues = MODULE.validate_review(payload)
         self.assertTrue(any("data_source" in issue for issue in issues))
         self.assertTrue(any("cost_model" in issue for issue in issues))

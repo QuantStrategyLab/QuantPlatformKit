@@ -52,12 +52,23 @@ def validate_review(payload: Any) -> list[str]:
     else:
         if evidence.get("metrics_kind") != "performance":
             issues.append("evidence.metrics_kind must be performance")
-        for field in ("data_source", "cost_model"):
+        for field in ("data_source",):
             if not isinstance(evidence.get(field), str) or not evidence[field].strip():
                 issues.append(f"evidence.{field} must be a non-empty string")
-        for field in ("source_revision", "data_timestamp"):
-            if not isinstance(evidence.get(field), str) or not evidence[field].strip():
-                issues.append(f"evidence.{field} must be a non-empty string")
+        provenance = evidence.get("provenance")
+        if not isinstance(provenance, dict):
+            issues.append("evidence.provenance must be an object")
+            provenance = {}
+        for source in ("snapshot", "backtest"):
+            item = provenance.get(source)
+            if not isinstance(item, dict):
+                issues.append(f"evidence.provenance.{source} must be an object")
+                continue
+            for field in ("source_revision", "cost_model", "data_timestamp"):
+                if not isinstance(item.get(field), str) or not item[field].strip():
+                    issues.append(f"evidence.provenance.{source}.{field} must be non-empty")
+            if item.get("status") not in {"verified", "legacy_missing", "unavailable"}:
+                issues.append(f"evidence.provenance.{source}.status is invalid")
         if evidence.get("placeholder_metrics") is not False:
             issues.append("placeholder metrics are not admissible evidence")
         if not isinstance(evidence.get("sample_count"), int) or isinstance(evidence.get("sample_count"), bool) or evidence["sample_count"] < 0:
@@ -130,6 +141,8 @@ def validate_review(payload: Any) -> list[str]:
             for gate in gates:
                 if isinstance(gate, dict) and gate.get("status") == "pass" and not gate.get("evidence_refs"):
                     issues.append(f"{gate.get('id', '<unknown>')} pass requires evidence_refs")
+            if any(provenance.get(source, {}).get("status") != "verified" for source in ("snapshot", "backtest")):
+                issues.append("passing review requires verified snapshot and backtest provenance")
 
     blocking = payload.get("blocking_reason_codes")
     if not isinstance(blocking, list):

@@ -45,16 +45,22 @@
     "blocking_reason_codes": { "type": "array", "items": { "type": "string" } },
     "evidence": {
       "type": "object",
-      "required": ["metrics_kind", "data_source", "sample_count", "oos_folds", "cost_model", "placeholder_metrics", "source_revision", "data_timestamp"],
+      "required": ["metrics_kind", "data_source", "sample_count", "oos_folds", "placeholder_metrics", "provenance"],
       "properties": {
         "metrics_kind": { "const": "performance" },
         "data_source": { "type": "string", "minLength": 1 },
         "sample_count": { "type": "integer", "minimum": 0 },
         "oos_folds": { "type": "integer", "minimum": 0 },
-        "cost_model": { "type": "string", "minLength": 1 },
         "placeholder_metrics": { "const": false },
-        "source_revision": { "type": "string", "minLength": 1 },
-        "data_timestamp": { "type": "string", "minLength": 1 },
+        "provenance": {
+          "type": "object",
+          "required": ["snapshot", "backtest"],
+          "properties": {
+            "snapshot": { "$ref": "#/$defs/provenance" },
+            "backtest": { "$ref": "#/$defs/provenance" }
+          },
+          "additionalProperties": false
+        },
         "generated_at": { "type": "string" },
         "missing_artifacts": { "type": "array", "items": { "type": "string" } }
       },
@@ -93,6 +99,19 @@
           "uniqueItems": true,
           "items": { "enum": ["approve_research", "approve_shadow", "approve_canary", "approve_live", "reject_rollback"] }
         }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "required": ["source_revision", "cost_model", "data_timestamp", "status"],
+      "properties": {
+        "source_revision": { "type": "string", "minLength": 1 },
+        "cost_model": { "type": "string", "minLength": 1 },
+        "data_timestamp": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["verified", "legacy_missing", "unavailable"] }
       },
       "additionalProperties": false
     }
