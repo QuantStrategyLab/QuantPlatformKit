@@ -84,6 +84,16 @@ def validate_review(payload: Any) -> list[str]:
             issues.append("insufficient evidence requires an insufficient_evidence recommendation")
         if packet.get("evidence_sufficiency") == "insufficient_evidence" and any(item != "approve_research" and item != "reject_rollback" for item in allowed or []):
             issues.append("insufficient evidence cannot allow shadow, canary, or live approval")
+        promotive = {"approve_shadow", "approve_canary", "approve_live"}
+        approval_recommendation = packet.get("system_recommendation") in {"approve_research", *promotive}
+        if approval_recommendation and payload.get("decision") != "pass":
+            issues.append("approval recommendation requires decision=pass")
+        if payload.get("decision") != "pass" and any(item in promotive for item in allowed or []):
+            issues.append("failed or insufficient review cannot allow shadow, canary, or live approval")
+        if payload.get("decision") == "pass" and any(isinstance(gate, dict) and gate.get("status") != "pass" for gate in gates):
+            issues.append("decision=pass requires every hard gate to pass")
+        if payload.get("decision") == "pass" and packet.get("system_recommendation") == "insufficient_evidence":
+            issues.append("decision=pass cannot recommend insufficient_evidence")
         if packet.get("system_recommendation") in {"approve_research", "approve_shadow", "approve_canary", "approve_live"} and any(
             isinstance(gate, dict) and gate.get("status") != "pass" for gate in gates
         ):

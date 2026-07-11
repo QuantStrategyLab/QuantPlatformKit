@@ -117,7 +117,7 @@ class StrategyPerformanceExportTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Missing latest lifecycle backtest"):
                 export_strategy_performance("crypto", repo="QuantStrategyLab/CryptoLivePoolPipelines", store=store)
 
-    def test_export_rejects_conflicting_provenance(self) -> None:
+    def test_export_preserves_conflicting_provenance_separately(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
             store.save_snapshot(StrategyPerformanceSnapshot(
@@ -129,8 +129,10 @@ class StrategyPerformanceExportTests(unittest.TestCase):
                 params={}, sharpe_ratio=1.0, calmar_ratio=1.0, max_drawdown=-0.1, cagr=0.2,
                 win_rate=0.55, source_revision="backtest-rev",
             ))
-            with self.assertRaisesRegex(ValueError, "conflicting source_revision"):
-                export_strategy_performance("crypto", repo="QuantStrategyLab/CryptoLivePoolPipelines", store=store)
+            payload = export_strategy_performance("crypto", repo="QuantStrategyLab/CryptoLivePoolPipelines", store=store)
+            metadata = payload["snapshots"][0]["metadata"]
+            self.assertEqual(metadata["snapshot_source_revision"], "snapshot-rev")
+            self.assertEqual(metadata["backtest_source_revision"], "backtest-rev")
 
     def test_performance_store_load_latest_backtest_falls_back_to_local(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
