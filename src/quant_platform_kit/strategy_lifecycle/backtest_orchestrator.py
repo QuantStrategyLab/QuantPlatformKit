@@ -6,6 +6,7 @@ Uses a Protocol-based design so each market provides its own BacktestRunner adap
 from __future__ import annotations
 
 import itertools
+import inspect
 import uuid
 from dataclasses import replace
 from datetime import date, datetime, timezone
@@ -13,6 +14,8 @@ from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
 from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult, SensitivityReport
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+
+EXECUTION_TIMINGS = ("next_open", "next_close")
 
 
 def _now_iso() -> str:
@@ -37,6 +40,7 @@ class BacktestRunner(Protocol):
         params: Mapping[str, Any],
         start_date: date | None = None,
         end_date: date | None = None,
+        execution_timing: str | None = None,
     ) -> BacktestResult:
         """Execute a backtest for the given strategy with the given parameters.
 
@@ -82,6 +86,7 @@ class BacktestOrchestrator:
         params: Mapping[str, Any],
         param_set_id: str = "",
         param_version: int | None = None,
+        save: bool = True,
     ) -> BacktestResult:
         enriched = BacktestResult(
             strategy_profile=strategy_profile,
@@ -113,8 +118,29 @@ class BacktestOrchestrator:
             source_script=result.source_script or "backtest_orchestrator",
             computed_at=result.computed_at or _now_iso(),
         )
-        self._store.save_backtest_result(enriched)
+        if save:
+            self._store.save_backtest_result(enriched)
         return enriched
+
+    @staticmethod
+    def _run_runner(
+        runner: BacktestRunner,
+        strategy_profile: str,
+        params: Mapping[str, Any],
+        *,
+        start_date: date | None,
+        end_date: date | None,
+        execution_timing: str | None,
+    ) -> BacktestResult:
+        kwargs: dict[str, Any] = {"start_date": start_date, "end_date": end_date}
+        if execution_timing is not None:
+            parameters = inspect.signature(runner.run).parameters
+            if "execution_timing" not in parameters and not any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+            ):
+                raise TypeError("runner must accept execution_timing for explicit timing semantics")
+            kwargs["execution_timing"] = execution_timing
+        return runner.run(strategy_profile, params, **kwargs)
 
     def run(
         self,
@@ -126,6 +152,8 @@ class BacktestOrchestrator:
         param_version: int = 1,
         start_date: date | None = None,
         end_date: date | None = None,
+        execution_timing: str | None = None,
+        persist: bool = True,
     ) -> BacktestResult:
         """Run a backtest for a strategy.
 
@@ -144,11 +172,20 @@ class BacktestOrchestrator:
         Raises:
             ValueError: If no runner is registered for the domain.
         """
+        if execution_timing is not None and execution_timing not in EXECUTION_TIMINGS:
+            raise ValueError(f"unsupported execution_timing={execution_timing!r}; expected one of {EXECUTION_TIMINGS}")
         runner = self._runners.get(domain)
         if runner is None:
             raise ValueError(f"No BacktestRunner registered for domain={domain!r}. Available: {sorted(self._runners)}")
 
-        result = runner.run(strategy_profile, params, start_date=start_date, end_date=end_date)
+        result = self._run_runner(
+            runner,
+            strategy_profile,
+            params,
+            start_date=start_date,
+            end_date=end_date,
+            execution_timing=execution_timing,
+        )
         if result.start_date is None or result.end_date is None:
             result = replace(
                 result,
@@ -162,6 +199,7 @@ class BacktestOrchestrator:
             params=params,
             param_set_id=param_set_id,
             param_version=param_version,
+            save=persist,
         )
 
     def run_latest(self, strategy_profile: str, *, domain: str) -> BacktestResult | None:
@@ -177,6 +215,8 @@ class BacktestOrchestrator:
         windows: Sequence[tuple[date | None, date | None]],
         param_set_id: str = "",
         param_version: int = 1,
+        execution_timing: str | None = None,
+        persist: bool = True,
     ) -> list[BacktestResult]:
         """Run backtests across multiple time windows.
 
@@ -209,6 +249,8 @@ class BacktestOrchestrator:
                     param_version=param_version,
                     start_date=start_date,
                     end_date=end_date,
+                    execution_timing=execution_timing,
+                    persist=persist,
                 )
             )
         return results

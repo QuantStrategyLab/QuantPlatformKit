@@ -50,6 +50,20 @@ class _RecordingRunner:
         )
 
 
+class _TimingRunner(_RecordingRunner):
+    def run(
+        self,
+        strategy_profile: str,
+        params: Mapping[str, Any],
+        start_date: date | None = None,
+        end_date: date | None = None,
+        *,
+        execution_timing: str,
+    ) -> BacktestResult:
+        self.calls.append({"execution_timing": execution_timing})
+        return super().run(strategy_profile, params, start_date, end_date)
+
+
 class BacktestOrchestratorTests(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -77,6 +91,28 @@ class BacktestOrchestratorTests(unittest.TestCase):
         self.assertTrue(result.run_id)
         self.assertTrue(result.computed_at)
         self.assertEqual(result.source_script, "backtest_orchestrator")
+
+    def test_run_forwards_timing_and_can_skip_persistence(self) -> None:
+        runner = _TimingRunner()
+        orchestrator = BacktestOrchestrator(store=self.store)
+        orchestrator.register_runner("us_equity", runner)
+
+        result = orchestrator.run(
+            "soxl_soxx_trend_income",
+            domain="us_equity",
+            params={"lookback": 20},
+            execution_timing="next_open",
+            persist=False,
+        )
+
+        self.assertEqual(runner.calls[0]["execution_timing"], "next_open")
+        self.assertIsNone(orchestrator.run_latest(result.strategy_profile, domain="us_equity"))
+
+    def test_run_rejects_unknown_timing(self) -> None:
+        with self.assertRaises(ValueError):
+            self.orchestrator.run(
+                "test_strat", domain="us_equity", params={}, execution_timing="same_close", persist=False
+            )
 
     def test_persist_result_preserves_existing_param_version_by_default(self) -> None:
         result = BacktestResult(
