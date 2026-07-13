@@ -110,6 +110,24 @@ class BacktestOrchestratorTests(unittest.TestCase):
         self.assertFalse(runner.calls[0]["persist"])
         self.assertIsNone(orchestrator.run_latest(result.strategy_profile, domain="us_equity"))
 
+    def test_persisted_timing_is_part_of_result_identity(self) -> None:
+        runner = _TimingRunner()
+        orchestrator = BacktestOrchestrator(store=self.store)
+        orchestrator.register_runner("us_equity", runner)
+
+        orchestrator.run("test_strat", domain="us_equity", params={}, execution_timing="next_open")
+        orchestrator.run("test_strat", domain="us_equity", params={}, execution_timing="next_close")
+
+        self.assertEqual(
+            orchestrator.run_latest("test_strat", domain="us_equity", execution_timing="next_open").execution_timing,
+            "next_open",
+        )
+        self.assertEqual(
+            orchestrator.run_latest("test_strat", domain="us_equity", execution_timing="next_close").execution_timing,
+            "next_close",
+        )
+        self.assertIsNone(orchestrator.run_latest("test_strat", domain="us_equity"))
+
     def test_explicit_timing_rejects_kwargs_only_runner(self) -> None:
         class KeywordRunner(_RecordingRunner):
             def run(self, strategy_profile, params, **kwargs):

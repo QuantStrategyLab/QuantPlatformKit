@@ -227,6 +227,7 @@ class BacktestResult:
     param_set_id: str
     params: Mapping[str, Any]
     param_version: int = 1
+    execution_timing: str | None = None
 
     # Core metrics
     sharpe_ratio: float | None = None
@@ -270,6 +271,7 @@ class BacktestResult:
             "param_set_id": self.param_set_id,
             "params": dict(self.params),
             "param_version": self.param_version,
+            "execution_timing": self.execution_timing,
             "sharpe_ratio": self.sharpe_ratio,
             "calmar_ratio": self.calmar_ratio,
             "sortino_ratio": self.sortino_ratio,

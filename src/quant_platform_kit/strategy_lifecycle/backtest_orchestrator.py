@@ -88,6 +88,7 @@ class BacktestOrchestrator:
         param_set_id: str = "",
         param_version: int | None = None,
         save: bool = True,
+        execution_timing: str | None = None,
     ) -> BacktestResult:
         enriched = BacktestResult(
             strategy_profile=strategy_profile,
@@ -95,6 +96,7 @@ class BacktestOrchestrator:
             param_set_id=param_set_id or result.param_set_id or _run_id(),
             params=dict(params),
             param_version=max(int((result.param_version if param_version is None else param_version) or 1), 1),
+            execution_timing=execution_timing if execution_timing is not None else result.execution_timing,
             sharpe_ratio=result.sharpe_ratio,
             calmar_ratio=result.calmar_ratio,
             sortino_ratio=result.sortino_ratio,
@@ -205,11 +207,18 @@ class BacktestOrchestrator:
             param_set_id=param_set_id,
             param_version=param_version,
             save=persist,
+            execution_timing=execution_timing,
         )
 
-    def run_latest(self, strategy_profile: str, *, domain: str) -> BacktestResult | None:
+    def run_latest(
+        self,
+        strategy_profile: str,
+        *,
+        domain: str,
+        execution_timing: str | None = None,
+    ) -> BacktestResult | None:
         """Load the latest persisted backtest result for a strategy."""
-        return self._store.load_latest_backtest(domain, strategy_profile)
+        return self._store.load_latest_backtest(domain, strategy_profile, execution_timing=execution_timing)
 
     def walk_forward(
         self,

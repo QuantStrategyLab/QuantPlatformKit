@@ -265,7 +265,13 @@ class PerformanceStore:
             {**result.to_dict(), "schema_version": SCHEMA_VERSION},
         )
 
-    def load_latest_backtest(self, domain: str, strategy_profile: str) -> BacktestResult | None:
+    def load_latest_backtest(
+        self,
+        domain: str,
+        strategy_profile: str,
+        *,
+        execution_timing: str | None = None,
+    ) -> BacktestResult | None:
         prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
         keys = list(dict.fromkeys([*self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
         if not keys:
@@ -278,6 +284,12 @@ class PerformanceStore:
                 continue
             candidates.append((_backtest_sort_key(result, key), result))
         if not candidates:
+            return None
+        if execution_timing is not None:
+            candidates = [item for item in candidates if item[1].execution_timing == execution_timing]
+            if not candidates:
+                return None
+        elif len({item[1].execution_timing for item in candidates}) > 1:
             return None
         baseline_candidates = [item for item in candidates if _is_baseline_backtest(item[1])]
         selected = baseline_candidates or candidates
@@ -563,6 +575,7 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
             param_set_id=str(data.get("param_set_id", "")),
             params=dict(data.get("params", {})),
             param_version=int(data.get("param_version", 1)),
+            execution_timing=(str(data["execution_timing"]) if data.get("execution_timing") else None),
             sharpe_ratio=float(data["sharpe_ratio"]) if data.get("sharpe_ratio") is not None else None,
             calmar_ratio=float(data["calmar_ratio"]) if data.get("calmar_ratio") is not None else None,
             sortino_ratio=float(data["sortino_ratio"]) if data.get("sortino_ratio") is not None else None,
