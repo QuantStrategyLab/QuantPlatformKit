@@ -126,7 +126,8 @@ class BacktestOrchestratorTests(unittest.TestCase):
             orchestrator.run_latest("test_strat", domain="us_equity", execution_timing="next_close").execution_timing,
             "next_close",
         )
-        self.assertIsNone(orchestrator.run_latest("test_strat", domain="us_equity"))
+        self.assertEqual(orchestrator.run_latest("test_strat", domain="us_equity").execution_timing, "next_close")
+        self.assertIsNone(orchestrator.run_latest("test_strat", domain="us_equity", execution_timing=None))
 
     def test_explicit_timing_rejects_kwargs_only_runner(self) -> None:
         class KeywordRunner(_RecordingRunner):

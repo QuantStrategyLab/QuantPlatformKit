@@ -34,6 +34,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
 SCHEMA_VERSION = "strategy_lifecycle.v1"
 DEFAULT_BUCKET_ENV = "LIFECYCLE_PERFORMANCE_BUCKET"
 DEFAULT_LOCAL_ROOT = Path(tempfile.gettempdir()) / "quant_platform_lifecycle"
+_UNSET_TIMING = object()
 
 
 def _now_iso() -> str:
@@ -270,7 +271,7 @@ class PerformanceStore:
         domain: str,
         strategy_profile: str,
         *,
-        execution_timing: str | None = None,
+        execution_timing: str | None | object = _UNSET_TIMING,
     ) -> BacktestResult | None:
         prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
         keys = list(dict.fromkeys([*self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
@@ -285,12 +286,10 @@ class PerformanceStore:
             candidates.append((_backtest_sort_key(result, key), result))
         if not candidates:
             return None
-        if execution_timing is not None:
+        if execution_timing is not _UNSET_TIMING:
             candidates = [item for item in candidates if item[1].execution_timing == execution_timing]
             if not candidates:
                 return None
-        elif len({item[1].execution_timing for item in candidates}) > 1:
-            return None
         baseline_candidates = [item for item in candidates if _is_baseline_backtest(item[1])]
         selected = baseline_candidates or candidates
         selected.sort(key=lambda item: item[0])

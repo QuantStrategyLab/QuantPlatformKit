@@ -16,6 +16,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult, Sens
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 EXECUTION_TIMINGS = ("next_open", "next_close")
+_UNSET_TIMING = object()
 
 
 def _now_iso() -> str:
@@ -215,9 +216,11 @@ class BacktestOrchestrator:
         strategy_profile: str,
         *,
         domain: str,
-        execution_timing: str | None = None,
+        execution_timing: str | None | object = _UNSET_TIMING,
     ) -> BacktestResult | None:
         """Load the latest persisted backtest result for a strategy."""
+        if execution_timing is _UNSET_TIMING:
+            return self._store.load_latest_backtest(domain, strategy_profile)
         return self._store.load_latest_backtest(domain, strategy_profile, execution_timing=execution_timing)
 
     def walk_forward(
