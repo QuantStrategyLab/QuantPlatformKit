@@ -59,8 +59,9 @@ class _TimingRunner(_RecordingRunner):
         end_date: date | None = None,
         *,
         execution_timing: str,
+        persist: bool = True,
     ) -> BacktestResult:
-        self.calls.append({"execution_timing": execution_timing})
+        self.calls.append({"execution_timing": execution_timing, "persist": persist})
         return super().run(strategy_profile, params, start_date, end_date)
 
 
@@ -106,7 +107,24 @@ class BacktestOrchestratorTests(unittest.TestCase):
         )
 
         self.assertEqual(runner.calls[0]["execution_timing"], "next_open")
+        self.assertFalse(runner.calls[0]["persist"])
         self.assertIsNone(orchestrator.run_latest(result.strategy_profile, domain="us_equity"))
+
+    def test_explicit_timing_rejects_kwargs_only_runner(self) -> None:
+        class KeywordRunner(_RecordingRunner):
+            def run(self, strategy_profile, params, **kwargs):
+                return super().run(strategy_profile, params)
+
+        orchestrator = BacktestOrchestrator(store=self.store)
+        orchestrator.register_runner("us_equity", KeywordRunner())
+        with self.assertRaisesRegex(TypeError, "execution_timing"):
+            orchestrator.run(
+                "test_strat", domain="us_equity", params={}, execution_timing="next_close", persist=False
+            )
+
+    def test_ephemeral_mode_requires_runner_persist_capability(self) -> None:
+        with self.assertRaisesRegex(TypeError, "persist"):
+            self.orchestrator.run("test_strat", domain="us_equity", params={}, persist=False)
 
     def test_run_rejects_unknown_timing(self) -> None:
         with self.assertRaises(ValueError):

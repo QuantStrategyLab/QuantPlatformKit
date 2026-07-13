@@ -41,6 +41,7 @@ class BacktestRunner(Protocol):
         start_date: date | None = None,
         end_date: date | None = None,
         execution_timing: str | None = None,
+        persist: bool = True,
     ) -> BacktestResult:
         """Execute a backtest for the given strategy with the given parameters.
 
@@ -131,15 +132,18 @@ class BacktestOrchestrator:
         start_date: date | None,
         end_date: date | None,
         execution_timing: str | None,
+        persist: bool,
     ) -> BacktestResult:
         kwargs: dict[str, Any] = {"start_date": start_date, "end_date": end_date}
         if execution_timing is not None:
             parameters = inspect.signature(runner.run).parameters
-            if "execution_timing" not in parameters and not any(
-                parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
-            ):
+            if "execution_timing" not in parameters:
                 raise TypeError("runner must accept execution_timing for explicit timing semantics")
             kwargs["execution_timing"] = execution_timing
+        if not persist:
+            if "persist" not in inspect.signature(runner.run).parameters:
+                raise TypeError("runner must accept persist=False for ephemeral execution")
+            kwargs["persist"] = False
         return runner.run(strategy_profile, params, **kwargs)
 
     def run(
@@ -185,6 +189,7 @@ class BacktestOrchestrator:
             start_date=start_date,
             end_date=end_date,
             execution_timing=execution_timing,
+            persist=persist,
         )
         if result.start_date is None or result.end_date is None:
             result = replace(
