@@ -47,6 +47,27 @@ class VNextResultStoreContractTests(unittest.TestCase):
         self.assertEqual(first.key, second.key)
         self.assertNotEqual(first.key, replace(first, run_id="run-002").key)
 
+    def test_wire_metadata_does_not_change_identity(self) -> None:
+        first = _contract(params={"nested": (1, (2, 3))})
+        second = replace(first, persist_mode=PersistMode.EPHEMERAL, computed_at="2026-07-16T00:00:00Z")
+        self.assertEqual(first.key, second.key)
+        self.assertEqual(first.to_wire()["identity_digest"], second.to_wire()["identity_digest"])
+        self.assertNotEqual(first.to_wire()["persist_mode"], second.to_wire()["persist_mode"])
+        self.assertNotEqual(first.to_wire()["computed_at"], second.to_wire()["computed_at"])
+
+    def test_identity_fields_change_digest_and_key(self) -> None:
+        base = _contract()
+        variants = (
+            replace(base, execution_timing=ExecutionTiming.NEXT_CLOSE),
+            replace(base, canonical_profile="TQQQ"),
+            replace(base, source_revision="def456"),
+            replace(base, param_set_id="candidate"),
+            replace(base, result_identity_version=2),
+        )
+        for variant in variants:
+            self.assertNotEqual(base.key, variant.key)
+            self.assertNotEqual(base.to_wire()["identity_digest"], variant.to_wire()["identity_digest"])
+
     def test_required_none_legacy_any_alias_and_unknown_values_reject(self) -> None:
         for field in ("execution_timing", "canonical_profile", "strategy_id", "run_id", "source_revision"):
             with self.assertRaises(VNextContractError):
@@ -61,6 +82,19 @@ class VNextResultStoreContractTests(unittest.TestCase):
     def test_persist_modes_are_explicit_without_io(self) -> None:
         self.assertEqual(_contract(persist_mode=PersistMode.EPHEMERAL).to_wire()["persist_mode"], "ephemeral")
         self.assertEqual(_contract(persist_mode=PersistMode.DURABLE).to_wire()["persist_mode"], "durable")
+
+    def test_tuple_and_nested_tuple_round_trip_freezes_params(self) -> None:
+        contract = _contract(params={"levels": (1, ("a", True))})
+        self.assertEqual(decode_vnext_wire(contract.to_wire()), contract)
+        self.assertIsInstance(contract.params["levels"], tuple)
+        with self.assertRaises(AttributeError):
+            contract.params["levels"].append(2)
+
+    def test_direct_mutable_values_reject_but_wire_lists_are_frozen(self) -> None:
+        with self.assertRaises(VNextContractError):
+            _contract(params={"values": [1, 2]})
+        decoded = decode_vnext_wire(_contract(params={"values": (1, 2)}).to_wire())
+        self.assertEqual(decoded.params["values"], (1, 2))
 
     def test_adversarial_wire_values_reject(self) -> None:
         wire = _contract().to_wire()

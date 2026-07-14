@@ -2,6 +2,12 @@
 
 Pure validation and deterministic wire/key generation only; this module performs
 no store, cache, publish, runner, or filesystem I/O and never reads legacy data.
+
+Identity subset (and only this subset) feeds ``identity_digest`` and ``key``:
+namespace, schema_version, domain, canonical_profile, execution_timing,
+result_identity_version, strategy_id, run_id, param_set_id, param_version,
+source_revision, and canonical params. ``persist_mode`` and ``computed_at`` are
+wire metadata and are intentionally excluded from identity.
 """
 
 from __future__ import annotations
@@ -54,7 +60,7 @@ def _param_value(value: Any) -> Any:
     if isinstance(value, float) and math.isfinite(value):
         return value
     if isinstance(value, tuple):
-        return [_param_value(item) for item in value]
+        return tuple(_param_value(item) for item in value)
     raise VNextContractError()
 
 
@@ -62,6 +68,20 @@ def _params(value: Any) -> dict[str, Any]:
     if not isinstance(value, Mapping) or any(not isinstance(key, str) or not key for key in value):
         raise VNextContractError()
     return {key: _param_value(value[key]) for key in sorted(value)}
+
+
+def _wire_params(value: Any) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) or not key for key in value):
+        raise VNextContractError()
+    def thaw(item: Any) -> Any:
+        if isinstance(item, list):
+            return tuple(thaw(child) for child in item)
+        if isinstance(item, tuple):
+            return tuple(thaw(child) for child in item)
+        if isinstance(item, (str, bool, int)) or (isinstance(item, float) and math.isfinite(item)):
+            return item
+        raise VNextContractError()
+    return {key: thaw(value[key]) for key in sorted(value)}
 
 
 def _text(value: Any) -> str:
@@ -78,6 +98,14 @@ def _canonical_json(value: Mapping[str, Any]) -> bytes:
 
 def _digest(value: Mapping[str, Any]) -> str:
     return hashlib.sha256(_canonical_json(value)).hexdigest()
+
+
+def _thaw_params(value: Mapping[str, Any]) -> dict[str, Any]:
+    def thaw(item: Any) -> Any:
+        if isinstance(item, tuple):
+            return [thaw(child) for child in item]
+        return item
+    return {key: thaw(value[key]) for key in sorted(value)}
 
 
 @dataclass(frozen=True)
@@ -113,7 +141,7 @@ class VNextResultContract:
         _text(self.computed_at)
         object.__setattr__(self, "params", MappingProxyType(_params(self.params)))
 
-    def _payload(self) -> dict[str, Any]:
+    def _identity_payload(self) -> dict[str, Any]:
         return {
             "namespace": VNEXT_NAMESPACE,
             "schema_version": _SCHEMA_VERSION,
@@ -121,23 +149,28 @@ class VNextResultContract:
             "canonical_profile": self.canonical_profile,
             "execution_timing": self.execution_timing.value,
             "result_identity_version": self.result_identity_version,
-            "persist_mode": self.persist_mode.value,
             "strategy_id": self.strategy_id,
             "run_id": self.run_id,
             "param_set_id": self.param_set_id,
             "param_version": self.param_version,
-            "computed_at": self.computed_at,
             "source_revision": self.source_revision,
-            "params": dict(self.params),
+            "params": _thaw_params(self.params),
+        }
+
+    def _payload(self) -> dict[str, Any]:
+        return {
+            **self._identity_payload(),
+            "persist_mode": self.persist_mode.value,
+            "computed_at": self.computed_at,
         }
 
     def to_wire(self) -> dict[str, Any]:
         payload = self._payload()
-        return {**payload, "identity_digest": _digest(payload)}
+        return {**payload, "identity_digest": _digest(self._identity_payload())}
 
     @property
     def key(self) -> str:
-        return f"{VNEXT_NAMESPACE}/{self.domain}/{self.canonical_profile}/{self.strategy_id}/{self.run_id}/{self.execution_timing.value}/i{self.result_identity_version}/p{self.param_version}/{_digest(self._payload())}.json"
+        return f"{VNEXT_NAMESPACE}/{self.domain}/{self.canonical_profile}/{self.strategy_id}/{self.run_id}/{self.execution_timing.value}/i{self.result_identity_version}/p{self.param_version}/{_digest(self._identity_payload())}.json"
 
 
 def decode_vnext_wire(data: Mapping[str, Any]) -> VNextResultContract:
@@ -146,16 +179,16 @@ def decode_vnext_wire(data: Mapping[str, Any]) -> VNextResultContract:
             raise VNextContractError()
         if data["namespace"] != VNEXT_NAMESPACE or data["schema_version"] != _SCHEMA_VERSION:
             raise VNextContractError()
-        payload = {key: data[key] for key in _WIRE_FIELDS if key != "identity_digest"}
-        if not isinstance(data["identity_digest"], str) or _digest(payload) != data["identity_digest"]:
-            raise VNextContractError()
+        wire_params = _wire_params(data["params"])
         contract = VNextResultContract(
             domain=data["domain"], canonical_profile=data["canonical_profile"],
             execution_timing=data["execution_timing"], result_identity_version=data["result_identity_version"],
             persist_mode=data["persist_mode"], strategy_id=data["strategy_id"], run_id=data["run_id"],
             param_set_id=data["param_set_id"], param_version=data["param_version"],
-            computed_at=data["computed_at"], source_revision=data["source_revision"], params=data["params"],
+            computed_at=data["computed_at"], source_revision=data["source_revision"], params=wire_params,
         )
+        if not isinstance(data["identity_digest"], str) or _digest(contract._identity_payload()) != data["identity_digest"]:
+            raise VNextContractError()
         if contract.to_wire() != dict(data):
             raise VNextContractError()
         return contract
