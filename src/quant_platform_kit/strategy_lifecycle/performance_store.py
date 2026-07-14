@@ -34,6 +34,8 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
 SCHEMA_VERSION = "strategy_lifecycle.v1"
 DEFAULT_BUCKET_ENV = "LIFECYCLE_PERFORMANCE_BUCKET"
 DEFAULT_LOCAL_ROOT = Path(tempfile.gettempdir()) / "quant_platform_lifecycle"
+LATEST_EXECUTION_TIMING = object()
+LEGACY_EXECUTION_TIMING = object()
 
 
 def _now_iso() -> str:
@@ -254,9 +256,10 @@ class PerformanceStore:
 
     def _backtest_key(self, result: BacktestResult) -> str:
         stamp = _clean_key(result.computed_at or result.run_id or result.param_set_id or _now_iso()).replace("/", "_")
+        timing = _clean_key(result.execution_timing or "legacy_unknown")
         return (
             f"backtest/{_clean_key(result.domain)}/{_clean_key(result.strategy_profile)}/"
-            f"backtest_v{result.param_version}_{stamp}.json"
+            f"backtest_v{result.param_version}_{timing}_id{result.result_identity_version}_{stamp}.json"
         )
 
     def save_backtest_result(self, result: BacktestResult) -> None:
@@ -265,7 +268,13 @@ class PerformanceStore:
             {**result.to_dict(), "schema_version": SCHEMA_VERSION},
         )
 
-    def load_latest_backtest(self, domain: str, strategy_profile: str) -> BacktestResult | None:
+    def load_latest_backtest(
+        self,
+        domain: str,
+        strategy_profile: str,
+        *,
+        execution_timing: str | object = LATEST_EXECUTION_TIMING,
+    ) -> BacktestResult | None:
         prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
         keys = list(dict.fromkeys([*self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
         if not keys:
@@ -277,6 +286,12 @@ class PerformanceStore:
             if result is None:
                 continue
             candidates.append((_backtest_sort_key(result, key), result))
+        if not candidates:
+            return None
+        if execution_timing is LEGACY_EXECUTION_TIMING:
+            candidates = [item for item in candidates if item[1].execution_timing is None]
+        elif execution_timing is not LATEST_EXECUTION_TIMING:
+            candidates = [item for item in candidates if item[1].execution_timing == execution_timing]
         if not candidates:
             return None
         baseline_candidates = [item for item in candidates if _is_baseline_backtest(item[1])]
@@ -563,6 +578,9 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
             param_set_id=str(data.get("param_set_id", "")),
             params=dict(data.get("params", {})),
             param_version=int(data.get("param_version", 1)),
+            execution_timing=(str(data["execution_timing"]) if data.get("execution_timing") else None),
+            result_identity_version=int(data.get("result_identity_version", 1)),
+            persist_mode=str(data.get("persist_mode", "durable")),
             sharpe_ratio=float(data["sharpe_ratio"]) if data.get("sharpe_ratio") is not None else None,
             calmar_ratio=float(data["calmar_ratio"]) if data.get("calmar_ratio") is not None else None,
             sortino_ratio=float(data["sortino_ratio"]) if data.get("sortino_ratio") is not None else None,

@@ -262,6 +262,9 @@ class BacktestResult:
     computed_at: str = ""
     source_revision: str = ""
     cost_model: str = ""
+    execution_timing: str | None = field(default=None, kw_only=True)
+    result_identity_version: int = field(default=1, kw_only=True)
+    persist_mode: str = field(default="durable", kw_only=True)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -295,6 +298,9 @@ class BacktestResult:
             "computed_at": self.computed_at,
             "source_revision": self.source_revision,
             "cost_model": self.cost_model,
+            "execution_timing": self.execution_timing,
+            "result_identity_version": self.result_identity_version,
+            "persist_mode": self.persist_mode,
         }
 
 
