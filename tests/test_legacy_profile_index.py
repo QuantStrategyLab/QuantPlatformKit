@@ -54,7 +54,7 @@ class LegacyProfileIndexTests(unittest.TestCase):
     def test_malformed_schema_and_unsafe_prefixes_fail_closed(self) -> None:
         with self.assertRaises(IndexValidationError):
             index_from_dict({"schema_version": "wrong"})
-        for prefix in ("", ".", "..", "a/b", "a\\b", "/absolute", "a" * 101, "a!b"):
+        for prefix in ("", ".", "..", "a\\b", "/absolute", "a" * 101, "a!b"):
             with self.assertRaises(IndexValidationError):
                 build_index_from_keys([f"backtest/us_equity/{prefix}/a.json"], backend="fixture", complete=True, source_label="x")
 
@@ -105,6 +105,37 @@ class LegacyProfileIndexTests(unittest.TestCase):
         entry = multi["entries"]["us_equity"]["SOXL"]
         entry["backend_prefixes"]["remote"] = ["SOXL"]
         self.assertEqual(index_from_dict(self._redigest(multi)), self._redigest(multi))
+
+    def test_nested_artifacts_are_supported_but_short_or_unsafe_keys_rejected(self) -> None:
+        result = build_index_from_keys(
+            ["backtest/us_equity/SOXL/nested/artifact.json"],
+            backend="fixture", complete=True, source_label="x",
+        )
+        self.assertEqual(result["entries"]["us_equity"]["SOXL"]["prefixes"], ["SOXL"])
+        for key in (
+            "backtest/us_equity/SOXL",
+            "backtest/us_equity/SOXL/",
+            "backtest/us_equity/SOXL/../artifact.json",
+            "backtest/us_equity/SOXL//artifact.json",
+            "backtest/us_equity/SOXL/a/../../artifact.json",
+        ):
+            with self.assertRaises(IndexValidationError):
+                build_index_from_keys([key], backend="fixture", complete=True, source_label="x")
+
+    def test_input_collection_and_completion_flag_are_strict(self) -> None:
+        for keys in ("backtest/us_equity/SOXL/a.json", b"backtest/us_equity/SOXL/a.json"):
+            with self.assertRaises(IndexValidationError):
+                build_index_from_keys(keys, backend="fixture", complete=True, source_label="x")
+        with self.assertRaises(IndexValidationError):
+            build_index_from_keys([], backend="fixture", complete=1, source_label="x")
+
+    def test_cross_profile_mapping_with_recomputed_digest_is_rejected(self) -> None:
+        candidate = build_index_from_keys(["backtest/us_equity/SOXL/a.json"], backend="fixture", complete=True, source_label="x")
+        entry = candidate["entries"]["us_equity"]["SOXL"]
+        entry["prefixes"] = ["TQQQ"]
+        entry["backend_prefixes"]["fixture"] = ["TQQQ"]
+        with self.assertRaises(IndexValidationError):
+            index_from_dict(self._redigest(candidate))
 
 
 if __name__ == "__main__":

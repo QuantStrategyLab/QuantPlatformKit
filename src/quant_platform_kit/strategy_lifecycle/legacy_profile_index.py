@@ -55,19 +55,28 @@ def build_index_from_keys(
     keys: Iterable[str], *, backend: str, complete: bool, source_label: str,
 ) -> dict[str, Any]:
     """Transform an explicitly supplied exported key list into a deterministic index."""
-    if not isinstance(backend, str) or not backend or not isinstance(source_label, str) or not source_label:
+    if (
+        isinstance(keys, (str, bytes))
+        or not isinstance(backend, str)
+        or not backend
+        or type(complete) is not bool
+        or not isinstance(source_label, str)
+        or not source_label
+    ):
         raise IndexValidationError()
     observations: dict[tuple[str, str], set[str]] = defaultdict(set)
     for key in keys:
-        if not isinstance(key, str) or "\\" in key:
+        if not isinstance(key, str) or "\\" in key or key.startswith("/"):
             raise IndexValidationError()
         parts = key.split("/")
         if parts[0] != "backtest":
             continue
-        if len(parts) != 4:
+        if len(parts) < 4:
             raise IndexValidationError()
         domain = _safe_prefix(parts[1])
         prefix = _safe_prefix(parts[2])
+        for artifact_segment in parts[3:]:
+            _safe_prefix(artifact_segment)
         observations[(domain, _canonical(prefix))].add(prefix)
 
     entries: dict[str, dict[str, Any]] = {}
@@ -135,6 +144,8 @@ def index_from_dict(data: Mapping[str, Any]) -> dict[str, Any]:
                 top_prefixes = entry["prefixes"]
                 normalized_top = sorted({_safe_prefix(prefix) for prefix in top_prefixes})
                 if top_prefixes != normalized_top:
+                    raise IndexValidationError()
+                if any(_canonical(prefix) != canonical for prefix in normalized_top):
                     raise IndexValidationError()
                 backend_prefixes = entry.get("backend_prefixes")
                 if not isinstance(backend_prefixes, Mapping):
