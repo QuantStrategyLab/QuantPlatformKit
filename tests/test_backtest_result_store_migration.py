@@ -7,6 +7,7 @@ from datetime import date
 from pathlib import Path
 
 from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult
+from quant_platform_kit.strategy_lifecycle.backtest_orchestrator import BacktestOrchestrator
 from quant_platform_kit.strategy_lifecycle.performance_store import (
     LEGACY_EXECUTION_TIMING,
     PerformanceStore,
@@ -61,15 +62,47 @@ class BacktestResultStoreMigrationTests(unittest.TestCase):
         self.assertEqual(opened.execution_timing, "next_open")
         self.assertEqual(closed.execution_timing, "next_close")
 
+    def test_reserved_looking_timing_does_not_collide_with_missing_timing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_backtest_result(_result(timing=None, computed_at="2026-01-01T00:00:00+00:00"))
+            store.save_backtest_result(
+                _result(timing="legacy_unknown", computed_at="2026-01-01T00:00:00+00:00")
+            )
+            keys = store._list_local_json_keys("backtest/us_equity/SOXL/")
+        self.assertEqual(len(keys), 2)
+
     def test_explicit_legacy_sentinel_is_distinct_from_omitted_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
             store.save_backtest_result(_result(timing=None, computed_at="2026-01-01T00:00:00+00:00"))
             store.save_backtest_result(_result(timing="next_open", computed_at="2026-01-02T00:00:00+00:00"))
             omitted = store.load_latest_backtest("us_equity", "SOXL")
+            explicit_none = store.load_latest_backtest("us_equity", "SOXL", execution_timing=None)
             legacy = store.load_latest_backtest("us_equity", "SOXL", execution_timing=LEGACY_EXECUTION_TIMING)
         self.assertEqual(omitted.execution_timing, "next_open")
+        self.assertEqual(explicit_none.execution_timing, "next_open")
         self.assertIsNone(legacy.execution_timing)
+
+    def test_orchestrator_persistence_preserves_result_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            orchestrator = BacktestOrchestrator(store=store)
+            source = _result(timing="next_close", computed_at="2026-01-01T00:00:00+00:00")
+            persisted = orchestrator.persist_result(
+                source,
+                strategy_profile=source.strategy_profile,
+                domain=source.domain,
+                params=source.params,
+                param_set_id=source.param_set_id,
+                param_version=source.param_version,
+            )
+            loaded = store.load_latest_backtest("us_equity", "SOXL", execution_timing="next_close")
+        self.assertEqual(persisted.execution_timing, "next_close")
+        self.assertEqual(persisted.result_identity_version, 2)
+        self.assertEqual(persisted.persist_mode, "durable")
+        self.assertEqual(loaded.execution_timing, "next_close")
+        self.assertEqual(loaded.result_identity_version, 2)
 
     def test_result_json_round_trip_preserves_dates_and_nan(self) -> None:
         result = _result(timing="next_open", computed_at="2026-01-01T00:00:00+00:00")

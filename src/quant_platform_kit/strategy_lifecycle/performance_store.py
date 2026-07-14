@@ -256,7 +256,7 @@ class PerformanceStore:
 
     def _backtest_key(self, result: BacktestResult) -> str:
         stamp = _clean_key(result.computed_at or result.run_id or result.param_set_id or _now_iso()).replace("/", "_")
-        timing = _clean_key(result.execution_timing or "legacy_unknown")
+        timing = "t0_missing" if result.execution_timing is None else f"t1_{str(result.execution_timing).encode().hex()}"
         return (
             f"backtest/{_clean_key(result.domain)}/{_clean_key(result.strategy_profile)}/"
             f"backtest_v{result.param_version}_{timing}_id{result.result_identity_version}_{stamp}.json"
@@ -290,7 +290,7 @@ class PerformanceStore:
             return None
         if execution_timing is LEGACY_EXECUTION_TIMING:
             candidates = [item for item in candidates if item[1].execution_timing is None]
-        elif execution_timing is not LATEST_EXECUTION_TIMING:
+        elif execution_timing is not LATEST_EXECUTION_TIMING and execution_timing is not None:
             candidates = [item for item in candidates if item[1].execution_timing == execution_timing]
         if not candidates:
             return None
