@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -30,10 +31,13 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     StrategyPerformanceSnapshot,
     UpdateLogEntry,
 )
+from quant_platform_kit.strategy_lifecycle.capabilities import canonical_profile_id
 
 SCHEMA_VERSION = "strategy_lifecycle.v1"
 DEFAULT_BUCKET_ENV = "LIFECYCLE_PERFORMANCE_BUCKET"
 DEFAULT_LOCAL_ROOT = Path(tempfile.gettempdir()) / "quant_platform_lifecycle"
+ANY_EXECUTION_TIMING = object()
+LEGACY_EXECUTION_TIMING = object()
 
 
 def _now_iso() -> str:
@@ -50,6 +54,21 @@ def _clean_key(value: str) -> str:
         if cleaned:
             parts.append(cleaned[:100])
     return "/".join(parts) or "unknown"
+
+
+def _canonical_profile(value: str) -> str:
+    try:
+        return canonical_profile_id(value)
+    except Exception:
+        return str(value)
+
+
+def _validate_execution_timing(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError("execution_timing must be None or a non-empty string")
+    return value
 
 
 @dataclass(frozen=True)
@@ -254,29 +273,47 @@ class PerformanceStore:
 
     def _backtest_key(self, result: BacktestResult) -> str:
         stamp = _clean_key(result.computed_at or result.run_id or result.param_set_id or _now_iso()).replace("/", "_")
+        timing = "t0_missing" if result.execution_timing is None else f"t1_{result.execution_timing.encode().hex()}"
         return (
-            f"backtest/{_clean_key(result.domain)}/{_clean_key(result.strategy_profile)}/"
-            f"backtest_v{result.param_version}_{stamp}.json"
+            f"backtest/{_clean_key(result.domain)}/{_clean_key(_canonical_profile(result.strategy_profile))}/"
+            f"backtest_v{result.param_version}_{timing}_id{result.result_identity_version}_{stamp}.json"
         )
 
     def save_backtest_result(self, result: BacktestResult) -> None:
+        _validate_execution_timing(result.execution_timing)
         self._write(
             self._backtest_key(result),
-            {**result.to_dict(), "schema_version": SCHEMA_VERSION},
+            {
+                **result.to_dict(),
+                "canonical_profile_id": _canonical_profile(result.strategy_profile),
+                "schema_version": SCHEMA_VERSION,
+                "store_write_timestamp": _now_iso(),
+                "store_write_revision": str(time.time_ns()),
+            },
         )
 
-    def load_latest_backtest(self, domain: str, strategy_profile: str) -> BacktestResult | None:
-        prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
+    def load_latest_backtest(
+        self, domain: str, strategy_profile: str, *,
+        execution_timing: str | object | None = LEGACY_EXECUTION_TIMING,
+    ) -> BacktestResult | None:
+        prefix = f"backtest/{_clean_key(domain)}/{_clean_key(_canonical_profile(strategy_profile))}/"
         keys = list(dict.fromkeys([*self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
         if not keys:
             return None
-        candidates: list[tuple[tuple[str, int, str], BacktestResult]] = []
+        candidates: list[tuple[tuple[str, int, str, str], BacktestResult]] = []
         for key in keys:
             data = self._read(key)
             result = _backtest_from_dict(data) if data else None
             if result is None:
                 continue
-            candidates.append((_backtest_sort_key(result, key), result))
+            revision = str(data.get("store_write_revision", "")) if data else ""
+            candidates.append((_backtest_sort_key(result, key, revision), result))
+        if not candidates:
+            return None
+        if execution_timing is LEGACY_EXECUTION_TIMING or execution_timing is None:
+            candidates = [item for item in candidates if item[1].execution_timing is None]
+        elif execution_timing is not ANY_EXECUTION_TIMING:
+            candidates = [item for item in candidates if item[1].execution_timing == execution_timing]
         if not candidates:
             return None
         baseline_candidates = [item for item in candidates if _is_baseline_backtest(item[1])]
@@ -563,6 +600,11 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
             param_set_id=str(data.get("param_set_id", "")),
             params=dict(data.get("params", {})),
             param_version=int(data.get("param_version", 1)),
+            execution_timing=(
+                _validate_execution_timing(data["execution_timing"])
+                if "execution_timing" in data else None
+            ),
+            result_identity_version=int(data.get("result_identity_version", 1)),
             sharpe_ratio=float(data["sharpe_ratio"]) if data.get("sharpe_ratio") is not None else None,
             calmar_ratio=float(data["calmar_ratio"]) if data.get("calmar_ratio") is not None else None,
             sortino_ratio=float(data["sortino_ratio"]) if data.get("sortino_ratio") is not None else None,
@@ -597,9 +639,9 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
         return None
 
 
-def _backtest_sort_key(result: BacktestResult, key: str) -> tuple[str, int, str]:
+def _backtest_sort_key(result: BacktestResult, key: str, revision: str = "") -> tuple[str, int, str, str]:
     computed_at = str(result.computed_at or "")
-    return (computed_at, int(result.param_version or 0), str(key))
+    return (computed_at, int(result.param_version or 0), str(revision), str(key))
 
 
 def _is_baseline_backtest(result: BacktestResult) -> bool:
