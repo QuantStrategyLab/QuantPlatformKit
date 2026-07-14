@@ -58,7 +58,7 @@ class BacktestResultStoreMigrationTests(unittest.TestCase):
             opened = store.load_latest_backtest("us_equity", "SOXL", execution_timing="next_open")
             closed = store.load_latest_backtest("us_equity", "SOXL", execution_timing="next_close")
         self.assertEqual(len(keys), 2)
-        self.assertIsNotNone(latest)
+        self.assertEqual(latest.execution_timing, "next_close")
         self.assertEqual(opened.execution_timing, "next_open")
         self.assertEqual(closed.execution_timing, "next_close")
 
@@ -72,6 +72,16 @@ class BacktestResultStoreMigrationTests(unittest.TestCase):
             keys = store._list_local_json_keys("backtest/us_equity/SOXL/")
         self.assertEqual(len(keys), 2)
 
+    def test_save_records_write_revision_for_equal_logical_slots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_backtest_result(_result(timing="next_open", computed_at="2026-01-01T00:00:00+00:00"))
+            store.save_backtest_result(_result(timing="next_close", computed_at="2026-01-01T00:00:00+00:00"))
+            payloads = [store._read(key) for key in store._list_local_json_keys("backtest/us_equity/SOXL/")]
+        revisions = [payload["store_write_revision"] for payload in payloads]
+        self.assertEqual(len(set(revisions)), 2)
+        self.assertTrue(all(payload.get("store_write_timestamp") for payload in payloads))
+
     def test_explicit_legacy_sentinel_is_distinct_from_omitted_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
@@ -83,6 +93,17 @@ class BacktestResultStoreMigrationTests(unittest.TestCase):
         self.assertEqual(omitted.execution_timing, "next_open")
         self.assertEqual(explicit_none.execution_timing, "next_open")
         self.assertIsNone(legacy.execution_timing)
+
+    def test_empty_timing_is_rejected_on_write_and_codec(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            with self.assertRaises(ValueError):
+                store.save_backtest_result(_result(timing="", computed_at="2026-01-01T00:00:00+00:00"))
+            store._write(
+                "backtest/us_equity/SOXL/invalid.json",
+                {"strategy_profile": "SOXL", "domain": "us_equity", "execution_timing": "", "params": {}},
+            )
+            self.assertIsNone(store.load_latest_backtest("us_equity", "SOXL", execution_timing=""))
 
     def test_orchestrator_persistence_preserves_result_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
