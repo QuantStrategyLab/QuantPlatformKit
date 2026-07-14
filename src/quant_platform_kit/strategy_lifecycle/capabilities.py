@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import math
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -27,12 +28,18 @@ class PersistMode(str, Enum):
 
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
-        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+        if any(not isinstance(key, str) for key in value):
+            raise CapabilityError("unsupported non-string parameter key")
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
     if isinstance(value, list):
         return tuple(_freeze(item) for item in value)
     if isinstance(value, tuple):
         return tuple(_freeze(item) for item in value)
-    return value
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise CapabilityError(f"unsupported parameter value type: {type(value).__name__}")
 
 
 def _thaw(value: Any) -> Any:
@@ -114,7 +121,7 @@ def serialize_request(request: BacktestRequest) -> dict[str, Any]:
     """Return a deterministic, side-effect-free contract fixture."""
     return {
         "contract_version": request.contract_version,
-        "profile": request.profile,
+        "profile": canonical_profile_id(request.profile),
         "params": _thaw(request.params),
         "execution_timing": request.execution_timing.value if request.execution_timing else None,
         "persist_mode": request.persist_mode.value,

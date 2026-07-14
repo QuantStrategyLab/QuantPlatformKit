@@ -54,6 +54,27 @@ def test_request_is_keyword_only_and_immutable() -> None:
         request.profile = "TQQQ"
     with pytest.raises(TypeError):
         request.params["lookback"] = 30
+    with pytest.raises(TypeError):
+        request.params["nested"] = {"x": 1}
+
+
+def test_nested_mutable_values_are_frozen_and_deterministic() -> None:
+    left = BacktestRequest(profile="SOXL", params={"nested": {"items": [1, 2]}})
+    right = BacktestRequest(profile="SOXL", params={"nested": {"items": [1, 2]}})
+    assert serialize_request(left) == serialize_request(right)
+    with pytest.raises(TypeError):
+        left.params["nested"]["items"] += (3,)
+
+
+@pytest.mark.parametrize("unsupported", [{"x"}, b"bytes", object()])
+def test_unsupported_parameter_values_are_rejected_at_construction(unsupported) -> None:
+    with pytest.raises(CapabilityError, match="unsupported"):
+        BacktestRequest(profile="SOXL", params={"value": unsupported})
+
+
+def test_supported_json_values_are_unchanged() -> None:
+    request = BacktestRequest(profile="SOXL", params={"none": None, "flag": True, "ratio": 0.5, "text": "ok"})
+    assert serialize_request(request)["params"] == {"none": None, "flag": True, "ratio": 0.5, "text": "ok"}
 
 
 def test_kwargs_and_signature_are_not_capability_evidence() -> None:
@@ -66,10 +87,12 @@ def test_kwargs_and_signature_are_not_capability_evidence() -> None:
 def test_canonical_ids_and_serialization_shape_are_pure() -> None:
     request = BacktestRequest(profile="soxl_soxx_trend_income", params={"lookback": 20})
     assert canonical_profile_id(request.profile) == "SOXL"
-    assert serialize_request(request) == {
+    expected = {
         "contract_version": 1,
-        "profile": "soxl_soxx_trend_income",
+        "profile": "SOXL",
         "params": {"lookback": 20},
         "execution_timing": None,
         "persist_mode": "durable",
     }
+    assert serialize_request(request) == expected
+    assert serialize_request(BacktestRequest(profile="SOXL", params={"lookback": 20})) == expected
