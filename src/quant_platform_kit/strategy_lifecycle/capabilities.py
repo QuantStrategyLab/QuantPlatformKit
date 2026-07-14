@@ -103,18 +103,26 @@ def validate_capability(request: BacktestRequest, capabilities: BacktestCapabili
         raise CapabilityError(f"persist_mode={request.persist_mode.value} is not supported")
 
 
+PROFILE_ALIASES: dict[str, tuple[str, ...]] = {
+    "SOXL": ("SOXL", "SOXL_SOXX_TREND_INCOME"),
+    "TQQQ": ("TQQQ", "TQQQ_GROWTH_INCOME"),
+}
+
+
 def canonical_profile_id(profile: str) -> str:
     """Pure fixture normalization for the two R1 profiles; no runtime routing."""
-    aliases = {
-        "SOXL": "SOXL",
-        "SOXL_SOXX_TREND_INCOME": "SOXL",
-        "TQQQ": "TQQQ",
-        "TQQQ_GROWTH_INCOME": "TQQQ",
-    }
+    aliases = {alias: canonical for canonical, values in PROFILE_ALIASES.items() for alias in values}
     try:
         return aliases[str(profile).strip().upper()]
     except KeyError as exc:
         raise CapabilityError(f"unsupported canonical profile: {profile}") from exc
+
+
+def known_profile_aliases(profile: str) -> tuple[str, ...]:
+    """Return canonical and registered legacy aliases with common casings."""
+    canonical = canonical_profile_id(profile)
+    values = PROFILE_ALIASES[canonical]
+    return tuple(dict.fromkeys(alias_case for alias in values for alias_case in (alias, alias.lower(), alias.upper())))
 
 
 def serialize_request(request: BacktestRequest) -> dict[str, Any]:

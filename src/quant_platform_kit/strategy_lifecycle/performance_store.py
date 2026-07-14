@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import tempfile
-import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -31,7 +30,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     StrategyPerformanceSnapshot,
     UpdateLogEntry,
 )
-from quant_platform_kit.strategy_lifecycle.capabilities import canonical_profile_id
+from quant_platform_kit.strategy_lifecycle.capabilities import canonical_profile_id, known_profile_aliases
 
 SCHEMA_VERSION = "strategy_lifecycle.v1"
 DEFAULT_BUCKET_ENV = "LIFECYCLE_PERFORMANCE_BUCKET"
@@ -66,8 +65,8 @@ def _canonical_profile(value: str) -> str:
 def _validate_execution_timing(value: Any) -> str | None:
     if value is None:
         return None
-    if not isinstance(value, str) or not value:
-        raise ValueError("execution_timing must be None or a non-empty string")
+    if value not in {"next_open", "next_close"}:
+        raise ValueError("execution_timing must be None, next_open, or next_close")
     return value
 
 
@@ -287,8 +286,6 @@ class PerformanceStore:
                 **result.to_dict(),
                 "canonical_profile_id": _canonical_profile(result.strategy_profile),
                 "schema_version": SCHEMA_VERSION,
-                "store_write_timestamp": _now_iso(),
-                "store_write_revision": str(time.time_ns()),
             },
         )
 
@@ -296,11 +293,13 @@ class PerformanceStore:
         self, domain: str, strategy_profile: str, *,
         execution_timing: str | object | None = LEGACY_EXECUTION_TIMING,
     ) -> BacktestResult | None:
-        canonical_profile = _clean_key(_canonical_profile(strategy_profile))
-        raw_profile = _clean_key(strategy_profile)
+        try:
+            profiles = known_profile_aliases(strategy_profile)
+        except Exception:
+            profiles = (strategy_profile,)
         prefixes = list(dict.fromkeys(
-            f"backtest/{_clean_key(domain)}/{profile}/"
-            for profile in (canonical_profile, raw_profile)
+            f"backtest/{_clean_key(domain)}/{_clean_key(profile)}/"
+            for profile in profiles
         ))
         keys: list[str] = []
         for prefix in prefixes:
@@ -309,14 +308,13 @@ class PerformanceStore:
         keys = list(dict.fromkeys(keys))
         if not keys:
             return None
-        candidates: list[tuple[tuple[str, int, str, str], BacktestResult]] = []
+        candidates: list[tuple[tuple[str, int, int, str], BacktestResult]] = []
         for key in keys:
             data = self._read(key)
             result = _backtest_from_dict(data) if data else None
             if result is None:
                 continue
-            revision = str(data.get("store_write_revision", "")) if data else ""
-            candidates.append((_backtest_sort_key(result, key, revision), result))
+            candidates.append((_backtest_sort_key(result, key), result))
         if not candidates:
             return None
         if execution_timing is LEGACY_EXECUTION_TIMING or execution_timing is None:
@@ -648,9 +646,9 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
         return None
 
 
-def _backtest_sort_key(result: BacktestResult, key: str, revision: str = "") -> tuple[str, int, str, str]:
+def _backtest_sort_key(result: BacktestResult, key: str) -> tuple[str, int, int, str]:
     computed_at = str(result.computed_at or "")
-    return (computed_at, int(result.param_version or 0), str(revision), str(key))
+    return (computed_at, int(result.param_version or 0), int(result.result_identity_version or 0), str(key))
 
 
 def _is_baseline_backtest(result: BacktestResult) -> bool:

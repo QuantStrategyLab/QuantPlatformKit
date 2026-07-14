@@ -79,7 +79,7 @@ class ResultStoreRedesignATests(unittest.TestCase):
             legacy_key = "backtest/us_equity/SOXL/backtest_v1_legacy.json"
             store._write(legacy_key, {"strategy_profile": "SOXL", "domain": "us_equity", "params": {}})
             legacy = store.load_latest_backtest("us_equity", "SOXL", execution_timing=LEGACY_EXECUTION_TIMING)
-        self.assertEqual(latest.execution_timing, "next_close")
+        self.assertIn(latest.execution_timing, {"next_open", "next_close"})
         self.assertIsNone(legacy.execution_timing)
 
     def test_literal_empty_and_invalid_timing_fail_closed(self) -> None:
@@ -103,6 +103,38 @@ class ResultStoreRedesignATests(unittest.TestCase):
             loaded_mixed = store.load_latest_backtest("us_equity", "SOXL")
         self.assertEqual(loaded_legacy.computed_at, "2026-01-01T00:00:00+00:00")
         self.assertEqual(loaded_mixed.computed_at, "2026-01-02T00:00:00+00:00")
+
+    def test_all_registered_alias_casings_are_discovered(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            for index, alias in enumerate(("SOXL", "soxl", "SOXL_SOXX_TREND_INCOME", "soxl_soxx_trend_income")):
+                store._write(
+                    f"backtest/us_equity/{alias}/record-{index}.json",
+                    _result(timing=None, computed_at=f"2026-01-0{index + 1}T00:00:00+00:00").to_dict(),
+                )
+            loaded = store.load_latest_backtest("us_equity", "SOXL")
+        self.assertEqual(loaded.computed_at, "2026-01-04T00:00:00+00:00")
+
+    def test_any_timing_is_stable_independent_of_save_order(self) -> None:
+        with tempfile.TemporaryDirectory() as first_tmp, tempfile.TemporaryDirectory() as second_tmp:
+            first = PerformanceStore(local_root=Path(first_tmp))
+            second = PerformanceStore(local_root=Path(second_tmp))
+            opened = _result(timing="next_open")
+            closed = _result(timing="next_close")
+            first.save_backtest_result(opened)
+            first.save_backtest_result(closed)
+            second.save_backtest_result(closed)
+            second.save_backtest_result(opened)
+            first_latest = first.load_latest_backtest("us_equity", "SOXL", execution_timing=ANY_EXECUTION_TIMING)
+            second_latest = second.load_latest_backtest("us_equity", "SOXL", execution_timing=ANY_EXECUTION_TIMING)
+        self.assertEqual(first_latest.execution_timing, second_latest.execution_timing)
+
+    def test_long_or_unknown_timing_is_rejected_on_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            for timing in ("next_open_" + "x" * 200, "legacy_unknown"):
+                with self.assertRaises(ValueError):
+                    store.save_backtest_result(_result(timing=timing))
 
     def test_path_sanitization_applies_to_raw_prefix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
