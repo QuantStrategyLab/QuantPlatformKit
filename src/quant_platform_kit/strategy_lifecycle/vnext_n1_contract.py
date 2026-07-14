@@ -31,9 +31,18 @@ class VNextContractError(ValueError):
         super().__init__("invalid qpk-vnext result contract")
 
 
+def _unicode(value: str) -> str:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        raise VNextContractError() from None
+    return value
+
+
 def _segment(value: Any, *, uppercase: bool = False) -> str:
     if not isinstance(value, str) or not value or len(value) > _MAX_SEGMENT or value != value.strip() or value != value.strip("-._"):
         raise VNextContractError()
+    _unicode(value)
     if value in {".", ".."} or any(c not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for c in value):
         raise VNextContractError()
     if uppercase and value != value.upper():
@@ -50,14 +59,17 @@ def _integer(value: Any) -> int:
 def _freeze(value: Any, depth: int = 0, *, wire: bool = False) -> Any:
     if depth > _MAX_DEPTH or value is None:
         raise VNextContractError()
-    if isinstance(value, (str, bool)):
+    if isinstance(value, str):
+        _unicode(value)
+        return value
+    if isinstance(value, bool):
         return value
     if isinstance(value, int):
         if abs(value) > MAX_SAFE_JSON_INTEGER:
             raise VNextContractError()
         return value
-    if isinstance(value, float) and math.isfinite(value):
-        return value
+    if isinstance(value, float):
+        raise VNextContractError()
     if isinstance(value, tuple) or (wire and isinstance(value, list)):
         return tuple(_freeze(item, depth + 1, wire=wire) for item in value)
     raise VNextContractError()
@@ -66,6 +78,8 @@ def _freeze(value: Any, depth: int = 0, *, wire: bool = False) -> Any:
 def _params(value: Any, *, wire: bool = False) -> MappingProxyType:
     if not isinstance(value, Mapping) or any(not isinstance(key, str) or not key for key in value):
         raise VNextContractError()
+    for key in value:
+        _unicode(key)
     return MappingProxyType({key: _freeze(value[key], wire=wire) for key in sorted(value)})
 
 
@@ -76,7 +90,10 @@ def _thaw(value: Any) -> Any:
 
 
 def _json(value: Mapping[str, Any]) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    except (UnicodeEncodeError, ValueError):
+        raise VNextContractError() from None
 
 
 def _hash(value: Mapping[str, Any]) -> str:

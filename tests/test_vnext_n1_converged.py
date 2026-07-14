@@ -74,6 +74,20 @@ class ConvergedN1Tests(unittest.TestCase):
                 decode_wire(candidate)
         self.assertTrue(result().key.startswith("qpk-vnext/result/v2/"))
 
+    def test_unicode_scalar_and_raw_float_policy(self):
+        for kwargs in ({"params": {"bad\ud800": 1}}, {"params": {"good": "bad\ud800"}}, {"strategy_id": "bad\ud800"}):
+            with self.assertRaises(VNextContractError):
+                result(**kwargs)
+        for value in (1.0, -0.0, float("nan"), float("inf"), float("-inf")):
+            with self.assertRaises(VNextContractError):
+                result(params={"value": value})
+        decimal_like = result(params={"value": "1.2500", "scaled": 12500})
+        self.assertEqual(decode_wire(decimal_like.to_wire()), decimal_like)
+        wire = result().to_wire()
+        wire["strategy_id"] = "bad\ud800"
+        with self.assertRaises(VNextContractError):
+            decode_wire(wire)
+
 
 if __name__ == "__main__":
     unittest.main()
