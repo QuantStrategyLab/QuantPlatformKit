@@ -297,6 +297,7 @@ class PerformanceStore:
             profiles = known_profile_aliases(strategy_profile)
         except Exception:
             profiles = (strategy_profile,)
+        profiles = (*profiles, strategy_profile)
         prefixes = list(dict.fromkeys(
             f"backtest/{_clean_key(domain)}/{_clean_key(profile)}/"
             for profile in profiles

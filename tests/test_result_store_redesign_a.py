@@ -115,6 +115,17 @@ class ResultStoreRedesignATests(unittest.TestCase):
             loaded = store.load_latest_backtest("us_equity", "SOXL")
         self.assertEqual(loaded.computed_at, "2026-01-04T00:00:00+00:00")
 
+    def test_exact_arbitrary_mixed_case_alias_prefix_is_discovered(self) -> None:
+        mixed_alias = "SoXl_SoXx_TrEnD_InCoMe"
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store._write(
+                f"backtest/us_equity/{mixed_alias}/record.json",
+                _result(timing=None, computed_at="2026-01-05T00:00:00+00:00", profile=mixed_alias).to_dict(),
+            )
+            loaded = store.load_latest_backtest("us_equity", mixed_alias)
+        self.assertEqual(loaded.computed_at, "2026-01-05T00:00:00+00:00")
+
     def test_any_timing_is_stable_independent_of_save_order(self) -> None:
         with tempfile.TemporaryDirectory() as first_tmp, tempfile.TemporaryDirectory() as second_tmp:
             first = PerformanceStore(local_root=Path(first_tmp))
