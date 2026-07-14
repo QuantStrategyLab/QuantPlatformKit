@@ -155,7 +155,9 @@ class ResultContract:
             _fail()
         object.__setattr__(self, "identity_version", _integer(self.identity_version))
         object.__setattr__(self, "param_version", _integer(self.param_version))
-        for name in ("strategy_id", "run_id", "param_set_id", "source_revision"):
+        for name in ("strategy_id", "run_id"):
+            object.__setattr__(self, name, _segment(getattr(self, name)))
+        for name in ("param_set_id", "source_revision"):
             object.__setattr__(self, name, _text(getattr(self, name)))
         object.__setattr__(self, "computed_at", _timestamp(self.computed_at))
         object.__setattr__(self, "params", _params(self.params))

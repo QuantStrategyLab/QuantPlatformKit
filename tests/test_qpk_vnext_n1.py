@@ -75,6 +75,20 @@ class QpkVNextN1Tests(unittest.TestCase):
             with self.assertRaises(ContractError):
                 decode_wire(candidate)
 
+    def test_key_bearing_ids_are_safe_segments(self):
+        for value in ("Mixed_ID-1", "A.1"):
+            item = result(strategy_id=value, run_id=value)
+            self.assertEqual(decode_wire(item.to_wire()), item)
+            self.assertEqual(len(item.key.split("/")), 11)
+        for field in ("strategy_id", "run_id"):
+            for value in ("", "/bad", "..", ".", "bad/control\n", "-bad", "X" * 101):
+                with self.assertRaises(ContractError):
+                    result(**{field: value})
+                wire = result().to_wire()
+                wire[field] = value
+                with self.assertRaises(ContractError):
+                    decode_wire(wire)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,6 +15,12 @@ surrogates, and excessive recursion/size fail closed with sanitized contract err
 Decimal values must be canonical strings or scaled safe integers. Profile policy is
 owned by higher layers; this contract only requires an uppercase safe identifier.
 
+Every component emitted into the slash-delimited key is a single safe segment.
+This includes `strategy_id` and `run_id`: bounded `[A-Za-z0-9_.-]` text beginning
+with an alphanumeric character, with no slash, dot-segment, control character,
+or implicit encoding. `param_set_id` and `source_revision` remain identity text
+metadata but are not key path components.
+
 Identity digest/key use the documented stable identity subset and exclude
 `persist_mode` and `computed_at`; both remain wire metadata. Wire and identity
 digests are deterministic canonical JSON hashes. No legacy/default/ANY/alias
