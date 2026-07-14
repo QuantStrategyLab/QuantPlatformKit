@@ -272,6 +272,8 @@ class PerformanceStore:
         )
 
     def save_backtest_result(self, result: BacktestResult) -> None:
+        if result.persist_mode != "durable":
+            raise ValueError("PerformanceStore only supports durable backtest persistence")
         _validate_execution_timing(result.execution_timing)
         write_revision = time.time_ns()
         self._write(

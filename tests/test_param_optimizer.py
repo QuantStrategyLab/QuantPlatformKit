@@ -1,14 +1,29 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from quant_platform_kit.strategy_lifecycle.backtest_orchestrator import BacktestOrchestrator
-from quant_platform_kit.strategy_lifecycle.param_optimizer import _auto_register_runner
+from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult
+from quant_platform_kit.strategy_lifecycle.param_optimizer import _attach_walkforward, _auto_register_runner
 
 
 class ParamOptimizerRunnerRegistrationTests(unittest.TestCase):
+    def test_attach_walkforward_preserves_result_identity_metadata(self) -> None:
+        result = BacktestResult(
+            strategy_profile="SOXL", domain="us_equity", param_set_id="grid",
+            params={"lookback": 20}, execution_timing="next_close",
+            result_identity_version=2, persist_mode="durable",
+            start_date=date(2020, 1, 1), end_date=date(2024, 1, 1), computed_at="2026-01-01",
+        )
+        with patch("quant_platform_kit.strategy_lifecycle.param_optimizer._run_walkforward_validation", return_value=(0.8, 1.0, 0.5, -0.2)):
+            copied = _attach_walkforward("SOXL", "us_equity", result, result.params, BacktestOrchestrator(), None, None)
+        self.assertEqual(copied.execution_timing, "next_close")
+        self.assertEqual(copied.result_identity_version, 2)
+        self.assertEqual(copied.persist_mode, "durable")
+
     def test_auto_register_runner_rejects_placeholder_runner(self) -> None:
         orchestrator = BacktestOrchestrator()
 

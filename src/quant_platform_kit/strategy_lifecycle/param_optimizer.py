@@ -234,10 +234,13 @@ def _attach_walkforward(
         benchmark_cagr=best_result.benchmark_cagr,
         benchmark_max_drawdown=best_result.benchmark_max_drawdown,
         excess_cagr=best_result.excess_cagr,
-        oos_sharpe=oos_sharpe, oos_calmar=oos_calmar, oos_max_dd=oos_max_dd,
+        oos_sharpe=oos_sharpe, oos_calmar=oos_calmar, oos_max_drawdown=oos_max_dd,
         walk_forward_stability=stability,
         run_id=best_result.run_id, run_duration_seconds=best_result.run_duration_seconds,
         source_script=best_result.source_script, computed_at=best_result.computed_at,
+        execution_timing=best_result.execution_timing,
+        result_identity_version=best_result.result_identity_version,
+        persist_mode=best_result.persist_mode,
     )
 
 

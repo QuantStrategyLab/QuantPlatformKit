@@ -105,6 +105,15 @@ class BacktestResultStoreMigrationTests(unittest.TestCase):
             )
             self.assertIsNone(store.load_latest_backtest("us_equity", "SOXL", execution_timing=""))
 
+    def test_non_durable_persist_mode_is_rejected_before_write(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            result = _result(timing="next_open", computed_at="2026-01-01T00:00:00+00:00")
+            result = BacktestResult(**{**result.__dict__, "persist_mode": "ephemeral"})
+            with self.assertRaises(ValueError):
+                store.save_backtest_result(result)
+            self.assertEqual(list(Path(tmp).rglob("*.json")), [])
+
     def test_orchestrator_persistence_preserves_result_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
