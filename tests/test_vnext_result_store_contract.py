@@ -40,6 +40,8 @@ class VNextResultStoreContractTests(unittest.TestCase):
         self.assertEqual(wire["namespace"], VNEXT_NAMESPACE)
         self.assertEqual(decode_vnext_wire(wire), contract)
         self.assertTrue(contract.key.startswith("qpk-vnext/result/v1/"))
+        upro = _contract(canonical_profile="UPRO")
+        self.assertEqual(decode_vnext_wire(upro.to_wire()), upro)
 
     def test_order_independence_and_identity_changes(self) -> None:
         first = _contract(params={"b": 2, "a": 1})
@@ -77,6 +79,9 @@ class VNextResultStoreContractTests(unittest.TestCase):
             _contract(execution_timing=None)
         with self.assertRaises(VNextContractError):
             _contract(canonical_profile="soxl_soxx_trend_income")
+        for profile in ("", "soxl", "A/B", "..", "X" * 101):
+            with self.assertRaises(VNextContractError):
+                _contract(canonical_profile=profile)
         with self.assertRaises(VNextContractError):
             _contract(execution_timing="ANY")
 
@@ -108,6 +113,17 @@ class VNextResultStoreContractTests(unittest.TestCase):
             wire["params"] = {"nested": [value]}
             with self.assertRaises(VNextContractError):
                 decode_vnext_wire(wire)
+
+    def test_computed_at_requires_canonical_utc_rfc3339(self) -> None:
+        for timestamp in (
+            "", " 2026-07-15T00:00:00Z", "2026-07-15T00:00:00+00:00",
+            "2026-02-30T00:00:00Z", "2026-07-15", "not-a-time",
+        ):
+            with self.assertRaises(VNextContractError):
+                _contract(computed_at=timestamp)
+        for timestamp in ("2026-07-15T00:00:00Z", "2026-07-15T00:00:00.123456Z"):
+            contract = _contract(computed_at=timestamp)
+            self.assertEqual(decode_vnext_wire(contract.to_wire()), contract)
 
     def test_adversarial_wire_values_reject(self) -> None:
         wire = _contract().to_wire()

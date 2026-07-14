@@ -15,6 +15,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
+from datetime import datetime
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
@@ -26,7 +28,7 @@ VNEXT_NAMESPACE = "qpk-vnext/result/v1"
 _SCHEMA_VERSION = "qpk.vnext.result.v1"
 _MAX_SEGMENT = 100
 MAX_SAFE_JSON_INTEGER = 2**53 - 1
-_PROFILES = frozenset({"SOXL", "TQQQ"})
+_RFC3339_UTC = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
 _WIRE_FIELDS = frozenset({
     "namespace", "schema_version", "domain", "canonical_profile", "execution_timing",
     "result_identity_version", "persist_mode", "strategy_id", "run_id", "param_set_id",
@@ -99,6 +101,26 @@ def _text(value: Any) -> str:
     return value
 
 
+def _canonical_profile(value: Any) -> str:
+    """Validate an uppercase canonical profile; policy allowlists belong upstream."""
+    value = _segment(value)
+    if value != value.upper():
+        raise VNextContractError()
+    return value
+
+
+def _computed_at(value: Any) -> str:
+    """Validate canonical UTC RFC3339 audit time without timezone conversion."""
+    value = _text(value)
+    if not _RFC3339_UTC.fullmatch(value):
+        raise VNextContractError()
+    try:
+        datetime.fromisoformat(value.removesuffix("Z"))
+    except ValueError as exc:
+        raise VNextContractError() from exc
+    return value
+
+
 def _canonical_json(value: Mapping[str, Any]) -> bytes:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
 
@@ -132,8 +154,7 @@ class VNextResultContract:
 
     def __post_init__(self) -> None:
         _segment(self.domain)
-        if self.canonical_profile not in _PROFILES:
-            raise VNextContractError()
+        _canonical_profile(self.canonical_profile)
         try:
             object.__setattr__(self, "execution_timing", ExecutionTiming(self.execution_timing))
             object.__setattr__(self, "persist_mode", PersistMode(self.persist_mode))
@@ -145,7 +166,7 @@ class VNextResultContract:
             raise VNextContractError()
         if not isinstance(self.param_version, int) or isinstance(self.param_version, bool) or self.param_version < 1:
             raise VNextContractError()
-        _text(self.computed_at)
+        _computed_at(self.computed_at)
         object.__setattr__(self, "params", MappingProxyType(_params(self.params)))
 
     def _identity_payload(self) -> dict[str, Any]:
