@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 
 import pytest
@@ -61,13 +62,29 @@ def test_selector_listing_is_explicit_and_ignores_legacy(tmp_path):
     (tmp_path / "legacy" / "result.json").write_text("{}")
     assert store.list_keys(domain="us_equity", profile="SOXL", timing="next_open") == (first.key,)
     assert store.list_keys(domain="us_equity", profile="SOXL", timing="next_close") == (second.key,)
+    with pytest.raises(StoreError):
+        store.list_keys(domain="us_equity", profile="..", timing="next_open")
+    with pytest.raises(StoreError):
+        store.list_keys(domain="us_equity", profile="SOXL/..", timing="next_open")
+    with pytest.raises(StoreError):
+        store.list_keys(domain="us_equity", profile="SOXL", timing="next_openx")
 
 
 def test_atomic_failure_cleans_temp(tmp_path, monkeypatch):
     store = IsolatedResultStore(tmp_path)
     def fail_replace(*_args):
         raise OSError("injected")
-    monkeypatch.setattr("quant_platform_kit.strategy_lifecycle.qpk_vnext_n2_store.os.replace", fail_replace)
+    monkeypatch.setattr("quant_platform_kit.strategy_lifecycle.qpk_vnext_n2_store.os.link", fail_replace)
     with pytest.raises(StoreError):
         store.put(contract())
     assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_concurrent_put_is_create_only(tmp_path):
+    store = IsolatedResultStore(tmp_path)
+    item = contract()
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(lambda _: store.put(item), range(8)))
+    assert outcomes.count("created") == 1
+    assert outcomes.count("idempotent") == 7
+    assert store.get(item.key) == item

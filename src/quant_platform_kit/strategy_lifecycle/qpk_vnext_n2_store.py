@@ -16,6 +16,7 @@ from quant_platform_kit.strategy_lifecycle.qpk_vnext_n1 import (
     NAMESPACE,
     ContractError,
     ResultContract,
+    _segment,
     decode_wire,
 )
 
@@ -65,6 +66,17 @@ class IsolatedResultStore:
         except (ContractError, TypeError, ValueError, UnicodeError):
             _fail()
 
+    @staticmethod
+    def _sync_directory(directory: Path) -> None:
+        try:
+            fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        except OSError:
+            _fail()
+
     def put(self, contract: ResultContract) -> str:
         """Atomically create the contract; repeat identical writes are no-ops."""
         if not isinstance(contract, ResultContract):
@@ -80,6 +92,7 @@ class IsolatedResultStore:
                 return "idempotent"
             _fail()
         path.parent.mkdir(parents=True, exist_ok=True)
+        self._sync_directory(path.parent)
         temporary: str | None = None
         try:
             fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
@@ -87,7 +100,18 @@ class IsolatedResultStore:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, path)
+            try:
+                os.link(temporary, path)
+            except FileExistsError:
+                try:
+                    existing = path.read_bytes()
+                except OSError:
+                    _fail()
+                if existing == payload:
+                    return "idempotent"
+                _fail()
+            self._sync_directory(path.parent)
+            os.unlink(temporary)
             temporary = None
             return "created"
         except (OSError, ValueError):
@@ -114,6 +138,13 @@ class IsolatedResultStore:
 
     def list_keys(self, *, domain: str, profile: str, timing: str) -> tuple[str, ...]:
         """List exact selector matches; no implicit latest or legacy scan."""
+        try:
+            domain = _segment(domain)
+            profile = _segment(profile)
+        except ContractError:
+            _fail()
+        if timing not in {"next_open", "next_close"}:
+            _fail()
         prefix = f"{NAMESPACE}/{domain}/{profile}/"
         base = (self.root / NAMESPACE / domain / profile).resolve()
         try:
@@ -126,7 +157,9 @@ class IsolatedResultStore:
         for path in base.rglob("*.json"):
             try:
                 key = path.resolve().relative_to(self.root).as_posix()
-                if f"/{timing}/" in key:
+                parts = key.split("/")
+                if (len(parts) == 11 and key.startswith(prefix)
+                        and parts[7] == timing and self._path_for_key(key) == path.resolve()):
                     found.append(key)
             except ValueError:
                 continue
