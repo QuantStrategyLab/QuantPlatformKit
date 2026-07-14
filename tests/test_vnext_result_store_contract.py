@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from quant_platform_kit.strategy_lifecycle.capabilities import ExecutionTiming, PersistMode
 from quant_platform_kit.strategy_lifecycle.vnext_result_store_contract import (
+    MAX_SAFE_JSON_INTEGER,
     VNEXT_NAMESPACE,
     VNextContractError,
     VNextResultContract,
@@ -95,6 +96,18 @@ class VNextResultStoreContractTests(unittest.TestCase):
             _contract(params={"values": [1, 2]})
         decoded = decode_vnext_wire(_contract(params={"values": (1, 2)}).to_wire())
         self.assertEqual(decoded.params["values"], (1, 2))
+
+    def test_json_safe_integer_boundary_and_nested_rejection(self) -> None:
+        boundary = _contract(params={"low": -MAX_SAFE_JSON_INTEGER, "high": MAX_SAFE_JSON_INTEGER})
+        self.assertEqual(decode_vnext_wire(boundary.to_wire()), boundary)
+        self.assertEqual(_contract(params={"flag": True}).params["flag"], True)
+        for value in (MAX_SAFE_JSON_INTEGER + 1, -(MAX_SAFE_JSON_INTEGER + 1)):
+            with self.assertRaises(VNextContractError):
+                _contract(params={"value": value})
+            wire = _contract(params={"value": (1,)}).to_wire()
+            wire["params"] = {"nested": [value]}
+            with self.assertRaises(VNextContractError):
+                decode_vnext_wire(wire)
 
     def test_adversarial_wire_values_reject(self) -> None:
         wire = _contract().to_wire()

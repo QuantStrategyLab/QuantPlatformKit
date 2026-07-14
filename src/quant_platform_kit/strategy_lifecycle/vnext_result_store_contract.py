@@ -25,6 +25,7 @@ from quant_platform_kit.strategy_lifecycle.capabilities import ExecutionTiming, 
 VNEXT_NAMESPACE = "qpk-vnext/result/v1"
 _SCHEMA_VERSION = "qpk.vnext.result.v1"
 _MAX_SEGMENT = 100
+MAX_SAFE_JSON_INTEGER = 2**53 - 1
 _PROFILES = frozenset({"SOXL", "TQQQ"})
 _WIRE_FIELDS = frozenset({
     "namespace", "schema_version", "domain", "canonical_profile", "execution_timing",
@@ -55,7 +56,11 @@ def _segment(value: Any) -> str:
 def _param_value(value: Any) -> Any:
     if value is None:
         raise VNextContractError()
-    if isinstance(value, (str, bool, int)):
+    if isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, int):
+        if abs(value) > MAX_SAFE_JSON_INTEGER:
+            raise VNextContractError()
         return value
     if isinstance(value, float) and math.isfinite(value):
         return value
@@ -78,7 +83,9 @@ def _wire_params(value: Any) -> Mapping[str, Any]:
             return tuple(thaw(child) for child in item)
         if isinstance(item, tuple):
             return tuple(thaw(child) for child in item)
-        if isinstance(item, (str, bool, int)) or (isinstance(item, float) and math.isfinite(item)):
+        if isinstance(item, (str, bool)) or (isinstance(item, float) and math.isfinite(item)):
+            return item
+        if isinstance(item, int) and abs(item) <= MAX_SAFE_JSON_INTEGER:
             return item
         raise VNextContractError()
     return {key: thaw(value[key]) for key in sorted(value)}
