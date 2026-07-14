@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import copy
+import hashlib
+import json
 from pathlib import Path
 
 from quant_platform_kit.strategy_lifecycle.legacy_profile_index import (
@@ -13,6 +16,15 @@ from quant_platform_kit.strategy_lifecycle.legacy_profile_index import (
 
 
 class LegacyProfileIndexTests(unittest.TestCase):
+    @staticmethod
+    def _redigest(index: dict) -> dict:
+        result = copy.deepcopy(index)
+        result["inventory"].pop("digest", None)
+        result["inventory"]["digest"] = hashlib.sha256(
+            json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        return result
+
     def test_deterministic_index_and_digest_are_input_order_independent(self) -> None:
         keys = [
             "backtest/us_equity/soxl_soxx_trend_income/a.json",
@@ -58,6 +70,41 @@ class LegacyProfileIndexTests(unittest.TestCase):
         with self.assertRaises(IndexValidationError) as ctx:
             index_from_dict({"schema_version": "bad-secret-value"})
         self.assertEqual(str(ctx.exception), "invalid legacy profile index")
+
+    def test_forged_collision_report_is_rejected_even_with_recomputed_digest(self) -> None:
+        valid = build_index_from_keys(
+            ["backtest/us_equity/SOXL/a.json", "backtest/us_equity/soxl_soxx_trend_income/b.json"],
+            backend="fixture", complete=True, source_label="x",
+        )
+        for forged in ([], [{"domain": "us_equity", "canonical_profile": "SOXL", "prefixes": ["SOXL"]}]):
+            candidate = copy.deepcopy(valid)
+            candidate["collisions"] = forged
+            with self.assertRaises(IndexValidationError):
+                index_from_dict(self._redigest(candidate))
+
+    def test_backend_union_and_declared_backend_are_consistent(self) -> None:
+        valid = build_index_from_keys(["backtest/us_equity/SOXL/a.json"], backend="local", complete=True, source_label="x")
+        missing = copy.deepcopy(valid)
+        missing["entries"]["us_equity"]["SOXL"]["backend_prefixes"] = {}
+        with self.assertRaises(IndexValidationError):
+            index_from_dict(self._redigest(missing))
+        mismatch = copy.deepcopy(valid)
+        mismatch["entries"]["us_equity"]["SOXL"]["prefixes"] = []
+        with self.assertRaises(IndexValidationError):
+            index_from_dict(self._redigest(mismatch))
+
+    def test_duplicate_or_unsorted_union_rejected_and_multiple_backends_valid(self) -> None:
+        valid = build_index_from_keys(["backtest/us_equity/SOXL/a.json"], backend="local", complete=True, source_label="x")
+        duplicate = copy.deepcopy(valid)
+        entry = duplicate["entries"]["us_equity"]["SOXL"]
+        entry["prefixes"] = ["SOXL", "SOXL"]
+        with self.assertRaises(IndexValidationError):
+            index_from_dict(self._redigest(duplicate))
+        multi = copy.deepcopy(valid)
+        multi["inventory"]["backends"] = ["local", "remote"]
+        entry = multi["entries"]["us_equity"]["SOXL"]
+        entry["backend_prefixes"]["remote"] = ["SOXL"]
+        self.assertEqual(index_from_dict(self._redigest(multi)), self._redigest(multi))
 
 
 if __name__ == "__main__":

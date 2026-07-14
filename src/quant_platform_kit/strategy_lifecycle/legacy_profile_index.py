@@ -86,7 +86,12 @@ def build_index_from_keys(
         "schema_version": SCHEMA_VERSION,
         "entries": entries,
         "collisions": collisions,
-        "inventory": {"backend": backend, "source_label": source_label, "complete": bool(complete)},
+        "inventory": {
+            "backend": backend,
+            "backends": [backend],
+            "source_label": source_label,
+            "complete": bool(complete),
+        },
     }
     body["inventory"]["digest"] = _digest(body)
     return body
@@ -110,6 +115,15 @@ def index_from_dict(data: Mapping[str, Any]) -> dict[str, Any]:
         inventory = data["inventory"]
         if not isinstance(entries, Mapping) or not isinstance(collisions, list) or not isinstance(inventory, Mapping):
             raise IndexValidationError()
+        declared_backend = inventory.get("backend")
+        declared_backends = inventory.get("backends", [declared_backend])
+        if not isinstance(declared_backends, list) or not declared_backends or any(
+            not isinstance(backend, str) or not backend for backend in declared_backends
+        ) or len(set(declared_backends)) != len(declared_backends):
+            raise IndexValidationError()
+        if declared_backend not in declared_backends:
+            raise IndexValidationError()
+        expected_collisions: list[dict[str, Any]] = []
         for domain, profiles in entries.items():
             _safe_prefix(domain)
             if not isinstance(profiles, Mapping):
@@ -118,25 +132,40 @@ def index_from_dict(data: Mapping[str, Any]) -> dict[str, Any]:
                 _safe_prefix(str(canonical))
                 if not isinstance(entry, Mapping) or not isinstance(entry["prefixes"], list):
                     raise IndexValidationError()
-                for prefix in entry["prefixes"]:
-                    _safe_prefix(prefix)
+                top_prefixes = entry["prefixes"]
+                normalized_top = sorted({_safe_prefix(prefix) for prefix in top_prefixes})
+                if top_prefixes != normalized_top:
+                    raise IndexValidationError()
                 backend_prefixes = entry.get("backend_prefixes")
                 if not isinstance(backend_prefixes, Mapping):
                     raise IndexValidationError()
+                if set(backend_prefixes) != set(declared_backends):
+                    raise IndexValidationError()
+                union: set[str] = set()
                 for backend, backend_values in backend_prefixes.items():
                     if not isinstance(backend, str) or not backend or not isinstance(backend_values, list):
                         raise IndexValidationError()
-                    for prefix in backend_values:
-                        _safe_prefix(prefix)
+                    normalized_backend = sorted({_safe_prefix(prefix) for prefix in backend_values})
+                    if backend_values != normalized_backend:
+                        raise IndexValidationError()
+                    union.update(normalized_backend)
+                if normalized_top != sorted(union):
+                    raise IndexValidationError()
+                if len(normalized_top) > 1:
+                    expected_collisions.append(
+                        {"domain": domain, "canonical_profile": canonical, "prefixes": normalized_top}
+                    )
         if (
-            not isinstance(inventory.get("backend"), str)
-            or not inventory.get("backend")
+            not isinstance(declared_backend, str)
+            or not declared_backend
             or not isinstance(inventory.get("source_label"), str)
             or not inventory.get("source_label")
             or not isinstance(inventory.get("complete"), bool)
             or not isinstance(inventory.get("digest"), str)
             or not inventory.get("digest")
         ):
+            raise IndexValidationError()
+        if collisions != sorted(expected_collisions, key=lambda item: (item["domain"], item["canonical_profile"])):
             raise IndexValidationError()
         expected = dict(data)
         expected_inventory = dict(inventory)
