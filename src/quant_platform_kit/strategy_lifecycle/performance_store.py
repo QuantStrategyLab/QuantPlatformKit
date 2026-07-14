@@ -296,8 +296,17 @@ class PerformanceStore:
         self, domain: str, strategy_profile: str, *,
         execution_timing: str | object | None = LEGACY_EXECUTION_TIMING,
     ) -> BacktestResult | None:
-        prefix = f"backtest/{_clean_key(domain)}/{_clean_key(_canonical_profile(strategy_profile))}/"
-        keys = list(dict.fromkeys([*self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
+        canonical_profile = _clean_key(_canonical_profile(strategy_profile))
+        raw_profile = _clean_key(strategy_profile)
+        prefixes = list(dict.fromkeys(
+            f"backtest/{_clean_key(domain)}/{profile}/"
+            for profile in (canonical_profile, raw_profile)
+        ))
+        keys: list[str] = []
+        for prefix in prefixes:
+            keys.extend(self._list_cloud_keys(prefix))
+            keys.extend(self._list_local_json_keys(prefix))
+        keys = list(dict.fromkeys(keys))
         if not keys:
             return None
         candidates: list[tuple[tuple[str, int, str, str], BacktestResult]] = []

@@ -92,6 +92,28 @@ class ResultStoreRedesignATests(unittest.TestCase):
                 )
             self.assertIsNone(store.load_latest_backtest("us_equity", "SOXL", execution_timing=ANY_EXECUTION_TIMING))
 
+    def test_reads_legacy_raw_profile_prefixes_and_deduplicates_prefixes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            legacy = _result(timing=None, computed_at="2026-01-01T00:00:00+00:00", profile="soxl_soxx_trend_income")
+            raw_key = "backtest/us_equity/soxl_soxx_trend_income/backtest_v1_legacy.json"
+            store._write(raw_key, legacy.to_dict())
+            loaded_legacy = store.load_latest_backtest("us_equity", "soxl_soxx_trend_income")
+            store.save_backtest_result(_result(timing=None, computed_at="2026-01-02T00:00:00+00:00"))
+            loaded_mixed = store.load_latest_backtest("us_equity", "SOXL")
+        self.assertEqual(loaded_legacy.computed_at, "2026-01-01T00:00:00+00:00")
+        self.assertEqual(loaded_mixed.computed_at, "2026-01-02T00:00:00+00:00")
+
+    def test_path_sanitization_applies_to_raw_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store._write(
+                "backtest/us_equity/unsafe-profile/backtest_v1_legacy.json",
+                {"strategy_profile": "unsafe-profile", "domain": "us_equity", "params": {}},
+            )
+            loaded = store.load_latest_backtest("us_equity", "../unsafe-profile")
+        self.assertIsNotNone(loaded)
+
 
 if __name__ == "__main__":
     unittest.main()
