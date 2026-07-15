@@ -16,6 +16,9 @@ def test_permutation_prefix_and_malformed():
  x=validate_raw_input(**raw()); b=raw(); b['targets']=tuple(reversed(b['targets'])); assert x==validate_raw_input(**b)
  b=raw(); b['policy']={**b['policy'],'extra':1}
  with pytest.raises(PositionSizingContractError): validate_raw_input(**b)
+
+def test_contract_does_not_apply_business_ranges_or_freshness():
+ b=raw(); b['targets']=({'symbol':'SOXL','raw_weight':2.5},{'symbol':'TQQQ','raw_weight':-3.0}); b['caps']=tuple({**x,'kelly_cap':2.0,'volatility_cap':3.0,'correlation_cap':4.0,'liquidity_cap':5.0} for x in b['caps']); b['authorization']={**b['authorization'],'position_control_allowed':False,'consumption_evidence_status':'pending'}; b['evidence']=({**b['evidence'][0],'as_of':'2024-01-01','valid_until':'2025-02-01'},); b['policy']={**b['policy'],'fractional_kelly':.37,'total_exposure_cap':2.0,'cash_reserve':-1.0,'risk_scalar':1.7}; assert validate_raw_input(**b).policy.fractional_kelly==.37
  class L(list): pass
  b=raw(); b['targets']=L(b['targets'])
  with pytest.raises(PositionSizingContractError): validate_raw_input(**b)

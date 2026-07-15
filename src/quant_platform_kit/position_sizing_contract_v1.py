@@ -16,7 +16,7 @@ def _id(v):
  v=_str(v)
  if not _ID.fullmatch(v): _fail()
  return v
-def _num(v,lo=0.,hi=1.):
+def _num(v,lo=None,hi=None):
  if type(v) is int:
   if abs(v)>_SAFE: _fail()
  elif type(v) is not float: _fail()
@@ -24,7 +24,7 @@ def _num(v,lo=0.,hi=1.):
  try: out=float(v)
  except (OverflowError,ValueError): _fail()
  if out==0.0: return 0.0
- if not lo<=out<=hi: _fail()
+ if lo is not None and out<lo or hi is not None and out>hi: _fail()
  return out
 def _date(v):
  v=_str(v)
@@ -44,7 +44,7 @@ class Target:
  symbol:str; raw_weight:float
  @classmethod
  def parse(cls,v):
-  d=_dict(v,('symbol','raw_weight')); return cls(_id(d['symbol']),_num(d['raw_weight'],-1,1))
+  d=_dict(v,('symbol','raw_weight')); return cls(_id(d['symbol']),_num(d['raw_weight']))
  def wire(self): return {'raw_weight':self.raw_weight,'symbol':self.symbol}
 @dataclass(frozen=True,slots=True)
 class Evidence:
@@ -68,8 +68,8 @@ class Authorization:
  @classmethod
  def parse(cls,v):
   d=_dict(v,('position_control_allowed','consumption_evidence_status','bounded_budget','expires_at'))
-  if type(d['position_control_allowed']) is not bool or d['position_control_allowed'] is not True or d['consumption_evidence_status']!='automation_approved': _fail()
-  return cls(True,d['consumption_evidence_status'],_num(d['bounded_budget']),_date(d['expires_at']))
+  if type(d['position_control_allowed']) is not bool: _fail()
+  return cls(d['position_control_allowed'],_id(d['consumption_evidence_status']),_num(d['bounded_budget']),_date(d['expires_at']))
  def wire(self): return {'bounded_budget':self.bounded_budget,'consumption_evidence_status':self.consumption_evidence_status,'expires_at':self.expires_at,'position_control_allowed':self.position_control_allowed}
 @dataclass(frozen=True,slots=True)
 class Policy:
@@ -77,8 +77,7 @@ class Policy:
  @classmethod
  def parse(cls,v):
   d=_dict(v,('fractional_kelly','total_exposure_cap','cash_reserve','risk_scalar'))
-  if d['fractional_kelly'] not in (0.25,0.5): _fail()
-  return cls(_num(d['fractional_kelly'],0,.5),_num(d['total_exposure_cap']),_num(d['cash_reserve']),_num(d['risk_scalar']))
+  return cls(_num(d['fractional_kelly']),_num(d['total_exposure_cap']),_num(d['cash_reserve']),_num(d['risk_scalar']))
  def wire(self): return {'cash_reserve':self.cash_reserve,'fractional_kelly':self.fractional_kelly,'risk_scalar':self.risk_scalar,'total_exposure_cap':self.total_exposure_cap}
 
 def _sort(xs): return tuple(sorted(xs,key=lambda x:tuple(x.wire().items())))
@@ -108,7 +107,7 @@ def _build(as_of,targets,evidence,caps,authorization,policy,risk_route):
   a=_date(as_of)
   if type(targets) not in (tuple,list) or type(evidence) not in (tuple,list) or type(caps) not in (tuple,list): _fail()
   ts=_sort(tuple(Target.parse(v) for v in targets)); es=_sort(tuple(Evidence.parse(v) for v in evidence)); cs=_sort(tuple(Caps.parse(v) for v in caps))
-  if not es or any(e.as_of!=a or e.valid_until<a for e in es): _fail()
+  if not es: _fail()
   if len({x.symbol for x in ts})!=len(ts) or len({x.symbol for x in cs})!=len(cs) or {x.symbol for x in ts}!={x.symbol for x in cs}: _fail()
   au=Authorization.parse(authorization); po=Policy.parse(policy)
   if au.expires_at<a or type(risk_route) is not str or risk_route not in {'no_action','watch','opportunity_watch','risk_reduced','risk_off','blocked'}: _fail()
