@@ -20,8 +20,12 @@ def _id(v):
  if not _ID.fullmatch(v): _err()
  return v
 def _num(v,lo=0.0,hi=1.0):
- if type(v) not in (int,float) or isinstance(v,bool) or not math.isfinite(float(v)): _err()
- v=float(v)
+ if type(v) is int:
+  if abs(v)>2**53-1: _err()
+ elif type(v) is not float: _err()
+ if not math.isfinite(v): _err()
+ try: v=float(v)
+ except (OverflowError,ValueError): _err()
  if v<lo or v>hi: _err()
  return v
 def _integer(v):
@@ -85,12 +89,14 @@ class RawPolicy:
 @dataclass(frozen=True,slots=True)
 class RawSizingInput:
  as_of:str; targets:tuple[RawTarget,...]; evidence:tuple[RawEvidence,...]; caps:tuple[RawCaps,...]; authorization:RawAuthorization; policy:RawPolicy; risk_route:str; input_digest:str
+ def to_wire(self):
+  return {'as_of':self.as_of,'targets':[asdict(x) for x in self.targets],'evidence':[asdict(x) for x in self.evidence],'caps':[asdict(x) for x in self.caps],'authorization':asdict(self.authorization),'policy':asdict(self.policy),'risk_route':self.risk_route}
 
 
 def validate_raw_input(*,as_of,targets,evidence,caps,authorization,policy,risk_route):
  try:
   as_of=_date(as_of)
-  if type(targets) is not tuple or type(evidence) is not tuple or type(caps) is not tuple: _err()
+  if type(targets) not in (tuple,list) or type(evidence) not in (tuple,list) or type(caps) not in (tuple,list): _err()
   ts=tuple(RawTarget.from_raw(x) for x in targets); es=tuple(RawEvidence.from_raw(x) for x in evidence); cs=tuple(RawCaps.from_raw(x) for x in caps)
   if not es or not all(e.as_of==as_of and e.valid_until>=as_of for e in es): _err()
   if len({x.symbol for x in ts})!=len(ts) or len({x.symbol for x in cs})!=len(cs) or {x.symbol for x in ts}!={x.symbol for x in cs}: _err()

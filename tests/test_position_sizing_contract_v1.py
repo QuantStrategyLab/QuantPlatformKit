@@ -6,6 +6,7 @@ def raw():
 def test_roundtrip_and_permutation_digest():
  a=validate_raw_input(**raw()); b=raw(); b['targets']=tuple(reversed(b['targets'])); assert a.input_digest==validate_raw_input(**b).input_digest
  b=raw(); b['evidence']=({'package_id':'e','scope':'OOS','as_of':'2025-01-02','valid_until':'2025-02-01','digest':'different','sample_count':10},); assert a.input_digest!=validate_raw_input(**b).input_digest
+ b=raw(); b['targets']=list(b['targets']); decoded=validate_raw_input(**b); assert isinstance(decoded.targets,tuple); assert decoded.to_wire()['targets']==list(b['targets'])
 
 def test_forged_element_and_sanitized_errors():
  b=raw(); b['targets']=({'symbol':'SOXL','raw_weight':.5},'bad')
@@ -17,3 +18,9 @@ def test_unknown_missing_nonfinite_and_mutation_isolation():
  b=raw(); b['policy']={**b['policy'],'extra':1}
  with pytest.raises(PositionSizingContractError): validate_raw_input(**b)
  x=raw(); out=validate_raw_input(**x); x['targets'][0]['raw_weight']=.1; assert out.targets[0].raw_weight==.5
+ for value in (10**100, -(10**100), True, float('nan'), float('inf')):
+  b=raw(); b['targets']=({'symbol':'SOXL','raw_weight':value},{'symbol':'TQQQ','raw_weight':.4})
+  with pytest.raises(PositionSizingContractError): validate_raw_input(**b)
+ class ListSubclass(list): pass
+ b=raw(); b['targets']=ListSubclass(b['targets'])
+ with pytest.raises(PositionSizingContractError): validate_raw_input(**b)
