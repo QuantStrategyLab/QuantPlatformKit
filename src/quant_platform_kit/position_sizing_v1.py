@@ -86,6 +86,15 @@ def build_position_sizing_plan(*, as_of: str, targets: tuple[StrategyTarget,...]
  if risk_route not in {"no_action","watch","opportunity_watch","risk_reduced","risk_off","blocked"}: raise PositionSizingContractError("invalid risk route")
  names=[t.symbol for t in targets]; capmap={c.symbol:c for c in caps}
  if len(set(names))!=len(names) or len(capmap)!=len(caps) or set(names)!=set(capmap): raise PositionSizingContractError("symbol mismatch")
+ input_payload={
+  "as_of":as_of,
+  "targets":[asdict(x) for x in sorted(targets,key=lambda x:x.symbol)],
+  "evidence":[asdict(x) for x in sorted(evidence,key=lambda x:(x.package_id,x.scope,x.digest))],
+  "caps":[asdict(x) for x in sorted(caps,key=lambda x:x.symbol)],
+  "authorization":asdict(authorization),"policy":asdict(policy),"risk_route":risk_route,
+ }
+ input_digest=hashlib.sha256(_canonical(input_payload)).hexdigest()
+ reserve_aware_cap=max(0.0,policy.total_exposure_cap-policy.cash_reserve)
  scalar=min(policy.risk_scalar,authorization.bounded_budget,0.0 if risk_route in {"risk_off","blocked"} else 1.0)
  built=[]
  for t in targets:
@@ -93,9 +102,8 @@ def build_position_sizing_plan(*, as_of: str, targets: tuple[StrategyTarget,...]
   if final==0: binding="zero_cap"
   built.append(SizedTarget(t.symbol,t.raw_weight,math.copysign(final,t.raw_weight) if final else 0.0,(("kelly",abs(t.raw_weight),k),("volatility",k,c.volatility_cap),("correlation",k,c.correlation_cap),("liquidity",k,c.liquidity_cap)),binding))
  total=sum(abs(x.final_weight) for x in built)
- if total>policy.total_exposure_cap and total>0:
-  scale=policy.total_exposure_cap/total
+ if total>reserve_aware_cap and total>0:
+  scale=reserve_aware_cap/total
   built=[SizedTarget(x.symbol,x.raw_weight,x.final_weight*scale,x.caps,"total_exposure") for x in built]
- payload={"as_of":as_of,"targets":[asdict(x) for x in built]}
- dig=hashlib.sha256(_canonical(payload)).hexdigest(); ed=hashlib.sha256(_canonical([asdict(e) for e in evidence])).hexdigest(); pd=hashlib.sha256(_canonical(asdict(policy))).hexdigest()
- return PositionSizingPlan(as_of,"ZERO_RISK" if risk_route in {"risk_off","blocked"} else "SIZED",tuple(built),ed,pd,dig,"risk_off_or_blocked" if risk_route in {"risk_off","blocked"} else None)
+ ed=hashlib.sha256(_canonical(input_payload["evidence"])).hexdigest(); pd=hashlib.sha256(_canonical(asdict(policy))).hexdigest()
+ return PositionSizingPlan(as_of,"ZERO_RISK" if risk_route in {"risk_off","blocked"} else "SIZED",tuple(built),ed,pd,input_digest,"risk_off_or_blocked" if risk_route in {"risk_off","blocked"} else None)

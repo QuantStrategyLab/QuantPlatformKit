@@ -16,6 +16,13 @@ def test_total_scaling_and_risk_off():
  p=build_position_sizing_plan(**inputs()); assert sum(abs(x.final_weight) for x in p.targets)<=.7
  z=build_position_sizing_plan(**inputs(),risk_route='risk_off'); assert z.status=='ZERO_RISK' and all(x.final_weight==0 for x in z.targets)
 
+def test_cash_reserve_reduces_budget_and_digest_binds_inputs():
+ base=inputs(); p=build_position_sizing_plan(**base)
+ reserved=build_position_sizing_plan(**{**base,'policy':SizingPolicy(.25,.7,.6,1.0)})
+ assert sum(abs(x.final_weight) for x in reserved.targets)<=.1000001
+ assert reserved.input_digest!=p.input_digest
+ assert build_position_sizing_plan(**{**base,'risk_route':'blocked'}).targets[0].final_weight==0
+
 def test_evidence_auth_and_determinism():
  p=build_position_sizing_plan(**inputs()); q=build_position_sizing_plan(**inputs()); assert p==q and p.input_digest
  with pytest.raises(PositionSizingContractError): build_position_sizing_plan(**{**inputs(),'as_of':'2025-03-01'})
