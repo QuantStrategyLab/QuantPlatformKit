@@ -16,6 +16,11 @@ def test_malformed_numeric_and_shape_sanitized():
   with pytest.raises(PositionSizingContractError): validate_raw_input(**b)
  b=raw(); b['policy']={**b['policy'],'extra':1}
  with pytest.raises(PositionSizingContractError): validate_raw_input(**b)
+
+def test_all_numeric_zero_spellings_are_canonical():
+ a=raw(); a['targets']=({'symbol':'SOXL','raw_weight':0},{'symbol':'TQQQ','raw_weight':0.0}); a['caps']=tuple({**x,'kelly_cap':0,'volatility_cap':-0.0,'correlation_cap':0.0,'liquidity_cap':0} for x in a['caps']); a['authorization']={**a['authorization'],'bounded_budget':-0.0}; a['policy']={**a['policy'],'total_exposure_cap':0,'cash_reserve':-0.0,'risk_scalar':0.0}
+ b=raw(); b['targets']=({'symbol':'SOXL','raw_weight':-0.0},{'symbol':'TQQQ','raw_weight':0}); b['caps']=tuple({**x,'kelly_cap':0.0,'volatility_cap':0,'correlation_cap':-0.0,'liquidity_cap':0.0} for x in b['caps']); b['authorization']={**b['authorization'],'bounded_budget':0}; b['policy']={**b['policy'],'total_exposure_cap':-0.0,'cash_reserve':0,'risk_scalar':-0.0}
+ x=validate_raw_input(**a); y=validate_raw_input(**b); assert x==y and x.to_wire()==y.to_wire() and x.canonical_bytes()==y.canonical_bytes() and x.digest()==y.digest(); assert b':-0' not in x.canonical_bytes()
  class L(list): pass
  b=raw(); b['targets']=L(b['targets'])
  with pytest.raises(PositionSizingContractError): validate_raw_input(**b)

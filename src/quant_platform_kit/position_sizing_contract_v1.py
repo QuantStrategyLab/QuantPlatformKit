@@ -25,6 +25,7 @@ def _num(v,lo=0.,hi=1.):
  if not math.isfinite(v): _fail()
  try: out=float(v)
  except (OverflowError,ValueError): _fail()
+ if out==0.0: return 0.0
  if not lo<=out<=hi: _fail()
  return out
 def _date(v):
