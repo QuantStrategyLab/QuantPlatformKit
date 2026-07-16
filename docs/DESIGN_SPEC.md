@@ -188,7 +188,7 @@ STRATEGY_METADATA = {
   "strategy_plugins": [{
     "strategy": "soxl_soxx_trend_income",
     "plugin": "market_regime_control",
-    "signal_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/...",
+    "signal_path": "gs://your-bucket/path/to/signal.json",
     "enabled": true,
     "expected_mode": "shadow"
   }]

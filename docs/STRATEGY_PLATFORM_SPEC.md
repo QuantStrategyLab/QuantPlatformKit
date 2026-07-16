@@ -104,7 +104,7 @@ class PlatformRuntimeSettings:
      "strategy_plugins": [{
        "strategy": "<strategy_profile>",
        "plugin": "<plugin_name>",
-       "signal_path": "gs://...",
+       "signal_path": "gs://your-bucket/path/to/signal.json",
        "enabled": true,
        "expected_mode": "shadow"
      }]
