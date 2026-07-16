@@ -27,7 +27,8 @@
 ### QuantPlatformKit
 
 ```bash
-cd /Users/lisiyi/Projects/_worktrees/quant_p0/QuantPlatformKit
+QSL_PROJECTS_ROOT="${QSL_PROJECTS_ROOT:?set QSL_PROJECTS_ROOT to the parent directory of the QSL checkouts}"
+cd "$QSL_PROJECTS_ROOT/QuantPlatformKit"
 PYTHONPATH=src python3 -m pytest -q \
   tests/test_reusable_drift_workflow.py \
   tests/test_lifecycle_cli.py \
@@ -38,9 +39,9 @@ PYTHONPATH=src python3 -m pytest -q \
 ### 4 个策略仓库
 
 ```bash
-QPK=/Users/lisiyi/Projects/_worktrees/quant_p0/QuantPlatformKit/src
+QPK="$QSL_PROJECTS_ROOT/QuantPlatformKit/src"
 for repo in UsEquityStrategies HkEquityStrategies CnEquityStrategies CryptoStrategies; do
-  cd "/Users/lisiyi/Projects/_worktrees/quant_p0/$repo"
+  cd "$QSL_PROJECTS_ROOT/$repo"
   PYTHONPATH="$QPK" python3 -m pytest -q tests/test_drift_workflow_config.py
 done
 ```
