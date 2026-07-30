@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import unittest
 
 from quant_platform_kit.common.models import PricePoint, PriceSeries, QuoteSnapshot
-from quant_platform_kit.common.port_adapters import CallableMarketDataPort
+from quant_platform_kit.common.port_adapters import CallableMarketDataPort, CallableNotificationPort
 
 
 class CallableMarketDataPortTests(unittest.TestCase):
@@ -57,6 +57,13 @@ class CallableMarketDataPortTests(unittest.TestCase):
 
         with self.assertRaises(NotImplementedError):
             port.get_price_series("SOXL")
+
+
+class CallableNotificationPortTests(unittest.TestCase):
+    def test_send_text_propagates_delivery_result(self) -> None:
+        port = CallableNotificationPort(lambda _message: False)
+
+        self.assertIs(port.send_text("rebalance"), False)
 
 
 if __name__ == "__main__":

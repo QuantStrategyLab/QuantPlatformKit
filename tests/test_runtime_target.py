@@ -56,6 +56,9 @@ class RuntimeTargetTests(unittest.TestCase):
                     '{"platform_id":"longbridge","strategy_profile":"global_etf_rotation",'
                     '"dry_run_only":true,"deployment_selector":"HK","account_selector":["HK"],'
                     '"account_scope":"HK","service_name":"longbridge-quant-hk-service",'
+                    '"market":"HK","market_calendar":"XHKG",'
+                    '"market_timezone":"Asia/Hong_Kong",'
+                    '"scheduler":{"timezone":"Asia/Hong_Kong","main_time":"45 15 * * *"},'
                     '"execution_mode":"paper","execution_windows":{"precheck":{"enabled":true,'
                     '"offset_minutes":15,"mode":"notify_only"},"execution":{"enabled":true,'
                     '"offset_minutes":15,"mode":"paper"}}}'
@@ -71,6 +74,10 @@ class RuntimeTargetTests(unittest.TestCase):
         self.assertEqual(target.account_selector, ("HK",))
         self.assertEqual(target.account_scope, "HK")
         self.assertEqual(target.service_name, "longbridge-quant-hk-service")
+        self.assertEqual(target.market, "HK")
+        self.assertEqual(target.market_calendar, "XHKG")
+        self.assertEqual(target.market_timezone, "Asia/Hong_Kong")
+        self.assertEqual(target.scheduler["main_time"], "45 15 * * *")
         self.assertTrue(target.execution_windows["precheck"]["enabled"])
         self.assertEqual(target.execution_windows["execution"]["offset_minutes"], 15)
 
@@ -85,6 +92,29 @@ class RuntimeTargetTests(unittest.TestCase):
             },
             expected_platform_id="schwab",
         )
+
+    def test_resolve_runtime_target_from_env_rejects_partial_market_metadata(self) -> None:
+        with self.assertRaisesRegex(ValueError, "market metadata must include"):
+            resolve_runtime_target_from_env(
+                env={
+                    "RUNTIME_TARGET_JSON": (
+                        '{"platform_id":"schwab","strategy_profile":"tqqq_growth_income",'
+                        '"dry_run_only":false,"market":"US"}'
+                    )
+                },
+                expected_platform_id="schwab",
+            )
+
+    def test_build_runtime_target_rejects_invalid_market_timezone(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid market_timezone"):
+            build_runtime_target(
+                platform_id="schwab",
+                strategy_profile="tqqq_growth_income",
+                dry_run_only=False,
+                market="US",
+                market_calendar="NYSE",
+                market_timezone="../New_York",
+            )
 
     def test_resolve_runtime_target_from_env_rejects_mismatched_platform(self) -> None:
         with self.assertRaisesRegex(

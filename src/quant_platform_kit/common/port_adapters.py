@@ -9,10 +9,10 @@ from .ports import ExecutionPort, MarketDataPort, NotificationPort, PortfolioPor
 
 @dataclass(frozen=True)
 class CallableNotificationPort(NotificationPort):
-    sender: Callable[[str], None]
+    sender: Callable[[str], bool | None]
 
-    def send_text(self, message: str) -> None:
-        self.sender(message)
+    def send_text(self, message: str) -> bool | None:
+        return self.sender(message)
 
 
 @dataclass(frozen=True)
