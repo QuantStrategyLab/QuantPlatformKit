@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Research Input Manifest V1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "research_input_contract_id",
+    "domain",
+    "profile",
+    "artifact_type",
+    "observed_at",
+    "effective_at",
+    "as_of",
+    "producer",
+    "calendar",
+    "adjustment",
+    "sources",
+    "members"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "research_input_manifest.v1"
+    },
+    "manifest_id": {
+      "$ref": "#/$defs/nonemptyString"
+    },
+    "research_input_contract_id": {
+      "$ref": "#/$defs/nonemptyString"
+    },
+    "domain": {
+      "$ref": "#/$defs/nonemptyString"
+    },
+    "profile": {
+      "$ref": "#/$defs/nonemptyString"
+    },
+    "artifact_type": {
+      "$ref": "#/$defs/nonemptyString"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "effective_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "$ref": "#/$defs/producer"
+    },
+    "calendar": {
+      "$ref": "#/$defs/calendar"
+    },
+    "adjustment": {
+      "$ref": "#/$defs/adjustment"
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    },
+    "members": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/member"
+      }
+    },
+    "parent_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "$defs": {
+    "nonemptyString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "producer": {
+      "type": "object",
+      "required": [
+        "repository",
+        "commit_sha",
+        "tree_sha",
+        "tool",
+        "tool_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "commit_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "tree_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "tool": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "tool_version": {
+          "$ref": "#/$defs/nonemptyString"
+        }
+      }
+    },
+    "calendar": {
+      "type": "object",
+      "required": [
+        "calendar_id",
+        "timezone",
+        "session_date",
+        "source",
+        "source_revision"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "calendar_id": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "timezone": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "session_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "source": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/nonemptyString"
+        }
+      }
+    },
+    "adjustment": {
+      "type": "object",
+      "required": [
+        "policy",
+        "source",
+        "source_revision"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "split_adjusted",
+            "total_return_adjusted"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "source_revision": {
+          "$ref": "#/$defs/nonemptyString"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "source_id",
+        "revision",
+        "observed_at",
+        "content_sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source_id": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "revision": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "member": {
+      "type": "object",
+      "required": [
+        "path",
+        "media_type",
+        "size_bytes",
+        "sha256"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*\\\\)(?!.*\\u0000)(?!.*(?:^|/)\\.{1,2}(?:/|$)).+$"
+        },
+        "media_type": {
+          "$ref": "#/$defs/nonemptyString"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}
