@@ -8,6 +8,7 @@ import pytest
 from quant_platform_kit.data.research_input import (
     RESEARCH_INPUT_MANIFEST_SCHEMA_VERSION,
     ResearchInputManifestValidationError,
+    parse_research_input_manifest,
     validate_research_input_manifest,
 )
 
@@ -71,3 +72,44 @@ def test_schema_declares_the_same_closed_s0_contract() -> None:
     assert schema["additionalProperties"] is False
     assert schema["required"] == ["schema_version", "manifest_id", "created_at", "as_of", "inputs"]
     assert schema["$defs"]["input"]["additionalProperties"] is False
+
+
+def _canonical_json(value: object) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def test_canonical_readback_rejects_noncanonical_and_duplicate_key_bytes() -> None:
+    expected = _valid_manifest()
+
+    assert parse_research_input_manifest(_canonical_json(expected)) == expected
+
+    with pytest.raises(ResearchInputManifestValidationError):
+        parse_research_input_manifest(json.dumps(expected).encode("utf-8"))
+    with pytest.raises(ResearchInputManifestValidationError):
+        parse_research_input_manifest(
+            b'{"as_of":"2026-07-29T20:00:00Z","as_of":"2026-07-29T20:00:00Z"}'
+        )
+
+
+def test_manifest_contract_rejects_submicrosecond_timestamps() -> None:
+    manifest = _valid_manifest()
+    manifest["as_of"] = "2026-07-29T20:00:00.0000001Z"
+
+    with pytest.raises(ResearchInputManifestValidationError):
+        validate_research_input_manifest(manifest)
+
+
+def test_schema_encodes_pit_cutoff_and_input_id_uniqueness() -> None:
+    root = Path(__file__).resolve().parents[1]
+    schema = json.loads(
+        (root / "src/quant_platform_kit/schemas/research-input-manifest.v1.schema.json").read_text(encoding="utf-8")
+    )
+
+    assert schema["x-qpk-pit-cutoff"] == {
+        "allow_equal": True,
+        "cutoff": "/as_of",
+        "entries": "/inputs",
+        "timestamp_field": "as_of",
+    }
+    assert schema["properties"]["inputs"]["x-qpk-unique-by"] == "input_id"
+    assert "{1,6}" in schema["$defs"]["date_time"]["pattern"]

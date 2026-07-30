@@ -7,6 +7,7 @@ binds a research consumer to already-produced immutable artifacts.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from datetime import datetime
@@ -19,7 +20,7 @@ _INPUT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _KIND = re.compile(r"^[a-z][a-z0-9_]*$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 _RFC3339_DATETIME = re.compile(
-    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
+    r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$"
 )
 _REQUIRED_TOP_LEVEL = frozenset({"schema_version", "manifest_id", "created_at", "as_of", "inputs"})
 _REQUIRED_INPUT = frozenset({"input_id", "kind", "artifact_uri", "sha256", "as_of"})
@@ -55,6 +56,28 @@ def validate_research_input_manifest(payload: Mapping[str, Any]) -> dict[str, An
         _validate_input(input_metadata, manifest_as_of, input_ids)
 
     return dict(payload)
+
+
+def parse_research_input_manifest(value: bytes) -> dict[str, Any]:
+    """Strictly read canonical manifest bytes without dereferencing artifacts."""
+
+    if not isinstance(value, bytes):
+        raise ResearchInputManifestValidationError()
+    try:
+        parsed = json.loads(
+            value.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_object_keys,
+            parse_constant=_reject_non_json_constant,
+        )
+    except (UnicodeDecodeError, ValueError, json.JSONDecodeError) as exc:
+        raise ResearchInputManifestValidationError() from exc
+    if type(parsed) is not dict:
+        raise ResearchInputManifestValidationError()
+
+    manifest = validate_research_input_manifest(parsed)
+    if _canonical_json(manifest) != value:
+        raise ResearchInputManifestValidationError()
+    return manifest
 
 
 def _validate_input(value: object, manifest_as_of: datetime, input_ids: set[str]) -> None:
@@ -98,3 +121,20 @@ def _parse_datetime(value: object) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ResearchInputManifestValidationError()
     return parsed
+
+
+def _canonical_json(value: Mapping[str, Any]) -> bytes:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def _reject_duplicate_object_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _reject_non_json_constant(value: str) -> None:
+    raise ValueError(f"non-JSON constant: {value}")

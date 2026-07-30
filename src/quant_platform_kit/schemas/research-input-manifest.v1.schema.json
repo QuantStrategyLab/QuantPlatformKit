@@ -3,6 +3,13 @@
   "$id": "https://quantplatformkit.local/schemas/research-input-manifest.v1.schema.json",
   "title": "Research Input Manifest v1",
   "type": "object",
+  "x-qpk-canonical-json": true,
+  "x-qpk-pit-cutoff": {
+    "allow_equal": true,
+    "cutoff": "/as_of",
+    "entries": "/inputs",
+    "timestamp_field": "as_of"
+  },
   "required": ["schema_version", "manifest_id", "created_at", "as_of", "inputs"],
   "properties": {
     "schema_version": { "const": "research_input_manifest.v1" },
@@ -12,6 +19,7 @@
     "inputs": {
       "type": "array",
       "minItems": 1,
+      "x-qpk-unique-by": "input_id",
       "items": { "$ref": "#/$defs/input" }
     }
   },
@@ -19,7 +27,7 @@
     "date_time": {
       "type": "string",
       "format": "date-time",
-      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})$"
     },
     "input": {
       "type": "object",
