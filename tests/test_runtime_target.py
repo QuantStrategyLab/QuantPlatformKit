@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from quant_platform_kit.common.runtime_target import (
+    RuntimeTarget,
     build_runtime_context_fields,
     build_runtime_target,
     resolve_runtime_target_from_env,
@@ -10,6 +11,23 @@ from quant_platform_kit.common.runtime_target import (
 
 
 class RuntimeTargetTests(unittest.TestCase):
+    def test_runtime_target_preserves_existing_execution_windows_positional_slot(self) -> None:
+        windows = {"execution": {"enabled": True, "mode": "paper"}}
+
+        target = RuntimeTarget(
+            "longbridge",
+            "global_etf_rotation",
+            True,
+            "HK",
+            ("HK",),
+            "HK",
+            "longbridge-quant-hk-service",
+            windows,
+        )
+
+        self.assertEqual(target.execution_windows, windows)
+        self.assertIsNone(target.market)
+
     def test_build_runtime_target_normalizes_selectors_and_mode(self) -> None:
         target = build_runtime_target(
             platform_id=" longbridge ",

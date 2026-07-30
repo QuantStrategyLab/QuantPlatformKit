@@ -16,11 +16,11 @@ class RuntimeTarget:
     account_selector: tuple[str, ...] = ()
     account_scope: str | None = None
     service_name: str | None = None
+    execution_windows: dict[str, Any] | None = None
     market: str | None = None
     market_calendar: str | None = None
     market_timezone: str | None = None
     scheduler: dict[str, Any] | None = None
-    execution_windows: dict[str, Any] | None = None
 
     @property
     def execution_mode(self) -> str:

@@ -138,21 +138,23 @@ def _request_succeeded(
     if status < 200 or status >= 300:
         printer(f"Telegram send failed for {chat_id}: HTTP {status}", flush=True)
         return False
-    if raw_response:
-        try:
-            response_payload = json.loads(raw_response.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            response_payload = None
-        if isinstance(response_payload, dict) and response_payload.get("ok") is False:
-            description = redact_sensitive_text(
-                response_payload.get("description") or "negative API acknowledgement"
-            )
-            printer(
-                f"Telegram send failed for {chat_id}: {description}",
-                flush=True,
-            )
-            return False
-    return True
+    try:
+        response_payload = json.loads(raw_response.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        response_payload = None
+    if isinstance(response_payload, dict) and response_payload.get("ok") is True:
+        return True
+    description = (
+        response_payload.get("description")
+        if isinstance(response_payload, dict)
+        else None
+    )
+    printer(
+        "Telegram send failed for "
+        f"{chat_id}: {redact_sensitive_text(description or 'missing affirmative API acknowledgement')}",
+        flush=True,
+    )
+    return False
 
 
 def _telegram_send_message_endpoint(api_base_url: str | None, bot_token: str) -> str:
