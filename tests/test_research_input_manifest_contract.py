@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 from types import MappingProxyType
+import typing
 
 import pytest
 
@@ -37,10 +38,14 @@ PUBLIC_SURFACE = {
 #   test_rejects_blank_strings, test_rejects_bad_hashes
 # - timestamps, ordering, calendar timezone/date, adjustment policy:
 #   test_rejects_bad_timestamps_and_time_order,
-#   test_rejects_bad_calendar_and_adjustment
+#   test_preserves_fractional_timestamp_precision,
+#   test_rejects_bad_calendar_and_adjustment,
+#   test_timezone_validation_fails_closed_without_tzdb
 # - ordered unique source/member identities and safe POSIX paths:
 #   test_rejects_bad_source_identity_order,
 #   test_rejects_bad_member_identity_or_path
+# - Unicode scalar strings and runtime-resolvable annotations:
+#   test_rejects_lone_surrogates, test_public_annotations_resolve_at_runtime
 # - JSON-compatible scalar discipline:
 #   test_rejects_bad_size_or_non_json_values
 # - canonical bytes and digest: test_canonical_bytes_and_digest_are_deterministic
@@ -180,6 +185,18 @@ def test_exact_python_surface() -> None:
     assert list(inspect.signature(module.read_research_input_manifest_json).parameters) == [
         "payload"
     ]
+
+
+def test_public_annotations_resolve_at_runtime() -> None:
+    module = _module()
+
+    for function in (
+        module.validate_research_input_manifest,
+        module.canonical_research_input_manifest_bytes,
+        module.research_input_manifest_sha256,
+        module.read_research_input_manifest_json,
+    ):
+        assert typing.get_type_hints(function)
 
 
 def test_valid_manifest_and_deep_copy() -> None:
@@ -336,7 +353,9 @@ def test_rejects_bad_hashes(path, key, value) -> None:
         ((), "observed_at", "2026-07-30Q08:00:00Z"),
         ((), "effective_at", "not-a-timestamp"),
         ((), "as_of", "2026-07-30"),
+        ((), "as_of", "2026-07-30T09:00:00-00:00"),
         (("sources", 0), "observed_at", "2026-07-30T07:30:00"),
+        (("sources", 0), "observed_at", "2026-07-30T07:30:00-00:00"),
         ((), "observed_at", "2026-07-30T10:00:00Z"),
         ((), "effective_at", "2026-07-30T10:00:00Z"),
         (("sources", 0), "observed_at", "2026-07-30T10:00:00Z"),
@@ -352,11 +371,31 @@ def test_rejects_bad_timestamps_and_time_order(path, key, value) -> None:
 
 
 @pytest.mark.parametrize(
+    "path",
+    [
+        ("observed_at",),
+        ("effective_at",),
+        ("sources", 0, "observed_at"),
+    ],
+)
+def test_preserves_fractional_timestamp_precision(path) -> None:
+    manifest = _valid_manifest()
+    manifest["as_of"] = "2026-07-30T09:00:00.00000001Z"
+    target = manifest
+    for part in path[:-1]:
+        target = target[part]
+    target[path[-1]] = "2026-07-30T09:00:00.00000009Z"
+
+    _assert_invalid(manifest)
+
+
+@pytest.mark.parametrize(
     ("path", "key", "value"),
     [
         (("calendar",), "timezone", "UTC+08:00"),
         (("calendar",), "timezone", "Not/A_Zone"),
         (("calendar",), "timezone", "posixrules"),
+        (("calendar",), "timezone", "localtime"),
         (("calendar",), "session_date", "2026-02-30"),
         (("calendar",), "session_date", "20260730"),
         (("adjustment",), "policy", "back_adjusted"),
@@ -368,6 +407,27 @@ def test_rejects_bad_calendar_and_adjustment(path, key, value) -> None:
     for part in path:
         target = target[part]
     target[key] = value
+    _assert_invalid(manifest)
+
+
+def test_timezone_validation_fails_closed_without_tzdb(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_available_timezones", lambda: set())
+
+    with pytest.raises(
+        module.InvalidResearchInputEvidence,
+        match="timezone database",
+    ):
+        module.validate_research_input_manifest(_valid_manifest())
+
+
+def test_rejects_host_local_timezone_alias_even_when_exposed(monkeypatch) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_available_timezones", lambda: {"localtime"})
+    monkeypatch.setattr(module, "_ZoneInfo", lambda _key: object())
+
+    manifest = _valid_manifest()
+    manifest["calendar"]["timezone"] = "localtime"
     _assert_invalid(manifest)
 
 
@@ -396,6 +456,8 @@ def test_rejects_bad_source_identity_order() -> None:
         "../data.json",
         "data/./bars.parquet",
         "data/../bars.parquet",
+        "data//bars.parquet",
+        "data/bars.parquet/",
         r"data\bars.parquet",
         "data/\x00bars.parquet",
     ],
@@ -424,6 +486,26 @@ def test_rejects_empty_unsorted_or_duplicate_members() -> None:
 def test_rejects_bad_size_or_non_json_values(value) -> None:
     manifest = _valid_manifest()
     manifest["members"][0]["size_bytes"] = value
+    _assert_invalid(manifest)
+
+
+@pytest.mark.parametrize(
+    ("path", "key"),
+    [
+        ((), "manifest_id"),
+        (("producer",), "tool"),
+        (("calendar",), "source"),
+        (("sources", 0), "revision"),
+        (("members", 0), "media_type"),
+    ],
+)
+def test_rejects_lone_surrogates(path, key) -> None:
+    manifest = _valid_manifest()
+    target = manifest
+    for part in path:
+        target = target[part]
+    target[key] = "invalid\ud800text"
+
     _assert_invalid(manifest)
 
 
@@ -621,6 +703,8 @@ def test_schema_matches_frozen_structural_contract() -> None:
     assert member["properties"]["size_bytes"] == {"type": "integer", "minimum": 0}
     assert member["properties"]["sha256"]["pattern"] == "^[0-9a-f]{64}$"
     assert re.fullmatch(member["properties"]["path"]["pattern"], "data/\x00x") is None
+    assert re.fullmatch(member["properties"]["path"]["pattern"], "data//x") is None
+    assert re.fullmatch(member["properties"]["path"]["pattern"], "data/x/") is None
 
     assert schema["properties"]["sources"]["minItems"] == 1
     assert schema["properties"]["members"]["minItems"] == 1

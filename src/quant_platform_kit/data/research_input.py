@@ -1,22 +1,23 @@
-"""Pure validation and canonicalization for research-input manifest v1."""
+"""Pure validation and canonicalization for research-input manifest v1.
+
+The runtime must provide an IANA timezone database through the operating
+system or the ``tzdata`` package; validation fails closed when it is absent.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Mapping as _Mapping
 from datetime import date as _date
 from datetime import datetime as _datetime
+from datetime import timezone as _datetime_timezone
+from decimal import Decimal as _Decimal
 import hashlib as _hashlib
 import json as _json
 import re as _re
-from typing import TYPE_CHECKING as _TYPE_CHECKING
 from zoneinfo import ZoneInfo as _ZoneInfo
 from zoneinfo import available_timezones as _available_timezones
 
 del annotations
-
-if _TYPE_CHECKING:
-    from typing import Mapping
-
 
 __all__ = [
     "InvalidResearchInputEvidence",
@@ -63,9 +64,13 @@ _COMMIT_PATTERN = _re.compile(r"[0-9a-f]{40}")
 _SHA256_PATTERN = _re.compile(r"[0-9a-f]{64}")
 _DATE_PATTERN = _re.compile(r"\d{4}-\d{2}-\d{2}")
 _TIMESTAMP_PATTERN = _re.compile(
-    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?"
-    r"(?:Z|[+-]\d{2}:\d{2})"
+    r"(?P<whole>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})"
+    r"(?:\.(?P<fraction>\d+))?"
+    r"(?P<offset>Z|[+-]\d{2}:\d{2})"
 )
+_EPOCH = _datetime(1970, 1, 1, tzinfo=_datetime_timezone.utc)
+_HOST_LOCAL_TIMEZONE_KEYS = frozenset({"Factory", "localtime", "posixrules"})
+_HOST_LOCAL_TIMEZONE_PREFIXES = ("posix/", "right/")
 
 
 class InvalidResearchInputEvidence(ValueError):
@@ -94,6 +99,8 @@ def _object(
 def _nonempty(value: object) -> str:
     if type(value) is not str or not value.strip():
         _fail("expected a non-empty string")
+    if any("\ud800" <= character <= "\udfff" for character in value):
+        _fail("strings must contain only Unicode scalar values")
     return value
 
 
@@ -104,21 +111,32 @@ def _matches(value: object, pattern: _re.Pattern[str]) -> str:
     return text
 
 
-def _timestamp(value: object) -> tuple[str, _datetime]:
+def _timestamp(value: object) -> tuple[str, _Decimal]:
     text = _nonempty(value)
-    if _TIMESTAMP_PATTERN.fullmatch(text) is None:
+    match = _TIMESTAMP_PATTERN.fullmatch(text)
+    if match is None:
         _fail("timestamp must use strict ISO-8601 date-time syntax")
+    if match.group("offset") == "-00:00":
+        _fail("timestamp must not use an unknown UTC offset")
     try:
         parsed = _datetime.fromisoformat(
             text[:-1] + "+00:00" if text.endswith("Z") else text
         )
         if parsed.tzinfo is None or parsed.utcoffset() is None:
             _fail("timestamp must be timezone-aware")
+        whole_utc = parsed.replace(microsecond=0).astimezone(
+            _datetime_timezone.utc
+        )
+        delta = whole_utc - _EPOCH
+        exact = _Decimal(delta.days * 86_400 + delta.seconds)
+        fraction = match.group("fraction")
+        if fraction is not None:
+            exact += _Decimal(f"0.{fraction}")
     except InvalidResearchInputEvidence:
         raise
     except Exception:
         _fail("timestamp must be valid ISO-8601")
-    return text, parsed
+    return text, exact
 
 
 def _calendar_date(value: object) -> str:
@@ -135,11 +153,21 @@ def _calendar_date(value: object) -> str:
 def _timezone(value: object) -> str:
     text = _nonempty(value)
     try:
-        if text not in _available_timezones():
-            _fail("timezone must be a valid IANA timezone")
+        available = _available_timezones()
+    except Exception:
+        _fail("IANA timezone database is unavailable")
+    if not available:
+        _fail("IANA timezone database is unavailable")
+    if (
+        text in _HOST_LOCAL_TIMEZONE_KEYS
+        or text.startswith(_HOST_LOCAL_TIMEZONE_PREFIXES)
+        or text not in available
+    ):
+        _fail("timezone must be a valid IANA timezone")
+    try:
         _ZoneInfo(text)
     except Exception:
-        _fail("timezone must be a valid IANA timezone")
+        _fail("IANA timezone database cannot load the requested timezone")
     return text
 
 
@@ -147,7 +175,7 @@ def _member_path(value: object) -> str:
     path = _nonempty(value)
     if path.startswith("/") or "\\" in path or "\x00" in path:
         _fail("member path must be relative POSIX")
-    if any(part in {".", ".."} for part in path.split("/")):
+    if any(part in {"", ".", ".."} for part in path.split("/")):
         _fail("member path contains an unsafe segment")
     return path
 
@@ -160,7 +188,7 @@ def _canonical_order(value: object) -> object:
     return value
 
 
-def _validate(manifest: Mapping[str, object]) -> dict[str, object]:
+def _validate(manifest: _Mapping[str, object]) -> dict[str, object]:
     root = _object(
         manifest,
         _TOP_LEVEL_REQUIRED,
@@ -282,9 +310,12 @@ def _validate(manifest: Mapping[str, object]) -> dict[str, object]:
 
 
 def validate_research_input_manifest(
-    manifest: Mapping[str, object],
+    manifest: _Mapping[str, object],
 ) -> dict[str, object]:
-    """Validate and return an independent canonical-order manifest."""
+    """Validate and return an independent canonical-order manifest.
+
+    The runtime must provide a system tzdb or the ``tzdata`` package.
+    """
     try:
         return _validate(manifest)
     except InvalidResearchInputEvidence:
@@ -294,7 +325,7 @@ def validate_research_input_manifest(
 
 
 def canonical_research_input_manifest_bytes(
-    manifest: Mapping[str, object],
+    manifest: _Mapping[str, object],
 ) -> bytes:
     """Return strict canonical UTF-8 JSON bytes without a trailing newline."""
     try:
@@ -312,7 +343,7 @@ def canonical_research_input_manifest_bytes(
         raise InvalidResearchInputEvidence("cannot canonicalize manifest") from None
 
 
-def research_input_manifest_sha256(manifest: Mapping[str, object]) -> str:
+def research_input_manifest_sha256(manifest: _Mapping[str, object]) -> str:
     """Return the SHA-256 digest of strict canonical manifest bytes."""
     try:
         return _hashlib.sha256(
