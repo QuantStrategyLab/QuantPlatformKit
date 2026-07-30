@@ -753,3 +753,13 @@ def test_rejects_non_ascii_rfc3339_fraction_digits() -> None:
     manifest["observed_at"] = "2026-07-30T08:00:00.١Z"
 
     _assert_invalid(manifest)
+
+
+def test_schema_member_path_rejects_whitespace_only_like_runtime() -> None:
+    manifest = _valid_manifest()
+    manifest["members"][0]["path"] = " \t"
+    schema = _load_schema()
+    pattern = schema["$defs"]["member"]["properties"]["path"]["pattern"]
+
+    assert re.fullmatch(pattern, " \t") is None
+    _assert_invalid(manifest)
