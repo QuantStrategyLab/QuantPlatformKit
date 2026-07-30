@@ -30,6 +30,44 @@ class TelegramTests(unittest.TestCase):
         self.assertEqual(request.full_url, "https://api.telegram.org/bottoken/sendMessage")
         self.assertEqual(request.method, "POST")
 
+    def test_send_telegram_message_rejects_negative_api_ack(self) -> None:
+        fake_response = MagicMock(status=200)
+        fake_response.read.return_value = json.dumps(
+            {"ok": False, "description": "chat not found"}
+        ).encode("utf-8")
+        fake_context = MagicMock()
+        fake_context.__enter__.return_value = fake_response
+        fake_context.__exit__.return_value = None
+
+        sent = send_telegram_message(
+            "token",
+            "123",
+            "hello world",
+            opener=lambda *_args, **_kwargs: fake_context,
+            printer=lambda *_args, **_kwargs: None,
+        )
+
+        self.assertFalse(sent)
+
+    def test_send_telegram_message_requires_affirmative_api_ack(self) -> None:
+        for payload in (b"not-json", b"{}", b'{"ok": 0}'):
+            with self.subTest(payload=payload):
+                fake_response = MagicMock(status=200)
+                fake_response.read.return_value = payload
+                fake_context = MagicMock()
+                fake_context.__enter__.return_value = fake_response
+                fake_context.__exit__.return_value = None
+
+                sent = send_telegram_message(
+                    "token",
+                    "123",
+                    "hello world",
+                    opener=lambda *_args, **_kwargs: fake_context,
+                    printer=lambda *_args, **_kwargs: None,
+                )
+
+                self.assertFalse(sent)
+
 
 if __name__ == "__main__":
     unittest.main()

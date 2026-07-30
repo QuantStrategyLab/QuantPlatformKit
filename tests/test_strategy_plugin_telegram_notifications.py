@@ -55,6 +55,9 @@ def _auto_consumable_signal():
 class _FakeResponse:
     status = 200
 
+    def read(self):
+        return b'{"ok": true}'
+
     def __enter__(self):
         return self
 

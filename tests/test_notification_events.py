@@ -42,3 +42,17 @@ def test_notification_publisher_uses_configured_sinks():
 
     assert logs == ["log"]
     assert sends == ["send"]
+
+
+def test_notification_publisher_propagates_explicit_delivery_failure():
+    publisher = NotificationPublisher(
+        log_message=lambda _message: None,
+        send_message=lambda _message: False,
+    )
+
+    assert (
+        publisher.publish(
+            RenderedNotification(detailed_text="log", compact_text="send"),
+        )
+        is False
+    )

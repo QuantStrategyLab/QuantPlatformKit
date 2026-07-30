@@ -233,9 +233,9 @@ class TelegramChatChannel:
     ) -> bool:
         from .telegram import send_telegram_message
         return send_telegram_message(
-            chat_id=chat_id,
+            chat_ids=chat_id,
             text=text,
-            token=token,
+            bot_token=token,
             api_base_url=api_base_url,
             parse_mode=parse_mode,
         )

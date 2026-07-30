@@ -25,7 +25,7 @@ class ExecutionPort(Protocol):
 
 
 class NotificationPort(Protocol):
-    def send_text(self, message: str) -> None:
+    def send_text(self, message: str) -> bool | None:
         """Send a plain-text notification."""
 
 

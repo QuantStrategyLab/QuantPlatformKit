@@ -1,8 +1,8 @@
 """Cycle notification sender factory.
 
 Provides a single entry point for building channel-agnostic notification
-senders.  Each sender is a ``Callable[[str], None]`` that accepts a fully
-rendered message string and delivers it to the configured channel.
+senders.  Each sender is a ``Callable[[str], bool]`` that accepts a fully
+rendered message string and returns whether the transport acknowledged it.
 
 Supported channels:
   - telegram   — Telegram Bot API (default)
@@ -58,8 +58,8 @@ def build_cycle_sender(
     telegram_chat_id: str | None = None,
     webhook_url: str | None = None,
     printer: Any = print,
-) -> Callable[[str], None]:
-    """Build a ``send_message(message: str) -> None`` callback for *channel*.
+) -> Callable[[str], bool]:
+    """Build a ``send_message(message: str) -> bool`` callback for *channel*.
 
     Args:
         channel: One of ``"telegram"``, ``"wecom"``, ``"dingtalk"``,
@@ -163,23 +163,23 @@ def _build_telegram_sender(
     token: str | None,
     chat_id: str | None,
     printer: Any = print,
-) -> Callable[[str], None]:
+) -> Callable[[str], bool]:
     from .telegram import send_telegram_message
 
     resolved_token = str(token or "").strip()
     resolved_chat_id = str(chat_id or "").strip()
 
-    def send_message(message: str) -> None:
+    def send_message(message: str) -> bool:
         if not resolved_token:
             printer("Cycle sender: telegram token not configured", flush=True)
-            return
+            return False
         if not resolved_chat_id:
             printer("Cycle sender: telegram chat_id not configured", flush=True)
-            return
+            return False
         text = str(message or "").strip()
         if not text:
-            return
-        send_telegram_message(
+            return False
+        return send_telegram_message(
             bot_token=resolved_token,
             chat_ids=resolved_chat_id,
             text=text,
@@ -199,7 +199,7 @@ def _build_webhook_sender(
     channel: str,
     webhook_url: str | None,
     printer: Any = print,
-) -> Callable[[str], None]:
+) -> Callable[[str], bool]:
     from .webhook import (
         WEBHOOK_PROVIDER_DINGTALK,
         WEBHOOK_PROVIDER_FEISHU,
@@ -213,25 +213,31 @@ def _build_webhook_sender(
 
     resolved_url = str(webhook_url or "").strip()
 
-    def send_message(message: str) -> None:
+    def send_message(message: str) -> bool:
         nonlocal resolved_url
         if not resolved_url:
             printer(f"Cycle sender: webhook URL not configured for {channel}", flush=True)
-            return
+            return False
         text = str(message or "").strip()
         if not text:
-            return
+            return False
         if channel == WEBHOOK_PROVIDER_WECOM:
-            send_wecom_webhook(resolved_url, text, printer=printer)
+            return send_wecom_webhook(resolved_url, text, printer=printer)
         elif channel == WEBHOOK_PROVIDER_DINGTALK:
-            send_dingtalk_webhook(resolved_url, text, printer=printer)
+            return send_dingtalk_webhook(resolved_url, text, printer=printer)
         elif channel == WEBHOOK_PROVIDER_FEISHU:
-            send_feishu_webhook(resolved_url, text, printer=printer)
+            return send_feishu_webhook(resolved_url, text, printer=printer)
         elif channel == WEBHOOK_PROVIDER_SERVERCHAN:
             # ServerChan: first line → title, remainder → body
             lines = text.split("\n", 1)
             title = lines[0]
             body = lines[1] if len(lines) > 1 else ""
-            send_serverchan_webhook(resolved_url, title=title, body=body, printer=printer)
+            return send_serverchan_webhook(
+                resolved_url,
+                title=title,
+                body=body,
+                printer=printer,
+            )
+        return False
 
     return send_message
