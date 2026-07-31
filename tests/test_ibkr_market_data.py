@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from quant_platform_kit.ibkr.market_data import (
     fetch_historical_price_candles,
@@ -300,6 +301,11 @@ class IbkrMarketDataTests(unittest.TestCase):
         self.assertEqual(ib.market_data_type_calls, [3, 4, 1, 1])
 
     def test_fetch_option_chain_snapshot_returns_bounded_contract_rows(self) -> None:
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 7, 30, tzinfo=timezone.utc)
+
         class OptionChainIB(FakeIB):
             def qualifyContracts(self, contract):
                 self.qualified.append(contract)
@@ -325,17 +331,18 @@ class IbkrMarketDataTests(unittest.TestCase):
                 return FakeTicker(102.5, close=101.8, bid=102.4, ask=102.6)
 
         ib = OptionChainIB()
-        snapshot = fetch_option_chain_snapshot(
-            ib,
-            "TQQQ",
-            rights=("C",),
-            min_dte=540,
-            max_dte=930,
-            target_dte=730,
-            wait_seconds=0,
-            stock_factory=FakeContract,
-            option_factory=FakeOptionContract,
-        )
+        with patch("quant_platform_kit.ibkr.market_data.datetime", FrozenDateTime):
+            snapshot = fetch_option_chain_snapshot(
+                ib,
+                "TQQQ",
+                rights=("C",),
+                min_dte=540,
+                max_dte=930,
+                target_dte=730,
+                wait_seconds=0,
+                stock_factory=FakeContract,
+                option_factory=FakeOptionContract,
+            )
 
         self.assertEqual(snapshot["underlier"], "TQQQ")
         self.assertEqual(snapshot["spot"], 102.5)
