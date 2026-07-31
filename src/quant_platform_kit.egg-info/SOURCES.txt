@@ -65,6 +65,7 @@ src/quant_platform_kit/common/platform_runner/loader.py
 src/quant_platform_kit/common/platform_runner/monitor.py
 src/quant_platform_kit/data/__init__.py
 src/quant_platform_kit/data/manifest.py
+src/quant_platform_kit/data/research_input.py
 src/quant_platform_kit/data/version.py
 src/quant_platform_kit/ibkr/__init__.py
 src/quant_platform_kit/ibkr/connection.py
@@ -105,6 +106,7 @@ src/quant_platform_kit/risk/engine.py
 src/quant_platform_kit/risk/gate.py
 src/quant_platform_kit/risk/portfolio_diagnostics.py
 src/quant_platform_kit/schemas/optimization-spec.v1.schema.json
+src/quant_platform_kit/schemas/research-input-manifest.v1.schema.json
 src/quant_platform_kit/schemas/research-spec.v1.schema.json
 src/quant_platform_kit/schwab/__init__.py
 src/quant_platform_kit/schwab/auth.py
@@ -117,6 +119,7 @@ src/quant_platform_kit/strategy_lifecycle/ai_reviewer.py
 src/quant_platform_kit/strategy_lifecycle/audit_log.py
 src/quant_platform_kit/strategy_lifecycle/backtest_orchestrator.py
 src/quant_platform_kit/strategy_lifecycle/backtest_scheduler.py
+src/quant_platform_kit/strategy_lifecycle/capabilities.py
 src/quant_platform_kit/strategy_lifecycle/cli.py
 src/quant_platform_kit/strategy_lifecycle/codex_integration.py
 src/quant_platform_kit/strategy_lifecycle/config_writer.py
@@ -127,6 +130,7 @@ src/quant_platform_kit/strategy_lifecycle/drift_detector.py
 src/quant_platform_kit/strategy_lifecycle/drift_policy.py
 src/quant_platform_kit/strategy_lifecycle/evidence_gate.py
 src/quant_platform_kit/strategy_lifecycle/health_dashboard.py
+src/quant_platform_kit/strategy_lifecycle/legacy_profile_index.py
 src/quant_platform_kit/strategy_lifecycle/live_candidate_notifications.py
 src/quant_platform_kit/strategy_lifecycle/live_equity.py
 src/quant_platform_kit/strategy_lifecycle/market_regime.py
@@ -136,6 +140,7 @@ src/quant_platform_kit/strategy_lifecycle/performance_export.py
 src/quant_platform_kit/strategy_lifecycle/performance_metrics.py
 src/quant_platform_kit/strategy_lifecycle/performance_monitor.py
 src/quant_platform_kit/strategy_lifecycle/performance_store.py
+src/quant_platform_kit/strategy_lifecycle/qpk_vnext_n1.py
 src/quant_platform_kit/strategy_lifecycle/return_collector.py
 src/quant_platform_kit/strategy_lifecycle/rollback_manager.py
 src/quant_platform_kit/strategy_lifecycle/shadow_validator.py
@@ -145,6 +150,7 @@ src/quant_platform_kit/strategy_lifecycle/update_policy.py
 src/quant_platform_kit/strategy_spec/__init__.py
 src/quant_platform_kit/strategy_spec/cli.py
 src/quant_platform_kit/strategy_spec/validation.py
+tests/test_backtest_capabilities.py
 tests/test_backtest_orchestrator.py
 tests/test_binance_account.py
 tests/test_binance_client.py
@@ -157,6 +163,7 @@ tests/test_cn_equity_calendar.py
 tests/test_common_health.py
 tests/test_common_history.py
 tests/test_common_port_adapters.py
+tests/test_cycle_channel.py
 tests/test_execution_capabilities.py
 tests/test_execution_outcomes.py
 tests/test_execution_state.py
@@ -167,6 +174,7 @@ tests/test_ibkr_execution.py
 tests/test_ibkr_market_data.py
 tests/test_ibkr_portfolio.py
 tests/test_ibkr_runtime_inputs.py
+tests/test_legacy_profile_index.py
 tests/test_lifecycle_ai_provider.py
 tests/test_lifecycle_cli.py
 tests/test_lifecycle_codex_integration.py
@@ -187,6 +195,7 @@ tests/test_longbridge_order_quantity_api_probe.py
 tests/test_longbridge_portfolio.py
 tests/test_market_signal_artifacts.py
 tests/test_models.py
+tests/test_notification_channels.py
 tests/test_notification_events.py
 tests/test_notification_localization.py
 tests/test_notification_redaction.py
@@ -196,9 +205,11 @@ tests/test_param_optimizer.py
 tests/test_portfolio_diagnostics.py
 tests/test_position_sizing.py
 tests/test_qpk_pin_consistency.py
+tests/test_qpk_vnext_n1.py
 tests/test_qsl_compat_metadata.py
 tests/test_qsl_pin_manifests.py
 tests/test_quantconnect.py
+tests/test_research_input_manifest_contract.py
 tests/test_reusable_drift_workflow.py
 tests/test_risk_gate.py
 tests/test_runtime_assembly.py
@@ -222,6 +233,7 @@ tests/test_strategy_plugin_push_notifications.py
 tests/test_strategy_plugin_sms_notifications.py
 tests/test_strategy_plugin_telegram_notifications.py
 tests/test_strategy_plugins.py
+tests/test_strategy_review_validator.py
 tests/test_strategy_spec_validation.py
 tests/test_telegram.py
 tests/test_update_orchestrator.py
