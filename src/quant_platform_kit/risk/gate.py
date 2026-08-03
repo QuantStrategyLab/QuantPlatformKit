@@ -67,7 +67,7 @@ def apply_risk_gate(
     Checks (in order):
     1. Circuit breaker from diagnostics (unrealized_pnl_pct, consecutive_losses)
     2. Mandate-specific single-account and leverage classification limits
-    3. 10% unlevered fallback when no mandate is approved
+    3. Legacy caller-supplied concentration limits when no mandate is supplied
     4. Legacy position-count and total-exposure limits
     5. RiskEngine.assess() when portfolio_snapshot is provided
 
@@ -198,13 +198,13 @@ def apply_risk_gate(
                 flag="rejected:unknown_risk_mandate",
                 reason="风险授权未获批准",
             )
-        effective_single_weight = min(
-            _DEFAULT_MAX_SINGLE_WEIGHT,
+        effective_single_weight = (
             float(max_single_weight)
             if isinstance(max_single_weight, (int, float))
             and not isinstance(max_single_weight, bool)
             and math.isfinite(float(max_single_weight))
-            else _DEFAULT_MAX_SINGLE_WEIGHT,
+            and 0.0 <= float(max_single_weight) <= 1.0
+            else _DEFAULT_MAX_SINGLE_WEIGHT
         )
         for position, weight in weights:
             if weight > effective_single_weight:

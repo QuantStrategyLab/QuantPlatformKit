@@ -24,7 +24,7 @@ def _decision(
 
 
 class ApplyRiskGateTests(unittest.TestCase):
-    def test_no_mandate_cannot_raise_ten_percent_fallback(self) -> None:
+    def test_no_mandate_honors_explicit_legacy_single_weight_limit(self) -> None:
         decision = _decision(
             positions=(PositionTarget(symbol="SPY", target_weight=0.11),),
         )
@@ -36,9 +36,8 @@ class ApplyRiskGateTests(unittest.TestCase):
             max_total_exposure=1.0,
         )
 
-        self.assertEqual(result.positions, ())
-        self.assertEqual(result.risk_flags, ("rejected:concentration",))
-        self.assertEqual(result.diagnostics.get("risk_gate"), "REJECT")
+        self.assertEqual(len(result.positions), 1)
+        self.assertIn("risk_gate:passed", result.risk_flags)
 
     def test_no_mandate_allows_exactly_ten_percent(self) -> None:
         result = apply_risk_gate(
@@ -47,6 +46,15 @@ class ApplyRiskGateTests(unittest.TestCase):
 
         self.assertEqual(len(result.positions), 1)
         self.assertIn("risk_gate:passed", result.risk_flags)
+
+    def test_unknown_mandate_remains_fail_closed(self) -> None:
+        result = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.10),)),
+            risk_mandate_id="unapproved_mandate_v1",
+        )
+
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:unknown_risk_mandate",))
 
     def test_reject_concentration(self) -> None:
         decision = _decision(
@@ -156,6 +164,20 @@ class BootstrapSmallAccountV2RiskGateTests(unittest.TestCase):
 
         self.assertEqual(result.positions, ())
         self.assertEqual(result.risk_flags, ("rejected:too_many_positions",))
+
+    def test_approved_mandate_does_not_grandfather_legacy_single_weight_limit(
+        self,
+    ) -> None:
+        result = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.51),)),
+            risk_mandate_id=self._MANDATE,
+            product_leverage_factors={"SPY": 1},
+            available_account_exposure=0.50,
+            max_single_weight=1.0,
+        )
+
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:concentration",))
 
     def test_approved_mandate_rejects_missing_or_invalid_leverage_classification(
         self,
