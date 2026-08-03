@@ -97,6 +97,13 @@ jobs:
           echo "::endgroup::"
           echo "All compatibility checks passed."
 
+      - name: Restore generated editable-install metadata
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          git restore -- \
+            src/quant_platform_kit.egg-info/PKG-INFO \
+            src/quant_platform_kit.egg-info/SOURCES.txt
+
       - name: Create PR for pin update
         id: create_pin_pr
         if: steps.update.outputs.changed == 'true'
@@ -119,6 +126,10 @@ jobs:
           branch: auto/qpk-pin-update
           delete-branch: true
           base: main
+          add-paths: |
+            QPK_PIN
+            qsl-pins.txt
+            constraints.txt
 
       - name: Report blocked pin PR creation
         if: steps.update.outputs.changed == 'true' && steps.create_pin_pr.outcome == 'failure'
