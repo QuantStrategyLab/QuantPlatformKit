@@ -5,7 +5,10 @@ from unittest.mock import patch
 
 from quant_platform_kit.risk.contracts import ROUTE_BLOCKED, RiskSignal
 from quant_platform_kit.risk.engine import RiskEngine
-from quant_platform_kit.risk.gate import apply_risk_gate, enrich_decision_risk_diagnostics
+from quant_platform_kit.risk.gate import (
+    apply_risk_gate,
+    enrich_decision_risk_diagnostics,
+)
 from quant_platform_kit.strategy_contracts import PositionTarget, StrategyDecision
 
 
@@ -21,12 +24,9 @@ def _decision(
 
 
 class ApplyRiskGateTests(unittest.TestCase):
-    def test_approve_within_limits(self) -> None:
+    def test_no_mandate_cannot_raise_ten_percent_fallback(self) -> None:
         decision = _decision(
-            positions=(
-                PositionTarget(symbol="SPY", target_weight=0.40),
-                PositionTarget(symbol="QQQ", target_weight=0.30),
-            ),
+            positions=(PositionTarget(symbol="SPY", target_weight=0.11),),
         )
 
         result = apply_risk_gate(
@@ -36,9 +36,17 @@ class ApplyRiskGateTests(unittest.TestCase):
             max_total_exposure=1.0,
         )
 
-        self.assertEqual(len(result.positions), 2)
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:concentration",))
+        self.assertEqual(result.diagnostics.get("risk_gate"), "REJECT")
+
+    def test_no_mandate_allows_exactly_ten_percent(self) -> None:
+        result = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.10),)),
+        )
+
+        self.assertEqual(len(result.positions), 1)
         self.assertIn("risk_gate:passed", result.risk_flags)
-        self.assertEqual(result.diagnostics.get("risk_gate"), "APPROVE")
 
     def test_reject_concentration(self) -> None:
         decision = _decision(
@@ -92,7 +100,7 @@ class ApplyRiskGateTests(unittest.TestCase):
                 )
 
         decision = _decision(
-            positions=(PositionTarget(symbol="SPY", target_weight=0.50),),
+            positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
         )
         engine = RiskEngine(plugins=(BlockingPlugin(),))
         assessment = engine.assess(decision, {"total_equity": 100_000.0})
@@ -111,13 +119,92 @@ class ApplyRiskGateTests(unittest.TestCase):
         self.assertEqual(gated.risk_flags, ("rejected:risk_engine",))
 
 
+class BootstrapSmallAccountV2RiskGateTests(unittest.TestCase):
+    _MANDATE = "bootstrap_small_account_v2"
+
+    def _apply(
+        self,
+        positions: tuple[PositionTarget, ...],
+        *,
+        product_leverage_factors: dict[str, int] | None = None,
+        available_account_exposure: float | None = 0.50,
+    ) -> StrategyDecision:
+        return apply_risk_gate(
+            _decision(positions=positions),
+            risk_mandate_id=self._MANDATE,
+            product_leverage_factors=product_leverage_factors,
+            available_account_exposure=available_account_exposure,
+        )
+
+    def test_approved_mandate_allows_one_classified_position_within_caps(self) -> None:
+        result = self._apply(
+            (PositionTarget(symbol="SPY", target_weight=0.20),),
+            product_leverage_factors={"SPY": 1},
+        )
+
+        self.assertEqual(len(result.positions), 1)
+        self.assertIn("risk_gate:passed", result.risk_flags)
+
+    def test_approved_mandate_rejects_two_nonzero_targets(self) -> None:
+        result = self._apply(
+            (
+                PositionTarget(symbol="SPY", target_weight=0.10),
+                PositionTarget(symbol="BOXX", target_weight=0.10),
+            ),
+            product_leverage_factors={"SPY": 1, "BOXX": 1},
+        )
+
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:too_many_positions",))
+
+    def test_approved_mandate_rejects_missing_or_invalid_leverage_classification(
+        self,
+    ) -> None:
+        decision = (PositionTarget(symbol="SPY", target_weight=0.20),)
+        for factors in (None, {"SPY": 4}, {"QQQ": 1}):
+            with self.subTest(factors=factors):
+                result = self._apply(decision, product_leverage_factors=factors)
+                self.assertEqual(result.positions, ())
+                self.assertEqual(
+                    result.risk_flags, ("rejected:leverage_classification",)
+                )
+
+    def test_approved_mandate_enforces_nominal_and_effective_exposure_caps(
+        self,
+    ) -> None:
+        rejected = self._apply(
+            (PositionTarget(symbol="TQQQ", target_weight=0.20),),
+            product_leverage_factors={"TQQQ": 3},
+        )
+        approved = self._apply(
+            (PositionTarget(symbol="QLD", target_weight=0.25),),
+            product_leverage_factors={"QLD": 2},
+        )
+
+        self.assertEqual(rejected.positions, ())
+        self.assertEqual(rejected.risk_flags, ("rejected:concentration",))
+        self.assertEqual(len(approved.positions), 1)
+
+    def test_approved_mandate_enforces_available_single_account_capacity(self) -> None:
+        result = self._apply(
+            (PositionTarget(symbol="SPY", target_weight=0.20),),
+            product_leverage_factors={"SPY": 1},
+            available_account_exposure=0.19,
+        )
+
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:overexposed",))
+
+
 if __name__ == "__main__":
     unittest.main()
 
 
 class EnrichDecisionRiskDiagnosticsTests(unittest.TestCase):
     def test_enrich_sets_fields(self) -> None:
-        decision = _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.50),))
+        decision = _decision(
+            positions=(PositionTarget(symbol="SPY", target_weight=0.50),)
+        )
         enriched = enrich_decision_risk_diagnostics(
             decision,
             unrealized_pnl_pct=-0.05,
@@ -133,7 +220,9 @@ class EnrichDecisionRiskDiagnosticsTests(unittest.TestCase):
         self.assertIs(enriched, decision)
 
     def test_enrich_then_gate_rejects_stop_loss(self) -> None:
-        decision = _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.50),))
+        decision = _decision(
+            positions=(PositionTarget(symbol="SPY", target_weight=0.50),)
+        )
         enriched = enrich_decision_risk_diagnostics(decision, unrealized_pnl_pct=-0.25)
         result = apply_risk_gate(enriched)
         self.assertEqual(result.risk_flags, ("rejected:stop_loss",))

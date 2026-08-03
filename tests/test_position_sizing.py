@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import unittest
 
-from quant_platform_kit.position_sizing import KellyResult, estimate_kelly
+from quant_platform_kit.position_sizing import (
+    KellyResult,
+    estimate_kelly,
+    risk_budgeted_target_weight,
+)
 
 
 class PositionSizingTests(unittest.TestCase):
@@ -98,6 +102,77 @@ class PositionSizingTests(unittest.TestCase):
         self.assertEqual(result.kelly_fraction, 0.0)
         self.assertEqual(result.half_kelly, 0.0)
         self.assertEqual(result.max_position_pct, 0.0)
+
+
+class RiskBudgetedTargetWeightTests(unittest.TestCase):
+    def _approved_inputs(self, **overrides: object) -> dict[str, object]:
+        return {
+            "risk_mandate_id": "bootstrap_small_account_v2",
+            "account_equity": 2_000.0,
+            "risk_fraction": 0.01,
+            "stop_loss_distance": 0.05,
+            "drawdown_scalar": 1.0,
+            "available_account_exposure": 0.50,
+            "product_leverage_factor": 1,
+            "inputs_fresh": True,
+            **overrides,
+        }
+
+    def test_approved_mandate_matches_one_percent_five_percent_stop_example(
+        self,
+    ) -> None:
+        self.assertAlmostEqual(
+            risk_budgeted_target_weight(**self._approved_inputs()), 0.20
+        )
+
+    def test_approved_mandate_applies_product_and_effective_exposure_caps(self) -> None:
+        self.assertAlmostEqual(
+            risk_budgeted_target_weight(
+                **self._approved_inputs(product_leverage_factor=2),
+            ),
+            0.20,
+        )
+        self.assertEqual(
+            risk_budgeted_target_weight(
+                **self._approved_inputs(product_leverage_factor=3),
+            ),
+            0.15,
+        )
+
+    def test_approved_mandate_clamps_to_available_single_account_exposure(self) -> None:
+        self.assertEqual(
+            risk_budgeted_target_weight(
+                **self._approved_inputs(available_account_exposure=0.10),
+            ),
+            0.10,
+        )
+
+    def test_without_approved_mandate_cannot_use_leverage_or_exceed_ten_percent(
+        self,
+    ) -> None:
+        inputs = self._approved_inputs(risk_mandate_id=None)
+        self.assertEqual(risk_budgeted_target_weight(**inputs), 0.10)
+        self.assertEqual(
+            risk_budgeted_target_weight(**{**inputs, "product_leverage_factor": 2}),
+            0.0,
+        )
+
+    def test_invalid_stale_or_over_budget_inputs_fail_closed(self) -> None:
+        invalid_cases = (
+            {"risk_fraction": 0.0100001},
+            {"product_leverage_factor": 4},
+            {"drawdown_scalar": 1.01},
+            {"available_account_exposure": 0.51},
+            {"account_equity": float("nan")},
+            {"stop_loss_distance": float("inf")},
+            {"inputs_fresh": False},
+        )
+        for overrides in invalid_cases:
+            with self.subTest(overrides=overrides):
+                self.assertEqual(
+                    risk_budgeted_target_weight(**self._approved_inputs(**overrides)),
+                    0.0,
+                )
 
 
 if __name__ == "__main__":
