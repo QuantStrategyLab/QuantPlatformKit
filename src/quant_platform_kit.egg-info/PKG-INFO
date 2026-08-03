@@ -7,13 +7,6 @@ License-Expression: MIT
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
-Provides-Extra: dev
-Requires-Dist: pytest; extra == "dev"
-Requires-Dist: pytest-cov; extra == "dev"
-Requires-Dist: ruff; extra == "dev"
-Requires-Dist: jsonschema<5,>=4.18; extra == "dev"
-Requires-Dist: numpy; extra == "dev"
-Requires-Dist: pandas; extra == "dev"
 Dynamic: license-file
 
 # QuantPlatformKit
