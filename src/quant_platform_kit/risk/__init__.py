@@ -11,6 +11,8 @@ from quant_platform_kit.risk.contracts import (
     RegimeRoute,
     RiskAction,
     RiskAssessment,
+    RiskGateAssessment,
+    RiskGateResult,
     RiskSignal,
 )
 from quant_platform_kit.risk.engine import (
@@ -18,7 +20,11 @@ from quant_platform_kit.risk.engine import (
     aggregate_risk_signals,
     build_risk_engine,
 )
-from quant_platform_kit.risk.gate import apply_risk_gate, enrich_decision_risk_diagnostics
+from quant_platform_kit.risk.gate import (
+    assess_with_evidence,
+    apply_risk_gate,
+    enrich_decision_risk_diagnostics,
+)
 from quant_platform_kit.risk.portfolio_diagnostics import (
     compute_unrealized_pnl_pct,
     extract_portfolio_risk_diagnostics,
@@ -29,9 +35,12 @@ __all__ = [
     "RegimeRoute",
     "RiskAction",
     "RiskAssessment",
+    "RiskGateAssessment",
+    "RiskGateResult",
     "RiskEngine",
     "RiskSignal",
     "aggregate_risk_signals",
+    "assess_with_evidence",
     "apply_risk_gate",
     "compute_unrealized_pnl_pct",
     "enrich_decision_risk_diagnostics",
