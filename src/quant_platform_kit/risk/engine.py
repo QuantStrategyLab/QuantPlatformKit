@@ -15,8 +15,10 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Callable, Mapping, Protocol
 
+from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.risk.contracts import (
     REGIME_NORMAL,
     ROUTE_BLOCKED,
@@ -118,7 +120,35 @@ class RiskEngine:
         *,
         market_data: Mapping[str, Any] | None = None,
     ) -> RiskAction:
-        """Assess whether a strategy decision is allowed under current risk context."""
+        """Assess a decision, rejecting missing or invalid account state."""
+        if portfolio_snapshot is None:
+            return RiskAction(
+                action="reject",
+                reason="missing_portfolio_snapshot",
+                budget_scalar=0.0,
+                leverage_scalar=0.0,
+                risk_asset_scalar=0.0,
+            )
+        if isinstance(portfolio_snapshot, PortfolioSnapshot):
+            total_equity = portfolio_snapshot.total_equity
+        elif isinstance(portfolio_snapshot, Mapping):
+            total_equity = portfolio_snapshot.get("total_equity")
+        else:
+            total_equity = None
+        if (
+            isinstance(total_equity, bool)
+            or not isinstance(total_equity, (int, float))
+            or not math.isfinite(float(total_equity))
+            or float(total_equity) <= 0.0
+        ):
+            return RiskAction(
+                action="reject",
+                reason="invalid_portfolio_snapshot",
+                budget_scalar=0.0,
+                leverage_scalar=0.0,
+                risk_asset_scalar=0.0,
+            )
+
         md: dict[str, Any] = dict(market_data or {})
         md["portfolio_snapshot"] = portfolio_snapshot
         md["strategy_decision"] = decision

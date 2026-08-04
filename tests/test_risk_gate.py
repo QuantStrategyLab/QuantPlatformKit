@@ -26,6 +26,49 @@ def _decision(
     )
 
 
+def _portfolio_snapshot() -> dict[str, float]:
+    return {"total_equity": 100_000.0}
+
+
+class RiskEngineAssessmentTests(unittest.TestCase):
+    def test_missing_or_invalid_portfolio_snapshot_rejects(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
+        )
+
+        for snapshot, reason in (
+            (None, "missing_portfolio_snapshot"),
+            ({}, "invalid_portfolio_snapshot"),
+            ({"total_equity": 0.0}, "invalid_portfolio_snapshot"),
+            ({"total_equity": float("inf")}, "invalid_portfolio_snapshot"),
+            (object(), "invalid_portfolio_snapshot"),
+        ):
+            with self.subTest(snapshot=snapshot):
+                assessment = RiskEngine().assess(decision, snapshot)
+
+            self.assertEqual(assessment.action, "reject")
+            self.assertEqual(assessment.reason, reason)
+            self.assertEqual(assessment.budget_scalar, 0.0)
+            self.assertEqual(assessment.leverage_scalar, 0.0)
+            self.assertEqual(assessment.risk_asset_scalar, 0.0)
+
+    def test_finite_portfolio_snapshot_remains_approved(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
+        )
+        canonical = PortfolioSnapshot(
+            as_of=datetime(2026, 8, 5, tzinfo=timezone.utc),
+            total_equity=100_000.0,
+        )
+
+        for snapshot in (_portfolio_snapshot(), canonical):
+            with self.subTest(snapshot=snapshot):
+                assessment = RiskEngine().assess(decision, snapshot)
+
+            self.assertEqual(assessment.action, "approve")
+            self.assertEqual(assessment.reason, "risk_engine_passed")
+
+
 class ApplyRiskGateTests(unittest.TestCase):
     def test_no_mandate_does_not_allow_caller_to_expand_default_cap(self) -> None:
         decision = _decision(
@@ -46,10 +89,32 @@ class ApplyRiskGateTests(unittest.TestCase):
     def test_no_mandate_allows_exactly_ten_percent(self) -> None:
         result = apply_risk_gate(
             _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.10),)),
+            product_leverage_factors={"SPY": 1},
+            portfolio_snapshot=_portfolio_snapshot(),
         )
 
         self.assertEqual(len(result.positions), 1)
         self.assertIn("risk_gate:passed", result.risk_flags)
+
+    def test_no_mandate_rejects_missing_or_leveraged_classification(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
+        )
+
+        for factors in (None, {"SPY": 2}, {"QQQ": 1}):
+            with self.subTest(factors=factors):
+                result = apply_risk_gate(
+                    decision,
+                    product_leverage_factors=factors,
+                    portfolio_snapshot=_portfolio_snapshot(),
+                )
+
+            self.assertEqual(result.positions, ())
+            self.assertEqual(result.budgets, ())
+            self.assertEqual(
+                result.risk_flags,
+                ("rejected:leverage_classification",),
+            )
 
     def test_no_mandate_rejects_multiple_nonzero_positions(self) -> None:
         result = apply_risk_gate(
@@ -138,6 +203,7 @@ class ApplyRiskGateTests(unittest.TestCase):
         ):
             gated = apply_risk_gate(
                 decision,
+                product_leverage_factors={"SPY": 1},
                 portfolio_snapshot={"total_equity": 100_000.0},
                 market_data={},
             )
@@ -155,6 +221,7 @@ class ApplyRiskGateTests(unittest.TestCase):
         with patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine):
             gated = apply_risk_gate(
                 decision,
+                product_leverage_factors={"SPY": 1},
                 portfolio_snapshot={"total_equity": 100_000.0},
                 market_data={},
             )
@@ -162,6 +229,134 @@ class ApplyRiskGateTests(unittest.TestCase):
         self.assertEqual(gated.positions, ())
         self.assertEqual(gated.budgets, ())
         self.assertEqual(gated.risk_flags, ("rejected:risk_engine",))
+        engine.assess.assert_called_once_with(
+            decision,
+            _portfolio_snapshot(),
+            market_data={},
+        )
+
+    def test_missing_snapshot_still_assesses_once_and_rejects(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
+        )
+        engine = Mock(wraps=RiskEngine())
+
+        with patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine):
+            gated = apply_risk_gate(
+                decision,
+                product_leverage_factors={"SPY": 1},
+                portfolio_snapshot=None,
+            )
+
+        self.assertEqual(gated.positions, ())
+        self.assertEqual(gated.budgets, ())
+        self.assertEqual(gated.risk_flags, ("rejected:risk_engine",))
+        self.assertEqual(
+            gated.diagnostics.get("reason"),
+            "missing_portfolio_snapshot",
+        )
+        engine.assess.assert_called_once_with(decision, None, market_data=None)
+
+    def test_every_static_path_assesses_engine_exactly_once(self) -> None:
+        cases = (
+            (
+                "empty",
+                _decision(),
+                {},
+                ("risk_gate:passed",),
+            ),
+            (
+                "concentration",
+                _decision(
+                    positions=(PositionTarget(symbol="SPY", target_weight=0.11),),
+                ),
+                {"product_leverage_factors": {"SPY": 1}},
+                ("rejected:concentration",),
+            ),
+            (
+                "invalid_weight",
+                _decision(
+                    positions=(PositionTarget(symbol="SPY", target_weight="invalid"),),
+                ),
+                {},
+                ("rejected:invalid_weight",),
+            ),
+            (
+                "unknown_mandate",
+                _decision(
+                    positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
+                ),
+                {"risk_mandate_id": "unapproved_mandate_v1"},
+                ("rejected:unknown_risk_mandate",),
+            ),
+            (
+                "leverage",
+                _decision(
+                    positions=(PositionTarget(symbol="SPY", target_weight=0.20),),
+                ),
+                {
+                    "risk_mandate_id": "bootstrap_small_account_v2",
+                    "available_account_exposure": 0.50,
+                },
+                ("rejected:leverage_classification",),
+            ),
+            (
+                "circuit_breaker",
+                _decision(
+                    positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
+                    diagnostics={"consecutive_losses": 6},
+                ),
+                {},
+                ("rejected:circuit_breaker",),
+            ),
+        )
+        for name, decision, kwargs, expected_flags in cases:
+            engine = Mock()
+            engine.assess.return_value = RiskAction(action="approve", reason="passed")
+            with (
+                self.subTest(name=name),
+                patch(
+                    "quant_platform_kit.risk.gate.build_risk_engine",
+                    return_value=engine,
+                ),
+            ):
+                gated = apply_risk_gate(
+                    decision,
+                    portfolio_snapshot=_portfolio_snapshot(),
+                    **kwargs,
+                )
+
+            self.assertEqual(gated.risk_flags, expected_flags)
+            engine.assess.assert_called_once_with(
+                decision,
+                _portfolio_snapshot(),
+                market_data=None,
+            )
+            if expected_flags != ("risk_gate:passed",):
+                self.assertEqual(gated.positions, ())
+                self.assertEqual(gated.budgets, ())
+
+    def test_risk_engine_exception_rejects_without_order_truth(self) -> None:
+        decision = StrategyDecision(
+            positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
+            budgets=(BudgetIntent(name="risk_budget", amount=1.0),),
+        )
+        engine = Mock()
+        engine.assess.side_effect = RuntimeError("private engine failure")
+
+        with patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine):
+            gated = apply_risk_gate(
+                decision,
+                product_leverage_factors={"SPY": 1},
+                portfolio_snapshot=_portfolio_snapshot(),
+            )
+
+        self.assertEqual(gated.positions, ())
+        self.assertEqual(gated.budgets, ())
+        self.assertEqual(gated.risk_flags, ("rejected:risk_engine",))
+        self.assertEqual(gated.diagnostics.get("reason"), "risk_engine_error")
+        self.assertNotIn("private engine failure", repr(gated))
+        engine.assess.assert_called_once()
 
 
 class AssessWithEvidenceTests(unittest.TestCase):
@@ -261,7 +456,12 @@ class AssessWithEvidenceTests(unittest.TestCase):
         engine.assess.assert_called_once()
 
     def test_invalid_scope_rejects_fail_closed(self) -> None:
-        with patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW):
+        engine = Mock()
+        engine.assess.return_value = RiskAction(action="approve", reason="passed")
+        with (
+            patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW),
+            patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+        ):
             result = assess_with_evidence(
                 _decision(positions=(PositionTarget(symbol="BTCUSDT", target_weight=0.10),)),
                 self._snapshot(),
@@ -273,6 +473,37 @@ class AssessWithEvidenceTests(unittest.TestCase):
         self.assertEqual(result.assessment.outcome, "REJECT")
         self.assertEqual(result.assessment.scope, "MEMBER")
         self.assertEqual(result.decision.positions, ())
+        engine.assess.assert_called_once()
+
+    def test_invalid_snapshot_still_assesses_once_and_keeps_static_reason(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="BTCUSDT", target_weight=0.10),),
+        )
+        engine = Mock()
+        engine.assess.return_value = RiskAction(
+            action="reject",
+            reason="missing_portfolio_snapshot",
+        )
+        with (
+            patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW),
+            patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+        ):
+            result = assess_with_evidence(
+                decision,
+                None,
+                scope="MEMBER",
+                mandate_provenance=self._mandate(),
+                market_data={},
+            )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertEqual(
+            result.assessment.reason_codes,
+            ("invalid_portfolio_snapshot",),
+        )
+        self.assertEqual(result.decision.positions, ())
+        self.assertEqual(result.decision.budgets, ())
+        engine.assess.assert_called_once_with(decision, None, market_data={})
 
     def test_unmapped_or_empty_product_caps_reject_fail_closed(self) -> None:
         decision = _decision(
@@ -492,6 +723,7 @@ class BootstrapSmallAccountV2RiskGateTests(unittest.TestCase):
             risk_mandate_id=self._MANDATE,
             product_leverage_factors=product_leverage_factors,
             available_account_exposure=available_account_exposure,
+            portfolio_snapshot=_portfolio_snapshot(),
         )
 
     def test_approved_mandate_allows_one_classified_position_within_caps(self) -> None:
@@ -524,6 +756,7 @@ class BootstrapSmallAccountV2RiskGateTests(unittest.TestCase):
             product_leverage_factors={"SPY": 1},
             available_account_exposure=0.50,
             max_single_weight=1.0,
+            portfolio_snapshot=_portfolio_snapshot(),
         )
 
         self.assertEqual(result.positions, ())
