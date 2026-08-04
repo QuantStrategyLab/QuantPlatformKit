@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
+
+from .evidence_package_v2 import (
+    STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
+    read_evidence_package_v2_json,
+    validate_evidence_package_v2,
+)
 
 ALLOWED_EVIDENCE_STAGES = (
     "research_backtest_only",
@@ -40,7 +45,21 @@ class EvidencePackage:
     evidence_version: str = "evidence_package.v1"
     submitted_at: str = ""
 
+    # Appended defaults preserve every legacy positional argument above.
+    schema_version: str = ""
+    promotion_eligible: bool = False
+    live_ready: bool = False
+    size_zero_required: bool = True
+    no_order: bool = True
+    promotion_status: str = "LEGACY_RESEARCH_ONLY"
+    canonical_payload: Mapping[str, Any] = field(default_factory=dict, repr=False)
+
     def to_dict(self) -> dict[str, object]:
+        if (
+            self.schema_version == STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION
+            and self.canonical_payload
+        ):
+            return dict(self.canonical_payload)
         return {
             "strategy_profile": self.strategy_profile,
             "domain": self.domain,
@@ -64,31 +83,56 @@ class EvidenceGateResult:
     issues: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
+    # Appended defaults preserve every legacy positional argument above.
+    promotion_eligible: bool = False
+    live_ready: bool = False
+    size_zero_required: bool = True
+    no_order: bool = True
+    promotion_status: str = "LEGACY_RESEARCH_ONLY"
+
     def to_dict(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "valid": self.valid,
             "issues": list(self.issues),
             "warnings": list(self.warnings),
             "package": self.package.to_dict(),
         }
+        if self.package.schema_version == STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION:
+            payload.update(
+                {
+                    "promotion_eligible": self.promotion_eligible,
+                    "live_ready": self.live_ready,
+                    "size_zero_required": self.size_zero_required,
+                    "no_order": self.no_order,
+                    "promotion_status": self.promotion_status,
+                }
+            )
+        return payload
 
 
 def load_evidence_package(path: str | Path) -> dict[str, Any]:
     evidence_path = Path(path)
-    raw = evidence_path.read_text(encoding="utf-8")
     suffix = evidence_path.suffix.lower()
     if suffix == ".json":
-        payload = json.loads(raw)
+        payload = read_evidence_package_v2_json(evidence_path)
     elif suffix == ".toml":
+        raw = evidence_path.read_text(encoding="utf-8")
         payload = tomllib.loads(raw)
     else:
-        raise ValueError(f"Unsupported evidence package format: {evidence_path.suffix or '<none>'}")
+        raise ValueError(
+            f"Unsupported evidence package format: {evidence_path.suffix or '<none>'}"
+        )
     if not isinstance(payload, dict):
         raise ValueError("Evidence package must decode to a mapping")
     return payload
 
 
-def validate_evidence_package(raw: Mapping[str, Any]) -> EvidenceGateResult:
+def validate_evidence_package(
+    raw: Mapping[str, Any], *, base_dir: str | Path | None = None
+) -> EvidenceGateResult:
+    if raw.get("schema_version") == STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION:
+        return _validate_v2_evidence_package(raw, base_dir=base_dir)
+
     issues: list[str] = []
     warnings: list[str] = []
 
@@ -96,7 +140,9 @@ def validate_evidence_package(raw: Mapping[str, Any]) -> EvidenceGateResult:
     domain = _first_str(raw, "domain", "market")
     requested_stage = _first_str(raw, "requested_stage", "stage")
     target_platforms = _normalize_platforms(
-        _first_value(raw, "target_platforms", "platforms", "target_platform", "runtime_targets")
+        _first_value(
+            raw, "target_platforms", "platforms", "target_platform", "runtime_targets"
+        )
     )
     backtest_summary = _first_mapping(raw, "backtest_summary", "backtest", "evidence")
     drift_notes = _first_value(raw, "drift_notes", "drift", "regime_notes")
@@ -108,8 +154,14 @@ def validate_evidence_package(raw: Mapping[str, Any]) -> EvidenceGateResult:
     )
     plugin_gate = _first_value(raw, "plugin_gate", "plugin_gates", "plugins")
     rollout_notes = _first_value(raw, "rollout_notes", "rollout", "operator_notes")
-    evidence_version = str(_first_value(raw, "evidence_version", "schema", default="evidence_package.v1") or "evidence_package.v1")
-    submitted_at = str(_first_value(raw, "submitted_at", "generated_at", "created_at", default="") or "")
+    evidence_version = str(
+        _first_value(raw, "evidence_version", "schema", default="evidence_package.v1")
+        or "evidence_package.v1"
+    )
+    submitted_at = str(
+        _first_value(raw, "submitted_at", "generated_at", "created_at", default="")
+        or ""
+    )
 
     if not strategy_profile:
         issues.append("missing strategy_profile/profile")
@@ -134,7 +186,10 @@ def validate_evidence_package(raw: Mapping[str, Any]) -> EvidenceGateResult:
         if plugin_gate is not None and not _plugin_gate_is_usable(plugin_gate):
             issues.append("plugin_gate evidence is incomplete or unsupported")
 
-    if requested_stage in {"research_backtest_only", "ai_monitored_candidate"} and not _is_non_empty(rollout_notes):
+    if requested_stage in {
+        "research_backtest_only",
+        "ai_monitored_candidate",
+    } and not _is_non_empty(rollout_notes):
         warnings.append("rollout_notes is recommended for candidates")
 
     package = EvidencePackage(
@@ -151,11 +206,76 @@ def validate_evidence_package(raw: Mapping[str, Any]) -> EvidenceGateResult:
         evidence_version=evidence_version,
         submitted_at=submitted_at,
     )
-    return EvidenceGateResult(valid=not issues, package=package, issues=tuple(issues), warnings=tuple(warnings))
+    return EvidenceGateResult(
+        valid=not issues,
+        package=package,
+        issues=tuple(issues),
+        warnings=tuple(warnings),
+        promotion_eligible=False,
+        live_ready=False,
+        size_zero_required=True,
+        no_order=True,
+        promotion_status="LEGACY_RESEARCH_ONLY",
+    )
 
 
 def validate_evidence_package_file(path: str | Path) -> EvidenceGateResult:
-    return validate_evidence_package(load_evidence_package(path))
+    evidence_path = Path(path)
+    return validate_evidence_package(
+        load_evidence_package(evidence_path), base_dir=evidence_path.parent
+    )
+
+
+def _validate_v2_evidence_package(
+    raw: Mapping[str, Any], *, base_dir: str | Path | None
+) -> EvidenceGateResult:
+    issues = validate_evidence_package_v2(raw, base_dir=base_dir)
+    strategy = raw.get("strategy")
+    claims = raw.get("lifecycle_claims")
+    acceptance = raw.get("human_acceptance")
+    strategy_mapping = strategy if isinstance(strategy, Mapping) else {}
+    claims_mapping = claims if isinstance(claims, Mapping) else {}
+    acceptance_mapping = acceptance if isinstance(acceptance, Mapping) else {}
+    promotion_eligible = claims_mapping.get("promotion_eligible") is True and not issues
+    learning_only = claims_mapping.get("learning_only") is True
+    if issues:
+        promotion_status = "INVALID"
+    elif learning_only:
+        promotion_status = "LEARNING_ONLY"
+    elif promotion_eligible:
+        promotion_status = "PROMOTION_ELIGIBLE"
+    elif acceptance_mapping.get("decision") != "ACCEPTED":
+        promotion_status = "HUMAN_REQUIRED"
+    else:
+        promotion_status = "STRUCTURALLY_COMPLETE"
+    package = EvidencePackage(
+        strategy_profile=str(strategy_mapping.get("profile") or ""),
+        domain=str(strategy_mapping.get("domain") or ""),
+        requested_stage=str(raw.get("requested_stage") or ""),
+        backtest_summary=raw.get("metrics")
+        if isinstance(raw.get("metrics"), Mapping)
+        else {},
+        operator_notes=acceptance,
+        evidence_version=STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
+        submitted_at=str(raw.get("generated_at") or ""),
+        schema_version=STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
+        promotion_eligible=promotion_eligible,
+        live_ready=False,
+        size_zero_required=True,
+        no_order=True,
+        promotion_status=promotion_status,
+        canonical_payload=dict(raw),
+    )
+    return EvidenceGateResult(
+        valid=not issues,
+        package=package,
+        issues=tuple(issues),
+        promotion_eligible=promotion_eligible,
+        live_ready=False,
+        size_zero_required=True,
+        no_order=True,
+        promotion_status=promotion_status,
+    )
 
 
 def _first_value(raw: Mapping[str, Any], *keys: str, default: Any = None) -> Any:
@@ -215,7 +335,10 @@ def _backtest_summary_has_evidence(summary: Mapping[str, Any]) -> bool:
 def _platform_compatibility_is_usable(compatibility: Mapping[str, Any]) -> bool:
     if not compatibility:
         return False
-    if any(bool(compatibility.get(key)) for key in ("verified", "compatible", "supported", "enabled")):
+    if any(
+        bool(compatibility.get(key))
+        for key in ("verified", "compatible", "supported", "enabled")
+    ):
         return True
     if _is_non_empty(compatibility.get("runtime_enabled_profiles")):
         return True
@@ -226,7 +349,11 @@ def _platform_compatibility_is_usable(compatibility: Mapping[str, Any]) -> bool:
 
 def _plugin_gate_is_usable(plugin_gate: Any) -> bool:
     if isinstance(plugin_gate, Mapping):
-        status = str(plugin_gate.get("status") or plugin_gate.get("evidence_status") or "").strip().lower()
+        status = (
+            str(plugin_gate.get("status") or plugin_gate.get("evidence_status") or "")
+            .strip()
+            .lower()
+        )
         if status and status not in ALLOWED_PLUGIN_GATE_STATUSES:
             return False
         if status == "automation_approved":

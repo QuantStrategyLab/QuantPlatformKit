@@ -58,6 +58,11 @@ def test_live_package_valid_when_required_sections_present() -> None:
     )
 
     assert result.valid
+    assert result.promotion_eligible is False
+    assert result.live_ready is False
+    assert result.size_zero_required is True
+    assert result.no_order is True
+    assert result.promotion_status == "LEGACY_RESEARCH_ONLY"
 
 
 def test_file_loader_and_cli(tmp_path: Path) -> None:
@@ -78,3 +83,23 @@ def test_file_loader_and_cli(tmp_path: Path) -> None:
 
     exit_code = main(["evidence", "--file", str(path)])
     assert exit_code == 0
+
+
+def test_legacy_live_and_runtime_requests_are_research_only_holds() -> None:
+    for stage in ("live_candidate", "runtime_enabled"):
+        result = validate_evidence_package(
+            {
+                "strategy_profile": "legacy_profile",
+                "domain": "us_equity",
+                "requested_stage": stage,
+                "target_platforms": ["ibkr"],
+                "backtest_summary": {"observation_count": 252},
+                "drift_notes": {"status": "stable"},
+                "platform_compatibility": {"verified": True},
+            }
+        )
+
+        assert result.valid
+        assert result.promotion_eligible is False
+        assert result.live_ready is False
+        assert result.promotion_status == "LEGACY_RESEARCH_ONLY"

@@ -43,13 +43,19 @@ class LiveCandidateNotificationEvent:
             "body": self.body,
             **dict(self.metadata or {}),
         }
-        return {key: value for key, value in payload.items() if value not in (None, "", (), [])}
+        return {
+            key: value
+            for key, value in payload.items()
+            if value not in (None, "", (), [])
+        }
 
     def to_rendered_notification(self) -> RenderedNotification:
         return RenderedNotification(detailed_text=self.body, compact_text=self.subject)
 
 
-def build_live_candidate_notification(result: EvidenceGateResult) -> LiveCandidateNotificationEvent | None:
+def build_live_candidate_notification(
+    result: EvidenceGateResult,
+) -> LiveCandidateNotificationEvent | None:
     """Build a notification event from an evidence gate result.
 
     Returns None when the requested stage is outside the live-candidate path.
@@ -62,13 +68,19 @@ def build_live_candidate_notification(result: EvidenceGateResult) -> LiveCandida
     strategy_profile = package.strategy_profile
     domain = package.domain
     valid = bool(result.valid)
-    approval_action = "approve" if valid else "hold"
+    # Evidence validation is never paper/shadow/live authority.
+    approval_action = "hold"
     severity = _severity_for(stage, valid)
     reason = _reason_for(result)
     evidence_summary = _build_evidence_summary(result)
     alert_key = _build_alert_key(strategy_profile, domain, stage, approval_action)
     subject = _build_subject(strategy_profile, domain, stage, approval_action, valid)
-    body = _build_body(result, reason=reason, evidence_summary=evidence_summary, approval_action=approval_action)
+    body = _build_body(
+        result,
+        reason=reason,
+        evidence_summary=evidence_summary,
+        approval_action=approval_action,
+    )
 
     return LiveCandidateNotificationEvent(
         strategy_profile=strategy_profile,
@@ -91,8 +103,6 @@ def build_live_candidate_notification(result: EvidenceGateResult) -> LiveCandida
 
 
 def _severity_for(stage: str, valid: bool) -> str:
-    if valid:
-        return "info"
     if stage == "runtime_enabled":
         return "critical"
     return "warning"
@@ -106,7 +116,7 @@ def _reason_for(result: EvidenceGateResult) -> str:
         parts.append("warnings: " + "; ".join(result.warnings))
     if parts:
         return " | ".join(parts)
-    return "evidence gate passed"
+    return "promotion evidence validated; live authority is not granted"
 
 
 def _build_evidence_summary(result: EvidenceGateResult) -> str:
@@ -114,23 +124,38 @@ def _build_evidence_summary(result: EvidenceGateResult) -> str:
     summary_parts = [
         _format_summary_item("backtest", _summarize_mapping(package.backtest_summary)),
         _format_summary_item("drift_notes", _summarize_value(package.drift_notes)),
-        _format_summary_item("platform_compatibility", _summarize_mapping(package.platform_compatibility or {})),
+        _format_summary_item(
+            "platform_compatibility",
+            _summarize_mapping(package.platform_compatibility or {}),
+        ),
         _format_summary_item("plugin_gate", _summarize_value(package.plugin_gate)),
-        _format_summary_item("target_platforms", ", ".join(package.target_platforms) or "none"),
+        _format_summary_item(
+            "target_platforms", ", ".join(package.target_platforms) or "none"
+        ),
     ]
     if package.rollout_notes:
-        summary_parts.append(_format_summary_item("rollout_notes", _summarize_value(package.rollout_notes)))
+        summary_parts.append(
+            _format_summary_item(
+                "rollout_notes", _summarize_value(package.rollout_notes)
+            )
+        )
     if result.warnings:
-        summary_parts.append(_format_summary_item("warnings", "; ".join(result.warnings)))
+        summary_parts.append(
+            _format_summary_item("warnings", "; ".join(result.warnings))
+        )
     return " | ".join(part for part in summary_parts if part)
 
 
-def _build_alert_key(strategy_profile: str, domain: str, stage: str, approval_action: str) -> str:
+def _build_alert_key(
+    strategy_profile: str, domain: str, stage: str, approval_action: str
+) -> str:
     return f"lifecycle/live_candidate/{domain}/{strategy_profile}/{stage}/{approval_action}"
 
 
-def _build_subject(strategy_profile: str, domain: str, stage: str, approval_action: str, valid: bool) -> str:
-    outcome = "APPROVED" if valid else "HOLD"
+def _build_subject(
+    strategy_profile: str, domain: str, stage: str, approval_action: str, valid: bool
+) -> str:
+    outcome = "HOLD"
     return f"[{domain}] {outcome} {stage}: {strategy_profile} ({approval_action})"
 
 
@@ -166,7 +191,15 @@ def _summarize_mapping(value: Mapping[str, Any]) -> str:
     if not value:
         return "empty"
     parts: list[str] = []
-    for key in ("observation_count", "sharpe_ratio", "cagr", "max_drawdown", "total_return", "status", "verified"):
+    for key in (
+        "observation_count",
+        "sharpe_ratio",
+        "cagr",
+        "max_drawdown",
+        "total_return",
+        "status",
+        "verified",
+    ):
         if key in value and value[key] not in (None, ""):
             parts.append(f"{key}={value[key]}")
     if not parts:

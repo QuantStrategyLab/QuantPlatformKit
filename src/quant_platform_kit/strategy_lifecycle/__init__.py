@@ -29,6 +29,12 @@ from quant_platform_kit.strategy_lifecycle.evidence_gate import (
     validate_evidence_package,
     validate_evidence_package_file,
 )
+from quant_platform_kit.strategy_lifecycle.evidence_package_v2 import (
+    STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
+    canonical_evidence_package_v2_bytes,
+    read_evidence_package_v2_json,
+    validate_evidence_package_v2,
+)
 from quant_platform_kit.strategy_lifecycle.live_candidate_notifications import (
     LiveCandidateNotificationEvent,
     build_live_candidate_notification,
@@ -45,6 +51,7 @@ __all__ = [
     "RESEARCH_SPEC_SCHEMA_VERSION",
     "OPTIMIZATION_SPEC_SCHEMA_VERSION",
     "StrategyHealthScore",
+    "STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION",
     "StrategyPerformanceSnapshot",
     "UpdateLogEntry",
     "UpdateStage",
@@ -53,9 +60,12 @@ __all__ = [
     "EvidencePackage",
     "LiveCandidateNotificationEvent",
     "load_evidence_package",
+    "canonical_evidence_package_v2_bytes",
+    "read_evidence_package_v2_json",
     "build_live_candidate_notification",
     "validate_evidence_package",
     "validate_evidence_package_file",
+    "validate_evidence_package_v2",
     "validate_optimization_spec",
     "validate_research_spec",
     "validate_strategy_spec",

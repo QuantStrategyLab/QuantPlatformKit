@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import subprocess
 import sys
@@ -78,7 +79,16 @@ def test_validate_payload_accepts_minimal_valid_package() -> None:
     assert validate_payload(_valid_payload()) == []
 
 
-def test_validate_payload_rejects_live_package_without_required_validation_flags() -> None:
+def test_legacy_validator_keeps_naive_generated_at_compatibility() -> None:
+    payload = _valid_payload()
+    payload["generated_at"] = "2026-07-07T00:00:00"
+
+    assert validate_payload(payload) == []
+
+
+def test_validate_payload_rejects_live_package_without_required_validation_flags() -> (
+    None
+):
     payload = _valid_payload()
     payload["validation"] = {
         "oos_passed": False,
@@ -91,7 +101,9 @@ def test_validate_payload_rejects_live_package_without_required_validation_flags
     assert "live_candidate requires validation.overfit_report_present=true" in issues
 
 
-def test_validate_payload_rejects_runtime_enabled_package_without_required_validation_flags() -> None:
+def test_validate_payload_rejects_runtime_enabled_package_without_required_validation_flags() -> (
+    None
+):
     payload = _valid_payload()
     payload["requested_stage"] = "runtime_enabled"
     payload["validation"] = {
@@ -130,7 +142,9 @@ def test_cli_exit_code_for_invalid_json(tmp_path: Path) -> None:
     path = tmp_path / "evidence.json"
     path.write_text("{", encoding="utf-8")
 
-    assert validate_file(path) == ["invalid JSON: Expecting property name enclosed in double quotes (line 1, column 2)"]
+    assert validate_file(path) == [
+        "invalid JSON: Expecting property name enclosed in double quotes (line 1, column 2)"
+    ]
 
     proc = subprocess.run(
         [sys.executable, "scripts/validate_strategy_evidence_package.py", str(path)],
@@ -191,3 +205,39 @@ def test_validate_file_rejects_sha256_mismatch(tmp_path: Path) -> None:
     issues = validate_file(path)
 
     assert any("artifacts.returns.sha256 mismatch" in issue for issue in issues)
+
+
+def test_script_reexports_the_canonical_v2_api() -> None:
+    canonical = importlib.import_module(
+        "quant_platform_kit.strategy_lifecycle.evidence_package_v2"
+    )
+    wrapper = importlib.import_module("scripts.validate_strategy_evidence_package")
+
+    assert (
+        wrapper.STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION
+        == "strategy_evidence_package.v2"
+    )
+    assert (
+        wrapper.read_evidence_package_v2_json is canonical.read_evidence_package_v2_json
+    )
+    assert (
+        wrapper.validate_evidence_package_v2 is canonical.validate_evidence_package_v2
+    )
+    assert (
+        wrapper.canonical_evidence_package_v2_bytes
+        is canonical.canonical_evidence_package_v2_bytes
+    )
+
+
+def test_validate_file_rejects_duplicate_keys_and_non_finite_json(
+    tmp_path: Path,
+) -> None:
+    duplicate = tmp_path / "duplicate.json"
+    duplicate.write_text(
+        '{"schema_version":"one","schema_version":"two"}', encoding="utf-8"
+    )
+    non_finite = tmp_path / "non-finite.json"
+    non_finite.write_text('{"value":NaN}', encoding="utf-8")
+
+    assert any("duplicate" in issue for issue in validate_file(duplicate))
+    assert any("non-finite" in issue for issue in validate_file(non_finite))
