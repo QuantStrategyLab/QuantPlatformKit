@@ -7,6 +7,8 @@ on:
       - "QPK_PIN"
       - "qsl-pins.txt"
       - "constraints.txt"
+      - ".github/workflows/open-downstream-qpk-pin-prs.yml"
+      - ".github/workflows/update-qpk-pin.yml"
       - "docs/**"
       - "**.md"
 
