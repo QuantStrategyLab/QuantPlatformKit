@@ -13,6 +13,7 @@ import logging
 import math
 from typing import Any, Mapping
 
+from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.risk.contracts import RiskGateAssessment, RiskGateResult
 from quant_platform_kit.risk.engine import build_risk_engine
 from quant_platform_kit.strategy_contracts import StrategyDecision
@@ -28,6 +29,7 @@ _BOOTSTRAP_NOMINAL_CAPS = {1: 0.50, 2: 0.25, 3: 0.15}
 _ASSESSMENT_CONTRACT_VERSION = "qsl.risk_gate_assessment.v1"
 _ASSESSMENT_POLICY_ID = "qpk.risk_gate"
 _ASSESSMENT_POLICY_VERSION = "v1"
+_FALLBACK_MAX_SNAPSHOT_AGE_SECONDS_V1 = 300.0
 _ALLOWED_SCOPES = frozenset({"MEMBER", "ACCOUNT"})
 _ALLOWED_MANDATE_SCOPES = frozenset({"RESEARCH_ONLY", "PAPER", "LIVE"})
 
@@ -58,19 +60,23 @@ def _finite_number(value: Any) -> float | None:
 
 
 def _parse_utc_timestamp(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.endswith("Z"):
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value.endswith("Z"):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
         return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo is not None else None
+    return parsed.astimezone(timezone.utc) if parsed.tzinfo is not None else None
 
 
 def _valid_cap_value(value: Any) -> bool:
     if isinstance(value, Mapping):
-        return all(
+        return bool(value) and all(
             isinstance(key, str)
+            and bool(key)
             and _valid_cap_value(candidate)
             for key, candidate in value.items()
         )
@@ -84,23 +90,59 @@ def _sha256(value: Any) -> str | None:
     return value if all(character in "0123456789abcdef" for character in value) else None
 
 
-def _decision_metrics(decision: StrategyDecision) -> tuple[dict[str, Any], list[tuple[str, float]], set[str]]:
+def _decision_metrics(
+    decision: StrategyDecision,
+    *,
+    total_equity: float | None,
+) -> tuple[dict[str, Any], list[tuple[str, float]], set[str]]:
     active: list[tuple[str, float]] = []
     reason_codes: set[str] = set()
+    position_payloads: list[dict[str, Any]] = []
     for position in decision.positions or ():
         symbol = getattr(position, "symbol", None)
         weight = _finite_number(getattr(position, "target_weight", None))
-        if not isinstance(symbol, str) or not symbol or weight is None or weight < 0.0:
+        target_value = _finite_number(getattr(position, "target_value", None))
+        position_payloads.append(
+            {
+                "symbol": symbol if isinstance(symbol, str) else None,
+                "target_weight": weight,
+                "target_value": target_value,
+                "role": getattr(position, "role", None),
+                "order_preference": getattr(position, "order_preference", None),
+            }
+        )
+        if (
+            not isinstance(symbol, str)
+            or not symbol
+            or (weight is None) == (target_value is None)
+        ):
             reason_codes.add("invalid_decision_exposure")
             continue
-        if weight > 0.0:
-            active.append((symbol, weight))
-    if reason_codes:
-        return {}, active, reason_codes
+        normalized_weight = weight
+        if target_value is not None:
+            if total_equity is None or total_equity <= 0.0:
+                reason_codes.add("invalid_decision_exposure")
+                continue
+            normalized_weight = target_value / total_equity
+        if normalized_weight is None or normalized_weight < 0.0:
+            reason_codes.add("invalid_decision_exposure")
+            continue
+        if normalized_weight > 0.0:
+            active.append((symbol, normalized_weight))
+    budget_payloads: list[dict[str, Any]] = []
+    for budget in decision.budgets or ():
+        budget_payloads.append(
+            {
+                "name": getattr(budget, "name", None),
+                "symbol": getattr(budget, "symbol", None),
+                "amount": _finite_number(getattr(budget, "amount", None)),
+                "unit": getattr(budget, "unit", None),
+                "purpose": getattr(budget, "purpose", None),
+            }
+        )
     return {
-        "nonzero_position_count": len(active),
-        "total_target_weight": sum(weight for _, weight in active),
-        "budget_count": len(decision.budgets or ()),
+        "positions": position_payloads,
+        "budgets": budget_payloads,
     }, active, reason_codes
 
 
@@ -109,22 +151,39 @@ def _snapshot_metrics(
     *,
     now: datetime,
     max_snapshot_age_seconds: float | None,
-) -> tuple[dict[str, Any], float | None, set[str]]:
-    if not isinstance(portfolio_snapshot, Mapping):
-        return {}, None, {"invalid_portfolio_snapshot"}
-    as_of = _parse_utc_timestamp(portfolio_snapshot.get("as_of"))
-    observed = _finite_number(portfolio_snapshot.get("observed_effective_exposure"))
-    if as_of is None or observed is None or observed < 0.0:
-        return {}, observed, {"invalid_portfolio_snapshot"}
+) -> tuple[dict[str, Any], float | None, float | None, set[str]]:
+    if isinstance(portfolio_snapshot, Mapping):
+        as_of_value = portfolio_snapshot.get("as_of")
+        observed_value = portfolio_snapshot.get("observed_effective_exposure")
+        total_equity_value = portfolio_snapshot.get("total_equity")
+    elif isinstance(portfolio_snapshot, PortfolioSnapshot):
+        metadata = portfolio_snapshot.metadata
+        as_of_value = portfolio_snapshot.as_of
+        observed_value = metadata.get("observed_effective_exposure")
+        total_equity_value = portfolio_snapshot.total_equity
+    else:
+        return {}, None, None, {"invalid_portfolio_snapshot"}
+    as_of = _parse_utc_timestamp(as_of_value)
+    observed = _finite_number(observed_value)
+    total_equity = _finite_number(total_equity_value)
+    if (
+        as_of is None
+        or observed is None
+        or observed < 0.0
+        or total_equity is None
+        or total_equity <= 0.0
+    ):
+        return {}, observed, total_equity, {"invalid_portfolio_snapshot"}
     age_seconds = (now - as_of).total_seconds()
     if age_seconds < 0.0 or (
         max_snapshot_age_seconds is not None and age_seconds > max_snapshot_age_seconds
     ):
-        return {}, observed, {"stale_portfolio_snapshot"}
+        return {}, observed, total_equity, {"stale_portfolio_snapshot"}
     return {
         "as_of": _utc_timestamp(as_of),
         "observed_effective_exposure": observed,
-    }, observed, set()
+        "total_equity": total_equity,
+    }, observed, total_equity, set()
 
 
 def _mandate_fields(
@@ -140,7 +199,8 @@ def _mandate_fields(
             "authority_scope": None,
             "source_revision": None,
             "effective_exposure_cap": _DEFAULT_MAX_SINGLE_WEIGHT,
-            "max_snapshot_age_seconds": None,
+            "max_snapshot_age_seconds": _FALLBACK_MAX_SNAPSHOT_AGE_SECONDS_V1,
+            "loss_budget": 0.0,
             "product_leverage_factors": {},
             "allowed_nonzero_assets": None,
         }, set()
@@ -221,6 +281,7 @@ def _mandate_fields(
         "source_revision": mandate_provenance["source_revision"],
         "effective_exposure_cap": cap,
         "max_snapshot_age_seconds": max_snapshot_age_seconds,
+        "loss_budget": loss_budget,
         "product_leverage_factors": factors,
         "product_caps": mandate_provenance["product_caps"],
         "nominal_caps": mandate_provenance["nominal_caps"],
@@ -230,9 +291,35 @@ def _mandate_fields(
 
 def _position_cap(value: Any, symbol: str, leverage_factor: float) -> float | None:
     if isinstance(value, Mapping):
-        value = value.get(symbol, value.get(str(int(leverage_factor)), 1.0))
+        leverage_class = str(int(leverage_factor))
+        if symbol in value:
+            value = value[symbol]
+        elif leverage_class in value:
+            value = value[leverage_class]
+        else:
+            return None
     cap = _finite_number(value)
     return cap if cap is not None and 0.0 <= cap <= 1.0 else None
+
+
+def _budget_authority_errors(
+    decision: StrategyDecision,
+    mandate: Mapping[str, Any],
+) -> set[str]:
+    requested_budget = 0.0
+    for budget in decision.budgets or ():
+        amount = _finite_number(getattr(budget, "amount", None))
+        if amount is None or amount < 0.0:
+            return {"invalid_decision_budget"}
+        requested_budget += amount
+    authorized_budget = _finite_number(mandate.get("loss_budget"))
+    if requested_budget > 0.0 and (
+        mandate.get("effective_exposure_cap") == 0.0
+        or authorized_budget is None
+        or requested_budget > authorized_budget + 1e-9
+    ):
+        return {"budget_authority_exceeded"}
+    return set()
 
 
 def assess_with_evidence(
@@ -247,19 +334,25 @@ def assess_with_evidence(
     now = _utc_now()
     evaluated_at = _utc_timestamp(now)
     assessment_scope = scope if scope in _ALLOWED_SCOPES else "MEMBER"
-    decision_payload, active_positions, reason_codes = _decision_metrics(decision)
     mandate, mandate_errors = _mandate_fields(mandate_provenance, now=now)
-    reason_codes.update(mandate_errors)
+    reason_codes = set(mandate_errors)
     cap = mandate.get("effective_exposure_cap")
-    snapshot_payload, observed, snapshot_errors = _snapshot_metrics(
+    snapshot_payload, observed, total_equity, snapshot_errors = _snapshot_metrics(
         portfolio_snapshot,
         now=now,
         max_snapshot_age_seconds=mandate.get("max_snapshot_age_seconds"),
     )
     reason_codes.update(snapshot_errors)
+    decision_payload, active_positions, decision_errors = _decision_metrics(
+        decision,
+        total_equity=total_equity,
+    )
+    reason_codes.update(decision_errors)
     if scope not in _ALLOWED_SCOPES:
         reason_codes.add("invalid_scope")
     can_assess_with_engine = not reason_codes
+    if mandate:
+        reason_codes.update(_budget_authority_errors(decision, mandate))
 
     proposed: float | None = None
     if can_assess_with_engine:
@@ -272,7 +365,7 @@ def assess_with_evidence(
             if allowed_assets is not None and symbol not in allowed_assets:
                 reason_codes.add("asset_not_authorized")
                 continue
-            factor = 1 if mandate_provenance is None else _finite_number(factors.get(symbol))
+            factor = 1.0 if mandate_provenance is None else _finite_number(factors.get(symbol))
             if factor is None or not factor.is_integer() or factor < 1.0:
                 reason_codes.add("invalid_leverage_classification")
                 continue

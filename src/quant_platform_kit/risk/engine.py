@@ -83,7 +83,16 @@ class RiskEngine:
             try:
                 signals.append(plugin.evaluate(market_data))
             except Exception:
-                pass
+                signals.append(
+                    RiskSignal(
+                        plugin="risk_engine",
+                        schema_version="qpk.risk_plugin_error.v1",
+                        route=ROUTE_BLOCKED,
+                        confidence=1.0,
+                        suggested_action="blocked",
+                        reason_codes=("plugin_evaluation_error",),
+                    )
+                )
 
         # Merge external signals
         if plugin_signals:
