@@ -1,12 +1,6 @@
 name: Open Downstream QPK Pin PRs
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - "QPK_PIN"
-      - "qsl-pins.txt"
-      - "constraints.txt"
   workflow_dispatch:
 
 permissions:
