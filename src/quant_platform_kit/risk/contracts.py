@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import hashlib
+import json
 from typing import Any, Mapping
 
 
@@ -141,3 +143,63 @@ class RiskAction:
     risk_asset_scalar: float = 1.0
     target_destination: str | None = None
     notify: bool = True
+
+
+@dataclass(frozen=True)
+class RiskGateAssessment:
+    """Immutable redacted evidence from a scoped risk-gate evaluation."""
+
+    contract_version: str
+    scope: str
+    evaluated_at: str
+    policy_id: str
+    policy_version: str
+    qpk_source_revision: str | None
+    mandate_id: str | None
+    mandate_version: str | None
+    mandate_authority_receipt_sha256: str | None
+    mandate_scope: str | None
+    decision_digest_sha256: str
+    portfolio_snapshot_digest_sha256: str
+    effective_exposure_cap: float | None
+    observed_effective_exposure: float | None
+    proposed_effective_exposure: float | None
+    outcome: str
+    reason_codes: tuple[str, ...]
+    assessment_sha256: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        payload = {
+            "contract_version": self.contract_version,
+            "scope": self.scope,
+            "evaluated_at": self.evaluated_at,
+            "policy_id": self.policy_id,
+            "policy_version": self.policy_version,
+            "qpk_source_revision": self.qpk_source_revision,
+            "mandate_id": self.mandate_id,
+            "mandate_version": self.mandate_version,
+            "mandate_authority_receipt_sha256": self.mandate_authority_receipt_sha256,
+            "mandate_scope": self.mandate_scope,
+            "decision_digest_sha256": self.decision_digest_sha256,
+            "portfolio_snapshot_digest_sha256": self.portfolio_snapshot_digest_sha256,
+            "effective_exposure_cap": self.effective_exposure_cap,
+            "observed_effective_exposure": self.observed_effective_exposure,
+            "proposed_effective_exposure": self.proposed_effective_exposure,
+            "outcome": self.outcome,
+            "reason_codes": self.reason_codes,
+        }
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        object.__setattr__(self, "assessment_sha256", hashlib.sha256(encoded).hexdigest())
+
+
+@dataclass(frozen=True)
+class RiskGateResult:
+    """Risk-gated decision paired with its immutable evidence receipt."""
+
+    decision: Any
+    assessment: RiskGateAssessment
