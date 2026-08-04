@@ -330,7 +330,7 @@ def assess_with_evidence(
     mandate_provenance: Mapping[str, Any] | None,
     market_data: Mapping[str, Any],
 ) -> RiskGateResult:
-    """Fail closed with a redacted, canonical risk-gate assessment receipt."""
+    """Assess exactly once and fail closed with a redacted canonical receipt."""
     now = _utc_now()
     evaluated_at = _utc_timestamp(now)
     assessment_scope = scope if scope in _ALLOWED_SCOPES else "MEMBER"
@@ -350,12 +350,12 @@ def assess_with_evidence(
     reason_codes.update(decision_errors)
     if scope not in _ALLOWED_SCOPES:
         reason_codes.add("invalid_scope")
-    can_assess_with_engine = not reason_codes
+    can_evaluate_policy = not reason_codes
     if mandate:
         reason_codes.update(_budget_authority_errors(decision, mandate))
 
     proposed: float | None = None
-    if can_assess_with_engine:
+    if can_evaluate_policy:
         factors = mandate["product_leverage_factors"]
         allowed_assets = mandate["allowed_nonzero_assets"]
         weighted_exposure = 0.0
@@ -383,18 +383,19 @@ def assess_with_evidence(
         if cap is None or proposed > cap + 1e-9:
             reason_codes.add("effective_exposure_cap")
 
-    if can_assess_with_engine:
-        try:
-            risk_action = build_risk_engine().assess(
-                decision,
-                portfolio_snapshot,
-                market_data=market_data,
-            )
-        except Exception:
+    has_static_rejection = bool(reason_codes)
+    try:
+        risk_action = build_risk_engine().assess(
+            decision,
+            portfolio_snapshot,
+            market_data=market_data,
+        )
+    except Exception:
+        if not has_static_rejection:
             reason_codes.add("risk_engine_error")
-        else:
-            if risk_action.action != "approve":
-                reason_codes.add("risk_engine_non_approve")
+    else:
+        if risk_action.action != "approve" and not has_static_rejection:
+            reason_codes.add("risk_engine_non_approve")
 
     outcome = "REJECT" if reason_codes else "APPROVE"
     assessment = RiskGateAssessment(
@@ -483,11 +484,12 @@ def apply_risk_gate(
     2. Mandate-specific single-account and leverage classification limits
     3. Legacy caller-supplied concentration limits when no mandate is supplied
     4. Legacy position-count and total-exposure limits
-    5. RiskEngine.assess() when portfolio_snapshot is provided
+    5. RiskEngine.assess() exactly once; missing/invalid snapshots reject
 
     Returns an empty-position StrategyDecision on REJECT.
     """
     diagnostics = dict(decision.diagnostics or {})
+    static_rejection: tuple[str, str] | None = None
 
     pnl_pct = diagnostics.get("unrealized_pnl_pct")
     if pnl_pct is not None and float(pnl_pct) < _STOP_LOSS_THRESHOLD:
@@ -495,68 +497,73 @@ def apply_risk_gate(
             "risk_gate REJECT stop_loss: unrealized_pnl_pct=%.2f%%",
             float(pnl_pct) * 100,
         )
-        return _reject(
-            decision,
-            flag="rejected:stop_loss",
-            reason=f"未实现亏损 {float(pnl_pct):.1%} < {_STOP_LOSS_THRESHOLD:.0%} 止损线",
+        static_rejection = (
+            "rejected:stop_loss",
+            f"未实现亏损 {float(pnl_pct):.1%} < {_STOP_LOSS_THRESHOLD:.0%} 止损线",
         )
 
     consecutive_losses = diagnostics.get("consecutive_losses")
     if (
-        consecutive_losses is not None
+        static_rejection is None
+        and consecutive_losses is not None
         and int(consecutive_losses) > _MAX_CONSECUTIVE_LOSSES
     ):
         logger.warning(
             "risk_gate REJECT circuit_breaker: consecutive_losses=%d",
             int(consecutive_losses),
         )
-        return _reject(
-            decision,
-            flag="rejected:circuit_breaker",
-            reason=f"连续亏损 {int(consecutive_losses)} 笔 > {_MAX_CONSECUTIVE_LOSSES} 熔断",
+        static_rejection = (
+            "rejected:circuit_breaker",
+            f"连续亏损 {int(consecutive_losses)} 笔 > {_MAX_CONSECUTIVE_LOSSES} 熔断",
         )
 
-    if risk_mandate_id not in {None, _APPROVED_BOOTSTRAP_MANDATE}:
-        return _reject(
-            decision,
-            flag="rejected:unknown_risk_mandate",
-            reason="风险授权未获批准",
+    if (
+        static_rejection is None
+        and risk_mandate_id not in {None, _APPROVED_BOOTSTRAP_MANDATE}
+    ):
+        static_rejection = (
+            "rejected:unknown_risk_mandate",
+            "风险授权未获批准",
         )
 
     positions = decision.positions or ()
-    if not positions:
-        return decision
-
     weights: list[tuple[Any, float]] = []
-    for position in positions:
-        raw_weight = position.target_weight
-        if raw_weight is None:
-            weight = 0.0
-        elif isinstance(raw_weight, bool) or not isinstance(raw_weight, (int, float)):
-            return _reject(
-                decision,
-                flag="rejected:invalid_weight",
-                reason=f"{position.symbol} 目标仓位无效",
-            )
-        else:
-            weight = abs(float(raw_weight))
-            if not math.isfinite(weight):
-                return _reject(
-                    decision,
-                    flag="rejected:invalid_weight",
-                    reason=f"{position.symbol} 目标仓位无效",
+    if static_rejection is None:
+        for position in positions:
+            raw_weight = position.target_weight
+            if raw_weight is None:
+                weight = 0.0
+            elif isinstance(raw_weight, bool) or not isinstance(
+                raw_weight,
+                (int, float),
+            ):
+                static_rejection = (
+                    "rejected:invalid_weight",
+                    f"{position.symbol} 目标仓位无效",
                 )
-        if weight > 0.0:
-            weights.append((position, weight))
+                break
+            else:
+                weight = abs(float(raw_weight))
+                if not math.isfinite(weight):
+                    static_rejection = (
+                        "rejected:invalid_weight",
+                        f"{position.symbol} 目标仓位无效",
+                    )
+                    break
+            if weight > 0.0:
+                weights.append((position, weight))
 
-    if risk_mandate_id == _APPROVED_BOOTSTRAP_MANDATE:
+    if (
+        static_rejection is None
+        and positions
+        and risk_mandate_id == _APPROVED_BOOTSTRAP_MANDATE
+    ):
         if len(weights) > 1:
-            return _reject(
-                decision,
-                flag="rejected:too_many_positions",
-                reason="bootstrap_small_account_v2 仅允许一个非零持仓",
+            static_rejection = (
+                "rejected:too_many_positions",
+                "bootstrap_small_account_v2 仅允许一个非零持仓",
             )
-        if available_account_exposure is None or (
+        elif available_account_exposure is None or (
             isinstance(available_account_exposure, bool)
             or not isinstance(available_account_exposure, (int, float))
             or not math.isfinite(float(available_account_exposure))
@@ -564,55 +571,51 @@ def apply_risk_gate(
             <= float(available_account_exposure)
             <= _BOOTSTRAP_EFFECTIVE_EXPOSURE_CAP
         ):
-            return _reject(
-                decision,
-                flag="rejected:overexposed",
-                reason="可用账户仓位容量无效",
+            static_rejection = (
+                "rejected:overexposed",
+                "可用账户仓位容量无效",
             )
-        if weights:
+        elif weights:
             active_symbols = {position.symbol for position, _ in weights}
             if (
                 product_leverage_factors is None
                 or set(product_leverage_factors) != active_symbols
             ):
-                return _reject(
-                    decision,
-                    flag="rejected:leverage_classification",
-                    reason="缺少或不一致的产品杠杆分类",
+                static_rejection = (
+                    "rejected:leverage_classification",
+                    "缺少或不一致的产品杠杆分类",
                 )
-            position, weight = weights[0]
-            leverage_factor = product_leverage_factors[position.symbol]
-            if (
-                isinstance(leverage_factor, bool)
-                or not isinstance(leverage_factor, int)
-                or leverage_factor not in _BOOTSTRAP_NOMINAL_CAPS
-            ):
-                return _reject(
-                    decision,
-                    flag="rejected:leverage_classification",
-                    reason="产品杠杆分类无效",
-                )
-            nominal_cap = _BOOTSTRAP_NOMINAL_CAPS[leverage_factor]
-            if weight > nominal_cap:
-                return _reject(
-                    decision,
-                    flag="rejected:concentration",
-                    reason=f"{position.symbol} {weight:.1%} > {nominal_cap:.0%} 上限",
-                )
-            effective_exposure = weight * leverage_factor
-            if effective_exposure > _BOOTSTRAP_EFFECTIVE_EXPOSURE_CAP + 1e-9:
-                return _reject(
-                    decision,
-                    flag="rejected:overexposed",
-                    reason=f"有效敞口 {effective_exposure:.1%} > 50%",
-                )
-            if weight > float(available_account_exposure) + 1e-9:
-                return _reject(
-                    decision,
-                    flag="rejected:overexposed",
-                    reason=f"名义仓位 {weight:.1%} > 可用账户容量",
-                )
-    else:
+            else:
+                position, weight = weights[0]
+                leverage_factor = product_leverage_factors[position.symbol]
+                if (
+                    isinstance(leverage_factor, bool)
+                    or not isinstance(leverage_factor, int)
+                    or leverage_factor not in _BOOTSTRAP_NOMINAL_CAPS
+                ):
+                    static_rejection = (
+                        "rejected:leverage_classification",
+                        "产品杠杆分类无效",
+                    )
+                else:
+                    nominal_cap = _BOOTSTRAP_NOMINAL_CAPS[leverage_factor]
+                    effective_exposure = weight * leverage_factor
+                    if weight > nominal_cap:
+                        static_rejection = (
+                            "rejected:concentration",
+                            f"{position.symbol} {weight:.1%} > {nominal_cap:.0%} 上限",
+                        )
+                    elif effective_exposure > _BOOTSTRAP_EFFECTIVE_EXPOSURE_CAP + 1e-9:
+                        static_rejection = (
+                            "rejected:overexposed",
+                            f"有效敞口 {effective_exposure:.1%} > 50%",
+                        )
+                    elif weight > float(available_account_exposure) + 1e-9:
+                        static_rejection = (
+                            "rejected:overexposed",
+                            f"名义仓位 {weight:.1%} > 可用账户容量",
+                        )
+    elif static_rejection is None and positions:
         requested_single_weight = _finite_number(max_single_weight)
         effective_single_weight = min(
             requested_single_weight
@@ -621,64 +624,79 @@ def apply_risk_gate(
             _DEFAULT_MAX_SINGLE_WEIGHT,
         )
         if len(weights) > 1:
-            return _reject(
-                decision,
-                flag="rejected:too_many_positions",
-                reason="未获授权的风险配置仅允许一个非零持仓",
+            static_rejection = (
+                "rejected:too_many_positions",
+                "未获授权的风险配置仅允许一个非零持仓",
             )
-        for position, weight in weights:
-            if weight > effective_single_weight:
-                logger.warning(
-                    "risk_gate REJECT concentration: symbol=%s weight=%.2f%% limit=%.0f%%",
-                    position.symbol,
-                    weight * 100,
-                    effective_single_weight * 100,
-                )
-                return _reject(
-                    decision,
-                    flag="rejected:concentration",
-                    reason=f"{position.symbol} {weight:.1%} > {effective_single_weight:.0%} 上限",
-                )
-
-        if len(positions) > max_positions:
+        elif weights and weights[0][1] > effective_single_weight:
+            position, weight = weights[0]
+            logger.warning(
+                "risk_gate REJECT concentration: symbol=%s weight=%.2f%% limit=%.0f%%",
+                position.symbol,
+                weight * 100,
+                effective_single_weight * 100,
+            )
+            static_rejection = (
+                "rejected:concentration",
+                f"{position.symbol} {weight:.1%} > {effective_single_weight:.0%} 上限",
+            )
+        elif len(positions) > max_positions:
             logger.warning(
                 "risk_gate REJECT position_count: %d > %d",
                 len(positions),
                 max_positions,
             )
-            return _reject(
-                decision,
-                flag="rejected:too_many_positions",
-                reason=f"{len(positions)} 个持仓 > {max_positions} 上限",
+            static_rejection = (
+                "rejected:too_many_positions",
+                f"{len(positions)} 个持仓 > {max_positions} 上限",
             )
+        else:
+            total_weight = sum(weight for _, weight in weights)
+            if total_weight > max_total_exposure + 1e-9:
+                logger.warning(
+                    "risk_gate REJECT total_exposure: %.2f%% > %.0f%%",
+                    total_weight * 100,
+                    max_total_exposure * 100,
+                )
+                static_rejection = (
+                    "rejected:overexposed",
+                    f"总仓位 {total_weight:.1%} > {max_total_exposure:.0%}",
+                )
+            elif weights:
+                active_symbols = {position.symbol for position, _ in weights}
+                if (
+                    product_leverage_factors is None
+                    or set(product_leverage_factors) != active_symbols
+                    or any(
+                        isinstance(factor, bool)
+                        or not isinstance(factor, int)
+                        or factor != 1
+                        for factor in product_leverage_factors.values()
+                    )
+                ):
+                    static_rejection = (
+                        "rejected:leverage_classification",
+                        "未获授权的风险配置必须明确为无杠杆产品",
+                    )
 
-        total_weight = sum(weight for _, weight in weights)
-        if total_weight > max_total_exposure + 1e-9:
-            logger.warning(
-                "risk_gate REJECT total_exposure: %.2f%% > %.0f%%",
-                total_weight * 100,
-                max_total_exposure * 100,
-            )
-            return _reject(
-                decision,
-                flag="rejected:overexposed",
-                reason=f"总仓位 {total_weight:.1%} > {max_total_exposure:.0%}",
-            )
-
-    if portfolio_snapshot is not None:
-        engine = build_risk_engine()
-        assessment = engine.assess(
+    try:
+        assessment = build_risk_engine().assess(
             decision,
             portfolio_snapshot,
             market_data=market_data,
         )
+    except Exception:
+        engine_rejection = ("rejected:risk_engine", "risk_engine_error")
+    else:
         if assessment.action != "approve":
             logger.warning("risk_gate REJECT risk_engine: %s", assessment.reason)
-            return _reject(
-                decision,
-                flag="rejected:risk_engine",
-                reason=assessment.reason,
-            )
+            engine_rejection = ("rejected:risk_engine", assessment.reason)
+        else:
+            engine_rejection = None
+
+    rejection = static_rejection or engine_rejection
+    if rejection is not None:
+        return _reject(decision, flag=rejection[0], reason=rejection[1])
 
     risk_flags = list(decision.risk_flags or ())
     risk_flags.append("risk_gate:passed")
