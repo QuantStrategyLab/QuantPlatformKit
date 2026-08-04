@@ -1,7 +1,7 @@
 # QSL internal Git SHA pins — source of truth.
 # Auto-updated by update-qpk-pin.yml on every push to QPK main.
 
-quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@de9f193eb9d0e7f5c432186ccfb1ab256107aede
+quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@230854059c11a3711fed4bd997e3f8a7f37cba32
 us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@2438d6b36dacee81566c64d21983d6802f942263
 hk-equity-strategies @ git+https://github.com/QuantStrategyLab/HkEquityStrategies.git@bf4c74817997effd9dd2ec2e4c78bc81a343c6a2
 cn-equity-strategies @ git+https://github.com/QuantStrategyLab/CnEquityStrategies.git@0173c8b1bb6d2b5012d8acfc732486942c7836d9
