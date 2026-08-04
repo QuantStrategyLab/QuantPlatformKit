@@ -145,7 +145,12 @@ class DriftStatus(str, enum.Enum):
 
     @property
     def severity_order(self) -> int:
-        _order = {DriftStatus.HEALTHY: 0, DriftStatus.WATCH: 1, DriftStatus.REVIEW: 2, DriftStatus.CRITICAL: 3}
+        _order = {
+            DriftStatus.HEALTHY: 0,
+            DriftStatus.WATCH: 1,
+            DriftStatus.REVIEW: 2,
+            DriftStatus.CRITICAL: 3,
+        }
         return _order[self]
 
 
@@ -200,7 +205,9 @@ class DriftResult:
             "drift_score": self.drift_score,
             "status": self.status.value,
             "dimensions": {k: v.to_dict() for k, v in self.dimensions.items()},
-            "previous_status": self.previous_status.value if self.previous_status else None,
+            "previous_status": self.previous_status.value
+            if self.previous_status
+            else None,
             "baseline_param_set_id": self.baseline_param_set_id,
             "baseline_available": self.baseline_available,
             "baseline_param_version": self.baseline_param_version,
@@ -216,6 +223,74 @@ class DriftResult:
 
 
 # ── Backtest & Optimization ─────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class PurgedWalkForwardFold:
+    """Explicit train/test boundaries for one promotion-grade fold."""
+
+    train_start: date
+    train_end: date
+    test_start: date
+    test_end: date
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "train_start": self.train_start.isoformat(),
+            "train_end": self.train_end.isoformat(),
+            "test_start": self.test_start.isoformat(),
+            "test_end": self.test_end.isoformat(),
+        }
+
+
+@dataclass(frozen=True)
+class PromotionCostModel:
+    """Finite cost inputs required by promotion-grade orchestration."""
+
+    model_id: str
+    commission_bps: float
+    slippage_bps: float
+    market_impact_bps: float = 0.0
+
+    def to_dict(self) -> dict[str, str | float]:
+        return {
+            "model_id": self.model_id,
+            "commission_bps": self.commission_bps,
+            "slippage_bps": self.slippage_bps,
+            "market_impact_bps": self.market_impact_bps,
+        }
+
+
+@dataclass(frozen=True)
+class BacktestValidationIdentity:
+    """Orchestrator-computed timing identity; never a caller promotion flag."""
+
+    protocol: str
+    fold_id: str
+    fold_role: str
+    train_start: date | None
+    train_end: date | None
+    test_start: date
+    test_end: date
+    locked_oos_start: date
+    locked_oos_end: date
+    purge_days: int
+    embargo_days: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "protocol": self.protocol,
+            "fold_id": self.fold_id,
+            "fold_role": self.fold_role,
+            "train_start": self.train_start.isoformat() if self.train_start else None,
+            "train_end": self.train_end.isoformat() if self.train_end else None,
+            "test_start": self.test_start.isoformat(),
+            "test_end": self.test_end.isoformat(),
+            "locked_oos_start": self.locked_oos_start.isoformat(),
+            "locked_oos_end": self.locked_oos_end.isoformat(),
+            "purge_days": self.purge_days,
+            "embargo_days": self.embargo_days,
+        }
 
 
 @dataclass(frozen=True)
@@ -263,6 +338,10 @@ class BacktestResult:
     source_revision: str = ""
     cost_model: str = ""
 
+    # Appended to preserve the positional order of every legacy field above.
+    validation_identity: BacktestValidationIdentity | None = None
+    cost_inputs: Mapping[str, float] = field(default_factory=dict)
+
     def to_dict(self) -> dict[str, object]:
         return {
             "strategy_profile": self.strategy_profile,
@@ -295,6 +374,42 @@ class BacktestResult:
             "computed_at": self.computed_at,
             "source_revision": self.source_revision,
             "cost_model": self.cost_model,
+            "validation_identity": self.validation_identity.to_dict()
+            if self.validation_identity
+            else None,
+            "cost_inputs": dict(self.cost_inputs),
+        }
+
+
+@dataclass(frozen=True)
+class PromotionBacktestRun:
+    """Validated output produced only by the strict promotion orchestration path."""
+
+    strategy_profile: str
+    domain: str
+    fold_results: tuple[BacktestResult, ...]
+    locked_oos_result: BacktestResult
+    folds: tuple[PurgedWalkForwardFold, ...]
+    locked_oos_start: date
+    locked_oos_end: date
+    purge_days: int
+    embargo_days: int
+    source_revision: str
+    cost_model: PromotionCostModel
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "strategy_profile": self.strategy_profile,
+            "domain": self.domain,
+            "folds": [fold.to_dict() for fold in self.folds],
+            "fold_results": [result.to_dict() for result in self.fold_results],
+            "locked_oos_result": self.locked_oos_result.to_dict(),
+            "locked_oos_start": self.locked_oos_start.isoformat(),
+            "locked_oos_end": self.locked_oos_end.isoformat(),
+            "purge_days": self.purge_days,
+            "embargo_days": self.embargo_days,
+            "source_revision": self.source_revision,
+            "cost_model": self.cost_model.to_dict(),
         }
 
 
@@ -391,9 +506,13 @@ class OptimizationProposal:
             "strategy_profile": self.strategy_profile,
             "domain": self.domain,
             "current_params": dict(self.current_params),
-            "current_metrics": self.current_metrics.to_dict() if self.current_metrics else None,
+            "current_metrics": self.current_metrics.to_dict()
+            if self.current_metrics
+            else None,
             "proposed_params": dict(self.proposed_params),
-            "proposed_metrics": self.proposed_metrics.to_dict() if self.proposed_metrics else None,
+            "proposed_metrics": self.proposed_metrics.to_dict()
+            if self.proposed_metrics
+            else None,
             "improvement_score": self.improvement_score,
             "confidence": self.confidence,
             "winning_dimensions": list(self.winning_dimensions),
