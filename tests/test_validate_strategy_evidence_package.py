@@ -78,7 +78,9 @@ def _valid_payload() -> dict[str, object]:
     }
 
 
-def _run_validator(tmp_path: Path, payload: dict[str, object]) -> subprocess.CompletedProcess[str]:
+def _run_validator(
+    tmp_path: Path, payload: dict[str, object]
+) -> subprocess.CompletedProcess[str]:
     path = tmp_path / "evidence.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return subprocess.run(
@@ -123,7 +125,9 @@ def test_missing_required_artifact_fails(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("flag", ["oos_passed", "overfit_report_present"])
-def test_live_candidate_rejects_false_validation_flags(tmp_path: Path, flag: str) -> None:
+def test_live_candidate_rejects_false_validation_flags(
+    tmp_path: Path, flag: str
+) -> None:
     payload = _valid_payload()
     payload["validation"] = dict(payload["validation"])
     payload["validation"][flag] = False
@@ -153,3 +157,19 @@ def test_missing_risk_metric_fails(tmp_path: Path) -> None:
 
     assert result.returncode == 1
     assert "risk.metrics.win_rate must be a number" in result.stderr
+
+
+def test_compatibility_cli_rejects_duplicate_keys(tmp_path: Path) -> None:
+    path = tmp_path / "duplicate.json"
+    path.write_text('{"schema_version":"one","schema_version":"two"}', encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(path)],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "duplicate" in result.stderr

@@ -124,3 +124,19 @@ AI 自动优化必须遵守以下规则：
 - [ ] `position_control_allowed=true` 已绑定 `evidence_package_id`
 - [ ] 证据包有效期明确
 - [ ] `bounded budget` 已输出且可审计
+
+## `strategy_evidence_package.v2` 晋级证据门
+
+晋级重跑必须由 producer 生成新的 `strategy_evidence_package.v2`；v1/alias 只保留研究与监控兼容，不自动迁移成 v2。v2 必须同时绑定：
+
+- strategy/source revision、input provenance/license/range/timestamp/manifest digest；
+- `BacktestOrchestrator` 的 `purged_walk_forward.v1` 输出、至少 3 个有序 folds、正数 purge/embargo，以及锁定且独立的至少 12 个日历月 OOS；
+- calendar/timezone/signal/execution timing、config/data-manifest/backtest/risk/IC/cost artifacts 及其实际 bytes/SHA-256；
+- 上述全部风险指标及 `information_coefficient`。所有 metric/cost 必须存在、非 bool 且有限，cost/risk 状态必须为 `PASS`；
+- human acceptance 的 decision/id/actor/time/authority-receipt SHA-256，并以 evidence-core SHA-256 绑定当前证据。
+
+机器只判断结构、身份、有限性、日期、digest 与 PASS 状态；本文未冻结 Sharpe、return、MDD 或 IC 数值阈值，指标质量仍由绑定的人类 promotion acceptance 判断。
+
+本 v2 门只产生研究晋级资格，不产生 paper/shadow/live 权限：`live_ready=false`、`size_zero_required=true`、`no_order=true` 始终成立。`requested_stage`、CI、PR、review、health 或 notification 不能改变这些真值；legacy/v2 live 或 runtime 请求都必须 `HOLD`。
+
+本门完成也不改变 P3 的 `TERMINALLY_PARKED_NO_MEMBER` 状态。

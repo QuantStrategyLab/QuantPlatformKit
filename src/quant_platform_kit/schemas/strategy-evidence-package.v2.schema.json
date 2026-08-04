@@ -1,0 +1,458 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.dev/schemas/strategy-evidence-package.v2.schema.json",
+  "title": "strategy_evidence_package.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_package_id",
+    "generated_at",
+    "requested_stage",
+    "strategy",
+    "input_provenance",
+    "backtest",
+    "artifacts",
+    "metrics",
+    "cost_stress",
+    "risk_assessment",
+    "digests",
+    "human_acceptance",
+    "lifecycle_claims"
+  ],
+  "properties": {
+    "schema_version": {"const": "strategy_evidence_package.v2"},
+    "evidence_package_id": {"$ref": "#/$defs/nonEmptyString"},
+    "generated_at": {"$ref": "#/$defs/dateTime"},
+    "requested_stage": {
+      "enum": [
+        "research_backtest_only",
+        "ai_monitored_candidate",
+        "shadow_candidate",
+        "live_candidate",
+        "runtime_enabled"
+      ]
+    },
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "domain", "source_revision"],
+      "properties": {
+        "profile": {"$ref": "#/$defs/nonEmptyString"},
+        "domain": {"$ref": "#/$defs/nonEmptyString"},
+        "source_revision": {"$ref": "#/$defs/sourceRevision"}
+      }
+    },
+    "input_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "source_revision",
+        "license",
+        "usage_scope",
+        "range",
+        "timestamp",
+        "manifest_sha256"
+      ],
+      "properties": {
+        "source": {"$ref": "#/$defs/nonEmptyString"},
+        "source_revision": {"$ref": "#/$defs/nonEmptyString"},
+        "license": {"$ref": "#/$defs/nonEmptyString"},
+        "usage_scope": {"$ref": "#/$defs/nonEmptyString"},
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end"],
+          "properties": {
+            "start": {"$ref": "#/$defs/date"},
+            "end": {"$ref": "#/$defs/date"}
+          }
+        },
+        "timestamp": {"$ref": "#/$defs/dateTime"},
+        "manifest_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "backtest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "orchestrator",
+        "protocol",
+        "calendar",
+        "timezone",
+        "signal_timing",
+        "execution_timing",
+        "locked_independent_oos",
+        "promotion_run"
+      ],
+      "properties": {
+        "orchestrator": {"const": "BacktestOrchestrator"},
+        "protocol": {"const": "purged_walk_forward.v1"},
+        "calendar": {"$ref": "#/$defs/nonEmptyString"},
+        "timezone": {"$ref": "#/$defs/nonEmptyString"},
+        "signal_timing": {"$ref": "#/$defs/nonEmptyString"},
+        "execution_timing": {"$ref": "#/$defs/nonEmptyString"},
+        "locked_independent_oos": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["locked", "independent", "reused_for_selection"],
+          "properties": {
+            "locked": {"const": true},
+            "independent": {"const": true},
+            "reused_for_selection": {"const": false}
+          }
+        },
+        "promotion_run": {"$ref": "#/$defs/promotionRun"}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "data_manifest",
+        "backtest",
+        "risk",
+        "information_coefficient",
+        "cost_model"
+      ],
+      "properties": {
+        "config": {"$ref": "#/$defs/artifact"},
+        "data_manifest": {"$ref": "#/$defs/artifact"},
+        "backtest": {"$ref": "#/$defs/artifact"},
+        "risk": {"$ref": "#/$defs/artifact"},
+        "information_coefficient": {"$ref": "#/$defs/artifact"},
+        "cost_model": {"$ref": "#/$defs/artifact"}
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sharpe_ratio",
+        "sortino_ratio",
+        "max_drawdown",
+        "annualized_return",
+        "annualized_volatility",
+        "calmar_ratio",
+        "information_ratio",
+        "information_coefficient",
+        "var_95",
+        "cvar_95",
+        "turnover",
+        "trade_count",
+        "win_rate",
+        "profit_factor"
+      ],
+      "properties": {
+        "sharpe_ratio": {"type": "number"},
+        "sortino_ratio": {"type": "number"},
+        "max_drawdown": {"type": "number"},
+        "annualized_return": {"type": "number"},
+        "annualized_volatility": {"type": "number"},
+        "calmar_ratio": {"type": "number"},
+        "information_ratio": {"type": "number"},
+        "information_coefficient": {"type": "number"},
+        "var_95": {"type": "number"},
+        "cvar_95": {"type": "number"},
+        "turnover": {"type": "number"},
+        "trade_count": {"type": "integer", "minimum": 0},
+        "win_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "profit_factor": {"type": "number"}
+      }
+    },
+    "cost_stress": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scenarios", "status"],
+      "properties": {
+        "scenarios": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {"$ref": "#/$defs/costScenario1"},
+            {"$ref": "#/$defs/costScenario2"},
+            {"$ref": "#/$defs/costScenario3"}
+          ],
+          "items": false
+        },
+        "status": {"const": "PASS"}
+      }
+    },
+    "risk_assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "standard_id", "standard_sha256"],
+      "properties": {
+        "status": {"const": "PASS"},
+        "standard_id": {"$ref": "#/$defs/nonEmptyString"},
+        "standard_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "digests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config_sha256",
+        "data_manifest_sha256",
+        "backtest_sha256",
+        "risk_sha256",
+        "information_coefficient_sha256",
+        "cost_model_sha256",
+        "evidence_core_sha256",
+        "package_sha256"
+      ],
+      "properties": {
+        "config_sha256": {"$ref": "#/$defs/sha256"},
+        "data_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "backtest_sha256": {"$ref": "#/$defs/sha256"},
+        "risk_sha256": {"$ref": "#/$defs/sha256"},
+        "information_coefficient_sha256": {"$ref": "#/$defs/sha256"},
+        "cost_model_sha256": {"$ref": "#/$defs/sha256"},
+        "evidence_core_sha256": {"$ref": "#/$defs/sha256"},
+        "package_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "human_acceptance": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "decision",
+            "acceptance_id",
+            "actor",
+            "accepted_at",
+            "authority_receipt_sha256",
+            "evidence_core_sha256"
+          ],
+          "properties": {
+            "decision": {"enum": ["ACCEPTED", "REJECTED"]},
+            "acceptance_id": {"$ref": "#/$defs/nonEmptyString"},
+            "actor": {"$ref": "#/$defs/nonEmptyString"},
+            "accepted_at": {"$ref": "#/$defs/dateTime"},
+            "authority_receipt_sha256": {"$ref": "#/$defs/sha256"},
+            "evidence_core_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      ]
+    },
+    "lifecycle_claims": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "learning_only",
+        "promotion_eligible",
+        "live_ready",
+        "size_zero_required",
+        "no_order"
+      ],
+      "properties": {
+        "learning_only": {"type": "boolean"},
+        "promotion_eligible": {"type": "boolean"},
+        "live_ready": {"const": false},
+        "size_zero_required": {"const": true},
+        "no_order": {"const": true}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"learning_only": {"const": true}}},
+          "then": {"properties": {"promotion_eligible": {"const": false}}}
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sourceRevision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "date": {"type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "dateTime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "(?:Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "artifactPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*(?:^|/)\\.(?:/|$))(?!.*[\\u0000-\\u001f\\u007f])(?!.*\\\\)(?!.*//).+$"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/artifactPath"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "fold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["train_start", "train_end", "test_start", "test_end"],
+      "properties": {
+        "train_start": {"$ref": "#/$defs/date"},
+        "train_end": {"$ref": "#/$defs/date"},
+        "test_start": {"$ref": "#/$defs/date"},
+        "test_end": {"$ref": "#/$defs/date"}
+      }
+    },
+    "costInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commission_bps", "slippage_bps", "market_impact_bps"],
+      "properties": {
+        "commission_bps": {"type": "number", "minimum": 0},
+        "slippage_bps": {"type": "number", "minimum": 0},
+        "market_impact_bps": {"type": "number", "minimum": 0}
+      }
+    },
+    "validationIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "fold_id",
+        "fold_role",
+        "train_start",
+        "train_end",
+        "test_start",
+        "test_end",
+        "locked_oos_start",
+        "locked_oos_end",
+        "purge_days",
+        "embargo_days"
+      ],
+      "properties": {
+        "protocol": {"const": "purged_walk_forward.v1"},
+        "fold_id": {"$ref": "#/$defs/nonEmptyString"},
+        "fold_role": {"enum": ["test", "locked_oos"]},
+        "train_start": {"oneOf": [{"$ref": "#/$defs/date"}, {"type": "null"}]},
+        "train_end": {"oneOf": [{"$ref": "#/$defs/date"}, {"type": "null"}]},
+        "test_start": {"$ref": "#/$defs/date"},
+        "test_end": {"$ref": "#/$defs/date"},
+        "locked_oos_start": {"$ref": "#/$defs/date"},
+        "locked_oos_end": {"$ref": "#/$defs/date"},
+        "purge_days": {"type": "integer", "minimum": 1},
+        "embargo_days": {"type": "integer", "minimum": 1}
+      }
+    },
+    "backtestResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy_profile",
+        "domain",
+        "start_date",
+        "end_date",
+        "source_revision",
+        "cost_model",
+        "cost_inputs",
+        "validation_identity",
+        "sharpe_ratio",
+        "max_drawdown",
+        "cagr",
+        "observation_count",
+        "run_duration_seconds"
+      ],
+      "properties": {
+        "strategy_profile": {"$ref": "#/$defs/nonEmptyString"},
+        "domain": {"$ref": "#/$defs/nonEmptyString"},
+        "param_set_id": {"type": "string"},
+        "params": {"type": "object"},
+        "param_version": {"type": "integer", "minimum": 1},
+        "sharpe_ratio": {"type": "number"},
+        "calmar_ratio": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "sortino_ratio": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "max_drawdown": {"type": "number"},
+        "cagr": {"type": "number"},
+        "volatility": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "win_rate": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "total_return": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "start_date": {"$ref": "#/$defs/date"},
+        "end_date": {"$ref": "#/$defs/date"},
+        "observation_count": {"type": "integer", "minimum": 1},
+        "benchmark_symbol": {"type": "string"},
+        "benchmark_cagr": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "benchmark_max_drawdown": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "excess_cagr": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "oos_sharpe": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "oos_calmar": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "oos_max_drawdown": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "walk_forward_stability": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+        "run_id": {"type": "string"},
+        "run_duration_seconds": {"type": "number", "minimum": 0},
+        "source_script": {"type": "string"},
+        "computed_at": {"type": "string"},
+        "source_revision": {"$ref": "#/$defs/sourceRevision"},
+        "cost_model": {"$ref": "#/$defs/nonEmptyString"},
+        "validation_identity": {"$ref": "#/$defs/validationIdentity"},
+        "cost_inputs": {"$ref": "#/$defs/costInputs"}
+      }
+    },
+    "promotionRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy_profile",
+        "domain",
+        "folds",
+        "fold_results",
+        "locked_oos_result",
+        "locked_oos_start",
+        "locked_oos_end",
+        "purge_days",
+        "embargo_days",
+        "source_revision",
+        "cost_model"
+      ],
+      "properties": {
+        "strategy_profile": {"$ref": "#/$defs/nonEmptyString"},
+        "domain": {"$ref": "#/$defs/nonEmptyString"},
+        "folds": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/fold"}},
+        "fold_results": {"type": "array", "minItems": 3, "items": {"$ref": "#/$defs/backtestResult"}},
+        "locked_oos_result": {"$ref": "#/$defs/backtestResult"},
+        "locked_oos_start": {"$ref": "#/$defs/date"},
+        "locked_oos_end": {"$ref": "#/$defs/date"},
+        "purge_days": {"type": "integer", "minimum": 1},
+        "embargo_days": {"type": "integer", "minimum": 1},
+        "source_revision": {"$ref": "#/$defs/sourceRevision"},
+        "cost_model": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model_id", "commission_bps", "slippage_bps", "market_impact_bps"],
+          "properties": {
+            "model_id": {"$ref": "#/$defs/nonEmptyString"},
+            "commission_bps": {"type": "number", "minimum": 0},
+            "slippage_bps": {"type": "number", "minimum": 0},
+            "market_impact_bps": {"type": "number", "minimum": 0}
+          }
+        }
+      }
+    },
+    "costScenario1": {"$ref": "#/$defs/costScenarioBase1"},
+    "costScenario2": {"$ref": "#/$defs/costScenarioBase2"},
+    "costScenario3": {"$ref": "#/$defs/costScenarioBase3"},
+    "costScenarioBase1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["multiplier", "total_cost_bps"],
+      "properties": {"multiplier": {"const": 1}, "total_cost_bps": {"type": "number", "minimum": 0}}
+    },
+    "costScenarioBase2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["multiplier", "total_cost_bps"],
+      "properties": {"multiplier": {"const": 2}, "total_cost_bps": {"type": "number", "minimum": 0}}
+    },
+    "costScenarioBase3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["multiplier", "total_cost_bps"],
+      "properties": {"multiplier": {"const": 3}, "total_cost_bps": {"type": "number", "minimum": 0}}
+    }
+  }
+}
