@@ -385,6 +385,7 @@ def test_accepts_exact_backtest_orchestrator_promotion_output(tmp_path: Path) ->
     from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
     class Runner:
+        runner_kind = "real"
         @staticmethod
         def _result(start_date: date, end_date: date) -> BacktestResult:
             return BacktestResult(

@@ -9,17 +9,21 @@ from quant_platform_kit.strategy_lifecycle.param_optimizer import _auto_register
 
 
 class ParamOptimizerRunnerRegistrationTests(unittest.TestCase):
-    def test_auto_register_runner_rejects_placeholder_runner(self) -> None:
-        orchestrator = BacktestOrchestrator()
+    def test_auto_register_runner_requires_exact_real_marker(self) -> None:
+        missing = object()
+        for marker in (missing, None, "", " ", "placeholder", "REAL", " real "):
+            with self.subTest(marker=marker):
+                orchestrator = BacktestOrchestrator()
+                runner = SimpleNamespace()
+                if marker is not missing:
+                    runner.runner_kind = marker
+                fake_module = SimpleNamespace(build_backtest_runner=lambda: runner)
 
-        class PlaceholderRunner:
-            runner_kind = "placeholder"
-
-        fake_module = SimpleNamespace(build_backtest_runner=lambda: PlaceholderRunner())
-
-        with patch("importlib.import_module", return_value=fake_module):
-            with self.assertRaisesRegex(RuntimeError, "placeholder runners are blocked"):
-                _auto_register_runner(orchestrator, "us_equity")
+                with (
+                    patch("importlib.import_module", return_value=fake_module),
+                    self.assertRaisesRegex(RuntimeError, "explicit runner_kind='real'"),
+                ):
+                    _auto_register_runner(orchestrator, "us_equity")
 
     def test_auto_register_runner_raises_when_all_candidates_fail(self) -> None:
         orchestrator = BacktestOrchestrator()

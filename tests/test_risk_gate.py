@@ -5,7 +5,12 @@ from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 from quant_platform_kit.common.models import PortfolioSnapshot
-from quant_platform_kit.risk.contracts import ROUTE_BLOCKED, RiskAction, RiskSignal
+from quant_platform_kit.risk.contracts import (
+    ROUTE_BLOCKED,
+    CandidateRiskIdentity,
+    RiskAction,
+    RiskSignal,
+)
 from quant_platform_kit.risk.engine import RiskEngine
 from quant_platform_kit.risk.gate import (
     assess_with_evidence,
@@ -363,14 +368,38 @@ class AssessWithEvidenceTests(unittest.TestCase):
     _NOW = datetime(2026, 8, 4, 4, 28, tzinfo=timezone.utc)
 
     @staticmethod
-    def _mandate(**overrides: object) -> dict[str, object]:
+    def _candidate(**overrides: object) -> CandidateRiskIdentity:
+        values: dict[str, object] = {
+            "strategy_profile": "crypto_live_pool_rotation",
+            "account_mode": "single_strategy_account_v1",
+            "strategy_revision": "b" * 40,
+            "runner_revision": "c" * 40,
+            "config_sha256": "d" * 64,
+            "input_manifest_sha256": "e" * 64,
+            "authority_receipt_sha256": "a" * 64,
+        }
+        values.update(overrides)
+        return CandidateRiskIdentity(**values)
+
+    @classmethod
+    def _mandate(
+        cls,
+        candidate: CandidateRiskIdentity | None = None,
+        **overrides: object,
+    ) -> dict[str, object]:
+        candidate = candidate or cls._candidate()
         mandate: dict[str, object] = {
             "mandate_id": "binance_crypto_research_only_v1",
             "mandate_version": "2026-08-04.1",
             "authority_receipt_sha256": "a" * 64,
             "authority_scope": "RESEARCH_ONLY",
-            "strategy_profile": "crypto_live_pool_rotation",
-            "account_mode": "single_strategy_account_v1",
+            "strategy_profile": candidate.strategy_profile,
+            "account_mode": candidate.account_mode,
+            "strategy_revision": candidate.strategy_revision,
+            "runner_revision": candidate.runner_revision,
+            "config_sha256": candidate.config_sha256,
+            "input_manifest_sha256": candidate.input_manifest_sha256,
+            "candidate_identity_sha256": candidate.candidate_sha256,
             "effective_at": "2026-08-04T04:27:55Z",
             "expires_at": "2026-09-03T15:59:59Z",
             "max_snapshot_age_seconds": 300,
@@ -408,6 +437,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                 scope="MEMBER",
                 mandate_provenance=self._mandate(),
                 market_data={},
+                candidate_identity=self._candidate(),
             )
             redacted_equivalent = assess_with_evidence(
                 decision,
@@ -418,14 +448,195 @@ class AssessWithEvidenceTests(unittest.TestCase):
                 scope="MEMBER",
                 mandate_provenance=self._mandate(),
                 market_data={},
+                candidate_identity=self._candidate(),
             )
 
         self.assertEqual(first.assessment.outcome, "APPROVE")
         self.assertEqual(first.assessment.effective_exposure_cap, 0.50)
         self.assertEqual(first.assessment.observed_effective_exposure, 0.10)
         self.assertEqual(first.assessment.proposed_effective_exposure, 0.20)
+        self.assertEqual(
+            first.assessment.candidate_identity_sha256,
+            self._candidate().candidate_sha256,
+        )
         self.assertEqual(first.assessment.assessment_sha256, redacted_equivalent.assessment.assessment_sha256)
         self.assertEqual(len(first.decision.positions), 1)
+
+    def test_mandate_requires_typed_candidate_and_still_assesses_once(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="BTCUSDT", target_weight=0.10),),
+        )
+        engine = Mock()
+        engine.assess.return_value = RiskAction(action="approve", reason="passed")
+
+        with (
+            patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW),
+            patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+        ):
+            result = assess_with_evidence(
+                decision,
+                self._snapshot(),
+                scope="MEMBER",
+                mandate_provenance=self._mandate(),
+                market_data={},
+                candidate_identity=None,
+            )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn("missing_candidate_identity", result.assessment.reason_codes)
+        self.assertEqual(result.decision.positions, ())
+        self.assertEqual(result.decision.budgets, ())
+        engine.assess.assert_called_once_with(decision, self._snapshot(), market_data={})
+
+    def test_mandate_is_bound_to_exact_candidate_fields_and_digest(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="BTCUSDT", target_weight=0.10),),
+        )
+        base_candidate = self._candidate()
+        cases = (
+            (
+                "strategy",
+                self._candidate(strategy_profile="soxl_soxx_trend_income"),
+                self._mandate(),
+                "candidate_strategy_profile_mismatch",
+            ),
+            (
+                "account",
+                self._candidate(account_mode="smart_portfolio_v1"),
+                self._mandate(),
+                "candidate_account_mode_mismatch",
+            ),
+            (
+                "candidate_digest",
+                base_candidate,
+                self._mandate(candidate_identity_sha256="f" * 64),
+                "candidate_identity_digest_mismatch",
+            ),
+            (
+                "input_manifest",
+                self._candidate(input_manifest_sha256="f" * 64),
+                self._mandate(),
+                "candidate_input_manifest_digest_mismatch",
+            ),
+        )
+        for name, candidate, mandate, reason_code in cases:
+            engine = Mock()
+            engine.assess.return_value = RiskAction(action="approve", reason="passed")
+            with (
+                self.subTest(name=name),
+                patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW),
+                patch(
+                    "quant_platform_kit.risk.gate.build_risk_engine",
+                    return_value=engine,
+                ),
+            ):
+                result = assess_with_evidence(
+                    decision,
+                    self._snapshot(),
+                    scope="MEMBER",
+                    mandate_provenance=mandate,
+                    market_data={},
+                    candidate_identity=candidate,
+                )
+
+            self.assertEqual(result.assessment.outcome, "REJECT")
+            self.assertIn(reason_code, result.assessment.reason_codes)
+            self.assertEqual(
+                result.assessment.candidate_identity_sha256,
+                candidate.candidate_sha256,
+            )
+            self.assertEqual(result.decision.positions, ())
+            self.assertEqual(result.decision.budgets, ())
+            engine.assess.assert_called_once_with(
+                decision,
+                self._snapshot(),
+                market_data={},
+            )
+
+    def test_reduce_only_normalization_can_exit_over_cap_origin_once(self) -> None:
+        candidate = self._candidate(strategy_profile="soxl_soxx_trend_income")
+        mandate = self._mandate(
+            candidate,
+            product_leverage_factors={"BOXX": 1, "SOXX": 1},
+            allowed_nonzero_assets=["BOXX", "SOXX"],
+            product_caps={"BOXX": 0.50, "SOXX": 0.50},
+            nominal_caps={"BOXX": 0.50, "SOXX": 0.50},
+            loss_budget=0.01,
+        )
+        decision = _decision(
+            positions=(PositionTarget(symbol="BOXX", target_weight=0.50),),
+        )
+        engine = Mock()
+        engine.assess.return_value = RiskAction(action="approve", reason="passed")
+
+        with (
+            patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW),
+            patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+        ):
+            result = assess_with_evidence(
+                decision,
+                self._snapshot(observed_effective_exposure=1.0),
+                scope="MEMBER",
+                mandate_provenance=mandate,
+                market_data={},
+                candidate_identity=candidate,
+                normalization_origin_weights={"BOXX": 1.0},
+            )
+
+        self.assertEqual(result.assessment.outcome, "APPROVE")
+        self.assertEqual(result.assessment.proposed_effective_exposure, 0.50)
+        self.assertIsNotNone(result.assessment.normalization_origin_digest_sha256)
+        engine.assess.assert_called_once_with(
+            decision,
+            self._snapshot(observed_effective_exposure=1.0),
+            market_data={},
+        )
+
+    def test_invalid_reduce_only_normalization_rejects_and_assesses_once(self) -> None:
+        candidate = self._candidate(strategy_profile="soxl_soxx_trend_income")
+        mandate = self._mandate(
+            candidate,
+            product_leverage_factors={"BOXX": 1, "SOXX": 1},
+            allowed_nonzero_assets=["BOXX", "SOXX"],
+            product_caps={"BOXX": 0.50, "SOXX": 0.50},
+            nominal_caps={"BOXX": 0.50, "SOXX": 0.50},
+            loss_budget=0.01,
+        )
+        decision = _decision(
+            positions=(
+                PositionTarget(symbol="BOXX", target_weight=0.40),
+                PositionTarget(symbol="SOXX", target_weight=0.10),
+            ),
+        )
+        engine = Mock()
+        engine.assess.return_value = RiskAction(action="approve", reason="passed")
+
+        with (
+            patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW),
+            patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+        ):
+            result = assess_with_evidence(
+                decision,
+                self._snapshot(observed_effective_exposure=1.0),
+                scope="MEMBER",
+                mandate_provenance=mandate,
+                market_data={},
+                candidate_identity=candidate,
+                normalization_origin_weights={"BOXX": 1.0},
+            )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn(
+            "invalid_reduce_only_normalization",
+            result.assessment.reason_codes,
+        )
+        self.assertEqual(result.decision.positions, ())
+        self.assertEqual(result.decision.budgets, ())
+        engine.assess.assert_called_once_with(
+            decision,
+            self._snapshot(observed_effective_exposure=1.0),
+            market_data={},
+        )
 
     def test_zero_cap_research_mandate_never_produces_order_authority(self) -> None:
         decision = StrategyDecision(
@@ -447,6 +658,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                     allowed_nonzero_assets=[],
                 ),
                 market_data={},
+                candidate_identity=self._candidate(),
             )
 
         self.assertEqual(result.assessment.outcome, "REJECT")
@@ -468,6 +680,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                 scope="STRATEGY",
                 mandate_provenance=self._mandate(),
                 market_data={},
+                candidate_identity=self._candidate(),
             )
 
         self.assertEqual(result.assessment.outcome, "REJECT")
@@ -494,6 +707,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                 scope="MEMBER",
                 mandate_provenance=self._mandate(),
                 market_data={},
+                candidate_identity=self._candidate(),
             )
 
         self.assertEqual(result.assessment.outcome, "REJECT")
@@ -525,6 +739,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                     scope="MEMBER",
                     mandate_provenance=self._mandate(**cap_overrides),
                     market_data={},
+                    candidate_identity=self._candidate(),
                 )
 
             self.assertEqual(result.assessment.outcome, "REJECT")
@@ -559,6 +774,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                     scope="MEMBER",
                     mandate_provenance=mandate,
                     market_data={},
+                    candidate_identity=self._candidate(),
                 )
                 for decision in decisions
             )
@@ -607,6 +823,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                 scope="MEMBER",
                 mandate_provenance=self._mandate(),
                 market_data={},
+                candidate_identity=self._candidate(),
             )
 
         self.assertEqual(result.assessment.outcome, "REJECT")
@@ -629,6 +846,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                 scope="MEMBER",
                 mandate_provenance=self._mandate(),
                 market_data={},
+                candidate_identity=self._candidate(),
             )
             mapping_result = assess_with_evidence(
                 decision,
@@ -636,6 +854,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                 scope="MEMBER",
                 mandate_provenance=self._mandate(),
                 market_data={},
+                candidate_identity=self._candidate(),
             )
 
         self.assertEqual(canonical_result.assessment.outcome, "APPROVE")
@@ -655,6 +874,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                 scope="MEMBER",
                 mandate_provenance=self._mandate(),
                 market_data={},
+                candidate_identity=self._candidate(),
             )
 
         self.assertEqual(approved.assessment.outcome, "APPROVE")
@@ -675,6 +895,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                     scope="MEMBER",
                     mandate_provenance=self._mandate(),
                     market_data={},
+                    candidate_identity=self._candidate(),
                 )
             self.assertEqual(rejected.assessment.outcome, "REJECT")
             self.assertEqual(rejected.decision.positions, ())
@@ -700,6 +921,7 @@ class AssessWithEvidenceTests(unittest.TestCase):
                         allowed_nonzero_assets=[],
                     ),
                     market_data={},
+                    candidate_identity=self._candidate(),
                 )
 
             self.assertEqual(result.assessment.outcome, "REJECT")

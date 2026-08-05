@@ -8,6 +8,8 @@ from quant_platform_kit.position_sizing import (
     KellyResult,
     estimate_kelly,
     risk_budgeted_target_weight,
+    risk_budgeted_target_weights,
+    validate_reduce_only_normalization,
 )
 
 
@@ -172,6 +174,103 @@ class RiskBudgetedTargetWeightTests(unittest.TestCase):
                 self.assertEqual(
                     risk_budgeted_target_weight(**self._approved_inputs(**overrides)),
                     0.0,
+                )
+
+
+class RiskBudgetedTargetWeightsTests(unittest.TestCase):
+    def _approved_inputs(self, **overrides: object) -> dict[str, object]:
+        return {
+            "raw_target_weights": {"SOXL": 0.70, "SOXX": 0.30},
+            "risk_mandate_id": "soxl_p3_research_v1",
+            "risk_fraction": 0.01,
+            "stop_loss_distances": {"SOXL": 0.05, "SOXX": 0.05},
+            "drawdown_scalar": 1.0,
+            "available_effective_exposure": 0.50,
+            "product_leverage_factors": {"SOXL": 3, "SOXX": 1},
+            "inputs_fresh": True,
+            **overrides,
+        }
+
+    def test_sizes_multi_asset_vector_proportionally_under_all_caps(self) -> None:
+        result = risk_budgeted_target_weights(**self._approved_inputs())
+
+        self.assertEqual(set(result), {"SOXL", "SOXX"})
+        self.assertAlmostEqual(result["SOXL"], 0.14)
+        self.assertAlmostEqual(result["SOXX"], 0.06)
+        self.assertAlmostEqual(result["SOXL"] / result["SOXX"], 7 / 3)
+        self.assertLessEqual(result["SOXL"], 0.15)
+        self.assertLessEqual(result["SOXL"] * 3 + result["SOXX"], 0.50)
+        self.assertLessEqual(
+            result["SOXL"] * 0.05 + result["SOXX"] * 0.05,
+            0.01,
+        )
+
+    def test_drawdown_scalar_reduces_aggregate_loss_budget(self) -> None:
+        result = risk_budgeted_target_weights(
+            **self._approved_inputs(drawdown_scalar=0.50),
+        )
+
+        self.assertAlmostEqual(result["SOXL"], 0.07)
+        self.assertAlmostEqual(result["SOXX"], 0.03)
+
+    def test_invalid_or_stale_multi_asset_inputs_fail_closed(self) -> None:
+        invalid_cases = (
+            {"risk_mandate_id": None},
+            {"risk_mandate_id": "bootstrap_small_account_v2"},
+            {"inputs_fresh": False},
+            {"risk_fraction": 0.0100001},
+            {"drawdown_scalar": float("nan")},
+            {"available_effective_exposure": 0.500001},
+            {"product_leverage_factors": {"SOXL": 4, "SOXX": 1}},
+            {"product_leverage_factors": {"SOXL": 3}},
+            {"stop_loss_distances": {"SOXL": 0.05}},
+            {"raw_target_weights": {"SOXL": float("inf"), "SOXX": 0.30}},
+            {"raw_target_weights": {"SOXL": -0.10, "SOXX": 0.30}},
+        )
+        for overrides in invalid_cases:
+            with self.subTest(overrides=overrides):
+                self.assertEqual(
+                    risk_budgeted_target_weights(
+                        **self._approved_inputs(**overrides),
+                    ),
+                    {},
+                )
+
+
+class ReduceOnlyNormalizationTests(unittest.TestCase):
+    def test_one_hundred_percent_boxx_can_normalize_to_compliant_boxx_cash(self) -> None:
+        self.assertTrue(
+            validate_reduce_only_normalization(
+                origin_weights={"BOXX": 1.0},
+                target_weights={"BOXX": 0.50},
+                product_leverage_factors={"BOXX": 1},
+                effective_exposure_cap=0.50,
+                observed_effective_exposure=1.0,
+            )
+        )
+
+    def test_normalization_rejects_new_exposure_non_reduction_or_bad_origin(self) -> None:
+        invalid_cases = (
+            ({"BOXX": 0.40, "SOXX": 0.10}, {"BOXX": 1, "SOXX": 1}, 1.0),
+            ({"BOXX": 1.0}, {"BOXX": 1}, 1.0),
+            ({"BOXX": 0.60}, {"BOXX": 1}, 1.0),
+            ({"BOXX": 0.50}, {"BOXX": 1}, 0.90),
+            ({"BOXX": float("nan")}, {"BOXX": 1}, 1.0),
+        )
+        for target_weights, factors, observed in invalid_cases:
+            with self.subTest(
+                target_weights=target_weights,
+                factors=factors,
+                observed=observed,
+            ):
+                self.assertFalse(
+                    validate_reduce_only_normalization(
+                        origin_weights={"BOXX": 1.0},
+                        target_weights=target_weights,
+                        product_leverage_factors=factors,
+                        effective_exposure_cap=0.50,
+                        observed_effective_exposure=observed,
+                    )
                 )
 
 
