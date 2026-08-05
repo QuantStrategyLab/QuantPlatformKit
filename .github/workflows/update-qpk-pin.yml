@@ -9,6 +9,7 @@ on:
       - "constraints.txt"
       - ".github/workflows/open-downstream-qpk-pin-prs.yml"
       - ".github/workflows/update-qpk-pin.yml"
+      - "tests/test_update_qpk_pin_workflow.py"
       - "docs/**"
       - "**.md"
 
