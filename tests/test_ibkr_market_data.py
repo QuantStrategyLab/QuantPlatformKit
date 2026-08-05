@@ -7,6 +7,8 @@ import unittest
 from unittest.mock import patch
 
 from quant_platform_kit.ibkr.market_data import (
+    StrictAdjustedHistoryError,
+    fetch_strict_adjusted_historical_price_candles,
     fetch_historical_price_candles,
     fetch_historical_price_series,
     fetch_option_chain_snapshot,
@@ -86,6 +88,152 @@ class FakeIB:
 
 
 class IbkrMarketDataTests(unittest.TestCase):
+    @staticmethod
+    def _strict_ib(*, bars=None, error: Exception | None = None):
+        class StrictIB(FakeIB):
+            def __init__(self):
+                super().__init__()
+                self.history_calls = []
+                self.market_data_type_calls = []
+
+            def qualifyContracts(self, contract):
+                self.qualified.append(contract)
+                return [contract]
+
+            def reqMarketDataType(self, market_data_type):
+                self.market_data_type_calls.append(market_data_type)
+
+            def reqHistoricalData(self, contract, **kwargs):
+                self.history_calls.append(kwargs)
+                if error is not None:
+                    raise error
+                return bars
+
+        return StrictIB()
+
+    def test_strict_adjusted_history_uses_one_exact_request_and_sanitized_provenance(
+        self,
+    ) -> None:
+        bars = [
+            FakeBar(date=date(2026, 8, 3), open=100.0, high=101.0, low=99.5, close=100.5, volume=1000.0),
+            FakeBar(date=date(2026, 8, 4), open=100.5, high=101.5, low=100.0, close=101.0, volume=1200.0),
+        ]
+        ib = self._strict_ib(bars=bars)
+        cutoff = datetime(2026, 8, 5, 3, 59, 59, tzinfo=timezone.utc)
+
+        result = fetch_strict_adjusted_historical_price_candles(
+            ib,
+            "SOXL",
+            end_datetime=cutoff,
+            duration="9 Y",
+            expected_sessions=(date(2026, 8, 3), date(2026, 8, 4)),
+            stock_factory=FakeContract,
+        )
+
+        self.assertEqual(len(ib.history_calls), 1)
+        self.assertEqual(
+            ib.history_calls[0],
+            {
+                "endDateTime": cutoff,
+                "durationStr": "9 Y",
+                "barSizeSetting": "1 day",
+                "whatToShow": "ADJUSTED_LAST",
+                "useRTH": True,
+                "formatDate": 1,
+                "keepUpToDate": False,
+            },
+        )
+        self.assertEqual(ib.market_data_type_calls, [])
+        self.assertEqual(result.candles[-1].close, 101.0)
+        self.assertEqual(result.provenance.symbol, "SOXL")
+        self.assertEqual(result.provenance.end_datetime, "2026-08-05T03:59:59Z")
+        self.assertEqual(result.provenance.what_to_show, "ADJUSTED_LAST")
+        self.assertEqual(result.provenance.returned_row_count, 2)
+        self.assertFalse(hasattr(result.provenance, "candles"))
+
+    def test_strict_adjusted_history_never_falls_back_on_empty_or_error(self) -> None:
+        cutoff = datetime(2026, 8, 5, 3, 59, 59, tzinfo=timezone.utc)
+        cases = (
+            self._strict_ib(bars=[]),
+            self._strict_ib(error=RuntimeError("provider failure")),
+        )
+
+        for ib in cases:
+            with self.subTest(error=bool(getattr(ib, "history_calls", None))):
+                with self.assertRaises(StrictAdjustedHistoryError):
+                    fetch_strict_adjusted_historical_price_candles(
+                        ib,
+                        "SOXL",
+                        end_datetime=cutoff,
+                        duration="9 Y",
+                        expected_sessions=(date(2026, 8, 4),),
+                        stock_factory=FakeContract,
+                    )
+
+                self.assertEqual(len(ib.history_calls), 1)
+                self.assertEqual(
+                    [call["whatToShow"] for call in ib.history_calls],
+                    ["ADJUSTED_LAST"],
+                )
+                self.assertEqual(ib.market_data_type_calls, [])
+
+    def test_strict_adjusted_history_rejects_missing_or_duplicate_sessions(self) -> None:
+        cutoff = datetime(2026, 8, 5, 3, 59, 59, tzinfo=timezone.utc)
+        valid_bar = FakeBar(
+            date=date(2026, 8, 4),
+            open=100.0,
+            high=101.0,
+            low=99.5,
+            close=100.5,
+            volume=1000.0,
+        )
+        cases = (
+            [valid_bar],
+            [valid_bar, valid_bar],
+        )
+
+        for bars in cases:
+            ib = self._strict_ib(bars=bars)
+            with self.subTest(row_count=len(bars)):
+                with self.assertRaises(StrictAdjustedHistoryError):
+                    fetch_strict_adjusted_historical_price_candles(
+                        ib,
+                        "SOXL",
+                        end_datetime=cutoff,
+                        duration="9 Y",
+                        expected_sessions=(date(2026, 8, 3), date(2026, 8, 4)),
+                        stock_factory=FakeContract,
+                    )
+
+                self.assertEqual(len(ib.history_calls), 1)
+
+    def test_strict_adjusted_history_rejects_invalid_fields_without_provider_fallback(
+        self,
+    ) -> None:
+        ib = self._strict_ib(
+            bars=[
+                SimpleNamespace(
+                    date=date(2026, 8, 4),
+                    open=100.0,
+                    high=101.0,
+                    low=99.5,
+                    close=float("nan"),
+                )
+            ]
+        )
+
+        with self.assertRaises(StrictAdjustedHistoryError):
+            fetch_strict_adjusted_historical_price_candles(
+                ib,
+                "SOXL",
+                end_datetime=datetime(2026, 8, 5, 3, 59, 59, tzinfo=timezone.utc),
+                duration="9 Y",
+                expected_sessions=(date(2026, 8, 4),),
+                stock_factory=FakeContract,
+            )
+
+        self.assertEqual(len(ib.history_calls), 1)
+
     def test_fetch_historical_price_series_builds_price_points(self) -> None:
         ib = FakeIB()
         series = fetch_historical_price_series(
