@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from math import ceil
-from math import isnan
+from math import isfinite, isnan
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from quant_platform_kit.common.models import PricePoint, PriceSeries, QuoteSnapshot
 
@@ -81,6 +82,191 @@ def _normalize_duration_for_ibkr(duration: str) -> str:
     if unit == "D" and quantity > 365:
         return f"{ceil(quantity / 365)} Y"
     return f"{quantity} {unit}"
+
+
+class StrictAdjustedHistoryError(RuntimeError):
+    """A strict adjusted-history request or response violated its contract."""
+
+
+@dataclass(frozen=True)
+class AdjustedHistoricalCandle:
+    session: date
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+@dataclass(frozen=True)
+class StrictAdjustedHistoryProvenance:
+    symbol: str
+    exchange: str
+    currency: str
+    end_datetime: str
+    duration: str
+    bar_size: str
+    what_to_show: str
+    use_rth: bool
+    format_date: int
+    keep_up_to_date: bool
+    returned_row_count: int
+
+
+@dataclass(frozen=True)
+class StrictAdjustedHistoryResult:
+    candles: tuple[AdjustedHistoricalCandle, ...]
+    provenance: StrictAdjustedHistoryProvenance
+
+
+def _strict_history_request_inputs(
+    symbol: str,
+    *,
+    end_datetime: datetime,
+    duration: str,
+    expected_sessions: Sequence[date],
+) -> tuple[str, datetime, str, tuple[date, ...]]:
+    if not isinstance(symbol, str) or re.fullmatch(r"[A-Z][A-Z0-9.-]*", symbol) is None:
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_symbol")
+    if (
+        not isinstance(end_datetime, datetime)
+        or end_datetime.tzinfo is None
+        or end_datetime.utcoffset() is None
+        or end_datetime.utcoffset().total_seconds() != 0
+        or end_datetime.microsecond != 0
+    ):
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_end_datetime")
+    if not isinstance(duration, str) or re.fullmatch(r"[1-9][0-9]* [DWMY]", duration) is None:
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_duration")
+
+    sessions = tuple(expected_sessions)
+    if (
+        not sessions
+        or any(not isinstance(session, date) or isinstance(session, datetime) for session in sessions)
+        or sessions != tuple(sorted(set(sessions)))
+    ):
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_expected_sessions")
+    return symbol, end_datetime, duration, sessions
+
+
+def _strict_history_number(bar: Any, field: str, *, allow_zero: bool = False) -> float:
+    value = getattr(bar, field, None)
+    if isinstance(value, bool):
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_bar_field")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_bar_field") from exc
+    if not isfinite(numeric) or numeric < 0 or (not allow_zero and numeric == 0):
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_bar_field")
+    return numeric
+
+
+def _strict_history_candle(bar: Any) -> AdjustedHistoricalCandle:
+    try:
+        session = _coerce_as_of(getattr(bar, "date")).date()
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_bar_session") from exc
+    open_price = _strict_history_number(bar, "open")
+    high_price = _strict_history_number(bar, "high")
+    low_price = _strict_history_number(bar, "low")
+    close_price = _strict_history_number(bar, "close")
+    volume = _strict_history_number(bar, "volume", allow_zero=True)
+    if high_price < max(open_price, low_price, close_price) or low_price > min(
+        open_price,
+        high_price,
+        close_price,
+    ):
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_ohlc")
+    return AdjustedHistoricalCandle(
+        session=session,
+        open=open_price,
+        high=high_price,
+        low=low_price,
+        close=close_price,
+        volume=volume,
+    )
+
+
+def fetch_strict_adjusted_historical_price_candles(
+    ib: Any,
+    symbol: str,
+    *,
+    end_datetime: datetime,
+    duration: str,
+    expected_sessions: Sequence[date],
+    stock_factory: Callable[..., Any] | None = None,
+) -> StrictAdjustedHistoryResult:
+    """Fetch one exact ADJUSTED_LAST daily series without any provider fallback."""
+
+    symbol, end_datetime, duration, sessions = _strict_history_request_inputs(
+        symbol,
+        end_datetime=end_datetime,
+        duration=duration,
+        expected_sessions=expected_sessions,
+    )
+    contract = _build_stock_contract(
+        symbol,
+        exchange="SMART",
+        currency="USD",
+        stock_factory=stock_factory,
+    )
+    try:
+        qualified = tuple(ib.qualifyContracts(contract) or ())
+    except Exception:
+        raise StrictAdjustedHistoryError(
+            "strict_adjusted_history:contract_qualification_failed"
+        ) from None
+    if len(qualified) != 1:
+        raise StrictAdjustedHistoryError(
+            "strict_adjusted_history:contract_qualification_failed"
+        )
+    qualified_contract = qualified[0]
+    if (
+        getattr(qualified_contract, "symbol", None) != symbol
+        or getattr(qualified_contract, "exchange", None) != "SMART"
+        or getattr(qualified_contract, "currency", None) != "USD"
+    ):
+        raise StrictAdjustedHistoryError(
+            "strict_adjusted_history:qualified_contract_mismatch"
+        )
+
+    try:
+        bars = ib.reqHistoricalData(
+            qualified_contract,
+            endDateTime=end_datetime,
+            durationStr=duration,
+            barSizeSetting="1 day",
+            whatToShow="ADJUSTED_LAST",
+            useRTH=True,
+            formatDate=1,
+            keepUpToDate=False,
+        )
+    except Exception:
+        raise StrictAdjustedHistoryError("strict_adjusted_history:request_failed") from None
+    if not bars:
+        raise StrictAdjustedHistoryError("strict_adjusted_history:empty_response")
+
+    candles = tuple(_strict_history_candle(bar) for bar in bars)
+    if tuple(candle.session for candle in candles) != sessions:
+        raise StrictAdjustedHistoryError("strict_adjusted_history:session_contract_mismatch")
+
+    provenance = StrictAdjustedHistoryProvenance(
+        symbol=symbol,
+        exchange="SMART",
+        currency="USD",
+        end_datetime=end_datetime.astimezone(timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        duration=duration,
+        bar_size="1 day",
+        what_to_show="ADJUSTED_LAST",
+        use_rth=True,
+        format_date=1,
+        keep_up_to_date=False,
+        returned_row_count=len(candles),
+    )
+    return StrictAdjustedHistoryResult(candles=candles, provenance=provenance)
 
 
 def _request_historical_bars(
