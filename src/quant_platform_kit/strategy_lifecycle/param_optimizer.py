@@ -423,11 +423,11 @@ def _auto_register_runner(orchestrator: BacktestOrchestrator, domain: str) -> No
             continue
 
         runner = runner_factory()
-        runner_kind = str(getattr(runner, "runner_kind", "real") or "real").strip().lower()
+        runner_kind = getattr(runner, "runner_kind", None)
         if runner_kind != "real":
             raise RuntimeError(
-                f"BacktestRunner for domain={domain!r} is marked runner_kind={runner_kind!r}; "
-                "placeholder runners are blocked from lifecycle optimization."
+                f"BacktestRunner for domain={domain!r} requires explicit runner_kind='real'; "
+                f"received {runner_kind!r}."
             )
 
         orchestrator.register_runner(domain, runner)

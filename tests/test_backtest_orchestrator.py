@@ -60,6 +60,7 @@ class _PromotionRecordingRunner(_RecordingRunner):
 
     def __init__(self, **result_overrides: Any) -> None:
         super().__init__()
+        self.runner_kind = "real"
         self.result_overrides = result_overrides
 
     def _promotion_result(
@@ -375,6 +376,7 @@ class BacktestOrchestratorTests(unittest.TestCase):
         )
 
     def test_promotion_run_requires_explicit_runner_capability(self) -> None:
+        self.runner.runner_kind = "real"
         with self.assertRaises(TypeError):
             self.orchestrator.run_promotion(
                 "test_strat",
@@ -388,6 +390,31 @@ class BacktestOrchestratorTests(unittest.TestCase):
                 source_revision="a" * 40,
                 cost_model=self._cost_model(),
             )
+
+    def test_promotion_run_requires_exact_real_runner_marker(self) -> None:
+        missing = object()
+        for marker in (missing, None, "", " ", "placeholder", "REAL", " real "):
+            with self.subTest(marker=marker):
+                runner = _PromotionRecordingRunner()
+                if marker is missing:
+                    del runner.runner_kind
+                else:
+                    runner.runner_kind = marker
+
+                with self.assertRaisesRegex(RuntimeError, "explicit runner_kind='real'"):
+                    self._run_promotion(runner=runner)
+
+    def test_unmarked_runner_remains_valid_for_ordinary_non_promotion_run(self) -> None:
+        result = self.orchestrator.run(
+            "test_strat",
+            domain="us_equity",
+            params={"lookback": 20},
+            start_date=date(2020, 1, 1),
+            end_date=date(2020, 12, 31),
+        )
+
+        self.assertEqual(result.strategy_profile, "test_strat")
+        self.assertIsNone(getattr(self.runner, "runner_kind", None))
 
     def test_promotion_run_enforces_and_persists_purged_wfa_identity(self) -> None:
         run = self._run_promotion()

@@ -26,6 +26,14 @@ REGIME_UNKNOWN = "unknown"
 _REGIME_RISK_ORDER = (REGIME_NORMAL, REGIME_ELEVATED, REGIME_STRESS)
 
 
+def _is_lower_hex(value: object, length: int) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == length
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
 def normalise_regime(raw: str | None) -> str:
     """Normalise a free-form regime string to one of the canonical constants."""
     value = str(raw or "").strip().lower()
@@ -146,6 +154,52 @@ class RiskAction:
 
 
 @dataclass(frozen=True)
+class CandidateRiskIdentity:
+    """Immutable identity of one mandate-bound promotion candidate."""
+
+    strategy_profile: str
+    account_mode: str
+    strategy_revision: str
+    runner_revision: str
+    config_sha256: str
+    input_manifest_sha256: str
+    authority_receipt_sha256: str
+    candidate_sha256: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        for name in ("strategy_profile", "account_mode"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value or value != value.strip():
+                raise ValueError(f"{name} must be a non-empty canonical string")
+        for name in ("strategy_revision", "runner_revision"):
+            if not _is_lower_hex(getattr(self, name), 40):
+                raise ValueError(f"{name} must be a lowercase 40-character Git revision")
+        for name in (
+            "config_sha256",
+            "input_manifest_sha256",
+            "authority_receipt_sha256",
+        ):
+            if not _is_lower_hex(getattr(self, name), 64):
+                raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+        payload = {
+            "strategy_profile": self.strategy_profile,
+            "account_mode": self.account_mode,
+            "strategy_revision": self.strategy_revision,
+            "runner_revision": self.runner_revision,
+            "config_sha256": self.config_sha256,
+            "input_manifest_sha256": self.input_manifest_sha256,
+            "authority_receipt_sha256": self.authority_receipt_sha256,
+        }
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        object.__setattr__(self, "candidate_sha256", hashlib.sha256(encoded).hexdigest())
+
+
+@dataclass(frozen=True)
 class RiskGateAssessment:
     """Immutable redacted evidence from a scoped risk-gate evaluation."""
 
@@ -159,8 +213,10 @@ class RiskGateAssessment:
     mandate_version: str | None
     mandate_authority_receipt_sha256: str | None
     mandate_scope: str | None
+    candidate_identity_sha256: str | None
     decision_digest_sha256: str
     portfolio_snapshot_digest_sha256: str
+    normalization_origin_digest_sha256: str | None
     effective_exposure_cap: float | None
     observed_effective_exposure: float | None
     proposed_effective_exposure: float | None
@@ -180,8 +236,10 @@ class RiskGateAssessment:
             "mandate_version": self.mandate_version,
             "mandate_authority_receipt_sha256": self.mandate_authority_receipt_sha256,
             "mandate_scope": self.mandate_scope,
+            "candidate_identity_sha256": self.candidate_identity_sha256,
             "decision_digest_sha256": self.decision_digest_sha256,
             "portfolio_snapshot_digest_sha256": self.portfolio_snapshot_digest_sha256,
+            "normalization_origin_digest_sha256": self.normalization_origin_digest_sha256,
             "effective_exposure_cap": self.effective_exposure_cap,
             "observed_effective_exposure": self.observed_effective_exposure,
             "proposed_effective_exposure": self.proposed_effective_exposure,

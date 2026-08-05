@@ -404,6 +404,12 @@ class BacktestOrchestrator:
             raise ValueError(
                 f"No BacktestRunner registered for domain={domain!r}. Available: {sorted(self._runners)}"
             )
+        runner_kind = getattr(runner, "runner_kind", None)
+        if runner_kind != "real":
+            raise RuntimeError(
+                "promotion-grade execution requires explicit runner_kind='real'; "
+                f"received {runner_kind!r}"
+            )
         if not isinstance(runner, PromotionBacktestRunner):
             raise TypeError(
                 "promotion-grade execution requires explicit run_purged_fold and run_locked_oos runner methods"

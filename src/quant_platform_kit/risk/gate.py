@@ -14,7 +14,12 @@ import math
 from typing import Any, Mapping
 
 from quant_platform_kit.common.models import PortfolioSnapshot
-from quant_platform_kit.risk.contracts import RiskGateAssessment, RiskGateResult
+from quant_platform_kit.position_sizing import validate_reduce_only_normalization
+from quant_platform_kit.risk.contracts import (
+    CandidateRiskIdentity,
+    RiskGateAssessment,
+    RiskGateResult,
+)
 from quant_platform_kit.risk.engine import build_risk_engine
 from quant_platform_kit.strategy_contracts import StrategyDecision
 
@@ -86,6 +91,12 @@ def _valid_cap_value(value: Any) -> bool:
 
 def _sha256(value: Any) -> str | None:
     if not isinstance(value, str) or len(value) != 64:
+        return None
+    return value if all(character in "0123456789abcdef" for character in value) else None
+
+
+def _git_revision(value: Any) -> str | None:
+    if not isinstance(value, str) or len(value) != 40:
         return None
     return value if all(character in "0123456789abcdef" for character in value) else None
 
@@ -213,6 +224,11 @@ def _mandate_fields(
         "authority_scope",
         "strategy_profile",
         "account_mode",
+        "strategy_revision",
+        "runner_revision",
+        "config_sha256",
+        "input_manifest_sha256",
+        "candidate_identity_sha256",
         "effective_at",
         "expires_at",
         "max_snapshot_age_seconds",
@@ -233,6 +249,13 @@ def _mandate_fields(
         return {}, {"invalid_mandate"}
     authority_scope = mandate_provenance["authority_scope"]
     receipt_sha256 = _sha256(mandate_provenance["authority_receipt_sha256"])
+    strategy_revision = _git_revision(mandate_provenance["strategy_revision"])
+    runner_revision = _git_revision(mandate_provenance["runner_revision"])
+    config_sha256 = _sha256(mandate_provenance["config_sha256"])
+    input_manifest_sha256 = _sha256(mandate_provenance["input_manifest_sha256"])
+    candidate_identity_sha256 = _sha256(
+        mandate_provenance["candidate_identity_sha256"]
+    )
     effective_at = _parse_utc_timestamp(mandate_provenance["effective_at"])
     expires_at = _parse_utc_timestamp(mandate_provenance["expires_at"])
     max_snapshot_age_seconds = _finite_number(mandate_provenance["max_snapshot_age_seconds"])
@@ -241,9 +264,20 @@ def _mandate_fields(
     if (
         not isinstance(mandate_provenance["mandate_id"], str)
         or not isinstance(mandate_provenance["mandate_version"], str)
-        or not isinstance(mandate_provenance["source_revision"], str)
+        or _git_revision(mandate_provenance["source_revision"]) is None
         or not isinstance(mandate_provenance["strategy_profile"], str)
+        or not mandate_provenance["strategy_profile"]
+        or mandate_provenance["strategy_profile"]
+        != mandate_provenance["strategy_profile"].strip()
         or not isinstance(mandate_provenance["account_mode"], str)
+        or not mandate_provenance["account_mode"]
+        or mandate_provenance["account_mode"]
+        != mandate_provenance["account_mode"].strip()
+        or strategy_revision is None
+        or runner_revision is None
+        or config_sha256 is None
+        or input_manifest_sha256 is None
+        or candidate_identity_sha256 is None
         or authority_scope not in _ALLOWED_MANDATE_SCOPES
         or receipt_sha256 is None
         or effective_at is None
@@ -279,6 +313,13 @@ def _mandate_fields(
         "authority_receipt_sha256": receipt_sha256,
         "authority_scope": authority_scope,
         "source_revision": mandate_provenance["source_revision"],
+        "strategy_profile": mandate_provenance["strategy_profile"],
+        "account_mode": mandate_provenance["account_mode"],
+        "strategy_revision": strategy_revision,
+        "runner_revision": runner_revision,
+        "config_sha256": config_sha256,
+        "input_manifest_sha256": input_manifest_sha256,
+        "candidate_identity_sha256": candidate_identity_sha256,
         "effective_exposure_cap": cap,
         "max_snapshot_age_seconds": max_snapshot_age_seconds,
         "loss_budget": loss_budget,
@@ -287,6 +328,68 @@ def _mandate_fields(
         "nominal_caps": mandate_provenance["nominal_caps"],
         "allowed_nonzero_assets": set(allowed_assets) if allowed_assets is not None else None,
     }, set()
+
+
+def _candidate_binding_errors(
+    mandate_provenance: Mapping[str, Any] | None,
+    mandate: Mapping[str, Any],
+    candidate_identity: CandidateRiskIdentity | None,
+) -> set[str]:
+    if mandate_provenance is None:
+        return {"candidate_without_mandate"} if candidate_identity is not None else set()
+    if candidate_identity is None:
+        return {"missing_candidate_identity"}
+    if not isinstance(candidate_identity, CandidateRiskIdentity):
+        return {"invalid_candidate_identity"}
+    if not mandate:
+        return set()
+    comparisons = (
+        (
+            candidate_identity.strategy_profile,
+            mandate.get("strategy_profile"),
+            "candidate_strategy_profile_mismatch",
+        ),
+        (
+            candidate_identity.account_mode,
+            mandate.get("account_mode"),
+            "candidate_account_mode_mismatch",
+        ),
+        (
+            candidate_identity.strategy_revision,
+            mandate.get("strategy_revision"),
+            "candidate_strategy_revision_mismatch",
+        ),
+        (
+            candidate_identity.runner_revision,
+            mandate.get("runner_revision"),
+            "candidate_runner_revision_mismatch",
+        ),
+        (
+            candidate_identity.config_sha256,
+            mandate.get("config_sha256"),
+            "candidate_config_digest_mismatch",
+        ),
+        (
+            candidate_identity.input_manifest_sha256,
+            mandate.get("input_manifest_sha256"),
+            "candidate_input_manifest_digest_mismatch",
+        ),
+        (
+            candidate_identity.authority_receipt_sha256,
+            mandate.get("authority_receipt_sha256"),
+            "candidate_authority_digest_mismatch",
+        ),
+        (
+            candidate_identity.candidate_sha256,
+            mandate.get("candidate_identity_sha256"),
+            "candidate_identity_digest_mismatch",
+        ),
+    )
+    return {
+        reason_code
+        for actual, expected, reason_code in comparisons
+        if actual != expected
+    }
 
 
 def _position_cap(value: Any, symbol: str, leverage_factor: float) -> float | None:
@@ -329,6 +432,8 @@ def assess_with_evidence(
     scope: str,
     mandate_provenance: Mapping[str, Any] | None,
     market_data: Mapping[str, Any],
+    candidate_identity: CandidateRiskIdentity | None = None,
+    normalization_origin_weights: Mapping[str, float] | None = None,
 ) -> RiskGateResult:
     """Assess exactly once and fail closed with a redacted canonical receipt."""
     now = _utc_now()
@@ -336,6 +441,13 @@ def assess_with_evidence(
     assessment_scope = scope if scope in _ALLOWED_SCOPES else "MEMBER"
     mandate, mandate_errors = _mandate_fields(mandate_provenance, now=now)
     reason_codes = set(mandate_errors)
+    reason_codes.update(
+        _candidate_binding_errors(
+            mandate_provenance,
+            mandate,
+            candidate_identity,
+        )
+    )
     cap = mandate.get("effective_exposure_cap")
     snapshot_payload, observed, total_equity, snapshot_errors = _snapshot_metrics(
         portfolio_snapshot,
@@ -355,6 +467,7 @@ def assess_with_evidence(
         reason_codes.update(_budget_authority_errors(decision, mandate))
 
     proposed: float | None = None
+    normalization_origin_digest_sha256: str | None = None
     if can_evaluate_policy:
         factors = mandate["product_leverage_factors"]
         allowed_assets = mandate["allowed_nonzero_assets"]
@@ -377,8 +490,36 @@ def assess_with_evidence(
             if weight > min(product_cap, nominal_cap):
                 reason_codes.add("product_exposure_cap")
             weighted_exposure += weight * factor
-        proposed = max(observed or 0.0, weighted_exposure)
-        if cap is None or observed is None or observed > cap + 1e-9:
+        target_weights: dict[str, float] = {}
+        for symbol, weight in active_positions:
+            target_weights[symbol] = target_weights.get(symbol, 0.0) + weight
+        valid_normalization = False
+        if normalization_origin_weights is not None:
+            valid_normalization = validate_reduce_only_normalization(
+                origin_weights=normalization_origin_weights,
+                target_weights=target_weights,
+                product_leverage_factors=factors,
+                effective_exposure_cap=cap,
+                observed_effective_exposure=observed,
+            )
+            if not valid_normalization:
+                reason_codes.add("invalid_reduce_only_normalization")
+            else:
+                normalized_origin = {
+                    symbol: float(weight)
+                    for symbol, weight in sorted(normalization_origin_weights.items())
+                }
+                normalization_origin_digest_sha256 = _canonical_digest(
+                    {"weights": normalized_origin}
+                )
+        proposed = (
+            weighted_exposure
+            if valid_normalization
+            else max(observed or 0.0, weighted_exposure)
+        )
+        if cap is None or observed is None or (
+            observed > cap + 1e-9 and not valid_normalization
+        ):
             reason_codes.add("observed_effective_exposure")
         if cap is None or proposed > cap + 1e-9:
             reason_codes.add("effective_exposure_cap")
@@ -409,8 +550,14 @@ def assess_with_evidence(
         mandate_version=mandate.get("mandate_version"),
         mandate_authority_receipt_sha256=mandate.get("authority_receipt_sha256"),
         mandate_scope=mandate.get("authority_scope"),
+        candidate_identity_sha256=(
+            candidate_identity.candidate_sha256
+            if isinstance(candidate_identity, CandidateRiskIdentity)
+            else None
+        ),
         decision_digest_sha256=_canonical_digest(decision_payload),
         portfolio_snapshot_digest_sha256=_canonical_digest(snapshot_payload),
+        normalization_origin_digest_sha256=normalization_origin_digest_sha256,
         effective_exposure_cap=cap,
         observed_effective_exposure=observed,
         proposed_effective_exposure=proposed,
