@@ -31,24 +31,30 @@ jobs:
       - name: Update QPK_PIN and pin manifests
         id: update
         run: |
+          set -euo pipefail
           SHA=$(git rev-parse HEAD)
           echo "$SHA" > QPK_PIN
 
-          # Update SHAs from remote repos. Package names use hyphenated form.
-          for pair in "us-equity-strategies:UsEquityStrategies" \
-                      "hk-equity-strategies:HkEquityStrategies" \
-                      "cn-equity-strategies:CnEquityStrategies" \
-                      "crypto-strategies:CryptoStrategies"; do
-            pkg="${pair%%:*}"
-            repo="${pair##*:}"
-            RSHA=$(git ls-remote "https://github.com/QuantStrategyLab/$repo.git" HEAD | cut -f1)
-            if [ -n "$RSHA" ]; then
-              sed -i "s|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" qsl-pins.txt
-              sed -i "s|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@[a-f0-9]*|$pkg @ git+https://github.com/QuantStrategyLab/$repo.git@$RSHA|" constraints.txt
-            fi
-          done
-          sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" qsl-pins.txt
-          sed -i "s|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@[a-f0-9]*|quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@$SHA|" constraints.txt
+          QPK_SHA="$SHA" python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          prefix = (
+              "quant-platform-kit @ "
+              "git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@"
+          )
+          pattern = re.compile(f"({re.escape(prefix)})[0-9a-f]{{40}}")
+          for filename in ("qsl-pins.txt", "constraints.txt"):
+              path = Path(filename)
+              updated, count = pattern.subn(
+                  lambda match: f"{match.group(1)}{os.environ['QPK_SHA']}",
+                  path.read_text(encoding="utf-8"),
+              )
+              if count != 1:
+                  raise SystemExit(f"qpk_pin_update_failed:{filename}:matches={count}")
+              path.write_text(updated, encoding="utf-8")
+          PY
 
           if git diff --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -56,59 +62,37 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Verify downstream compatibility
+      - name: Verify aggregate dependency closure
+        id: verify
         if: steps.update.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          echo "::group::Verifying packages installable with new constraints"
-          python -m pip install --upgrade pip
-          # Pre-install runtime deps QPK needs but doesn't declare as dependencies
-          python -m pip install requests numpy pandas
-          # Install QPK WITHOUT constraints (avoids self-referencing SHA conflict)
-          python -m pip install -e .
-          python -c "import quant_platform_kit; print('QPK import OK')"
-          python -c "from quant_platform_kit.common.strategies import compute_portfolio_drift; print('strategies OK')"
-          python -c "from quant_platform_kit.common.platform_runner.loader import load_strategy_definition; print('platform_runner OK')"
-          python -c "from quant_platform_kit.notifications.telegram import send_telegram_message; print('telegram OK')"
-          python -c "from quant_platform_kit.common.contracts import SnapshotProfileContract; print('contracts OK')"
+          resolver_env="$(mktemp -d)"
+          resolver_log="$(mktemp)"
+          cleanup() {
+            rm -rf -- "$resolver_env"
+            rm -f -- "$resolver_log"
+          }
+          trap cleanup EXIT
 
-          # Verify strategy repo refs are fetchable and package metadata is buildable.
-          #
-          # Strategy packages currently carry their own direct QPK pin. A full
-          # dependency solve with the newly generated top-level QPK constraint
-          # would conflict until downstream repos update those pins, so keep this
-          # check focused on the package refs generated above.
-          failed=0
-          pin_file="qsl-pins.txt"
-          for dep in us-equity-strategies hk-equity-strategies cn-equity-strategies crypto-strategies; do
-            echo "Checking $dep..."
-            log_file="$(mktemp)"
-            if python -m pip install --dry-run --no-deps -c "$pin_file" "$dep" >"${log_file}" 2>&1; then
-              echo "  $dep OK"
-            else
-              echo "  $dep FAILED"
-              sed -n '1,160p' "${log_file}"
-              failed=1
-            fi
-            rm -f "${log_file}"
-          done
-          if [ "${failed}" -ne 0 ]; then
-            echo "One or more downstream dependency checks failed." >&2
+          if ! python -m venv "$resolver_env" >"$resolver_log" 2>&1; then
+            echo "::error title=QPK pin validation::aggregate_dependency_bootstrap_failed"
             exit 1
           fi
-          echo "::endgroup::"
-          echo "All compatibility checks passed."
-
-      - name: Restore generated editable-install metadata
-        if: steps.update.outputs.changed == 'true'
-        run: |
-          git restore -- \
-            src/quant_platform_kit.egg-info/PKG-INFO \
-            src/quant_platform_kit.egg-info/SOURCES.txt
+          resolver_python="$resolver_env/bin/python"
+          if ! "$resolver_python" -m pip install -r qsl-pins.txt >"$resolver_log" 2>&1; then
+            echo "::error title=QPK pin validation::aggregate_dependency_resolution_failed"
+            exit 1
+          fi
+          if ! "$resolver_python" -m pip check >"$resolver_log" 2>&1; then
+            echo "::error title=QPK pin validation::aggregate_dependency_check_failed"
+            exit 1
+          fi
+          echo "aggregate_dependency_resolution_passed"
 
       - name: Create PR for pin update
         id: create_pin_pr
-        if: steps.update.outputs.changed == 'true'
+        if: steps.update.outputs.changed == 'true' && steps.verify.outcome == 'success'
         continue-on-error: true
         uses: peter-evans/create-pull-request@v7
         with:
@@ -118,11 +102,10 @@ jobs:
           body: |
             Automated update of QPK_PIN and QSL Git SHA pin manifests.
 
-            Compatibility checks passed ✅ — all downstream-critical QPK modules verified importable.
+            Aggregate dependency installation and `pip check` passed.
 
-            Updated SHAs:
+            Updated SHA:
             - QPK: `${{ github.sha }}`
-            - Strategy repos: latest HEAD from each
 
             🤖 Generated with [Claude Code](https://claude.com/claude-code)
           branch: auto/qpk-pin-update
@@ -139,7 +122,7 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
           ## QPK pin update PR not created
 
-          The generated `QPK_PIN` / `qsl-pins.txt` / `constraints.txt` update was verified, but PR creation failed.
+          The generated QPK-only pin update passed aggregate dependency verification, but PR creation failed.
 
           Ensure `QSL_REPO_SYNC_TOKEN` is configured as a **QuantPlatformKit repository secret**
           (see `docs/qpk_repo_sync_auth.zh-CN.md`). Org policy blocks `GITHUB_TOKEN` PR creation.
