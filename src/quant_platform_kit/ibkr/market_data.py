@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
+import hashlib
+import json
 from math import ceil
 from math import isfinite, isnan
 import re
@@ -87,6 +90,15 @@ def _normalize_duration_for_ibkr(duration: str) -> str:
 class StrictAdjustedHistoryError(RuntimeError):
     """A strict adjusted-history request or response violated its contract."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        diagnostic: StrictAdjustedHistoryDiagnostic | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic
+
 
 @dataclass(frozen=True)
 class AdjustedHistoricalCandle:
@@ -114,9 +126,99 @@ class StrictAdjustedHistoryProvenance:
 
 
 @dataclass(frozen=True)
+class StrictAdjustedHistoryRequestOutcome:
+    bars: Sequence[Any]
+    completion_observed: bool
+    provider_error_codes: Sequence[int] = ()
+
+
+@dataclass(frozen=True)
+class StrictAdjustedHistoryDiagnostic:
+    classification: str
+    completion_observed: bool
+    expected_count: int
+    observed_in_window_count: int
+    missing_count: int
+    extra_count: int
+    duplicate_count: int
+    missing_sessions_sha256: str
+    extra_sessions_sha256: str
+    duplicate_sessions_sha256: str
+    provider_error_code_counts: tuple[tuple[int, int], ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schema_version": "strict_adjusted_history_diagnostic.v1",
+            "classification": self.classification,
+            "request_completion_observed": self.completion_observed,
+            "counts": {
+                "expected_count": self.expected_count,
+                "observed_in_window_count": self.observed_in_window_count,
+                "missing_count": self.missing_count,
+                "extra_count": self.extra_count,
+                "duplicate_count": self.duplicate_count,
+            },
+            "commitments": {
+                "algorithm": "sha256",
+                "canonicalization": "sorted_unique_iso_sessions_json_utf8.v1",
+                "missing_sessions_sha256": self.missing_sessions_sha256,
+                "extra_sessions_sha256": self.extra_sessions_sha256,
+                "duplicate_sessions_sha256": self.duplicate_sessions_sha256,
+            },
+            "provider_error_code_counts": {
+                str(code): count for code, count in self.provider_error_code_counts
+            },
+        }
+
+
+@dataclass(frozen=True)
 class StrictAdjustedHistoryResult:
     candles: tuple[AdjustedHistoricalCandle, ...]
     provenance: StrictAdjustedHistoryProvenance
+    diagnostic: StrictAdjustedHistoryDiagnostic
+
+
+def _strict_session_commitment(sessions: Sequence[date]) -> str:
+    payload = json.dumps(
+        [session.isoformat() for session in sorted(set(sessions))],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _strict_history_diagnostic(
+    *,
+    classification: str,
+    expected_sessions: tuple[date, ...],
+    observed_sessions: tuple[date, ...],
+    completion_observed: bool,
+    provider_error_codes: tuple[int, ...],
+) -> StrictAdjustedHistoryDiagnostic:
+    expected = set(expected_sessions)
+    observed_counts = Counter(observed_sessions)
+    observed = set(observed_counts)
+    missing = tuple(expected - observed)
+    extra = tuple(observed - expected)
+    duplicates = tuple(
+        session for session, count in observed_counts.items() if count > 1
+    )
+    error_counts = Counter(provider_error_codes)
+    return StrictAdjustedHistoryDiagnostic(
+        classification=classification,
+        completion_observed=completion_observed,
+        expected_count=len(expected_sessions),
+        observed_in_window_count=sum(
+            count for session, count in observed_counts.items() if session in expected
+        ),
+        missing_count=len(missing),
+        extra_count=len(extra),
+        duplicate_count=sum(observed_counts[session] - 1 for session in duplicates),
+        missing_sessions_sha256=_strict_session_commitment(missing),
+        extra_sessions_sha256=_strict_session_commitment(extra),
+        duplicate_sessions_sha256=_strict_session_commitment(duplicates),
+        provider_error_code_counts=tuple(sorted(error_counts.items())),
+    )
 
 
 def _strict_history_request_inputs(
@@ -162,11 +264,15 @@ def _strict_history_number(bar: Any, field: str, *, allow_zero: bool = False) ->
     return numeric
 
 
-def _strict_history_candle(bar: Any) -> AdjustedHistoricalCandle:
+def _strict_history_session(bar: Any) -> date:
     try:
-        session = _coerce_as_of(getattr(bar, "date")).date()
+        return _coerce_as_of(getattr(bar, "date")).date()
     except (AttributeError, TypeError, ValueError) as exc:
         raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_bar_session") from exc
+
+
+def _strict_history_candle(bar: Any) -> AdjustedHistoricalCandle:
+    session = _strict_history_session(bar)
     open_price = _strict_history_number(bar, "open")
     high_price = _strict_history_number(bar, "high")
     low_price = _strict_history_number(bar, "low")
@@ -196,8 +302,13 @@ def fetch_strict_adjusted_historical_price_candles(
     duration: str,
     expected_sessions: Sequence[date],
     stock_factory: Callable[..., Any] | None = None,
+    requester: Callable[..., StrictAdjustedHistoryRequestOutcome] | None = None,
 ) -> StrictAdjustedHistoryResult:
-    """Fetch one exact ADJUSTED_LAST daily series without any provider fallback."""
+    """Fetch one exact ADJUSTED_LAST daily series without any provider fallback.
+
+    A custom requester must report completion and numeric provider error codes;
+    the default adapter treats an empty blocking response as incomplete.
+    """
 
     symbol, end_datetime, duration, sessions = _strict_history_request_inputs(
         symbol,
@@ -231,25 +342,78 @@ def fetch_strict_adjusted_historical_price_candles(
             "strict_adjusted_history:qualified_contract_mismatch"
         )
 
+    request_kwargs = {
+        "endDateTime": end_datetime,
+        "durationStr": duration,
+        "barSizeSetting": "1 day",
+        "whatToShow": "ADJUSTED_LAST",
+        "useRTH": True,
+        "formatDate": 1,
+        "keepUpToDate": False,
+    }
     try:
-        bars = ib.reqHistoricalData(
-            qualified_contract,
-            endDateTime=end_datetime,
-            durationStr=duration,
-            barSizeSetting="1 day",
-            whatToShow="ADJUSTED_LAST",
-            useRTH=True,
-            formatDate=1,
-            keepUpToDate=False,
-        )
+        if requester is None:
+            bars = ib.reqHistoricalData(qualified_contract, **request_kwargs)
+            outcome = StrictAdjustedHistoryRequestOutcome(
+                bars=tuple(bars or ()),
+                completion_observed=bool(bars),
+            )
+        else:
+            outcome = requester(qualified_contract, **request_kwargs)
     except Exception:
-        raise StrictAdjustedHistoryError("strict_adjusted_history:request_failed") from None
-    if not bars:
-        raise StrictAdjustedHistoryError("strict_adjusted_history:empty_response")
+        diagnostic = _strict_history_diagnostic(
+            classification="transport_error",
+            expected_sessions=sessions,
+            observed_sessions=(),
+            completion_observed=False,
+            provider_error_codes=(),
+        )
+        raise StrictAdjustedHistoryError(
+            "strict_adjusted_history:transport_error",
+            diagnostic=diagnostic,
+        ) from None
+    if not isinstance(outcome, StrictAdjustedHistoryRequestOutcome):
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_request_outcome")
+    if not isinstance(outcome.completion_observed, bool):
+        raise StrictAdjustedHistoryError("strict_adjusted_history:invalid_request_outcome")
+    try:
+        provider_error_codes = tuple(outcome.provider_error_codes)
+        if any(
+            isinstance(code, bool) or not isinstance(code, int) or code <= 0
+            for code in provider_error_codes
+        ):
+            raise ValueError
+        bars = tuple(outcome.bars)
+    except (TypeError, ValueError):
+        raise StrictAdjustedHistoryError(
+            "strict_adjusted_history:invalid_request_outcome"
+        ) from None
+
+    observed_sessions = tuple(_strict_history_session(bar) for bar in bars)
+    if provider_error_codes:
+        classification = "provider_error"
+    elif not outcome.completion_observed:
+        classification = "completion_not_observed"
+    elif not bars:
+        classification = "empty_response"
+    elif observed_sessions != sessions:
+        classification = "session_contract_mismatch"
+    else:
+        classification = "exact_match"
+    diagnostic = _strict_history_diagnostic(
+        classification=classification,
+        expected_sessions=sessions,
+        observed_sessions=observed_sessions,
+        completion_observed=outcome.completion_observed,
+        provider_error_codes=provider_error_codes,
+    )
+    if classification != "exact_match":
+        raise StrictAdjustedHistoryError(
+            f"strict_adjusted_history:{classification}",
+            diagnostic=diagnostic,
+        )
 
     candles = tuple(_strict_history_candle(bar) for bar in bars)
-    if tuple(candle.session for candle in candles) != sessions:
-        raise StrictAdjustedHistoryError("strict_adjusted_history:session_contract_mismatch")
 
     provenance = StrictAdjustedHistoryProvenance(
         symbol=symbol,
@@ -266,7 +430,11 @@ def fetch_strict_adjusted_historical_price_candles(
         keep_up_to_date=False,
         returned_row_count=len(candles),
     )
-    return StrictAdjustedHistoryResult(candles=candles, provenance=provenance)
+    return StrictAdjustedHistoryResult(
+        candles=candles,
+        provenance=provenance,
+        diagnostic=diagnostic,
+    )
 
 
 def _request_historical_bars(
