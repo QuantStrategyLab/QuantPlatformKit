@@ -2,8 +2,10 @@ from .connection import connect_ib, ensure_event_loop
 from .execution import submit_order_intent
 from .market_data import (
     AdjustedHistoricalCandle,
+    StrictAdjustedHistoryDiagnostic,
     StrictAdjustedHistoryError,
     StrictAdjustedHistoryProvenance,
+    StrictAdjustedHistoryRequestOutcome,
     StrictAdjustedHistoryResult,
     fetch_historical_price_candles,
     fetch_historical_price_series,
@@ -22,8 +24,10 @@ from .runtime_inputs import (
 
 __all__ = [
     "AdjustedHistoricalCandle",
+    "StrictAdjustedHistoryDiagnostic",
     "StrictAdjustedHistoryError",
     "StrictAdjustedHistoryProvenance",
+    "StrictAdjustedHistoryRequestOutcome",
     "StrictAdjustedHistoryResult",
     "build_benchmark_history_inputs",
     "build_ibkr_strategy_context",

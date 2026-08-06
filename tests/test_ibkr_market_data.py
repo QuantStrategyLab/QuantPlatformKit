@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from quant_platform_kit.ibkr.market_data import (
     StrictAdjustedHistoryError,
+    StrictAdjustedHistoryRequestOutcome,
     fetch_strict_adjusted_historical_price_candles,
     fetch_historical_price_candles,
     fetch_historical_price_series,
@@ -111,6 +112,22 @@ class IbkrMarketDataTests(unittest.TestCase):
 
         return StrictIB()
 
+    @staticmethod
+    def _strict_requester(
+        *,
+        bars,
+        completion_observed: bool,
+        provider_error_codes: tuple[int, ...] = (),
+    ):
+        def requester(_contract, **_kwargs):
+            return StrictAdjustedHistoryRequestOutcome(
+                bars=bars,
+                completion_observed=completion_observed,
+                provider_error_codes=provider_error_codes,
+            )
+
+        return requester
+
     def test_strict_adjusted_history_uses_one_exact_request_and_sanitized_provenance(
         self,
     ) -> None:
@@ -150,6 +167,107 @@ class IbkrMarketDataTests(unittest.TestCase):
         self.assertEqual(result.provenance.what_to_show, "ADJUSTED_LAST")
         self.assertEqual(result.provenance.returned_row_count, 2)
         self.assertFalse(hasattr(result.provenance, "candles"))
+        self.assertEqual(result.diagnostic.to_dict()["classification"], "exact_match")
+
+    def test_strict_adjusted_history_diagnostic_classifies_sanitized_session_failures(
+        self,
+    ) -> None:
+        cutoff = datetime(2026, 8, 5, 3, 59, 59, tzinfo=timezone.utc)
+        expected = (date(2026, 8, 1), date(2026, 8, 2))
+        valid = FakeBar(
+            date=expected[0],
+            open=100.0,
+            high=101.0,
+            low=99.5,
+            close=100.5,
+            volume=1000.0,
+        )
+        extra = FakeBar(
+            date=date(2026, 8, 3),
+            open=101.0,
+            high=102.0,
+            low=100.5,
+            close=101.5,
+            volume=900.0,
+        )
+        cases = (
+            ("missing", [valid], {"missing_count": 1, "extra_count": 0, "duplicate_count": 0}),
+            ("extra", [valid, FakeBar(**{**extra.__dict__, "date": expected[1]}), extra], {"missing_count": 0, "extra_count": 1, "duplicate_count": 0}),
+            ("duplicate", [valid, valid], {"missing_count": 1, "extra_count": 0, "duplicate_count": 1}),
+        )
+
+        for name, bars, expected_counts in cases:
+            with self.subTest(name=name):
+                with self.assertRaises(StrictAdjustedHistoryError) as caught:
+                    fetch_strict_adjusted_historical_price_candles(
+                        self._strict_ib(bars=[]),
+                        "SOXL",
+                        end_datetime=cutoff,
+                        duration="9 Y",
+                        expected_sessions=expected,
+                        stock_factory=FakeContract,
+                        requester=self._strict_requester(
+                            bars=bars,
+                            completion_observed=True,
+                        ),
+                    )
+
+                diagnostic = caught.exception.diagnostic.to_dict()
+                self.assertEqual(diagnostic["classification"], "session_contract_mismatch")
+                for key, value in expected_counts.items():
+                    self.assertEqual(diagnostic["counts"][key], value)
+                self.assertEqual(set(diagnostic["commitments"]), {
+                    "algorithm",
+                    "canonicalization",
+                    "missing_sessions_sha256",
+                    "extra_sessions_sha256",
+                    "duplicate_sessions_sha256",
+                })
+                serialized = repr(diagnostic)
+                for forbidden in ("2026-08-01", "2026-08-02", "2026-08-03", "close", "100.5", "secret"):
+                    self.assertNotIn(forbidden, serialized)
+
+    def test_strict_adjusted_history_diagnostic_precedence_is_fail_closed(self) -> None:
+        cutoff = datetime(2026, 8, 5, 3, 59, 59, tzinfo=timezone.utc)
+        expected = (date(2026, 8, 1), date(2026, 8, 2))
+        bar = FakeBar(
+            date=expected[0],
+            open=100.0,
+            high=101.0,
+            low=99.5,
+            close=100.5,
+            volume=1000.0,
+        )
+        cases = (
+            ("provider_error", [bar], False, (10089, 10089, 321)),
+            ("completion_not_observed", [bar], False, ()),
+            ("empty_response", [], True, ()),
+        )
+
+        for classification, bars, completion_observed, provider_error_codes in cases:
+            with self.subTest(classification=classification):
+                with self.assertRaises(StrictAdjustedHistoryError) as caught:
+                    fetch_strict_adjusted_historical_price_candles(
+                        self._strict_ib(bars=[]),
+                        "SOXL",
+                        end_datetime=cutoff,
+                        duration="9 Y",
+                        expected_sessions=expected,
+                        stock_factory=FakeContract,
+                        requester=self._strict_requester(
+                            bars=bars,
+                            completion_observed=completion_observed,
+                            provider_error_codes=provider_error_codes,
+                        ),
+                    )
+
+                diagnostic = caught.exception.diagnostic.to_dict()
+                self.assertEqual(diagnostic["classification"], classification)
+                self.assertEqual(
+                    diagnostic["provider_error_code_counts"],
+                    {"321": 1, "10089": 2} if provider_error_codes else {},
+                )
+                self.assertNotIn("provider failure", repr(diagnostic))
 
     def test_strict_adjusted_history_never_falls_back_on_empty_or_error(self) -> None:
         cutoff = datetime(2026, 8, 5, 3, 59, 59, tzinfo=timezone.utc)
