@@ -222,6 +222,14 @@ class RiskGateAssessment:
     proposed_effective_exposure: float | None
     outcome: str
     reason_codes: tuple[str, ...]
+    execution_authorized: bool = False
+    stop_loss_distance: float | None = None
+    stop_intent_ready: bool | None = None
+    strategy_breaker_triggered: bool | None = None
+    account_breaker_triggered: bool | None = None
+    account_drawdown_fraction: float | None = None
+    drawdown_scalar: float | None = None
+    risk_control_state_digest_sha256: str | None = None
     assessment_sha256: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -245,6 +253,14 @@ class RiskGateAssessment:
             "proposed_effective_exposure": self.proposed_effective_exposure,
             "outcome": self.outcome,
             "reason_codes": self.reason_codes,
+            "execution_authorized": self.execution_authorized,
+            "stop_loss_distance": self.stop_loss_distance,
+            "stop_intent_ready": self.stop_intent_ready,
+            "strategy_breaker_triggered": self.strategy_breaker_triggered,
+            "account_breaker_triggered": self.account_breaker_triggered,
+            "account_drawdown_fraction": self.account_drawdown_fraction,
+            "drawdown_scalar": self.drawdown_scalar,
+            "risk_control_state_digest_sha256": self.risk_control_state_digest_sha256,
         }
         encoded = json.dumps(
             payload,
