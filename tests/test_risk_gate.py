@@ -1356,6 +1356,7 @@ class GlobalEtfRotationResearchMandateTests(unittest.TestCase):
             "as_of": "2026-08-09T01:59:55Z",
             "observed_effective_exposure": 0.0,
             "total_equity": 100_000.0,
+            "completed_session_equity": 100_000.0,
         }
         snapshot.update(overrides)
         return snapshot
@@ -1471,6 +1472,120 @@ class GlobalEtfRotationResearchMandateTests(unittest.TestCase):
         self.assertEqual(len(result.assessment.risk_control_state_digest_sha256), 64)
         self.assertFalse(result.assessment.execution_authorized)
         self.assertEqual(result.decision.positions, decision.positions)
+
+    def test_loss_budget_uses_completed_session_equity_currency_basis(self) -> None:
+        safe_decision = _decision(
+            positions=(PositionTarget(symbol="XLK", target_value=20_000.0),)
+        )
+        oversized_decision = _decision(
+            positions=(PositionTarget(symbol="XLK", target_value=40_000.0),)
+        )
+        snapshot = self._snapshot(
+            total_equity=200_000.0,
+            completed_session_equity=100_000.0,
+        )
+        risk_state = self._risk_state("XLK")
+
+        safe, _safe_engine = self._assess(
+            safe_decision,
+            snapshot=snapshot,
+            risk_state=risk_state,
+        )
+        oversized, _oversized_engine = self._assess(
+            oversized_decision,
+            snapshot=snapshot,
+            risk_state=risk_state,
+        )
+
+        self.assertEqual(safe.assessment.outcome, "APPROVE")
+        self.assertEqual(oversized.assessment.outcome, "REJECT")
+        self.assertIn(
+            "risk_budget_exposure_cap",
+            oversized.assessment.reason_codes,
+        )
+        self.assertEqual(oversized.decision.positions, ())
+
+    def test_completed_session_equity_is_required_finite_and_digest_bound(
+        self,
+    ) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="XLK", target_value=10_000.0),)
+        )
+        risk_state = self._risk_state("XLK")
+        invalid_values = (None, 0.0, -1.0, float("nan"), float("inf"), "100000")
+        for value in invalid_values:
+            with self.subTest(value=value):
+                snapshot = self._snapshot(completed_session_equity=value)
+                result, _engine = self._assess(
+                    decision,
+                    snapshot=snapshot,
+                    risk_state=risk_state,
+                )
+                self.assertEqual(result.assessment.outcome, "REJECT")
+                self.assertIn(
+                    "invalid_completed_session_equity",
+                    result.assessment.reason_codes,
+                )
+
+        missing_snapshot = self._snapshot()
+        missing_snapshot.pop("completed_session_equity")
+        missing, _missing_engine = self._assess(
+            decision,
+            snapshot=missing_snapshot,
+            risk_state=risk_state,
+        )
+        self.assertEqual(missing.assessment.outcome, "REJECT")
+        self.assertIn(
+            "invalid_completed_session_equity",
+            missing.assessment.reason_codes,
+        )
+
+        first, _first_engine = self._assess(
+            decision,
+            snapshot=self._snapshot(completed_session_equity=100_000.0),
+            risk_state=risk_state,
+        )
+        second, _second_engine = self._assess(
+            decision,
+            snapshot=self._snapshot(completed_session_equity=120_000.0),
+            risk_state=risk_state,
+        )
+        self.assertNotEqual(
+            first.assessment.portfolio_snapshot_digest_sha256,
+            second.assessment.portfolio_snapshot_digest_sha256,
+        )
+
+    def test_malformed_risk_control_digest_material_rejects_without_raising(
+        self,
+    ) -> None:
+        decision = self._two_position_decision()
+        invalid_cases = (
+            ({"stop_fill_policy": float("nan")}, "invalid_stop_fill_policy"),
+            ({"stop_fill_policy": float("inf")}, "invalid_stop_fill_policy"),
+            ({"stop_fill_policy": object()}, "invalid_stop_fill_policy"),
+            ({"mandate_id": float("nan")}, "risk_control_mandate_mismatch"),
+            ({"mandate_id": float("inf")}, "risk_control_mandate_mismatch"),
+            ({"mandate_id": object()}, "risk_control_mandate_mismatch"),
+            ({"stop_loss_distance": float("nan")}, "invalid_stop_loss_distance"),
+            (
+                {"account_drawdown_fraction": float("inf")},
+                "invalid_account_drawdown",
+            ),
+            ({"drawdown_scalar": float("nan")}, "drawdown_scalar_mismatch"),
+            (
+                {"consecutive_completed_losing_exits": float("inf")},
+                "invalid_strategy_breaker_state",
+            ),
+        )
+        for overrides, reason in invalid_cases:
+            with self.subTest(overrides=overrides):
+                result, _engine = self._assess(
+                    decision,
+                    risk_state=self._risk_state("XLK", "BIL", **overrides),
+                )
+                self.assertEqual(result.assessment.outcome, "REJECT")
+                self.assertIn(reason, result.assessment.reason_codes)
+                self.assertEqual(result.decision.positions, ())
 
     def test_exact_mandate_shape_is_fail_closed(self) -> None:
         decision = self._two_position_decision()

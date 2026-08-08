@@ -235,6 +235,17 @@ def _snapshot_metrics(
     }, observed, total_equity, set()
 
 
+def _completed_session_equity(portfolio_snapshot: Any) -> float | None:
+    if isinstance(portfolio_snapshot, Mapping):
+        value = portfolio_snapshot.get("completed_session_equity")
+    elif isinstance(portfolio_snapshot, PortfolioSnapshot):
+        value = portfolio_snapshot.metadata.get("completed_session_equity")
+    else:
+        return None
+    completed_equity = _finite_number(value)
+    return completed_equity if completed_equity is not None and completed_equity > 0.0 else None
+
+
 def _exact_numeric_mapping(value: Any, expected: Mapping[str, float]) -> bool:
     if not isinstance(value, Mapping) or set(value) != set(expected):
         return False
@@ -867,7 +878,9 @@ def _global_etf_risk_control_fields(
         errors.add("invalid_risk_control_state")
     elif (age := (now - as_of).total_seconds()) < 0.0 or age > max_age:
         errors.add("stale_risk_control_state")
-    if risk_control_state.get("mandate_id") != mandate.get("mandate_id"):
+    raw_mandate_id = risk_control_state.get("mandate_id")
+    mandate_id = raw_mandate_id if isinstance(raw_mandate_id, str) else None
+    if mandate_id != mandate.get("mandate_id"):
         errors.add("risk_control_mandate_mismatch")
     if _sha256(risk_control_state.get("candidate_identity_sha256")) != mandate.get(
         "candidate_identity_sha256"
@@ -875,7 +888,11 @@ def _global_etf_risk_control_fields(
         errors.add("risk_control_candidate_mismatch")
     if stop_loss_distance != 0.05:
         errors.add("invalid_stop_loss_distance")
-    if risk_control_state.get("stop_fill_policy") != _GLOBAL_ETF_STOP_FILL_POLICY:
+    raw_stop_fill_policy = risk_control_state.get("stop_fill_policy")
+    stop_fill_policy = (
+        raw_stop_fill_policy if isinstance(raw_stop_fill_policy, str) else None
+    )
+    if stop_fill_policy != _GLOBAL_ETF_STOP_FILL_POLICY:
         errors.add("invalid_stop_fill_policy")
     if account_drawdown is None or not 0.0 <= account_drawdown <= 1.0:
         errors.add("invalid_account_drawdown")
@@ -951,12 +968,12 @@ def _global_etf_risk_control_fields(
 
     payload = {
         "as_of": _utc_timestamp(as_of) if as_of is not None else None,
-        "mandate_id": risk_control_state.get("mandate_id"),
+        "mandate_id": mandate_id,
         "candidate_identity_sha256": _sha256(
             risk_control_state.get("candidate_identity_sha256")
         ),
         "stop_loss_distance": stop_loss_distance,
-        "stop_fill_policy": risk_control_state.get("stop_fill_policy"),
+        "stop_fill_policy": stop_fill_policy,
         "position_stop_states": normalized_stop_states,
         "consecutive_completed_losing_exits": losses,
         "account_drawdown_fraction": account_drawdown,
@@ -1004,6 +1021,12 @@ def assess_with_evidence(
         max_snapshot_age_seconds=mandate.get("max_snapshot_age_seconds"),
     )
     reason_codes.update(snapshot_errors)
+    completed_session_equity: float | None = None
+    if mandate.get("mandate_id") == _GLOBAL_ETF_RESEARCH_MANDATE:
+        completed_session_equity = _completed_session_equity(portfolio_snapshot)
+        snapshot_payload["completed_session_equity"] = completed_session_equity
+        if completed_session_equity is None:
+            reason_codes.add("invalid_completed_session_equity")
     decision_payload, active_positions, decision_errors = _decision_metrics(
         decision,
         total_equity=total_equity,
@@ -1084,15 +1107,23 @@ def assess_with_evidence(
             drawdown_scalar = control_fields["drawdown_scalar"]
             loss_budget = mandate.get("loss_budget")
             modeled_stop_loss = (
-                sum(weight for _symbol, weight in active_positions) * stop_distance
-                if stop_distance is not None
+                sum(weight for _symbol, weight in active_positions)
+                * total_equity
+                * stop_distance
+                if stop_distance is not None and total_equity is not None
+                else None
+            )
+            loss_budget_amount = (
+                loss_budget * completed_session_equity * drawdown_scalar
+                if loss_budget is not None
+                and completed_session_equity is not None
+                and drawdown_scalar is not None
                 else None
             )
             if (
                 modeled_stop_loss is not None
-                and drawdown_scalar is not None
-                and loss_budget is not None
-                and modeled_stop_loss > loss_budget * drawdown_scalar + 1e-9
+                and loss_budget_amount is not None
+                and modeled_stop_loss > loss_budget_amount + 1e-9
             ):
                 reason_codes.add("risk_budget_exposure_cap")
         target_weights: dict[str, float] = {}
