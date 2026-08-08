@@ -29,11 +29,16 @@ _STOP_LOSS_THRESHOLD = -0.20
 _MAX_CONSECUTIVE_LOSSES = 5
 _DEFAULT_MAX_SINGLE_WEIGHT = 0.10
 _APPROVED_BOOTSTRAP_MANDATE = "bootstrap_small_account_v2"
+_TQQQ_ETF_ONLY_RESEARCH_MANDATE = "tqqq_etf_only_research_v1"
+_TQQQ_ETF_ONLY_STRATEGY_PROFILE = "tqqq_etf_only_single_strategy_research_v1"
+_TQQQ_ETF_ONLY_FACTORS = {"TQQQ": 3, "BOXX": 1}
+_TQQQ_ETF_ONLY_NOMINAL_CAPS = {"TQQQ": 0.15, "BOXX": 0.50}
+_TQQQ_ETF_ONLY_EFFECTIVE_CAPS = {"TQQQ": 0.45, "BOXX": 0.50}
 _BOOTSTRAP_EFFECTIVE_EXPOSURE_CAP = 0.50
 _BOOTSTRAP_NOMINAL_CAPS = {1: 0.50, 2: 0.25, 3: 0.15}
-_ASSESSMENT_CONTRACT_VERSION = "qsl.risk_gate_assessment.v1"
+_ASSESSMENT_CONTRACT_VERSION = "qsl.risk_gate_assessment.v2"
 _ASSESSMENT_POLICY_ID = "qpk.risk_gate"
-_ASSESSMENT_POLICY_VERSION = "v1"
+_ASSESSMENT_POLICY_VERSION = "v2"
 _FALLBACK_MAX_SNAPSHOT_AGE_SECONDS_V1 = 300.0
 _ALLOWED_SCOPES = frozenset({"MEMBER", "ACCOUNT"})
 _ALLOWED_MANDATE_SCOPES = frozenset({"RESEARCH_ONLY", "PAPER", "LIVE"})
@@ -197,6 +202,101 @@ def _snapshot_metrics(
     }, observed, total_equity, set()
 
 
+def _exact_numeric_mapping(value: Any, expected: Mapping[str, float]) -> bool:
+    if not isinstance(value, Mapping) or set(value) != set(expected):
+        return False
+    return all(
+        (number := _finite_number(value[key])) is not None
+        and number == expected_value
+        for key, expected_value in expected.items()
+    )
+
+
+def _exact_tqqq_mandate_errors(
+    mandate_provenance: Mapping[str, Any],
+    *,
+    effective_at: datetime,
+    expires_at: datetime,
+) -> set[str]:
+    if mandate_provenance.get("mandate_id") != _TQQQ_ETF_ONLY_RESEARCH_MANDATE:
+        return set()
+    required = (
+        "loss_budget_equity_reference",
+        "product_effective_caps",
+        "max_nonzero_assets",
+        "broker_margin_factor",
+        "margin_stacking",
+        "borrowing",
+        "shorting",
+        "income_sleeve_enabled",
+        "option_overlay_enabled",
+        "precommitted_executable_stop_distance",
+        "max_consecutive_completed_losing_exits",
+    )
+    allowed_assets = mandate_provenance.get("allowed_nonzero_assets")
+    factors = mandate_provenance.get("product_leverage_factors")
+    exact_factors = (
+        isinstance(factors, Mapping)
+        and set(factors) == set(_TQQQ_ETF_ONLY_FACTORS)
+        and all(
+            not isinstance(factors[symbol], bool)
+            and isinstance(factors[symbol], int)
+            and factors[symbol] == expected
+            for symbol, expected in _TQQQ_ETF_ONLY_FACTORS.items()
+        )
+    )
+    invalid = (
+        any(field not in mandate_provenance for field in required)
+        or mandate_provenance.get("mandate_version") != "v1"
+        or mandate_provenance.get("authority_scope") != "RESEARCH_ONLY"
+        or mandate_provenance.get("strategy_profile")
+        != _TQQQ_ETF_ONLY_STRATEGY_PROFILE
+        or mandate_provenance.get("account_mode") != "single_strategy_account_v1"
+        or _finite_number(mandate_provenance.get("max_snapshot_age_seconds"))
+        != 300.0
+        or _finite_number(mandate_provenance.get("effective_exposure_cap")) != 0.50
+        or _finite_number(mandate_provenance.get("loss_budget")) != 0.01
+        or mandate_provenance.get("loss_budget_equity_reference")
+        != "completed_session_equity"
+        or not _exact_numeric_mapping(
+            mandate_provenance.get("product_caps"),
+            _TQQQ_ETF_ONLY_NOMINAL_CAPS,
+        )
+        or not _exact_numeric_mapping(
+            mandate_provenance.get("nominal_caps"),
+            _TQQQ_ETF_ONLY_NOMINAL_CAPS,
+        )
+        or not _exact_numeric_mapping(
+            mandate_provenance.get("product_effective_caps"),
+            _TQQQ_ETF_ONLY_EFFECTIVE_CAPS,
+        )
+        or not exact_factors
+        or not isinstance(allowed_assets, (list, tuple))
+        or len(allowed_assets) != 2
+        or set(allowed_assets) != set(_TQQQ_ETF_ONLY_FACTORS)
+        or isinstance(mandate_provenance.get("max_nonzero_assets"), bool)
+        or mandate_provenance.get("max_nonzero_assets") != 1
+        or isinstance(mandate_provenance.get("broker_margin_factor"), bool)
+        or mandate_provenance.get("broker_margin_factor") != 1
+        or mandate_provenance.get("margin_stacking") is not False
+        or mandate_provenance.get("borrowing") is not False
+        or mandate_provenance.get("shorting") is not False
+        or mandate_provenance.get("income_sleeve_enabled") is not False
+        or mandate_provenance.get("option_overlay_enabled") is not False
+        or _finite_number(
+            mandate_provenance.get("precommitted_executable_stop_distance")
+        )
+        != 0.05
+        or isinstance(
+            mandate_provenance.get("max_consecutive_completed_losing_exits"),
+            bool,
+        )
+        or mandate_provenance.get("max_consecutive_completed_losing_exits") != 5
+        or (expires_at - effective_at).total_seconds() > 90 * 24 * 60 * 60
+    )
+    return {"invalid_tqqq_research_mandate"} if invalid else set()
+
+
 def _mandate_fields(
     mandate_provenance: Mapping[str, Any] | None,
     *,
@@ -292,6 +392,13 @@ def _mandate_fields(
         return {}, {"invalid_mandate"}
     if effective_at > now or expires_at < now or expires_at <= effective_at:
         return {}, {"expired_mandate"}
+    exact_mandate_errors = _exact_tqqq_mandate_errors(
+        mandate_provenance,
+        effective_at=effective_at,
+        expires_at=expires_at,
+    )
+    if exact_mandate_errors:
+        return {}, exact_mandate_errors
     factors = mandate_provenance.get("product_leverage_factors", {})
     allowed_assets = mandate_provenance.get("allowed_nonzero_assets")
     if (
@@ -326,7 +433,12 @@ def _mandate_fields(
         "product_leverage_factors": factors,
         "product_caps": mandate_provenance["product_caps"],
         "nominal_caps": mandate_provenance["nominal_caps"],
+        "product_effective_caps": mandate_provenance.get(
+            "product_effective_caps",
+            1.0,
+        ),
         "allowed_nonzero_assets": set(allowed_assets) if allowed_assets is not None else None,
+        "max_nonzero_assets": mandate_provenance.get("max_nonzero_assets"),
     }, set()
 
 
@@ -425,6 +537,145 @@ def _budget_authority_errors(
     return set()
 
 
+def _risk_control_fields(
+    risk_control_state: Mapping[str, Any] | None,
+    *,
+    mandate: Mapping[str, Any],
+    now: datetime,
+    active_positions: list[tuple[str, float]],
+) -> tuple[dict[str, Any], set[str]]:
+    empty = {
+        "stop_loss_distance": None,
+        "stop_intent_ready": None,
+        "strategy_breaker_triggered": None,
+        "account_breaker_triggered": None,
+        "account_drawdown_fraction": None,
+        "drawdown_scalar": None,
+        "risk_control_state_digest_sha256": None,
+    }
+    if mandate.get("mandate_id") != _TQQQ_ETF_ONLY_RESEARCH_MANDATE:
+        return empty, set()
+    if not isinstance(risk_control_state, Mapping):
+        return empty, {"missing_risk_control_state"}
+
+    required = (
+        "as_of",
+        "mandate_id",
+        "candidate_identity_sha256",
+        "stop_loss_distance",
+        "stop_intent_ready",
+        "tqqq_entry_fill_identity_sha256",
+        "stop_entry_fill_identity_sha256",
+        "consecutive_completed_losing_exits",
+        "account_drawdown_fraction",
+        "drawdown_scalar",
+    )
+    errors: set[str] = set()
+    if any(field not in risk_control_state for field in required):
+        errors.add("invalid_risk_control_state")
+
+    as_of = _parse_utc_timestamp(risk_control_state.get("as_of"))
+    stop_loss_distance = _finite_number(risk_control_state.get("stop_loss_distance"))
+    account_drawdown = _finite_number(
+        risk_control_state.get("account_drawdown_fraction")
+    )
+    drawdown_scalar = _finite_number(risk_control_state.get("drawdown_scalar"))
+    raw_losses = risk_control_state.get("consecutive_completed_losing_exits")
+    losses = (
+        raw_losses
+        if not isinstance(raw_losses, bool)
+        and isinstance(raw_losses, int)
+        and raw_losses >= 0
+        else None
+    )
+    max_age = _finite_number(mandate.get("max_snapshot_age_seconds"))
+    if as_of is None or max_age is None:
+        errors.add("invalid_risk_control_state")
+    elif (age := (now - as_of).total_seconds()) < 0.0 or age > max_age:
+        errors.add("stale_risk_control_state")
+    if risk_control_state.get("mandate_id") != mandate.get("mandate_id"):
+        errors.add("risk_control_mandate_mismatch")
+    if _sha256(risk_control_state.get("candidate_identity_sha256")) != mandate.get(
+        "candidate_identity_sha256"
+    ):
+        errors.add("risk_control_candidate_mismatch")
+    if stop_loss_distance != 0.05:
+        errors.add("invalid_stop_loss_distance")
+    if not isinstance(risk_control_state.get("stop_intent_ready"), bool):
+        errors.add("invalid_stop_state")
+    if account_drawdown is None or not 0.0 <= account_drawdown <= 1.0:
+        errors.add("invalid_account_drawdown")
+    if losses is None:
+        errors.add("invalid_strategy_breaker_state")
+
+    expected_scalar: float | None = None
+    if account_drawdown is not None and 0.0 <= account_drawdown <= 1.0:
+        if account_drawdown <= 0.05:
+            expected_scalar = 1.0
+        elif account_drawdown <= 0.10:
+            expected_scalar = 0.50
+        else:
+            expected_scalar = 0.0
+        if drawdown_scalar != expected_scalar:
+            errors.add("drawdown_scalar_mismatch")
+    elif drawdown_scalar is None:
+        errors.add("invalid_drawdown_scalar")
+
+    tqqq_active = any(symbol == "TQQQ" for symbol, _ in active_positions)
+    if tqqq_active and risk_control_state.get("stop_intent_ready") is not True:
+        errors.add("stop_intent_not_ready")
+    entry_fill_identity = _sha256(
+        risk_control_state.get("tqqq_entry_fill_identity_sha256")
+    )
+    stop_entry_fill_identity = _sha256(
+        risk_control_state.get("stop_entry_fill_identity_sha256")
+    )
+    if tqqq_active and (
+        entry_fill_identity is None
+        or stop_entry_fill_identity is None
+        or entry_fill_identity != stop_entry_fill_identity
+    ):
+        errors.add("stop_entry_fill_identity_mismatch")
+    strategy_breaker = losses is not None and losses >= 5
+    account_breaker = account_drawdown is not None and account_drawdown > 0.10
+    if strategy_breaker:
+        errors.add("strategy_breaker_triggered")
+    if account_breaker:
+        errors.add("account_breaker_triggered")
+
+    payload = {
+        "as_of": _utc_timestamp(as_of) if as_of is not None else None,
+        "mandate_id": risk_control_state.get("mandate_id"),
+        "candidate_identity_sha256": _sha256(
+            risk_control_state.get("candidate_identity_sha256")
+        ),
+        "stop_loss_distance": stop_loss_distance,
+        "stop_intent_ready": (
+            risk_control_state.get("stop_intent_ready")
+            if isinstance(risk_control_state.get("stop_intent_ready"), bool)
+            else None
+        ),
+        "tqqq_entry_fill_identity_sha256": entry_fill_identity,
+        "stop_entry_fill_identity_sha256": stop_entry_fill_identity,
+        "consecutive_completed_losing_exits": losses,
+        "account_drawdown_fraction": account_drawdown,
+        "drawdown_scalar": drawdown_scalar,
+    }
+    return {
+        "stop_loss_distance": stop_loss_distance,
+        "stop_intent_ready": (
+            risk_control_state.get("stop_intent_ready")
+            if isinstance(risk_control_state.get("stop_intent_ready"), bool)
+            else None
+        ),
+        "strategy_breaker_triggered": strategy_breaker,
+        "account_breaker_triggered": account_breaker,
+        "account_drawdown_fraction": account_drawdown,
+        "drawdown_scalar": drawdown_scalar,
+        "risk_control_state_digest_sha256": _canonical_digest(payload),
+    }, errors
+
+
 def assess_with_evidence(
     decision: StrategyDecision,
     portfolio_snapshot: Any,
@@ -434,6 +685,7 @@ def assess_with_evidence(
     market_data: Mapping[str, Any],
     candidate_identity: CandidateRiskIdentity | None = None,
     normalization_origin_weights: Mapping[str, float] | None = None,
+    risk_control_state: Mapping[str, Any] | None = None,
 ) -> RiskGateResult:
     """Assess exactly once and fail closed with a redacted canonical receipt."""
     now = _utc_now()
@@ -465,6 +717,13 @@ def assess_with_evidence(
     can_evaluate_policy = not reason_codes
     if mandate:
         reason_codes.update(_budget_authority_errors(decision, mandate))
+    control_fields, control_errors = _risk_control_fields(
+        risk_control_state,
+        mandate=mandate,
+        now=now,
+        active_positions=active_positions,
+    )
+    reason_codes.update(control_errors)
 
     proposed: float | None = None
     normalization_origin_digest_sha256: str | None = None
@@ -474,6 +733,11 @@ def assess_with_evidence(
         weighted_exposure = 0.0
         if mandate_provenance is None and len(active_positions) > 1:
             reason_codes.add("fallback_position_count")
+        if (
+            mandate.get("mandate_id") == _TQQQ_ETF_ONLY_RESEARCH_MANDATE
+            and len(active_positions) > mandate["max_nonzero_assets"]
+        ):
+            reason_codes.add("single_strategy_position_count")
         for symbol, weight in active_positions:
             if allowed_assets is not None and symbol not in allowed_assets:
                 reason_codes.add("asset_not_authorized")
@@ -489,6 +753,29 @@ def assess_with_evidence(
                 continue
             if weight > min(product_cap, nominal_cap):
                 reason_codes.add("product_exposure_cap")
+            product_effective_cap = _position_cap(
+                mandate.get("product_effective_caps", 1.0),
+                symbol,
+                factor,
+            )
+            if (
+                product_effective_cap is None
+                or weight * factor > product_effective_cap + 1e-9
+            ):
+                reason_codes.add("product_effective_exposure_cap")
+            if mandate.get("mandate_id") == _TQQQ_ETF_ONLY_RESEARCH_MANDATE:
+                stop_distance = control_fields["stop_loss_distance"]
+                drawdown_scalar = control_fields["drawdown_scalar"]
+                loss_budget = mandate.get("loss_budget")
+                if (
+                    stop_distance is not None
+                    and stop_distance > 0.0
+                    and drawdown_scalar is not None
+                    and loss_budget is not None
+                    and weight
+                    > loss_budget * drawdown_scalar / stop_distance + 1e-9
+                ):
+                    reason_codes.add("risk_budget_exposure_cap")
             weighted_exposure += weight * factor
         target_weights: dict[str, float] = {}
         for symbol, weight in active_positions:
@@ -501,6 +788,9 @@ def assess_with_evidence(
                 product_leverage_factors=factors,
                 effective_exposure_cap=cap,
                 observed_effective_exposure=observed,
+                cash_only=(
+                    mandate.get("mandate_id") == _TQQQ_ETF_ONLY_RESEARCH_MANDATE
+                ),
             )
             if not valid_normalization:
                 reason_codes.add("invalid_reduce_only_normalization")
@@ -563,6 +853,16 @@ def assess_with_evidence(
         proposed_effective_exposure=proposed,
         outcome=outcome,
         reason_codes=tuple(sorted(reason_codes)),
+        execution_authorized=False,
+        stop_loss_distance=control_fields["stop_loss_distance"],
+        stop_intent_ready=control_fields["stop_intent_ready"],
+        strategy_breaker_triggered=control_fields["strategy_breaker_triggered"],
+        account_breaker_triggered=control_fields["account_breaker_triggered"],
+        account_drawdown_fraction=control_fields["account_drawdown_fraction"],
+        drawdown_scalar=control_fields["drawdown_scalar"],
+        risk_control_state_digest_sha256=control_fields[
+            "risk_control_state_digest_sha256"
+        ],
     )
     if outcome == "REJECT":
         return RiskGateResult(

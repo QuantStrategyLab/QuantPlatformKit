@@ -177,6 +177,59 @@ class RiskBudgetedTargetWeightTests(unittest.TestCase):
                 )
 
 
+class TqqqEtfOnlyResearchSizingTests(unittest.TestCase):
+    _MANDATE_ID = "tqqq_etf_only_research_v1"
+
+    def _inputs(self, **overrides: object) -> dict[str, object]:
+        return {
+            "risk_mandate_id": self._MANDATE_ID,
+            "product_symbol": "TQQQ",
+            "account_equity": 100_000.0,
+            "risk_fraction": 0.01,
+            "stop_loss_distance": 0.05,
+            "drawdown_scalar": 1.0,
+            "available_account_exposure": 0.50,
+            "product_leverage_factor": 3,
+            "inputs_fresh": True,
+            **overrides,
+        }
+
+    def test_tqqq_uses_one_percent_budget_five_percent_stop_and_fifteen_percent_cap(
+        self,
+    ) -> None:
+        self.assertEqual(risk_budgeted_target_weight(**self._inputs()), 0.15)
+        self.assertAlmostEqual(
+            risk_budgeted_target_weight(**self._inputs(drawdown_scalar=0.50)),
+            0.10,
+        )
+        self.assertEqual(
+            risk_budgeted_target_weight(**self._inputs(drawdown_scalar=0.0)),
+            0.0,
+        )
+
+    def test_only_exact_tqqq_and_boxx_product_contracts_are_sized(self) -> None:
+        self.assertAlmostEqual(
+            risk_budgeted_target_weight(
+                **self._inputs(product_symbol="BOXX", product_leverage_factor=1)
+            ),
+            0.20,
+        )
+        invalid_cases = (
+            {"product_symbol": "QQQ", "product_leverage_factor": 1},
+            {"product_symbol": "TQQQ", "product_leverage_factor": 1},
+            {"product_symbol": "BOXX", "product_leverage_factor": 3},
+            {"stop_loss_distance": 0.06},
+            {"risk_fraction": 0.010001},
+            {"drawdown_scalar": 0.75},
+        )
+        for overrides in invalid_cases:
+            with self.subTest(overrides=overrides):
+                self.assertEqual(
+                    risk_budgeted_target_weight(**self._inputs(**overrides)),
+                    0.0,
+                )
+
+
 class RiskBudgetedTargetWeightsTests(unittest.TestCase):
     def _approved_inputs(self, **overrides: object) -> dict[str, object]:
         return {
@@ -246,6 +299,24 @@ class ReduceOnlyNormalizationTests(unittest.TestCase):
                 product_leverage_factors={"BOXX": 1},
                 effective_exposure_cap=0.50,
                 observed_effective_exposure=1.0,
+            )
+        )
+
+    def test_cash_only_normalization_rejects_any_residual_position(self) -> None:
+        inputs = {
+            "origin_weights": {"TQQQ": 0.20},
+            "product_leverage_factors": {"TQQQ": 3},
+            "effective_exposure_cap": 0.50,
+            "observed_effective_exposure": 0.60,
+            "cash_only": True,
+        }
+        self.assertTrue(
+            validate_reduce_only_normalization(target_weights={}, **inputs)
+        )
+        self.assertFalse(
+            validate_reduce_only_normalization(
+                target_weights={"TQQQ": 0.10},
+                **inputs,
             )
         )
 
