@@ -35,6 +35,20 @@ class ExplodingMapping(Mapping[str, object]):
         raise RuntimeError("untrusted mapping")
 
 
+class UnderreportedMapping(Mapping[str, object]):
+    def __init__(self, values: dict[str, object]) -> None:
+        self._values = values
+
+    def __getitem__(self, key: str) -> object:
+        return self._values[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return 0
+
+
 def _decision(
     *,
     positions: tuple[PositionTarget, ...] = (),
@@ -454,6 +468,23 @@ class ApplyRiskMetadataSanitizationTests(unittest.TestCase):
                     budgets=(BudgetIntent(name="risk", amount=0.0),),
                 )
                 self._assert_invalid(self._apply(decision))
+
+    def test_falsey_mutable_decision_containers_reject(self) -> None:
+        for field in ("positions", "budgets", "risk_flags"):
+            values: dict[str, object] = {
+                "positions": (),
+                "budgets": (),
+                "risk_flags": (),
+            }
+            values[field] = []
+            with self.subTest(field=field):
+                self._assert_invalid(self._apply(StrategyDecision(**values)))
+
+    def test_underreported_diagnostics_mapping_rejects(self) -> None:
+        diagnostics = UnderreportedMapping(
+            {f"diagnostic_{index}": 0 for index in range(1_001)}
+        )
+        self._assert_invalid(self._apply(StrategyDecision(diagnostics=diagnostics)))
 
 
 class AssessWithEvidenceTests(unittest.TestCase):
@@ -1212,7 +1243,12 @@ class CanonicalRiskMetadataSanitizationTests(unittest.TestCase):
                 result, _engine = self._assess(decision)
                 self._assert_rejected(result)
 
-        for field in ("mandate_id", "effective_exposure_cap", "product_caps"):
+        for field in (
+            "mandate_id",
+            "effective_exposure_cap",
+            "product_caps",
+            "allowed_nonzero_assets",
+        ):
             with self.subTest(mandate_field=field):
                 result, _engine = self._assess(
                     StrategyDecision(),
@@ -1220,6 +1256,29 @@ class CanonicalRiskMetadataSanitizationTests(unittest.TestCase):
                     candidate=self._candidate(),
                 )
                 self._assert_rejected(result)
+
+    def test_falsey_mutable_decision_containers_reject(self) -> None:
+        for field in ("positions", "budgets", "risk_flags"):
+            values: dict[str, object] = {
+                "positions": (),
+                "budgets": (),
+                "risk_flags": (),
+            }
+            values[field] = []
+            with self.subTest(field=field):
+                result, _engine = self._assess(StrategyDecision(**values))
+                self._assert_rejected(result)
+
+    def test_underreported_factor_mapping_rejects(self) -> None:
+        factors = UnderreportedMapping(
+            {"XLK": 1, **{f"ASSET_{index}": 1 for index in range(1_000)}}
+        )
+        result, _engine = self._assess(
+            StrategyDecision(),
+            mandate=self._mandate(product_leverage_factors=factors),
+            candidate=self._candidate(),
+        )
+        self._assert_rejected(result)
 
     def test_noncanonical_candidate_identity_is_rejected_at_gate(self) -> None:
         canonical = self._candidate()
@@ -1747,6 +1806,26 @@ class TqqqEtfOnlyResearchMandateTests(unittest.TestCase):
                 self.assertEqual(result.decision.positions, ())
                 self.assertEqual(result.decision.budgets, ())
                 engine.assess.assert_called_once()
+
+    def test_inactive_tqqq_stop_identities_are_still_required(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="BOXX", target_weight=0.10),),
+        )
+        for field in (
+            "tqqq_entry_fill_identity_sha256",
+            "stop_entry_fill_identity_sha256",
+        ):
+            for value in (None, object()):
+                with self.subTest(field=field, value_type=type(value).__name__):
+                    result, engine = self._assess(
+                        decision,
+                        risk_state=self._risk_state(**{field: value}),
+                    )
+                    self.assertEqual(result.assessment.outcome, "REJECT")
+                    self.assertFalse(result.assessment.execution_authorized)
+                    self.assertEqual(result.decision.positions, ())
+                    self.assertEqual(result.decision.budgets, ())
+                    engine.assess.assert_called_once()
 
 
 class RetiredGlobalEtfRotationMandateTests(unittest.TestCase):

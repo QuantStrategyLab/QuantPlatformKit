@@ -130,7 +130,9 @@ def _canonical_numeric_mapping(
     if not isinstance(value, Mapping) or len(value) > _MAX_MATERIAL_ITEMS:
         return None
     result: dict[str, int | float] = {}
-    for raw_key, raw_value in value.items():
+    for item_count, (raw_key, raw_value) in enumerate(value.items(), start=1):
+        if item_count > _MAX_MATERIAL_ITEMS:
+            return None
         key, valid_key = _canonical_string(raw_key)
         if not valid_key or key is None:
             return None
@@ -190,7 +192,9 @@ def _safe_diagnostics(value: Any) -> tuple[dict[str, Any], bool]:
     if not isinstance(value, Mapping) or len(value) > _MAX_MATERIAL_ITEMS:
         return {}, False
     result: dict[str, Any] = {}
-    for raw_key, raw_value in value.items():
+    for item_count, (raw_key, raw_value) in enumerate(value.items(), start=1):
+        if item_count > _MAX_MATERIAL_ITEMS:
+            return {}, False
         key, valid = _canonical_string(raw_key)
         if not valid or key is None:
             return {}, False
@@ -242,7 +246,7 @@ def _decision_metrics(
     active: list[tuple[str, float]] = []
     reason_codes: set[str] = set()
     position_payloads: list[dict[str, Any]] = []
-    raw_positions = decision.positions or ()
+    raw_positions = decision.positions
     if type(raw_positions) is not tuple or len(raw_positions) > _MAX_MATERIAL_ITEMS:
         raw_positions = ()
         reason_codes.add("invalid_risk_metadata")
@@ -298,7 +302,7 @@ def _decision_metrics(
         if normalized_weight > 0.0:
             active.append((symbol, normalized_weight))
     budget_payloads: list[dict[str, Any]] = []
-    raw_budgets = decision.budgets or ()
+    raw_budgets = decision.budgets
     if type(raw_budgets) is not tuple or len(raw_budgets) > _MAX_MATERIAL_ITEMS:
         raw_budgets = ()
         reason_codes.add("invalid_risk_metadata")
@@ -829,6 +833,8 @@ def _risk_control_fields(
         errors.add("invalid_account_drawdown")
     if losses is None:
         errors.add("invalid_strategy_breaker_state")
+    if entry_fill_identity is None or stop_entry_fill_identity is None:
+        errors.add("invalid_stop_identity")
 
     expected_scalar: float | None = None
     if account_drawdown is not None and 0.0 <= account_drawdown <= 1.0:
@@ -925,7 +931,11 @@ def _assess_with_evidence_static(
     )
     reason_codes.update(decision_errors)
     diagnostics, valid_diagnostics = _safe_diagnostics(decision.diagnostics)
-    risk_flags = _canonical_string_list(decision.risk_flags or ())
+    risk_flags = (
+        _canonical_string_list(decision.risk_flags)
+        if type(decision.risk_flags) is tuple
+        else None
+    )
     if not valid_diagnostics or risk_flags is None:
         reason_codes.add("invalid_risk_metadata")
     if not valid_scope or normalized_scope not in _ALLOWED_SCOPES:
@@ -1294,9 +1304,13 @@ def _apply_risk_gate_static(
             "invalid_risk_metadata",
         )
 
-    normalized_risk_flags = _canonical_string_list(decision.risk_flags or ())
-    raw_positions = decision.positions or ()
-    raw_budgets = decision.budgets or ()
+    normalized_risk_flags = (
+        _canonical_string_list(decision.risk_flags)
+        if type(decision.risk_flags) is tuple
+        else None
+    )
+    raw_positions = decision.positions
+    raw_budgets = decision.budgets
     if (
         normalized_risk_flags is None
         or type(raw_positions) is not tuple
