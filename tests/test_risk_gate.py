@@ -1261,42 +1261,15 @@ class TqqqEtfOnlyResearchMandateTests(unittest.TestCase):
         partial_engine.assess.assert_called_once()
 
 
-class GlobalEtfRotationResearchMandateTests(unittest.TestCase):
+class RetiredGlobalEtfRotationMandateTests(unittest.TestCase):
     _NOW = datetime(2026, 8, 9, 2, 0, tzinfo=timezone.utc)
     _MANDATE_ID = "global_etf_rotation_etf_only_research_v1"
-    _STRATEGY_PROFILE = "global_etf_rotation_etf_only_single_strategy_research_v1"
-    _ACCOUNT_MODE = "single_strategy_research_v1"
-    _ALLOWED_ASSETS = (
-        "EWY",
-        "EWT",
-        "INDA",
-        "FXI",
-        "EWJ",
-        "VGK",
-        "VOO",
-        "XLK",
-        "SMH",
-        "GLD",
-        "SLV",
-        "USO",
-        "DBA",
-        "XLE",
-        "XLF",
-        "ITA",
-        "XLP",
-        "XLU",
-        "XLV",
-        "IHI",
-        "VNQ",
-        "KRE",
-        "BIL",
-    )
 
     @classmethod
     def _candidate(cls) -> CandidateRiskIdentity:
         return CandidateRiskIdentity(
-            strategy_profile=cls._STRATEGY_PROFILE,
-            account_mode=cls._ACCOUNT_MODE,
+            strategy_profile="retired_global_etf_candidate",
+            account_mode="single_strategy_research_v1",
             strategy_revision="1" * 40,
             runner_revision="2" * 40,
             config_sha256="3" * 64,
@@ -1305,10 +1278,9 @@ class GlobalEtfRotationResearchMandateTests(unittest.TestCase):
         )
 
     @classmethod
-    def _mandate(cls, **overrides: object) -> dict[str, object]:
+    def _otherwise_valid_generic_mandate(cls) -> dict[str, object]:
         candidate = cls._candidate()
-        caps = {symbol: 0.50 for symbol in cls._ALLOWED_ASSETS}
-        mandate: dict[str, object] = {
+        return {
             "mandate_id": cls._MANDATE_ID,
             "mandate_version": "v1",
             "authority_receipt_sha256": candidate.authority_receipt_sha256,
@@ -1325,96 +1297,36 @@ class GlobalEtfRotationResearchMandateTests(unittest.TestCase):
             "max_snapshot_age_seconds": 300,
             "effective_exposure_cap": 0.50,
             "loss_budget": 0.01,
-            "loss_budget_equity_reference": "completed_session_equity",
-            "product_caps": caps,
-            "nominal_caps": caps,
-            "product_effective_caps": caps,
-            "product_leverage_factors": {
-                symbol: 1 for symbol in cls._ALLOWED_ASSETS
-            },
-            "allowed_nonzero_assets": list(cls._ALLOWED_ASSETS),
-            "max_nonzero_assets": 2,
-            "broker_margin_factor": 1,
-            "margin_stacking": False,
-            "borrowing": False,
-            "shorting": False,
-            "income_sleeve_enabled": False,
-            "option_overlay_enabled": False,
-            "ai_overlay_enabled": False,
-            "market_regime_overlay_enabled": False,
-            "precommitted_executable_stop_distance": 0.05,
-            "stop_fill_policy": "gap_aware_min_open_or_stop_v1",
-            "max_consecutive_completed_losing_exits": 5,
+            "product_caps": {"XLK": 0.50},
+            "nominal_caps": {"XLK": 0.50},
+            "product_leverage_factors": {"XLK": 1},
+            "allowed_nonzero_assets": ["XLK"],
             "source_revision": "6" * 40,
         }
-        mandate.update(overrides)
-        return mandate
-
-    @staticmethod
-    def _snapshot(**overrides: object) -> dict[str, object]:
-        snapshot: dict[str, object] = {
-            "as_of": "2026-08-09T01:59:55Z",
-            "observed_effective_exposure": 0.0,
-            "total_equity": 100_000.0,
-        }
-        snapshot.update(overrides)
-        return snapshot
-
-    @classmethod
-    def _risk_state(
-        cls,
-        *symbols: str,
-        position_stop_states: dict[str, object] | None = None,
-        **overrides: object,
-    ) -> dict[str, object]:
-        stops = {
-            symbol: {
-                "stop_intent_ready": True,
-                "entry_fill_identity_sha256": str(index + 1) * 64,
-                "stop_entry_fill_identity_sha256": str(index + 1) * 64,
-            }
-            for index, symbol in enumerate(symbols)
-        }
-        state: dict[str, object] = {
-            "as_of": "2026-08-09T01:59:55Z",
-            "mandate_id": cls._MANDATE_ID,
-            "candidate_identity_sha256": cls._candidate().candidate_sha256,
-            "stop_loss_distance": 0.05,
-            "stop_fill_policy": "gap_aware_min_open_or_stop_v1",
-            "position_stop_states": (
-                stops if position_stop_states is None else position_stop_states
-            ),
-            "consecutive_completed_losing_exits": 0,
-            "account_drawdown_fraction": 0.05,
-            "drawdown_scalar": 1.0,
-        }
-        state.update(overrides)
-        return state
 
     def _assess(
         self,
         decision: StrategyDecision,
         *,
-        mandate: dict[str, object] | None = None,
-        risk_state: dict[str, object] | None = None,
-        snapshot: dict[str, object] | None = None,
-        engine_action: str = "approve",
+        mandate: object | None = None,
+        snapshot: object | None = None,
+        risk_control_state: object | None = None,
         engine_error: Exception | None = None,
-    ) -> tuple[object, Mock]:
-        active_symbols = tuple(
-            position.symbol
-            for position in decision.positions
-            if (position.target_weight or 0.0) > 0.0
-        )
+    ) -> object:
         engine = Mock()
         if engine_error is not None:
             engine.assess.side_effect = engine_error
         else:
-            engine.assess.return_value = RiskAction(
-                action=engine_action,
-                reason="test",
-            )
-        actual_snapshot = snapshot if snapshot is not None else self._snapshot()
+            engine.assess.return_value = RiskAction(action="approve", reason="test")
+        actual_snapshot = (
+            snapshot
+            if snapshot is not None
+            else {
+                "as_of": "2026-08-09T01:59:55Z",
+                "observed_effective_exposure": 0.0,
+                "total_equity": 100_000.0,
+            }
+        )
         with (
             patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW),
             patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
@@ -1424,284 +1336,80 @@ class GlobalEtfRotationResearchMandateTests(unittest.TestCase):
                 actual_snapshot,
                 scope="MEMBER",
                 mandate_provenance=(
-                    mandate if mandate is not None else self._mandate()
+                    mandate
+                    if mandate is not None
+                    else self._otherwise_valid_generic_mandate()
                 ),
                 market_data={},
                 candidate_identity=self._candidate(),
-                risk_control_state=(
-                    risk_state
-                    if risk_state is not None
-                    else self._risk_state(*active_symbols)
-                ),
+                risk_control_state=risk_control_state,
             )
         engine.assess.assert_called_once_with(
             decision,
             actual_snapshot,
             market_data={},
         )
-        return result, engine
+        return result
 
-    @staticmethod
-    def _two_position_decision(
-        first: float = 0.15,
-        second: float = 0.05,
-    ) -> StrategyDecision:
-        return _decision(
-            positions=(
-                PositionTarget(symbol="XLK", target_weight=first),
-                PositionTarget(symbol="BIL", target_weight=second),
-            )
+    def _assert_terminal_rejection(self, result: object) -> None:
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn(
+            "retired_global_etf_research_mandate",
+            result.assessment.reason_codes,
         )
-
-    def test_valid_research_decision_approves_but_never_authorizes_execution(
-        self,
-    ) -> None:
-        decision = self._two_position_decision()
-
-        result, _engine = self._assess(decision)
-
-        self.assertEqual(result.assessment.outcome, "APPROVE")
-        self.assertEqual(result.assessment.mandate_id, self._MANDATE_ID)
-        self.assertEqual(result.assessment.proposed_effective_exposure, 0.20)
-        self.assertEqual(result.assessment.stop_loss_distance, 0.05)
-        self.assertTrue(result.assessment.stop_intent_ready)
-        self.assertFalse(result.assessment.strategy_breaker_triggered)
-        self.assertFalse(result.assessment.account_breaker_triggered)
-        self.assertEqual(result.assessment.drawdown_scalar, 1.0)
-        self.assertEqual(len(result.assessment.risk_control_state_digest_sha256), 64)
         self.assertFalse(result.assessment.execution_authorized)
-        self.assertEqual(result.decision.positions, decision.positions)
+        self.assertIsNone(result.assessment.stop_loss_distance)
+        self.assertIsNone(result.assessment.risk_control_state_digest_sha256)
+        self.assertEqual(result.decision.positions, ())
+        self.assertEqual(result.decision.budgets, ())
 
-    def test_exact_mandate_shape_is_fail_closed(self) -> None:
-        decision = self._two_position_decision()
-        caps = {symbol: 0.50 for symbol in self._ALLOWED_ASSETS}
-        invalid_cases = (
-            {"authority_scope": "PAPER"},
-            {"strategy_profile": "global_etf_rotation"},
-            {"account_mode": "single_strategy_account_v1"},
-            {"effective_exposure_cap": 0.51},
-            {"loss_budget": 0.011},
-            {"loss_budget_equity_reference": "current_equity"},
-            {"product_caps": {**caps, "XLK": 0.51}},
-            {"product_leverage_factors": {"XLK": 1, "BIL": 1}},
-            {"allowed_nonzero_assets": [*self._ALLOWED_ASSETS, "SPY"]},
-            {"max_nonzero_assets": 3},
-            {"broker_margin_factor": 2},
-            {"margin_stacking": True},
-            {"borrowing": True},
-            {"shorting": True},
-            {"income_sleeve_enabled": True},
-            {"option_overlay_enabled": True},
-            {"ai_overlay_enabled": True},
-            {"market_regime_overlay_enabled": True},
-            {"precommitted_executable_stop_distance": 0.06},
-            {"stop_fill_policy": "stop_price_only"},
-            {"max_consecutive_completed_losing_exits": 6},
-            {"expires_at": "2027-08-09T01:59:55Z"},
+    def test_otherwise_valid_generic_payload_is_explicitly_retired(self) -> None:
+        decision = StrategyDecision(
+            positions=(PositionTarget(symbol="XLK", target_weight=0.10),),
+            budgets=(BudgetIntent(name="risk_budget", amount=0.005),),
         )
-        for overrides in invalid_cases:
-            with self.subTest(overrides=overrides):
-                result, _engine = self._assess(
-                    decision,
-                    mandate=self._mandate(**overrides),
-                )
-                self.assertEqual(result.assessment.outcome, "REJECT")
-                self.assertIn(
-                    "invalid_global_etf_research_mandate",
-                    result.assessment.reason_codes,
-                )
-                self.assertEqual(result.decision.positions, ())
 
-    def test_position_count_assets_caps_and_aggregate_risk_budget_fail_closed(
-        self,
-    ) -> None:
+        self._assert_terminal_rejection(self._assess(decision))
+
+    def test_retired_id_is_fail_closed_for_malformed_material(self) -> None:
+        decision = StrategyDecision(
+            positions=(PositionTarget(symbol="XLK", target_weight=0.10),),
+            budgets=(BudgetIntent(name="risk_budget", amount=0.005),),
+        )
         cases = (
-            (
-                _decision(
-                    positions=(
-                        PositionTarget(symbol="XLK", target_weight=0.05),
-                        PositionTarget(symbol="BIL", target_weight=0.05),
-                        PositionTarget(symbol="GLD", target_weight=0.05),
-                    )
-                ),
-                None,
-                "single_strategy_position_count",
-            ),
-            (
-                _decision(
-                    positions=(PositionTarget(symbol="SPY", target_weight=0.10),)
-                ),
-                None,
-                "asset_not_authorized",
-            ),
-            (
-                _decision(
-                    positions=(PositionTarget(symbol="XLK", target_weight=0.501),)
-                ),
-                None,
-                "product_exposure_cap",
-            ),
-            (
-                self._two_position_decision(first=0.151, second=0.05),
-                None,
-                "risk_budget_exposure_cap",
-            ),
-            (
-                self._two_position_decision(first=0.06, second=0.05),
-                self._risk_state(
-                    "XLK",
-                    "BIL",
-                    account_drawdown_fraction=0.050001,
-                    drawdown_scalar=0.50,
-                ),
-                "risk_budget_exposure_cap",
-            ),
-        )
-        for decision, state, reason in cases:
-            with self.subTest(reason=reason):
-                result, _engine = self._assess(decision, risk_state=state)
-                self.assertEqual(result.assessment.outcome, "REJECT")
-                self.assertIn(reason, result.assessment.reason_codes)
-                self.assertEqual(result.decision.positions, ())
-
-    def test_per_position_gap_aware_stop_state_is_fail_closed(self) -> None:
-        decision = self._two_position_decision()
-        valid_stops = self._risk_state("XLK", "BIL")["position_stop_states"]
-        assert isinstance(valid_stops, dict)
-        mismatched_fill = {
-            **valid_stops,
-            "XLK": {
-                **valid_stops["XLK"],
-                "stop_entry_fill_identity_sha256": "9" * 64,
+            {"mandate": {"mandate_id": self._MANDATE_ID}},
+            {"snapshot": {"total_equity": 10**400}},
+            {
+                "snapshot": {
+                    "as_of": "2026-08-09T01:59:55Z",
+                    "observed_effective_exposure": float("nan"),
+                    "total_equity": float("inf"),
+                }
             },
-        }
-        not_ready = {
-            **valid_stops,
-            "BIL": {**valid_stops["BIL"], "stop_intent_ready": False},
-        }
-        invalid_cases = (
-            {},
-            self._risk_state("XLK", "BIL", as_of="2026-08-09T01:49:55Z"),
-            self._risk_state("XLK", "BIL", as_of="2026-08-09T02:00:01Z"),
-            self._risk_state(
-                "XLK",
-                "BIL",
-                account_drawdown_fraction=float("nan"),
-            ),
-            self._risk_state("XLK", "BIL", candidate_identity_sha256="0" * 64),
-            self._risk_state("XLK", "BIL", mandate_id="other"),
-            self._risk_state("XLK", "BIL", stop_loss_distance=0.06),
-            self._risk_state("XLK", "BIL", stop_fill_policy="stop_price_only"),
-            self._risk_state(
-                "XLK",
-                position_stop_states={"XLK": valid_stops["XLK"]},
-            ),
-            self._risk_state(
-                "XLK",
-                "BIL",
-                position_stop_states=mismatched_fill,
-            ),
-            self._risk_state("XLK", "BIL", position_stop_states=not_ready),
-            self._risk_state("XLK", "BIL", drawdown_scalar=0.50),
-        )
-        for state in invalid_cases:
-            with self.subTest(state=state):
-                result, _engine = self._assess(decision, risk_state=state)
-                self.assertEqual(result.assessment.outcome, "REJECT")
-                self.assertEqual(result.decision.positions, ())
-
-    def test_drawdown_and_strategy_breaker_boundaries(self) -> None:
-        approved_cases = (
-            (
-                self._two_position_decision(),
-                self._risk_state("XLK", "BIL"),
-            ),
-            (
-                self._two_position_decision(first=0.075, second=0.025),
-                self._risk_state(
-                    "XLK",
-                    "BIL",
-                    account_drawdown_fraction=0.050001,
-                    drawdown_scalar=0.50,
-                ),
-            ),
-            (
-                self._two_position_decision(first=0.075, second=0.025),
-                self._risk_state(
-                    "XLK",
-                    "BIL",
-                    account_drawdown_fraction=0.10,
-                    drawdown_scalar=0.50,
-                ),
-            ),
-            (
-                self._two_position_decision(),
-                self._risk_state(
-                    "XLK",
-                    "BIL",
-                    consecutive_completed_losing_exits=4,
-                ),
-            ),
-        )
-        for decision, state in approved_cases:
-            with self.subTest(state=state):
-                result, _engine = self._assess(decision, risk_state=state)
-                self.assertEqual(result.assessment.outcome, "APPROVE")
-
-        breaker_cases = (
-            (
-                self._risk_state(
-                    "XLK",
-                    "BIL",
-                    consecutive_completed_losing_exits=5,
-                ),
-                "strategy_breaker_triggered",
-            ),
-            (
-                self._risk_state(
-                    "XLK",
-                    "BIL",
-                    account_drawdown_fraction=0.100001,
-                    drawdown_scalar=0.0,
-                ),
-                "account_breaker_triggered",
-            ),
-        )
-        for state, reason in breaker_cases:
-            with self.subTest(reason=reason):
-                result, _engine = self._assess(
-                    self._two_position_decision(),
-                    risk_state=state,
+            {
+                "decision": StrategyDecision(
+                    positions=(PositionTarget(symbol="XLK", target_weight=10**400),),
+                    budgets=(BudgetIntent(name="risk_budget", amount=10**400),),
                 )
-                self.assertEqual(result.assessment.outcome, "REJECT")
-                self.assertIn(reason, result.assessment.reason_codes)
-                self.assertEqual(result.decision.positions, ())
+            },
+            {"risk_control_state": {"material": float("nan")}},
+        )
+        for case in cases:
+            with self.subTest(case=case):
+                actual_decision = case.get("decision", decision)
+                kwargs = {key: value for key, value in case.items() if key != "decision"}
+                self._assert_terminal_rejection(
+                    self._assess(actual_decision, **kwargs),
+                )
 
-    def test_engine_is_exactly_once_for_static_reject_error_and_nonapprove(
-        self,
-    ) -> None:
-        decision = self._two_position_decision()
-        static_reject, _static_engine = self._assess(
-            decision,
-            mandate=self._mandate(authority_scope="PAPER"),
+    def test_retired_static_reject_still_assesses_risk_exactly_once(self) -> None:
+        result = self._assess(
+            _decision(positions=(PositionTarget(symbol="XLK", target_weight=0.10),)),
             engine_error=RuntimeError("redacted"),
         )
-        engine_error, _error_engine = self._assess(
-            decision,
-            engine_error=RuntimeError("redacted"),
-        )
-        nonapprove, _nonapprove_engine = self._assess(
-            decision,
-            engine_action="reject",
-        )
 
-        self.assertEqual(static_reject.assessment.outcome, "REJECT")
-        self.assertNotIn("risk_engine_error", static_reject.assessment.reason_codes)
-        self.assertIn("risk_engine_error", engine_error.assessment.reason_codes)
-        self.assertIn("risk_engine_non_approve", nonapprove.assessment.reason_codes)
-        self.assertFalse(static_reject.assessment.execution_authorized)
-        self.assertFalse(engine_error.assessment.execution_authorized)
-        self.assertFalse(nonapprove.assessment.execution_authorized)
+        self._assert_terminal_rejection(result)
+        self.assertNotIn("risk_engine_error", result.assessment.reason_codes)
 
 
 class BootstrapSmallAccountV2RiskGateTests(unittest.TestCase):
