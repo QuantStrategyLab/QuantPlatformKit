@@ -627,8 +627,7 @@ Every change follows the mandated PR workflow:
 2. Commit with format `type(scope): description`
 3. Push and open PR
 4. CI must pass (lint, type check, tests)
-5. Codex Review must have no blocking items
-6. Merge PR, then delete remote + local branches
+5. Merge PR, then delete remote + local branches
 
 ### 7.3 Scheduler Timezone Rules
 

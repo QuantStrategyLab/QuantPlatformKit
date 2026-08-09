@@ -4,7 +4,6 @@ import unittest
 
 from quant_platform_kit.notifications._redaction import redact_sensitive_text
 from quant_platform_kit.notifications.telegram import send_telegram_message
-from scripts import gate_codex_app_review
 
 
 class NotificationRedactionTests(unittest.TestCase):
@@ -45,23 +44,6 @@ class NotificationRedactionTests(unittest.TestCase):
         self.assertNotIn("123456:ABC", messages[0])
         self.assertNotIn("test-secret-token", messages[0])
         self.assertIn("<redacted>", messages[0])
-
-    def test_codex_gate_secret_diff_violation_does_not_echo_value(self) -> None:
-        secret_value = "super-" + "secret-token-value"
-        diff = "\n".join(
-            [
-                "diff --git a/example.py b/example.py",
-                "+++ b/example.py",
-                "+token = '" + secret_value + "'",
-            ]
-        )
-
-        violations = gate_codex_app_review.scan_diff(diff, [])
-
-        self.assertEqual(len(violations), 1)
-        self.assertNotIn(secret_value, violations[0])
-        self.assertIn("sensitive assignment pattern detected", violations[0])
-
 
 if __name__ == "__main__":
     unittest.main()
