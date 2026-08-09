@@ -15,5 +15,4 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"scripts/gate_codex_app_review.py" = ["E701", "E702"]
 "tests/*.py" = ["E402"]
