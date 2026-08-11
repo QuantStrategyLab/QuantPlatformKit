@@ -1,1 +1,11 @@
-* @Pigbibi
+# Limit automatic review requests to order and risk-sensitive changes.
+/.github/CODEOWNERS @Pigbibi
+/src/quant_platform_kit/risk/ @Pigbibi
+/src/quant_platform_kit/binance/ @Pigbibi
+/src/quant_platform_kit/ibkr/ @Pigbibi
+/src/quant_platform_kit/longbridge/ @Pigbibi
+/src/quant_platform_kit/schwab/ @Pigbibi
+/src/quant_platform_kit/common/models.py @Pigbibi
+/src/quant_platform_kit/common/port_adapters.py @Pigbibi
+/src/quant_platform_kit/common/execution_translation.py @Pigbibi
+/src/quant_platform_kit/position_sizing.py @Pigbibi
