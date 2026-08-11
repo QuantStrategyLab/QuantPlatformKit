@@ -43,7 +43,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh pr view "${{ steps.pr.outputs.pr_number }}" --repo "${GITHUB_REPOSITORY}" --json number,isDraft,author,url,body,labels > pr.json
+          gh pr view "${{ steps.pr.outputs.pr_number }}" --repo "${GITHUB_REPOSITORY}" --json number,isDraft,author,url,title,body,labels > pr.json
           python3 - <<'PY'
           import json
           import os
@@ -52,15 +52,20 @@ jobs:
           pr = json.loads(Path("pr.json").read_text(encoding="utf-8"))
           author = (pr.get("author") or {}).get("login")
           labels = {item.get("name", "") for item in pr.get("labels", [])}
+          title = pr.get("title") or ""
           body = pr.get("body") or ""
           is_major = "update-type: version-update:semver-major" in body
+          sensitive_labels = {"docker", "github_actions"}
+          is_sensitive = bool(labels & sensitive_labels) or "QuantStrategyLab/" in title or "QuantStrategyLab/" in body
           dependabot_authors = {"dependabot[bot]", "app/dependabot"}
           is_dependabot = author in dependabot_authors and "dependencies" in labels
-          should_merge = is_dependabot and not pr.get("isDraft") and not is_major
+          should_merge = is_dependabot and not pr.get("isDraft") and not is_major and not is_sensitive
           if should_merge:
               reason = "ready"
           elif is_major:
               reason = "major_update"
+          elif is_sensitive:
+              reason = "sensitive_dependency_update"
           else:
               reason = "not_eligible_dependabot_pr"
 
@@ -71,6 +76,7 @@ jobs:
               f"- Draft: `{'yes' if pr.get('isDraft') else 'no'}`",
               f"- Dependabot label: `{'yes' if 'dependencies' in labels else 'no'}`",
               f"- Major update: `{'yes' if is_major else 'no'}`",
+              f"- Sensitive dependency class: `{'yes' if is_sensitive else 'no'}`",
               f"- Final merge decision: `{'merge' if should_merge else 'skip'}`",
               f"- Reason: `{reason}`",
           ]
@@ -88,4 +94,4 @@ jobs:
         if: steps.merge_guard.outputs.should_merge == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh pr merge "${{ steps.pr.outputs.pr_number }}" --repo "${GITHUB_REPOSITORY}" --rebase --delete-branch --match-head-commit "${{ steps.pr.outputs.head_sha }}"
+        run: gh pr merge "${{ steps.pr.outputs.pr_number }}" --repo "${GITHUB_REPOSITORY}" --auto --rebase --delete-branch --match-head-commit "${{ steps.pr.outputs.head_sha }}"

@@ -1,1 +1,6 @@
-* @Pigbibi
+# Limit automatic review requests to order and risk-sensitive source changes.
+/src/quant_platform_kit/risk/ @Pigbibi
+/src/quant_platform_kit/binance/ @Pigbibi
+/src/quant_platform_kit/ibkr/ @Pigbibi
+/src/quant_platform_kit/longbridge/ @Pigbibi
+/src/quant_platform_kit/schwab/ @Pigbibi
