@@ -49,7 +49,7 @@ class FakeClient:
 
 
 class SchwabPortfolioTests(unittest.TestCase):
-    def test_fetch_account_snapshot_filters_to_strategy_symbols(self) -> None:
+    def _install_fake_schwab_module(self):
         schwab_module = types.ModuleType("schwab")
         client_module = types.ModuleType("schwab.client")
         client_module.Client = types.SimpleNamespace(
@@ -57,8 +57,10 @@ class SchwabPortfolioTests(unittest.TestCase):
                 Fields=types.SimpleNamespace(POSITIONS="POSITIONS")
             )
         )
+        return patch.dict(sys.modules, {"schwab": schwab_module, "schwab.client": client_module})
 
-        with patch.dict(sys.modules, {"schwab": schwab_module, "schwab.client": client_module}):
+    def test_fetch_account_snapshot_filters_to_strategy_symbols(self) -> None:
+        with self._install_fake_schwab_module():
             snapshot = fetch_account_snapshot(FakeClient(), strategy_symbols=("TQQQ", "BOXX"))
 
         self.assertEqual(snapshot.metadata["account_hash"], "abc123")
@@ -69,6 +71,48 @@ class SchwabPortfolioTests(unittest.TestCase):
         self.assertEqual(snapshot.metadata["cash_available_for_withdrawal"], 800.0)
         self.assertEqual(len(snapshot.positions), 1)
         self.assertEqual(snapshot.positions[0].symbol, "TQQQ")
+
+    def test_fetch_account_snapshot_retries_account_numbers_server_error(self) -> None:
+        class FlakyAccountNumbersClient(FakeClient):
+            def __init__(self):
+                self.account_number_calls = 0
+
+            def get_account_numbers(self):
+                self.account_number_calls += 1
+                if self.account_number_calls == 1:
+                    return FakeResponse({"error": "unavailable"}, status_code=503)
+                return super().get_account_numbers()
+
+        api_client = FlakyAccountNumbersClient()
+        with self._install_fake_schwab_module(), patch(
+            "quant_platform_kit.schwab.market_data.time.sleep"
+        ) as sleep_mock:
+            snapshot = fetch_account_snapshot(api_client, strategy_symbols=("TQQQ",))
+
+        self.assertEqual(snapshot.metadata["account_hash"], "abc123")
+        self.assertEqual(api_client.account_number_calls, 2)
+        sleep_mock.assert_called_once_with(1.0)
+
+    def test_fetch_account_snapshot_retries_account_positions_server_error(self) -> None:
+        class FlakyAccountPositionsClient(FakeClient):
+            def __init__(self):
+                self.account_calls = 0
+
+            def get_account(self, account_hash, fields):
+                self.account_calls += 1
+                if self.account_calls == 1:
+                    return FakeResponse({"error": "unavailable"}, status_code=503)
+                return super().get_account(account_hash, fields)
+
+        api_client = FlakyAccountPositionsClient()
+        with self._install_fake_schwab_module(), patch(
+            "quant_platform_kit.schwab.market_data.time.sleep"
+        ) as sleep_mock:
+            snapshot = fetch_account_snapshot(api_client, strategy_symbols=("TQQQ",))
+
+        self.assertEqual(snapshot.metadata["account_hash"], "abc123")
+        self.assertEqual(api_client.account_calls, 2)
+        sleep_mock.assert_called_once_with(1.0)
 
 
 if __name__ == "__main__":

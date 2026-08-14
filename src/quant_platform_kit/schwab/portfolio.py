@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
-from .market_data import decode_response_json
+from .market_data import _request_with_retries, decode_response_json
 
 
 def fetch_account_snapshot(
@@ -14,11 +14,19 @@ def fetch_account_snapshot(
 ) -> PortfolioSnapshot:
     from schwab import client
 
-    account_numbers = decode_response_json(api_client.get_account_numbers(), "Account numbers")
+    account_numbers = decode_response_json(
+        _request_with_retries(api_client.get_account_numbers),
+        "Account numbers",
+    )
     account_hash = account_numbers[0]["hashValue"]
 
     account_payload = decode_response_json(
-        api_client.get_account(account_hash, fields=client.Client.Account.Fields.POSITIONS),
+        _request_with_retries(
+            lambda: api_client.get_account(
+                account_hash,
+                fields=client.Client.Account.Fields.POSITIONS,
+            )
+        ),
         "Account positions",
     )
     account = account_payload["securitiesAccount"]
