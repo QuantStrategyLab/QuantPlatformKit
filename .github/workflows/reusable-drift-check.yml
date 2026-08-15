@@ -240,7 +240,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/AIAuditBridge
-          ref: 59192b259bfbc4c959e7799ae514e2e5d4925498
+          ref: 5f37f07953a5ced8adc0f055ca7afc6dfee6b6d6
           path: external/AIAuditBridge
 
       - name: Dual-review critical drift
