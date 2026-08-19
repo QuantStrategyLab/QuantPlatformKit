@@ -251,13 +251,37 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          emit_parked_record() {
+            python - "$1" "$2" <<'PY'
+          import hashlib
+          import json
+          import os
+          import sys
+
+          reason = sys.argv[1]
+          detail = sys.argv[2]
+          domain = os.environ["STRATEGY_DOMAIN"]
+          dedup_key = hashlib.sha256(f"drift-dual-review/{domain}/{reason}".encode()).hexdigest()
+          print(json.dumps({
+              "schema": "qsl.drift_dual_review_availability.v1",
+              "state": "PARKED",
+              "domain": domain,
+              "reason": reason,
+              "detail": detail[:500],
+              "dedup_key": dedup_key,
+              "next_action": "retry_on_next_drift_cycle",
+          }, sort_keys=True))
+          PY
+          }
           script="external/AIAuditBridge/scripts/run_drift_dual_review.py"
           if [ ! -f "$script" ]; then
-            echo "::notice::dual-review scripts unavailable; skipping until AIAuditBridge is merged"
+            emit_parked_record "review_script_unavailable" "$script"
+            echo "::notice::Dual review parked: the drift detector and issue sync remain active"
             exit 0
           fi
           if [ -z "${CODEX_AUDIT_SERVICE_URL:-}" ]; then
-            echo "::notice::CODEX_AUDIT_SERVICE_URL not configured; skipping dual-review dispatch"
+            emit_parked_record "codex_audit_service_unconfigured" "CODEX_AUDIT_SERVICE_URL is empty"
+            echo "::notice::Dual review parked: the drift detector and issue sync remain active"
             exit 0
           fi
           review_output="${RUNNER_TEMP}/drift-dual-review.json"
@@ -266,21 +290,35 @@ jobs:
             --domain "${STRATEGY_DOMAIN}" --dispatch >"$review_output"
           review_rc=$?
           set -e
+          if [ ! -f "$review_output" ]; then
+            emit_parked_record "review_output_unavailable" "exit_code=$review_rc output_file_missing"
+            echo "::warning::Dual review parked; no review output was produced"
+            exit 0
+          fi
           cat "$review_output"
-          if [ "$review_rc" -eq 3 ]; then
-            python - "$review_output" <<'PY'
+          if [ "$review_rc" -ne 0 ]; then
+            review_state="$(python - "$review_output" <<'PY'
           import json
           import sys
 
-          payload = json.load(open(sys.argv[1], encoding="utf-8"))
-          degraded = [item for item in payload.get("results", []) if item.get("degraded")]
-          if not payload.get("degraded") or not degraded:
-              raise SystemExit("exit code 3 requires degraded review results")
-          missing = [item for item in degraded if not item.get("dispatch", {}).get("github_issue")]
-          if missing:
-              raise SystemExit("degraded review requires a durable GitHub issue")
+          try:
+              payload = json.load(open(sys.argv[1], encoding="utf-8"))
+          except (OSError, json.JSONDecodeError) as exc:
+              print(f"invalid_review_json:{exc}")
+              raise SystemExit(0)
+          if not isinstance(payload, dict):
+              print("invalid_review_json:top_level_not_object")
+              raise SystemExit(0)
+          print("provider_degraded" if payload.get("degraded") is True else "review_process_failed")
           PY
-            echo "::warning::Dual review providers unavailable; durable issues created and critical drift alerts remain active"
+            )"
+            review_reason="review_process_failed"
+            if [ "$review_state" = "provider_degraded" ]; then
+              review_reason="review_provider_degraded"
+            elif [[ "$review_state" == invalid_review_json:* ]]; then
+              review_reason="review_output_invalid_json"
+            fi
+            emit_parked_record "$review_reason" "exit_code=$review_rc $review_state"
+            echo "::warning::Dual review parked; the drift detector and de-duplicated GitHub issue sync remain active"
             exit 0
           fi
-          exit "$review_rc"

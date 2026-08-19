@@ -165,6 +165,60 @@ def _codex_action_directive(drift: DriftResult) -> str:
     )
 
 
+def _find_open_issue_with_title(*, config: AutoIssueConfig, title: str) -> dict[str, Any] | None:
+    """Return an exact-title open issue before creating another drift record.
+
+    A drift may persist for several daily cycles. The lifecycle record must be
+    durable, but it must not create one issue per cycle for the same unresolved
+    profile and severity. If the lookup is unavailable, the caller fails closed
+    instead of risking a duplicate.
+    """
+
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                f"{config.owner}/{config.repo}",
+                "--state",
+                "open",
+                "--search",
+                f'in:title "{title}"',
+                "--limit",
+                "100",
+                "--json",
+                "number,title,url",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={**os.environ, "GH_PROMPT": "disabled"},
+        )
+    except FileNotFoundError:
+        return {"error": "gh CLI is not installed; cannot deduplicate issues"}
+    except Exception as exc:
+        return {"error": f"issue deduplication query failed: {exc}"}
+
+    if result.returncode != 0:
+        return {"error": f"issue deduplication query failed: {result.stderr.strip()}"}
+    try:
+        candidates = json.loads(result.stdout or "[]")
+    except json.JSONDecodeError:
+        return {"error": "issue deduplication query returned invalid JSON"}
+    if not isinstance(candidates, list):
+        return {"error": "issue deduplication query returned an invalid payload"}
+    for candidate in candidates:
+        if isinstance(candidate, Mapping) and candidate.get("title") == title:
+            return {
+                "issue_url": candidate.get("url"),
+                "issue_number": candidate.get("number"),
+                "deduplicated": True,
+            }
+    return None
+
+
 def create_github_issue(
     drift: DriftResult,
     *,
@@ -192,6 +246,12 @@ def create_github_issue(
             "labels": list(config.labels),
             "body_preview": body[:500],
         }
+
+    existing = _find_open_issue_with_title(config=config, title=title)
+    if existing is not None:
+        if existing.get("error"):
+            return {"error": existing["error"], "title": title}
+        return {**existing, "title": title, "repo": f"{config.owner}/{config.repo}"}
 
     try:
         labels_arg = ",".join(config.labels)

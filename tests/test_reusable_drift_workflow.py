@@ -63,6 +63,16 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
     assert 'ref: 5f37f07953a5ced8adc0f055ca7afc6dfee6b6d6' in workflow
     assert workflow.count('GH_TOKEN: ${{ github.token }}') >= 2
-    assert 'if [ "$review_rc" -eq 3 ]; then' in workflow
-    assert 'item.get("dispatch", {}).get("github_issue")' in workflow
-    assert 'exit "$review_rc"' in workflow
+    assert "emit_parked_record" in workflow
+    assert '"schema": "qsl.drift_dual_review_availability.v1"' in workflow
+    assert '"state": "PARKED"' in workflow
+    assert '"next_action": "retry_on_next_drift_cycle"' in workflow
+    assert "review_script_unavailable" in workflow
+    assert "codex_audit_service_unconfigured" in workflow
+    assert "review_output_unavailable" in workflow
+    assert "review_provider_degraded" in workflow
+    assert "invalid_review_json" in workflow
+    assert 'if [ ! -f "$review_output" ]; then' in workflow
+    assert workflow.index('if [ ! -f "$review_output" ]; then') < workflow.index('cat "$review_output"')
+    assert 'if [ "$review_rc" -ne 0 ]; then' in workflow
+    assert 'exit "$review_rc"' not in workflow
