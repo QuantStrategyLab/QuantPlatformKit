@@ -69,7 +69,10 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert '"next_action": "retry_on_next_drift_cycle"' in workflow
     assert "review_script_unavailable" in workflow
     assert "codex_audit_service_unconfigured" in workflow
+    assert "review_output_unavailable" in workflow
     assert "review_provider_degraded" in workflow
     assert "invalid_review_json" in workflow
+    assert 'if [ ! -f "$review_output" ]; then' in workflow
+    assert workflow.index('if [ ! -f "$review_output" ]; then') < workflow.index('cat "$review_output"')
     assert 'if [ "$review_rc" -ne 0 ]; then' in workflow
     assert 'exit "$review_rc"' not in workflow

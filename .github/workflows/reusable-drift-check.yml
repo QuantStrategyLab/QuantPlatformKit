@@ -290,6 +290,11 @@ jobs:
             --domain "${STRATEGY_DOMAIN}" --dispatch >"$review_output"
           review_rc=$?
           set -e
+          if [ ! -f "$review_output" ]; then
+            emit_parked_record "review_output_unavailable" "exit_code=$review_rc output_file_missing"
+            echo "::warning::Dual review parked; no review output was produced"
+            exit 0
+          fi
           cat "$review_output"
           if [ "$review_rc" -ne 0 ]; then
             review_state="$(python - "$review_output" <<'PY'
