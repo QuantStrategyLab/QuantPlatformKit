@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.dev/schemas/strategy-lifecycle-matrix.v1.schema.json",
+  "title": "Strategy lifecycle matrix v1",
+  "description": "Read-only inventory of strategy and plugin lifecycle evidence.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "source_policy", "entries"],
+  "properties": {
+    "schema_version": {"const": "strategy_lifecycle_matrix.v1"},
+    "generated_at": {"type": "string", "format": "date"},
+    "source_policy": {"type": "string", "minLength": 1},
+    "entries": {
+      "type": "array", "minItems": 1,
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "stage": {
+      "type": "object",
+      "required": ["status", "evidence_refs"],
+      "properties": {
+        "status": {"enum": ["not_started", "in_progress", "verified", "parked", "deferred", "inconclusive"]},
+        "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "digest": {"type": ["string", "null"]},
+        "note": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "entry": {
+      "type": "object",
+      "required": ["id", "kind", "lineage", "stages", "blocking_reasons", "next_action"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]+$"},
+        "display_name": {"type": "string"},
+        "kind": {"enum": ["strategy", "plugin", "portfolio"]},
+        "lineage": {"type": "string", "minLength": 1},
+        "stages": {
+          "type": "object",
+          "required": ["p0", "p1", "p2", "p3", "p4", "p5", "p6"],
+          "properties": {
+            "p0": {"$ref": "#/$defs/stage"}, "p1": {"$ref": "#/$defs/stage"},
+            "p2": {"$ref": "#/$defs/stage"}, "p3": {"$ref": "#/$defs/stage"},
+            "p4": {"$ref": "#/$defs/stage"}, "p5": {"$ref": "#/$defs/stage"},
+            "p6": {"$ref": "#/$defs/stage"}
+          },
+          "additionalProperties": false
+        },
+        "blocking_reasons": {"type": "array", "items": {"type": "string"}},
+        "next_action": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    }
+  }
+}
