@@ -1,0 +1,58 @@
+{
+  "schema_version": "strategy_lifecycle_matrix.v1",
+  "generated_at": "2026-08-23",
+  "source_policy": "Read-only inventory; statuses require repository evidence refs and never authorize promotion or trading.",
+  "entries": [
+    {
+      "id": "tqqq_core_only_p2_v2",
+      "display_name": "TQQQ Core Only / historical frozen",
+      "kind": "strategy",
+      "lineage": "p2_v2",
+      "stages": {
+        "p0": {"status": "verified", "evidence_refs": ["config/tqqq_core_only_p2_v2.json"]},
+        "p1": {"status": "verified", "evidence_refs": ["src/us_equity_snapshot_pipelines/lifecycle/tqqq_core_only_p1_binding.py"]},
+        "p2": {"status": "verified", "evidence_refs": ["config/tqqq_core_only_p2_v2.json"]},
+        "p3": {"status": "parked", "evidence_refs": ["scripts/run_tqqq_p3.py"], "note": "历史候选契约不满足可诚实回放的证据几何。"},
+        "p4": {"status": "deferred", "evidence_refs": []},
+        "p5": {"status": "deferred", "evidence_refs": []},
+        "p6": {"status": "deferred", "evidence_refs": []}
+      },
+      "blocking_reasons": ["historical_candidate_not_replayable"],
+      "next_action": "保持归档；不要绕过 fail-fast 或伪造 P3 证据。"
+    },
+    {
+      "id": "tqqq_core_only_p2_v5",
+      "display_name": "TQQQ Core Only / successor",
+      "kind": "strategy",
+      "lineage": "p2_v5",
+      "stages": {
+        "p0": {"status": "verified", "evidence_refs": ["config/tqqq_core_only_p2_v5.json"]},
+        "p1": {"status": "verified", "evidence_refs": ["tests/test_tqqq_p3_synthetic_evidence.py"]},
+        "p2": {"status": "verified", "evidence_refs": ["config/tqqq_core_only_p2_v5.json"]},
+        "p3": {"status": "verified", "evidence_refs": ["tests/test_tqqq_p3_synthetic_evidence.py"]},
+        "p4": {"status": "in_progress", "evidence_refs": ["docs/tqqq-validation-and-shadow-policy.md"]},
+        "p5": {"status": "in_progress", "evidence_refs": []},
+        "p6": {"status": "not_started", "evidence_refs": []}
+      },
+      "blocking_reasons": ["requires_approved_forward_observation"],
+      "next_action": "接入真实 P1 数据后运行 shadow/forward observation；保持不可交易边界。"
+    },
+    {
+      "id": "soxl_core_only",
+      "display_name": "SOXL Core Only",
+      "kind": "strategy",
+      "lineage": "successor",
+      "stages": {
+        "p0": {"status": "in_progress", "evidence_refs": []},
+        "p1": {"status": "in_progress", "evidence_refs": []},
+        "p2": {"status": "in_progress", "evidence_refs": []},
+        "p3": {"status": "in_progress", "evidence_refs": []},
+        "p4": {"status": "not_started", "evidence_refs": []},
+        "p5": {"status": "not_started", "evidence_refs": []},
+        "p6": {"status": "not_started", "evidence_refs": []}
+      },
+      "blocking_reasons": ["strategy_specific_evidence_incomplete"],
+      "next_action": "复用 TQQQ successor adapter/evidence 契约，补齐 P0-P3 证据。"
+    }
+  ]
+}
