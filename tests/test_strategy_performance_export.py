@@ -37,6 +37,42 @@ def _window() -> WindowPerformance:
 
 
 class StrategyPerformanceExportTests(unittest.TestCase):
+    def test_us_equity_export_discovers_all_registered_profiles(self) -> None:
+        """The canonical exporter must emit every profile in one domain run."""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            for profile in ("SOXL", "tqqq_core_only_p2_v5"):
+                store.save_snapshot(StrategyPerformanceSnapshot(
+                    strategy_profile=profile,
+                    domain="us_equity",
+                    platform="research",
+                    as_of=date(2026, 6, 30),
+                    windows={126: _window()},
+                ))
+                store.save_backtest_result(BacktestResult(
+                    strategy_profile=profile,
+                    domain="us_equity",
+                    param_set_id="baseline",
+                    params={},
+                    sharpe_ratio=1.0,
+                    calmar_ratio=1.0,
+                    max_drawdown=-0.1,
+                    cagr=0.2,
+                    win_rate=0.55,
+                    end_date=date(2026, 6, 30),
+                ))
+
+            payload = export_strategy_performance(
+                "us_equity",
+                repo="QuantStrategyLab/UsEquitySnapshotPipelines",
+                store=store,
+            )
+
+            self.assertEqual(
+                [item["strategy_profile"] for item in payload["snapshots"]],
+                ["SOXL", "tqqq_core_only_p2_v5"],
+            )
+
     def test_export_strategy_performance_writes_canonical_payload(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
