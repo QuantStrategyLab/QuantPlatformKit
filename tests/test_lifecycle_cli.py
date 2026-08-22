@@ -267,6 +267,51 @@ class LifecycleCliTests(unittest.TestCase):
         self.assertEqual(drift_kwargs["baseline_store"].local_root, Path("accepted-baselines"))
         self.assertEqual(drift_kwargs["baseline_lineage_policy"], "strict")
 
+    def test_lifecycle_command_stops_after_monitor_failure(self) -> None:
+        calls = []
+
+        def fake_load_callable(_module_name: str, function_name: str):
+            if function_name == "run_monitor":
+                def fake_monitor(**_kwargs):
+                    calls.append("monitor")
+                    raise RuntimeError("snapshot unavailable")
+
+                return fake_monitor
+            raise AssertionError(function_name)
+
+        with patch.object(cli, "_load_callable", fake_load_callable):
+            result = cli.main(["lifecycle", "--domain", "us_equity"])
+
+        self.assertEqual(result, 1)
+        self.assertEqual(calls, ["monitor"])
+
+    def test_lifecycle_command_optimizes_only_explicit_strategy(self) -> None:
+        calls = []
+
+        def fake_load_callable(_module_name: str, function_name: str):
+            if function_name == "run_monitor":
+                return lambda **_kwargs: calls.append("monitor") or []
+            if function_name == "run_drift_detection":
+                return lambda **_kwargs: calls.append("drift") or []
+            if function_name == "build_drift_alert":
+                return lambda _result: None
+            if function_name == "publish_drift_alerts":
+                return lambda _events, **_kwargs: {}
+            if function_name == "run_optimization":
+                return lambda **kwargs: calls.append(("optimize", kwargs["strategy_profile"])) or SimpleNamespace(
+                    recommendation="keep",
+                    improvement_score=0.0,
+                )
+            if function_name == "build_dashboard":
+                return lambda **_kwargs: calls.append("dashboard") or {"strategy_count": 0}
+            raise AssertionError(function_name)
+
+        with patch.object(cli, "_load_callable", fake_load_callable):
+            result = cli.main(["lifecycle", "--domain", "us_equity", "--strategy", "tqqq_core_only_p2_v5"])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(calls, ["monitor", "drift", ("optimize", "tqqq_core_only_p2_v5"), "dashboard"])
+
     def test_drift_rejects_conflicting_baseline_lineage_flags(self) -> None:
         with self.assertRaises(SystemExit):
             cli.main(["drift", "--strict-baseline-lineage", "--allow-legacy-baseline-history"])
