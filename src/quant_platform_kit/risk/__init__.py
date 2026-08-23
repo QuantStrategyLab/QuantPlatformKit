@@ -29,6 +29,7 @@ from quant_platform_kit.risk.portfolio_diagnostics import (
     compute_unrealized_pnl_pct,
     extract_portfolio_risk_diagnostics,
 )
+from quant_platform_kit.risk.snapshot import RiskSnapshot, build_risk_snapshot
 
 __all__ = [
     "RegimeContext",
@@ -46,4 +47,6 @@ __all__ = [
     "enrich_decision_risk_diagnostics",
     "extract_portfolio_risk_diagnostics",
     "build_risk_engine",
+    "RiskSnapshot",
+    "build_risk_snapshot",
 ]
