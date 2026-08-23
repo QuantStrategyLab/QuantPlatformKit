@@ -30,6 +30,7 @@ from quant_platform_kit.risk.portfolio_diagnostics import (
     extract_portfolio_risk_diagnostics,
 )
 from quant_platform_kit.risk.snapshot import RiskSnapshot, build_risk_snapshot
+from quant_platform_kit.risk.cross_asset_snapshot import build_cross_asset_snapshot
 from quant_platform_kit.risk.research_consumer import (
     DEFAULT_RESEARCH_STRATEGIES,
     ResearchRiskObservation,
@@ -55,6 +56,7 @@ __all__ = [
     "build_risk_engine",
     "RiskSnapshot",
     "build_risk_snapshot",
+    "build_cross_asset_snapshot",
     "DEFAULT_RESEARCH_STRATEGIES",
     "ResearchRiskObservation",
     "consume_research_risk",
