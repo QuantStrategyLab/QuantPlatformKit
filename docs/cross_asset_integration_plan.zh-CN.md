@@ -12,3 +12,12 @@
 
 当前覆盖：CN equity 8 条、HK equity 3 条、crypto 5 条；详见
 `docs/registry/cross_asset_strategy_inventory.json`。
+
+P1–P3 生产者统一写出 `research_driver_terminal.v1`，包括正常、等待和失败
+分支；具体字段、终态推导和 no-order 边界见
+[`cross_asset_research_driver.zh-CN.md`](cross_asset_research_driver.zh-CN.md)。
+
+P4/P5 使用独立的 `forward_risk_terminal.v1` 观察契约绑定 P1–P3 terminal
+digest、forward/shadow（或已有 paper）证据与组合 RiskSnapshot；该契约固定
+no-order、无 broker 依赖且不产生权限。详见
+[`cross_asset_forward_risk_driver.zh-CN.md`](cross_asset_forward_risk_driver.zh-CN.md)。
