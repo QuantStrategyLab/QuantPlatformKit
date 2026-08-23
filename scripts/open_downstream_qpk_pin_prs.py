@@ -130,10 +130,21 @@ def update_aggregate_bundle(
 
 
 def verify_dependency_closure(repo_dir: Path) -> None:
-    run(
-        ["uv", "pip", "install", "--dry-run", "."],
-        cwd=repo_dir,
-    )
+    with tempfile.TemporaryDirectory(prefix="qpk-resolver-") as tmp:
+        resolver_python = Path(tmp) / "bin" / "python"
+        run(["uv", "venv", "--python", sys.executable, tmp], cwd=repo_dir)
+        run(
+            [
+                "uv",
+                "pip",
+                "install",
+                "--dry-run",
+                "--python",
+                str(resolver_python),
+                ".",
+            ],
+            cwd=repo_dir,
+        )
 
 
 def update_qsl_compat_qpk_pin(repo_dir: Path, qpk_sha: str) -> bool:
