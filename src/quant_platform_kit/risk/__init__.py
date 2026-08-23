@@ -30,6 +30,12 @@ from quant_platform_kit.risk.portfolio_diagnostics import (
     extract_portfolio_risk_diagnostics,
 )
 from quant_platform_kit.risk.snapshot import RiskSnapshot, build_risk_snapshot
+from quant_platform_kit.risk.research_consumer import (
+    DEFAULT_RESEARCH_STRATEGIES,
+    ResearchRiskObservation,
+    consume_research_risk,
+    consume_research_risk_batch,
+)
 
 __all__ = [
     "RegimeContext",
@@ -49,4 +55,8 @@ __all__ = [
     "build_risk_engine",
     "RiskSnapshot",
     "build_risk_snapshot",
+    "DEFAULT_RESEARCH_STRATEGIES",
+    "ResearchRiskObservation",
+    "consume_research_risk",
+    "consume_research_risk_batch",
 ]
