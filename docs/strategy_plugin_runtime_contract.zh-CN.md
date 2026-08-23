@@ -172,19 +172,18 @@ sidecar 路径维护插件账本或执行插件驱动的 allocation 变更。
 - `suggested_action` 是 `defend` 或 `blocked`
 - `would_trade_if_enabled` 是 `true`
 
-如果 strategy-mounted artifact 已经是 `automation_approved`、暴露
-`position_control_allowed = true`，并且请求自动 `defend` 或 `delever`
-动作，则专用插件告警流会刻意跳过它。这类会影响仓位的事件应由实际消费该
-artifact 的策略运行结果通知。strategy artifact 也可以通过
+旧 v1 artifact 可能仍为历史回放暴露 `position_control_allowed = true`，但
+V2 sidecar 边界不再把这个字段当作仓位权限。插件请求的 `defend` 或
+`delever` 仍然只是告警或研究输入；只有归属策略候选和中央 Risk Gate 才能
+生成仓位目标。strategy artifact 可以通过
 `execution_controls.manual_review_notification_delegated = true` 和
 `manual_review_notification_target` 明确把人工复核插件 bot 通知委托给统一
 notification target；这类委托告警只从对应 `notification_targets` artifact
 发送一次。插件告警流只保留给未委托的人工复核或 notification-only 场景，
 包括 `notification_targets`、`blocked`、`watch_only` 和
-`notify_manual_review` 路线。
-自动仓位控制还必须带可审计证据：`evidence_package_id`、有效期字段
-（如 `evidence_valid_until`）和 `bounded_budget`；缺少任一项时，只能按
-普通复核/加载态处理，不能当作真正的自动仓位信号。
+`notify_manual_review` 路线。`evidence_package_id`、有效期字段（如
+`evidence_valid_until`）和 `bounded_budget` 仍是有用的历史证据，但不能
+恢复插件直接控制仓位的权限。
 
 平台仍可选择自己的投递 sink；共享 helper 已提供 email、SMS、push 和
 Telegram 的聚合入口：

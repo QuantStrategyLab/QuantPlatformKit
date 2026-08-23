@@ -35,6 +35,10 @@ DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR = Path(tempfile.gettempdir()) / "quant_strateg
 STRATEGY_PLUGIN_NON_ALERT_ROUTES = frozenset({"no_action"})
 STRATEGY_PLUGIN_ALERT_ACTIONS = frozenset({"defend", "blocked"})
 STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS = frozenset({"defend", "delever"})
+# Legacy v1 artifacts may still carry position-control-shaped metadata for
+# replay and display.  The V2 sidecar contract makes that metadata
+# non-authoritative: a plugin cannot directly mutate a strategy allocation.
+STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED = False
 CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES = frozenset(
     {
         "tqqq_growth_income",
@@ -959,6 +963,8 @@ def _strategy_plugin_find_field_value(value: Any, field_names: frozenset[str]) -
 
 
 def _strategy_plugin_has_auditable_position_control(signal: StrategyPluginSignal) -> bool:
+    if not STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED:
+        return False
     controls = _strategy_plugin_execution_controls(signal)
     policy = _strategy_plugin_consumption_policy(signal)
     if not (
@@ -1000,6 +1006,8 @@ def _strategy_plugin_consumption_status(signal: StrategyPluginSignal) -> str:
 
 
 def _strategy_plugin_policy_allows_position_control(signal: StrategyPluginSignal) -> bool:
+    if not STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED:
+        return False
     controls = _strategy_plugin_execution_controls(signal)
     if "position_control_allowed" in controls:
         return _as_bool(controls.get("position_control_allowed"), default=False)

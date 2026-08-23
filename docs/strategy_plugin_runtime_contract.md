@@ -193,22 +193,20 @@ when any of the following is true:
 - `suggested_action` is `defend` or `blocked`
 - `would_trade_if_enabled` is `true`
 
-Strategy-mounted artifacts that are automation-approved, expose
-`position_control_allowed = true`, and request an automatic `defend` or
-`delever` action are intentionally excluded from the dedicated plugin-alert
-stream. Those position-impacting events should be reported by the strategy run
-that consumed the artifact. Strategy artifacts can also explicitly delegate
+Legacy v1 artifacts may still expose `position_control_allowed = true` for
+historical replay, but the V2 sidecar boundary does not honor that field as
+allocation authority. A `defend` or `delever` plugin result remains an alert or
+research input; only the owning strategy candidate and central Risk Gate may
+produce a position target. Strategy artifacts can explicitly delegate
 manual-review plugin-bot delivery with
 `execution_controls.manual_review_notification_delegated = true` plus
 `manual_review_notification_target`; those delegated alerts are sent once from
 the matching `notification_targets` artifact. The plugin-alert stream remains
 for non-delegated manual-review or notification-only cases, including
 `notification_targets`, `blocked`, `watch_only`, and `notify_manual_review`
-routes.
-Automatic position control also requires auditable evidence: an
-`evidence_package_id`, a validity field such as `evidence_valid_until`, and a
-`bounded_budget`; if any of those are missing, treat the signal as review-only
-or loaded-not-applied rather than a real auto-position-control signal.
+routes. Historical evidence fields such as `evidence_package_id`,
+`evidence_valid_until`, and `bounded_budget` remain useful provenance, but they
+do not restore direct position-control permission.
 
 Platforms may still choose their delivery sinks, but shared escalation helpers
 are available for email, SMS, push, and Telegram:

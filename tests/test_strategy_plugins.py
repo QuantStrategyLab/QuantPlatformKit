@@ -634,7 +634,7 @@ class StrategyPluginsTests(unittest.TestCase):
             ("plugin-error=config validation failed|fallback=built-in", "consumption=none"),
         )
 
-    def test_strategy_plugin_notification_lines_include_auto_consumption_line(self):
+    def test_legacy_position_control_is_loaded_but_not_applied(self):
         signal = validate_strategy_plugin_signal_payload(
             {
                 **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
@@ -650,7 +650,7 @@ class StrategyPluginsTests(unittest.TestCase):
             "strategy_plugin_name_market_regime_control": "Market Regime",
             "strategy_plugin_route_risk_off": "risk off",
             "strategy_plugin_action_defend": "defend",
-            "strategy_plugin_consumption_auto_defend": "consumption=auto-defend",
+            "strategy_plugin_consumption_loaded_not_applied": "consumption=loaded-not-applied",
         }
 
         lines = build_strategy_plugin_notification_lines(
@@ -664,7 +664,7 @@ class StrategyPluginsTests(unittest.TestCase):
             lines,
             (
                 "plugin=Market Regime|enabled=yes|route=risk off|action=defend",
-                "consumption=auto-defend",
+                "consumption=loaded-not-applied",
             ),
         )
 
@@ -862,7 +862,7 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertFalse(should_alert_strategy_plugin_signal(signal))
         self.assertEqual(build_strategy_plugin_alert_messages([signal]), ())
 
-    def test_strategy_plugin_auto_position_control_signal_stays_with_strategy_notification(self):
+    def test_legacy_position_control_signal_escalates_for_review(self):
         signal = validate_strategy_plugin_signal_payload(
             {
                 **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
@@ -873,8 +873,10 @@ class StrategyPluginsTests(unittest.TestCase):
             }
         )
 
-        self.assertFalse(should_alert_strategy_plugin_signal(signal))
-        self.assertEqual(build_strategy_plugin_alert_messages([signal]), ())
+        self.assertTrue(should_alert_strategy_plugin_signal(signal))
+        alerts = build_strategy_plugin_alert_messages([signal])
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("does not place orders or change allocations", alerts[0].body)
 
     def test_strategy_plugin_notification_target_still_alerts_plugin_bot(self):
         signal = validate_strategy_plugin_signal_payload(

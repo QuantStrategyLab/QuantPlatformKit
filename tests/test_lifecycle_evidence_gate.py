@@ -65,6 +65,27 @@ def test_live_package_valid_when_required_sections_present() -> None:
     assert result.promotion_status == "LEGACY_RESEARCH_ONLY"
 
 
+def test_legacy_plugin_position_control_cannot_satisfy_gate() -> None:
+    result = validate_evidence_package(
+        {
+            "strategy_profile": "legacy_profile",
+            "domain": "us_equity",
+            "requested_stage": "live_candidate",
+            "target_platforms": ["ibkr"],
+            "backtest_summary": {"observation_count": 252},
+            "drift_notes": {"status": "stable"},
+            "platform_compatibility": {"verified": True},
+            "plugin_gate": {
+                "status": "automation_approved",
+                "position_control_allowed": True,
+            },
+        }
+    )
+
+    assert not result.valid
+    assert "plugin_gate evidence is incomplete or unsupported" in result.issues
+
+
 def test_file_loader_and_cli(tmp_path: Path) -> None:
     payload = {
         "strategy_profile": "cn_equity_combo",
