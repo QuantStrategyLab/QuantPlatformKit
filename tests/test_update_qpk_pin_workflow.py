@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "update-qpk-pin.yml"
+DOWNSTREAM_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "open-downstream-qpk-pin-prs.yml"
 OLD_QPK_SHA = "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
 STRATEGY_REFS = {
     "us-equity-strategies": (
@@ -53,10 +54,7 @@ def _step_run_block(workflow: str, step_name: str) -> str:
 
 
 def _verification_run_block(workflow: str) -> str:
-    desired_name = "Verify aggregate dependency closure"
-    if f"      - name: {desired_name}" in workflow:
-        return _step_run_block(workflow, desired_name)
-    return _step_run_block(workflow, "Verify downstream compatibility")
+    return _step_run_block(workflow, "Verify QPK candidate")
 
 
 def _run_script(
@@ -135,7 +133,7 @@ if args[:2] == ["-m", "venv"]:
 if args[:3] == ["-m", "pip", "install"]:
     if "--no-deps" in args:
         raise SystemExit(0)
-    if "-r" in args and os.environ.get("PIN_RESOLVER_FIXTURE") == "conflict":
+    if os.environ.get("PIN_RESOLVER_FIXTURE") == "conflict":
         sys.stderr.write(
             f"credential={os.environ['FIXTURE_SECRET']} "
             f"path={os.environ['FIXTURE_PRIVATE_PATH']}\\n"
@@ -151,9 +149,9 @@ raise SystemExit(f"unexpected fake-python arguments: {args!r}")
     fake_python.chmod(fake_python.stat().st_mode | stat.S_IXUSR)
 
 
-def test_pin_update_changes_only_qpk_refs(tmp_path: Path) -> None:
+def test_pin_update_advances_only_qpk_pin(tmp_path: Path) -> None:
     workflow = _workflow()
-    update_script = _step_run_block(workflow, "Update QPK_PIN and pin manifests")
+    update_script = _step_run_block(workflow, "Update QPK_PIN")
 
     assert "git ls-remote" not in update_script
     assert all(repo not in update_script for repo, _sha in STRATEGY_REFS.values())
@@ -171,7 +169,7 @@ def test_pin_update_changes_only_qpk_refs(tmp_path: Path) -> None:
     assert tmp_path.joinpath("QPK_PIN").read_text(encoding="utf-8") == (
         f"{expected_qpk_sha}\n"
     )
-    expected_manifest = _manifest_text(expected_qpk_sha)
+    expected_manifest = _manifest_text(OLD_QPK_SHA)
     assert tmp_path.joinpath("qsl-pins.txt").read_text(encoding="utf-8") == expected_manifest
     assert tmp_path.joinpath("constraints.txt").read_text(encoding="utf-8") == expected_manifest
 
@@ -183,9 +181,7 @@ def test_dependency_conflict_fails_closed_before_pr_without_sensitive_output(
     verify_script = _verification_run_block(workflow)
     fake_bin = tmp_path / "bin"
     _install_fake_python(fake_bin)
-    tmp_path.joinpath("qsl-pins.txt").write_text(
-        _manifest_text(OLD_QPK_SHA), encoding="utf-8"
-    )
+    tmp_path.joinpath("QPK_PIN").write_text(f"{OLD_QPK_SHA}\n", encoding="utf-8")
     fixture_secret = "fixture-secret-value"
     fixture_private_path = "/private/fixture/path"
 
@@ -202,12 +198,12 @@ def test_dependency_conflict_fails_closed_before_pr_without_sensitive_output(
     output = result.stdout + result.stderr
 
     assert result.returncode != 0
-    assert "aggregate_dependency_resolution_failed" in output
+    assert "qpk_candidate_install_failed" in output
     assert fixture_secret not in output
     assert fixture_private_path not in output
     assert "--no-deps" not in workflow
-    assert "- name: Verify aggregate dependency closure" in workflow
-    assert workflow.index("- name: Verify aggregate dependency closure") < workflow.index(
+    assert "- name: Verify QPK candidate" in workflow
+    assert workflow.index("- name: Verify QPK candidate") < workflow.index(
         "- name: Create PR for pin update"
     )
 
@@ -217,9 +213,7 @@ def test_dependency_success_reaches_only_guarded_pr_step(tmp_path: Path) -> None
     verify_script = _verification_run_block(workflow)
     fake_bin = tmp_path / "bin"
     _install_fake_python(fake_bin)
-    tmp_path.joinpath("qsl-pins.txt").write_text(
-        _manifest_text(OLD_QPK_SHA), encoding="utf-8"
-    )
+    tmp_path.joinpath("QPK_PIN").write_text(f"{OLD_QPK_SHA}\n", encoding="utf-8")
     result = _run_script(
         verify_script,
         cwd=tmp_path,
@@ -232,7 +226,7 @@ def test_dependency_success_reaches_only_guarded_pr_step(tmp_path: Path) -> None
     )
 
     assert result.returncode == 0, result.stderr
-    assert "aggregate_dependency_resolution_passed" in result.stdout
+    assert "qpk_candidate_install_passed" in result.stdout
     assert "id: verify" in workflow
     assert (
         "if: steps.update.outputs.changed == 'true' && "
@@ -241,3 +235,15 @@ def test_dependency_success_reaches_only_guarded_pr_step(tmp_path: Path) -> None
     assert '      - ".github/workflows/update-qpk-pin.yml"' in workflow
     assert '      - "tests/test_update_qpk_pin_workflow.py"' in workflow
     assert "workflow_dispatch:" not in workflow
+
+
+def test_downstream_rollout_is_scheduled_and_phase_gated() -> None:
+    workflow = DOWNSTREAM_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert '      - "QPK_PIN"' in workflow
+    assert '    - cron: "17 * * * *"' in workflow
+    assert "- auto" in workflow
+    assert "- strategies" in workflow
+    assert "- consumers" in workflow
+    assert 'open_downstream_qpk_pin_prs.py --phase "$QSL_PIN_PHASE"' in workflow
+    assert "Create coherent aggregate bundle PR" in workflow

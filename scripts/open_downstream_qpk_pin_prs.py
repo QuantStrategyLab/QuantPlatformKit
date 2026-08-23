@@ -16,7 +16,7 @@ SCRIPT_ROOT = Path(__file__).resolve().parent
 if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
-from check_qpk_pin_consistency import get_qpk_pin_sha
+from check_qpk_pin_consistency import find_dep_files, get_qpk_pin_sha
 
 
 QSL_QPK_REQUIREMENT_RE = re.compile(
@@ -37,18 +37,20 @@ class RepoSpec:
     base_branch: str = "main"
 
 
-DOWNSTREAM_REPOS = (
+STRATEGY_REPOS = (
     RepoSpec("CnEquityStrategies"),
     RepoSpec("HkEquityStrategies"),
     RepoSpec("UsEquityStrategies"),
     RepoSpec("CryptoStrategies"),
+)
+
+CONSUMER_REPOS = (
     RepoSpec("InteractiveBrokersPlatform"),
     RepoSpec("LongBridgePlatform"),
     RepoSpec("CharlesSchwabPlatform"),
     RepoSpec("FirstradePlatform"),
-    RepoSpec("BinancePlatform"),
+    RepoSpec("QmtPlatform"),
 )
-
 
 def run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=cwd, env=env, text=True, capture_output=True, check=True)
@@ -64,6 +66,74 @@ def maybe_run_uv_lock(repo_dir: Path) -> bool:
         return False
     run(["uv", "lock"], cwd=repo_dir)
     return True
+
+
+def qpk_refs(repo_dir: Path) -> set[str]:
+    pattern = re.compile(
+        r"QuantPlatformKit\.git(?:\?rev=|@)([a-f0-9]{40})",
+        re.IGNORECASE,
+    )
+    refs: set[str] = set()
+    for path in (*find_dep_files(repo_dir), repo_dir / "qsl.toml"):
+        if path.is_file():
+            refs.update(pattern.findall(path.read_text(encoding="utf-8")))
+    return refs
+
+
+def update_strategy_dependency_pins(
+    repo_dir: Path,
+    strategy_heads: dict[str, str],
+) -> bool:
+    changed = False
+    paths = {*find_dep_files(repo_dir), repo_dir / "qsl.toml"}
+    for path in sorted(paths):
+        if not path.is_file():
+            continue
+        original = path.read_text(encoding="utf-8")
+        updated = original
+        for strategy_repo, strategy_sha in strategy_heads.items():
+            pattern = re.compile(
+                rf"(git\+https://github\.com/QuantStrategyLab/{re.escape(strategy_repo)}\.git@)[a-f0-9]{{40}}"
+            )
+            updated = pattern.sub(rf"\g<1>{strategy_sha}", updated)
+        if updated != original:
+            path.write_text(updated, encoding="utf-8")
+            changed = True
+    return changed
+
+
+def update_aggregate_bundle(
+    root: Path,
+    *,
+    qpk_sha: str,
+    strategy_heads: dict[str, str],
+) -> bool:
+    replacements = {"QuantPlatformKit": qpk_sha, **strategy_heads}
+    changed = False
+    for filename in ("qsl-pins.txt", "constraints.txt"):
+        path = root / filename
+        original = path.read_text(encoding="utf-8")
+        updated = original
+        for repo, sha in replacements.items():
+            pattern = re.compile(
+                rf"(git\+https://github\.com/QuantStrategyLab/{re.escape(repo)}\.git@)[a-f0-9]{{40}}"
+            )
+            updated, count = pattern.subn(rf"\g<1>{sha}", updated)
+            if count != 1:
+                raise RuntimeError(
+                    f"aggregate_pin_update_failed:{filename}:{repo}:matches={count}"
+                )
+        if updated != original:
+            path.write_text(updated, encoding="utf-8")
+            changed = True
+    return changed
+
+
+def verify_dependency_closure(repo_dir: Path) -> None:
+    run(
+        ["uv", "pip", "install", "--dry-run", "."],
+        cwd=repo_dir,
+    )
 
 
 def update_qsl_compat_qpk_pin(repo_dir: Path, qpk_sha: str) -> bool:
@@ -90,14 +160,22 @@ def update_qsl_compat_qpk_pin(repo_dir: Path, qpk_sha: str) -> bool:
     return True
 
 
-def update_repo(repo_dir: Path, qpk_pin: Path) -> bool:
+def update_repo(
+    repo_dir: Path,
+    qpk_pin: Path,
+    *,
+    strategy_heads: dict[str, str] | None = None,
+) -> bool:
     script = SCRIPT_ROOT / "check_qpk_pin_consistency.py"
     run(
         ["python3", str(script), "--root", str(repo_dir), "--pin-file", str(qpk_pin), "--fix"],
         cwd=repo_dir,
     )
-    maybe_run_uv_lock(repo_dir)
     update_qsl_compat_qpk_pin(repo_dir, get_qpk_pin_sha(pin_file=qpk_pin))
+    if strategy_heads:
+        update_strategy_dependency_pins(repo_dir, strategy_heads)
+    maybe_run_uv_lock(repo_dir)
+    verify_dependency_closure(repo_dir)
     return has_changes(repo_dir)
 
 
@@ -109,7 +187,7 @@ def create_branch_commit_and_pr(
     qpk_sha: str,
     dry_run: bool,
 ) -> str:
-    branch = f"auto/qpk-pin-sync-{qpk_sha[:12]}"
+    branch = f"auto/qpk-pin-sync-{qpk_sha[:12]}-{repo.name.lower()}"
     remote_url = f"https://x-access-token:{token}@github.com/QuantStrategyLab/{repo.name}.git"
     run(["git", "checkout", "-B", branch], cwd=repo_dir)
     run(
@@ -137,7 +215,36 @@ def create_branch_commit_and_pr(
     if dry_run:
         return f"[dry-run] {repo.name}: would push {branch} and open PR"
 
-    run(["git", "push", "--force-with-lease", remote_url, f"HEAD:{branch}"], cwd=repo_dir)
+    remote_ref = f"refs/heads/{branch}"
+    remote_branch = run(["git", "ls-remote", remote_url, remote_ref], cwd=repo_dir)
+    remote_sha = remote_branch.stdout.split()[0] if remote_branch.stdout.strip() else ""
+    push_cmd = ["git", "push"]
+    if remote_sha:
+        push_cmd.append(f"--force-with-lease={remote_ref}:{remote_sha}")
+    push_cmd.extend([remote_url, f"HEAD:{branch}"])
+    run(push_cmd, cwd=repo_dir)
+    env = {**os.environ, "GH_TOKEN": token}
+    existing = run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            f"QuantStrategyLab/{repo.name}",
+            "--state",
+            "open",
+            "--head",
+            branch,
+            "--json",
+            "url",
+            "--jq",
+            ".[0].url // empty",
+        ],
+        cwd=repo_dir,
+        env=env,
+    ).stdout.strip()
+    if existing:
+        return f"{repo.name}: updated existing PR {existing}"
     body = "\n".join(
         [
             "## Summary",
@@ -150,7 +257,6 @@ def create_branch_commit_and_pr(
             "🤖 Generated with Claude Code",
         ]
     )
-    env = {**os.environ, "GH_TOKEN": token}
     result = run(
         [
             "gh",
@@ -199,8 +305,34 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Open downstream QPK pin sync PRs.")
     parser.add_argument("--token-env", default="QSL_REPO_SYNC_TOKEN")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--phase",
+        choices=("auto", "strategies", "consumers"),
+        default="auto",
+        help="Roll out strategy pins before aggregate and broker/QMT consumer pins.",
+    )
     parser.add_argument("--repo", action="append", default=[], help="Limit to one or more repo names")
     return parser.parse_args()
+
+
+def discover_strategy_heads(
+    root: Path,
+    *,
+    token: str,
+    qpk_sha: str,
+    dry_run: bool,
+) -> tuple[dict[str, str], list[str]]:
+    heads: dict[str, str] = {}
+    blocked: list[str] = []
+    for repo in STRATEGY_REPOS:
+        repo_dir = clone_repo(repo, root, token, dry_run=dry_run)
+        head = run(["git", "rev-parse", "HEAD"], cwd=repo_dir).stdout.strip()
+        heads[repo.name] = head
+        refs = qpk_refs(repo_dir)
+        if refs != {qpk_sha}:
+            rendered = ",".join(sorted(ref[:12] for ref in refs)) or "missing"
+            blocked.append(f"{repo.name}:qpk_refs={rendered}")
+    return heads, blocked
 
 
 def main() -> int:
@@ -210,19 +342,53 @@ def main() -> int:
         print(f"Missing required token env: {args.token_env}")
         return 2
 
-    qpk_pin = Path(__file__).resolve().parent.parent / "QPK_PIN"
+    bundle_root = Path(__file__).resolve().parent.parent
+    qpk_pin = bundle_root / "QPK_PIN"
     qpk_sha = get_qpk_pin_sha(pin_file=qpk_pin)
-    repo_specs = [repo for repo in DOWNSTREAM_REPOS if not args.repo or repo.name in args.repo]
-    if not repo_specs:
-        print("No downstream repos selected.")
-        return 0
 
     results: list[str] = []
+    failures = 0
     with tempfile.TemporaryDirectory(prefix="qpk-downstream-") as tmp:
         root = Path(tmp)
+        audit_root = root / "strategy-audit"
+        audit_root.mkdir()
+        strategy_heads, blocked = discover_strategy_heads(
+            audit_root,
+            token=token,
+            qpk_sha=qpk_sha,
+            dry_run=args.dry_run,
+        )
+        phase = args.phase
+        if phase == "auto":
+            phase = "strategies" if blocked else "consumers"
+        if phase == "consumers" and blocked:
+            print("consumer_phase_parked:strategy_qpk_alignment_incomplete")
+            print("\n".join(blocked))
+            return 3
+
+        available = STRATEGY_REPOS if phase == "strategies" else CONSUMER_REPOS
+        repo_specs = [
+            repo for repo in available if not args.repo or repo.name in args.repo
+        ]
+        if not repo_specs:
+            print(f"No downstream repos selected for phase: {phase}")
+            return 0
+
+        if phase == "consumers":
+            update_aggregate_bundle(
+                bundle_root,
+                qpk_sha=qpk_sha,
+                strategy_heads=strategy_heads,
+            )
+        target_root = root / "targets"
+        target_root.mkdir()
         for repo in repo_specs:
-            repo_dir = clone_repo(repo, root, token, dry_run=args.dry_run)
-            if not update_repo(repo_dir, qpk_pin):
+            repo_dir = clone_repo(repo, target_root, token, dry_run=args.dry_run)
+            if not update_repo(
+                repo_dir,
+                qpk_pin,
+                strategy_heads=strategy_heads if phase == "consumers" else None,
+            ):
                 results.append(f"{repo.name}: no changes needed")
                 continue
             try:
@@ -238,8 +404,10 @@ def main() -> int:
             except subprocess.CalledProcessError as exc:
                 stderr = (exc.stderr or exc.stdout).strip()
                 results.append(f"{repo.name}: failed to open PR: {stderr}")
+                failures += 1
+    print(f"phase={phase}")
     print("\n".join(results))
-    return 0
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

@@ -9,7 +9,14 @@ from scripts.check_qpk_pin_consistency import (
     extract_qpk_shas,
     extract_override_qpk_sha,
 )
-from scripts.open_downstream_qpk_pin_prs import update_qsl_compat_qpk_pin
+from scripts.open_downstream_qpk_pin_prs import (
+    CONSUMER_REPOS,
+    STRATEGY_REPOS,
+    qpk_refs,
+    update_aggregate_bundle,
+    update_qsl_compat_qpk_pin,
+    update_strategy_dependency_pins,
+)
 
 
 TARGET = "8378e939d9324ea63a0f45c9f21ba0e2eeb1cfff"
@@ -17,6 +24,20 @@ STALE = "37c81901160c5b31127a27dba1c63944933fb6bf"
 
 
 class QpkPinConsistencyTests(unittest.TestCase):
+    def test_rollout_tiers_keep_qmt_after_strategies(self) -> None:
+        self.assertEqual(
+            {
+                "CnEquityStrategies",
+                "HkEquityStrategies",
+                "UsEquityStrategies",
+                "CryptoStrategies",
+            },
+            {repo.name for repo in STRATEGY_REPOS},
+        )
+        consumer_names = {repo.name for repo in CONSUMER_REPOS}
+        self.assertIn("QmtPlatform", consumer_names)
+        self.assertNotIn("BinancePlatform", consumer_names)
+
     def test_extract_uv_lock_rev(self) -> None:
         text = (
             'source = { git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git'
@@ -117,6 +138,91 @@ override-dependencies = [
 
         self.assertIn(f"quant_platform_kit = '{TARGET}'", updated)
         self.assertIn(f"'quant-platform-kit' = '{TARGET}'", updated)
+
+    def test_qpk_refs_reads_consumer_pin_surfaces(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.joinpath("pyproject.toml").write_text(
+                "[project]\n"
+                "dependencies = [\n"
+                f'  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@{TARGET}",\n'
+                "]\n",
+                encoding="utf-8",
+            )
+            root.joinpath("qsl.toml").write_text(
+                "[qsl.requires]\n"
+                f'quant_platform_kit = "{TARGET}"\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual({TARGET}, qpk_refs(root))
+
+    def test_consumer_strategy_pins_update_as_one_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.joinpath("pyproject.toml").write_text(
+                "[project]\n"
+                "dependencies = [\n"
+                f'  "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@{STALE}",\n'
+                f'  "cn-equity-strategies @ git+https://github.com/QuantStrategyLab/CnEquityStrategies.git@{STALE}",\n'
+                "]\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                update_strategy_dependency_pins(
+                    root,
+                    {
+                        "UsEquityStrategies": TARGET,
+                        "CnEquityStrategies": TARGET,
+                        "HkEquityStrategies": TARGET,
+                        "CryptoStrategies": TARGET,
+                    },
+                )
+            )
+            updated = root.joinpath("pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertEqual(2, updated.count(TARGET))
+        self.assertNotIn(STALE, updated)
+
+    def test_aggregate_bundle_updates_qpk_and_all_strategy_heads(self) -> None:
+        strategy_heads = {
+            "CnEquityStrategies": "1" * 40,
+            "HkEquityStrategies": "2" * 40,
+            "UsEquityStrategies": "3" * 40,
+            "CryptoStrategies": "4" * 40,
+        }
+        manifest = "\n".join(
+            [
+                "# source of truth",
+                f"quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@{STALE}",
+                f"cn-equity-strategies @ git+https://github.com/QuantStrategyLab/CnEquityStrategies.git@{STALE}",
+                f"hk-equity-strategies @ git+https://github.com/QuantStrategyLab/HkEquityStrategies.git@{STALE}",
+                f"us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@{STALE}",
+                f"crypto-strategies @ git+https://github.com/QuantStrategyLab/CryptoStrategies.git@{STALE}",
+                "",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for filename in ("qsl-pins.txt", "constraints.txt"):
+                root.joinpath(filename).write_text(manifest, encoding="utf-8")
+
+            self.assertTrue(
+                update_aggregate_bundle(
+                    root,
+                    qpk_sha=TARGET,
+                    strategy_heads=strategy_heads,
+                )
+            )
+            pins = root.joinpath("qsl-pins.txt").read_text(encoding="utf-8")
+            constraints = root.joinpath("constraints.txt").read_text(encoding="utf-8")
+
+        self.assertEqual(pins, constraints)
+        self.assertIn(TARGET, pins)
+        for sha in strategy_heads.values():
+            self.assertIn(sha, pins)
+        self.assertNotIn(STALE, pins)
 
 
 if __name__ == "__main__":
