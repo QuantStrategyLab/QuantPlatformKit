@@ -15,6 +15,7 @@ from scripts.open_downstream_qpk_pin_prs import (
     qpk_refs,
     update_aggregate_bundle,
     update_qsl_compat_qpk_pin,
+    update_qpk_revision_contract,
     update_strategy_dependency_pins,
 )
 
@@ -154,8 +155,29 @@ override-dependencies = [
                 f'quant_platform_kit = "{TARGET}"\n',
                 encoding="utf-8",
             )
+            root.joinpath("tests").mkdir()
+            root.joinpath("tests", "test_qsl_compat_metadata.py").write_text(
+                f'QPK_REVISION = "{TARGET}"\n',
+                encoding="utf-8",
+            )
 
             self.assertEqual({TARGET}, qpk_refs(root))
+
+    def test_qpk_revision_contract_tracks_staged_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.joinpath("tests").mkdir()
+            contract = root / "tests" / "test_qsl_compat_metadata.py"
+            contract.write_text(
+                f'QPK_REVISION = "{STALE}"\n',
+                encoding="utf-8",
+            )
+
+            self.assertTrue(update_qpk_revision_contract(root, TARGET))
+            self.assertEqual(
+                f'QPK_REVISION = "{TARGET}"\n',
+                contract.read_text(encoding="utf-8"),
+            )
 
     def test_consumer_strategy_pins_update_as_one_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

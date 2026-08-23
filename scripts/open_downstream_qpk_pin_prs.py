@@ -29,6 +29,9 @@ QSL_QPK_REQUIRES_MAP_RE = re.compile(
     r"""(^[ \t]*(?:["']quant-platform-kit["']|quant-platform-kit|["']quant_platform_kit["']|quant_platform_kit)\s*=\s*)(['"])[a-f0-9]{40}(\2)""",
     re.MULTILINE,
 )
+QPK_REVISION_RE = re.compile(
+    r'''(?m)^(?P<prefix>QPK_REVISION\s*=\s*["'])(?P<sha>[a-f0-9]{40})(?P<suffix>["']\s*)$'''
+)
 
 
 @dataclass(frozen=True)
@@ -74,10 +77,34 @@ def qpk_refs(repo_dir: Path) -> set[str]:
         re.IGNORECASE,
     )
     refs: set[str] = set()
-    for path in (*find_dep_files(repo_dir), repo_dir / "qsl.toml"):
+    paths = (
+        *find_dep_files(repo_dir),
+        repo_dir / "qsl.toml",
+        repo_dir / "tests" / "test_qsl_compat_metadata.py",
+    )
+    for path in paths:
         if path.is_file():
-            refs.update(pattern.findall(path.read_text(encoding="utf-8")))
+            text = path.read_text(encoding="utf-8")
+            refs.update(pattern.findall(text))
+            refs.update(match.group("sha") for match in QPK_REVISION_RE.finditer(text))
     return refs
+
+
+def update_qpk_revision_contract(repo_dir: Path, qpk_sha: str) -> bool:
+    path = repo_dir / "tests" / "test_qsl_compat_metadata.py"
+    if not path.is_file():
+        return False
+    original = path.read_text(encoding="utf-8")
+    updated, count = QPK_REVISION_RE.subn(
+        rf"\g<prefix>{qpk_sha}\g<suffix>",
+        original,
+    )
+    if count != 1:
+        raise RuntimeError(f"qpk_revision_contract_update_failed:matches={count}")
+    if updated == original:
+        return False
+    path.write_text(updated, encoding="utf-8")
+    return True
 
 
 def update_strategy_dependency_pins(
@@ -183,6 +210,10 @@ def update_repo(
         cwd=repo_dir,
     )
     update_qsl_compat_qpk_pin(repo_dir, get_qpk_pin_sha(pin_file=qpk_pin))
+    update_qpk_revision_contract(
+        repo_dir,
+        get_qpk_pin_sha(pin_file=qpk_pin),
+    )
     if strategy_heads:
         update_strategy_dependency_pins(repo_dir, strategy_heads)
     maybe_run_uv_lock(repo_dir)
