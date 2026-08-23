@@ -18,7 +18,7 @@ def _ready(**overrides: object) -> dict[str, object]:
         "applied_fraction": 0.1,
         "circuit_state": "ACTIVE",
         "evidence_package_id": "sha256:research",
-        "expires_at": "2026-08-24T00:00:00Z",
+        "expires_at": "2099-08-24T00:00:00Z",
     }
     values.update(overrides)
     return values

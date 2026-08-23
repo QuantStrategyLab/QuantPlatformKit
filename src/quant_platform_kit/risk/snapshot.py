@@ -8,6 +8,7 @@ parked, zeroed snapshot rather than a partially trusted risk recommendation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import math
 from typing import Any, Mapping
 
@@ -74,8 +75,23 @@ def _parked(reasons: tuple[str, ...]) -> RiskSnapshot:
     )
 
 
+def _parse_utc_timestamp(value: str) -> datetime | None:
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
 def build_risk_snapshot(
     values: Mapping[str, Any],
+    *,
+    now: datetime | None = None,
 ) -> RiskSnapshot:
     """Build a validated risk observation, failing closed on bad input.
 
@@ -126,6 +142,14 @@ def build_risk_snapshot(
         return _parked(("missing_evidence_package_id",))
     if not isinstance(expires, str) or not expires.strip():
         return _parked(("missing_expiry",))
+    expires_at = _parse_utc_timestamp(expires)
+    if expires_at is None:
+        return _parked(("invalid_expiry",))
+    reference_time = datetime.now(timezone.utc) if now is None else now
+    if reference_time.tzinfo is None:
+        return _parked(("invalid_reference_time",))
+    if expires_at <= reference_time.astimezone(timezone.utc):
+        return _parked(("expired_evidence",))
     if circuit != "ACTIVE":
         return _parked((f"circuit_{circuit.lower()}",))
 
@@ -134,4 +158,3 @@ def build_risk_snapshot(
         evidence_package_id=evidence.strip(), expires_at=expires.strip(),
         reason_codes=(), **numbers,
     )
-
