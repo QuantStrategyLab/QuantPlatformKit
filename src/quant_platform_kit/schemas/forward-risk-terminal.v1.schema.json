@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.dev/schemas/forward-risk-terminal.v1.schema.json",
+  "title": "forward_risk_terminal.v1",
+  "description": "Terminal, cross-asset P4/P5 observation artifact. It has no broker or execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "terminal",
+    "terminal_status",
+    "generated_at",
+    "run_id",
+    "strategy_id",
+    "candidate_id",
+    "domain",
+    "research_terminal_status",
+    "research_terminal_sha256",
+    "no_order",
+    "permission_effect",
+    "broker_dependency",
+    "stages"
+  ],
+  "properties": {
+    "schema_version": {"const": "forward_risk_terminal.v1"},
+    "terminal": {"const": true},
+    "terminal_status": {"$ref": "#/$defs/terminalStatus"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "run_id": {"$ref": "#/$defs/nonEmptyString"},
+    "strategy_id": {"$ref": "#/$defs/nonEmptyString"},
+    "candidate_id": {"$ref": "#/$defs/nonEmptyString"},
+    "domain": {"enum": ["us_equity", "cn_equity", "hk_equity", "crypto"]},
+    "research_terminal_status": {"$ref": "#/$defs/terminalStatus"},
+    "research_terminal_sha256": {"$ref": "#/$defs/sha256"},
+    "no_order": {"const": true},
+    "permission_effect": {"const": "none"},
+    "broker_dependency": {"const": false},
+    "stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p4_forward", "p5_risk"],
+      "properties": {
+        "p4_forward": {
+          "$ref": "#/$defs/stageRecord",
+          "properties": {
+            "stage": {"const": "P4"},
+            "mode": {"enum": ["shadow", "paper"]},
+            "artifact": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "$ref": "#/$defs/artifactIdentity",
+                  "properties": {"schema_version": {"const": "forward_observation.v1"}}
+                }
+              ]
+            }
+          }
+        },
+        "p5_risk": {
+          "$ref": "#/$defs/stageRecord",
+          "properties": {
+            "stage": {"const": "P5"},
+            "mode": {"const": "portfolio_risk"},
+            "artifact": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "$ref": "#/$defs/artifactIdentity",
+                  "properties": {"schema_version": {"const": "portfolio_risk_snapshot.v1"}}
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reasonCode": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,127}$"},
+    "terminalStatus": {"enum": ["READY", "DEFERRED", "PARKED"]},
+    "artifactIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "schema_version",
+        "sha256",
+        "candidate_id",
+        "observed_at",
+        "expires_at"
+      ],
+      "properties": {
+        "artifact_id": {"$ref": "#/$defs/nonEmptyString"},
+        "schema_version": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "candidate_id": {"$ref": "#/$defs/nonEmptyString"},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "stageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "status", "mode", "artifact", "reason_codes"],
+      "properties": {
+        "stage": {"enum": ["P4", "P5"]},
+        "status": {"$ref": "#/$defs/terminalStatus"},
+        "mode": {"enum": ["shadow", "paper", "portfolio_risk"]},
+        "artifact": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "#/$defs/artifactIdentity"}
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/reasonCode"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "READY"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "artifact": {"type": "object"},
+              "reason_codes": {"maxItems": 0}
+            }
+          },
+          "else": {
+            "properties": {
+              "artifact": {"type": "null"},
+              "reason_codes": {"minItems": 1}
+            }
+          }
+        }
+      ]
+    }
+  }
+}
