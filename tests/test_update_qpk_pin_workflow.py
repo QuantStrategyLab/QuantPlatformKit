@@ -233,6 +233,8 @@ def test_dependency_success_reaches_only_guarded_pr_step(tmp_path: Path) -> None
         "steps.verify.outcome == 'success'"
     ) in workflow
     assert '      - ".github/workflows/update-qpk-pin.yml"' in workflow
+    assert '      - "scripts/open_downstream_qpk_pin_prs.py"' in workflow
+    assert '      - "tests/test_qpk_pin_consistency.py"' in workflow
     assert '      - "tests/test_update_qpk_pin_workflow.py"' in workflow
     assert "workflow_dispatch:" not in workflow
 
