@@ -39,6 +39,12 @@ from quant_platform_kit.strategy_lifecycle.live_candidate_notifications import (
     LiveCandidateNotificationEvent,
     build_live_candidate_notification,
 )
+from quant_platform_kit.strategy_lifecycle.lifecycle_status import (
+    CANONICAL_LIFECYCLE_STATES,
+    LEGACY_CATALOG_STATUS_MAP,
+    catalog_status_grants_execution_permission,
+    normalize_catalog_lifecycle_status,
+)
 
 __all__ = [
     "BacktestResult",
@@ -59,10 +65,14 @@ __all__ = [
     "EvidenceGateResult",
     "EvidencePackage",
     "LiveCandidateNotificationEvent",
+    "CANONICAL_LIFECYCLE_STATES",
+    "LEGACY_CATALOG_STATUS_MAP",
     "load_evidence_package",
     "canonical_evidence_package_v2_bytes",
     "read_evidence_package_v2_json",
     "build_live_candidate_notification",
+    "catalog_status_grants_execution_permission",
+    "normalize_catalog_lifecycle_status",
     "validate_evidence_package",
     "validate_evidence_package_file",
     "validate_evidence_package_v2",

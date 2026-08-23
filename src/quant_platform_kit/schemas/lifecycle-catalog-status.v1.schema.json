@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.dev/schemas/lifecycle-catalog-status.v1.schema.json",
+  "title": "lifecycle_catalog_status.v1",
+  "description": "Read-only lifecycle metadata. Validation never grants paper or live execution permission.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "canonical_status",
+    "source_status",
+    "source_kind",
+    "permission_effect"
+  ],
+  "properties": {
+    "schema_version": {"const": "lifecycle_catalog_status.v1"},
+    "canonical_status": {
+      "enum": [
+        "research_active",
+        "shadow_active",
+        "paper_active",
+        "live_candidate",
+        "live_enabled"
+      ]
+    },
+    "source_status": {
+      "enum": [
+        "research_active",
+        "shadow_active",
+        "paper_active",
+        "live_candidate",
+        "live_enabled",
+        "research_backtest_only",
+        "ai_monitored_candidate",
+        "shadow_candidate",
+        "runtime_enabled"
+      ]
+    },
+    "source_kind": {"enum": ["catalog", "inventory", "evidence"]},
+    "permission_effect": {"const": "none"},
+    "note": {"type": "string"}
+  }
+}

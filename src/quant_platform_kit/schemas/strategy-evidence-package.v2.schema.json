@@ -26,6 +26,10 @@
     "generated_at": {"$ref": "#/$defs/dateTime"},
     "requested_stage": {
       "enum": [
+        "research_active",
+        "shadow_active",
+        "paper_active",
+        "live_enabled",
         "research_backtest_only",
         "ai_monitored_candidate",
         "shadow_candidate",

@@ -103,7 +103,7 @@ def build_live_candidate_notification(
 
 
 def _severity_for(stage: str, valid: bool) -> str:
-    if stage == "runtime_enabled":
+    if stage in {"live_enabled", "runtime_enabled"}:
         return "critical"
     return "warning"
 

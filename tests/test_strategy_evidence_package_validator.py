@@ -117,6 +117,22 @@ def test_validate_payload_rejects_runtime_enabled_package_without_required_valid
     assert "runtime_enabled requires validation.overfit_report_present=true" in issues
 
 
+def test_validate_payload_rejects_live_enabled_package_without_required_validation_flags() -> (
+    None
+):
+    payload = _valid_payload()
+    payload["requested_stage"] = "live_enabled"
+    payload["validation"] = {
+        "oos_passed": False,
+        "overfit_report_present": False,
+    }
+
+    issues = validate_payload(payload)
+
+    assert "live_enabled requires validation.oos_passed=true" in issues
+    assert "live_enabled requires validation.overfit_report_present=true" in issues
+
+
 def test_validate_payload_rejects_full_kelly_enabled_package() -> None:
     payload = _valid_payload()
     payload["kelly_readiness"] = {

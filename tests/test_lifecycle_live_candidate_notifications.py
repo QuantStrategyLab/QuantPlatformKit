@@ -63,6 +63,26 @@ def test_runtime_enabled_notification_can_never_approve() -> None:
     assert event.severity == "critical"
 
 
+def test_canonical_live_enabled_notification_can_never_approve() -> None:
+    result = validate_evidence_package(
+        {
+            "strategy_profile": "canonical_profile",
+            "domain": "us_equity",
+            "requested_stage": "live_enabled",
+            "target_platforms": ["ibkr"],
+            "backtest_summary": {"observation_count": 252},
+            "drift_notes": {"status": "stable"},
+            "platform_compatibility": {"verified": True},
+        }
+    )
+
+    event = build_live_candidate_notification(result)
+
+    assert event is not None
+    assert event.approval_action == "hold"
+    assert event.severity == "critical"
+
+
 def test_builds_hold_notification_for_invalid_live_package() -> None:
     result = validate_evidence_package(
         {

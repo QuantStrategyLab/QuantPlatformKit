@@ -98,6 +98,10 @@ _RESULT_FIELDS = frozenset(
     }
 )
 _LEGACY_ALLOWED_REQUESTED_STAGES = {
+    "research_active",
+    "shadow_active",
+    "paper_active",
+    "live_enabled",
     "research_backtest_only",
     "ai_monitored_candidate",
     "shadow_candidate",
@@ -1051,7 +1055,7 @@ def _validate_legacy_payload(payload: Any, *, base_dir: Path | None) -> list[str
             if not isinstance(validation.get(flag), bool):
                 issues.append(f"validation.{flag} must be a boolean")
             if (
-                requested_stage in {"live_candidate", "runtime_enabled"}
+                requested_stage in {"live_candidate", "live_enabled", "runtime_enabled"}
                 and validation.get(flag) is not True
             ):
                 issues.append(f"{requested_stage} requires validation.{flag}=true")
