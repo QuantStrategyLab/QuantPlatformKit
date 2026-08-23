@@ -26,9 +26,9 @@ jobs:
     timeout-minutes: 15
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.1.0
         with:
           python-version: "3.11"
 
@@ -79,7 +79,7 @@ jobs:
         id: create_pin_pr
         if: steps.update.outputs.changed == 'true' && steps.verify.outcome == 'success'
         continue-on-error: true
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.8
         with:
           token: ${{ secrets.QSL_REPO_SYNC_TOKEN || github.token }}
           commit-message: "chore: advance staged QPK pin"
