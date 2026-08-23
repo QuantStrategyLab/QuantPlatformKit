@@ -43,7 +43,9 @@ from quant_platform_kit.strategy_lifecycle.lifecycle_status import (
     CANONICAL_LIFECYCLE_STATES,
     LEGACY_CATALOG_STATUS_MAP,
     catalog_status_grants_execution_permission,
+    migrate_legacy_lifecycle_status,
     normalize_catalog_lifecycle_status,
+    require_canonical_lifecycle_write,
 )
 
 __all__ = [
@@ -72,7 +74,9 @@ __all__ = [
     "read_evidence_package_v2_json",
     "build_live_candidate_notification",
     "catalog_status_grants_execution_permission",
+    "migrate_legacy_lifecycle_status",
     "normalize_catalog_lifecycle_status",
+    "require_canonical_lifecycle_write",
     "validate_evidence_package",
     "validate_evidence_package_file",
     "validate_evidence_package_v2",

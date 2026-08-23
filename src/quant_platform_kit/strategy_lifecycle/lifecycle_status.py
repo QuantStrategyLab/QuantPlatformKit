@@ -55,3 +55,48 @@ def catalog_status_grants_execution_permission(status: str) -> bool:
 
     normalize_catalog_lifecycle_status(status)
     return False
+
+
+def require_canonical_lifecycle_write(status: str) -> str:
+    """Validate a lifecycle status at a new-write boundary.
+
+    Legacy values remain readable only for the bounded migration snapshot.
+    They must not be persisted again by catalogs, consoles, or evidence writers.
+    """
+
+    normalized = str(status or "").strip().lower()
+    if normalized in CANONICAL_LIFECYCLE_STATES:
+        return normalized
+    if normalized in LEGACY_CATALOG_STATUS_MAP:
+        raise ValueError(
+            f"legacy lifecycle status is read-only during migration: {status!r}"
+        )
+    raise ValueError(f"unsupported lifecycle status: {status!r}")
+
+
+def migrate_legacy_lifecycle_status(
+    status: str,
+    *,
+    source_kind: str = "catalog",
+    live_authority_ref: str = "",
+) -> str:
+    """Translate one legacy snapshot entry without changing permissions.
+
+    ``runtime_enabled`` may become ``live_enabled`` only for an existing runtime
+    deployment that carries a non-empty external authority reference.  The
+    reference is recorded evidence, not an authorization created by this code.
+    """
+
+    normalized_source = str(source_kind or "").strip().lower()
+    normalized_status = str(status or "").strip().lower()
+    if normalized_source not in {"catalog", "inventory", "runtime_deployment"}:
+        raise ValueError(f"unsupported lifecycle migration source: {source_kind!r}")
+    if normalized_status in CANONICAL_LIFECYCLE_STATES:
+        return normalized_status
+    if (
+        normalized_source == "runtime_deployment"
+        and normalized_status == "runtime_enabled"
+        and str(live_authority_ref or "").strip()
+    ):
+        return "live_enabled"
+    return normalize_catalog_lifecycle_status(normalized_status)
