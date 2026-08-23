@@ -83,6 +83,10 @@ class ObjectStore(Protocol):
         """写入文本对象，返回 URI。"""
         ...
 
+    def create_text(self, uri: str, data: str, content_type: str = "text/plain") -> bool:
+        """仅创建文本对象；对象已存在时返回 False。"""
+        ...
+
     def write_bytes(self, uri: str, data: bytes, content_type: str = "application/octet-stream") -> str:
         """写入二进制对象，返回 URI。"""
         ...

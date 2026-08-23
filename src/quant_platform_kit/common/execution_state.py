@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
 from collections.abc import Callable, Mapping
@@ -160,6 +161,36 @@ class ExecutionMarkerStore:
             path = self._local_path(marker_key)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(encoded, encoding="utf-8")
+
+    def claim_marker(self, marker_key: str, *, metadata: Mapping[str, Any] | None = None) -> bool:
+        """Atomically reserve an execution identity before broker submission."""
+        if not str(marker_key or "").strip():
+            raise ValueError("execution claim requires a marker key")
+        payload = json.dumps({
+            "schema_version": "execution_claim.v1",
+            "marker_key": str(marker_key),
+            "claimed_at": datetime.now(timezone.utc).isoformat(),
+            "state": "claimed",
+            "metadata": dict(metadata or {}),
+        }, ensure_ascii=False, indent=2, sort_keys=True)
+        if self.cloud_prefix_uri:
+            create = getattr(self._object_store(), "create_text", None)
+            if not callable(create):
+                raise RuntimeError("cloud execution store lacks atomic create-only support")
+            return bool(create(self._cloud_uri(marker_key), payload, "application/json"))
+        if self.local_dir:
+            path = self._local_path(marker_key)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                return False
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            return True
+        raise RuntimeError("execution state store has no durable claim backend")
 
     def has_prior_execution_report(
         self,

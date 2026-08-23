@@ -108,6 +108,19 @@ class LocalObjectStore:
         path.write_text(data)
         return uri
 
+    def create_text(self, uri: str, data: str, content_type: str = "text/plain") -> bool:
+        path = self._to_local_path(uri)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            return False
+        with os.fdopen(fd, "w") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return True
+
     def write_bytes(self, uri: str, data: bytes, content_type: str = "application/octet-stream") -> str:
         path = self._to_local_path(uri)
         path.parent.mkdir(parents=True, exist_ok=True)
