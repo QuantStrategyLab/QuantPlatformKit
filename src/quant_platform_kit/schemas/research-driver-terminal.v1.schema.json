@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.dev/schemas/research-driver-terminal.v1.schema.json",
+  "title": "research_driver_terminal.v1",
+  "description": "Terminal, cross-asset P1-P3 research artifact. It never grants execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "terminal",
+    "terminal_status",
+    "generated_at",
+    "run_id",
+    "strategy_id",
+    "candidate_id",
+    "domain",
+    "no_order",
+    "permission_effect",
+    "catalog_status_used_as_evidence",
+    "stages"
+  ],
+  "properties": {
+    "schema_version": {"const": "research_driver_terminal.v1"},
+    "terminal": {"const": true},
+    "terminal_status": {"enum": ["READY", "DEFERRED", "PARKED"]},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "run_id": {"$ref": "#/$defs/nonEmptyString"},
+    "strategy_id": {"$ref": "#/$defs/nonEmptyString"},
+    "candidate_id": {"$ref": "#/$defs/nonEmptyString"},
+    "domain": {"enum": ["us_equity", "cn_equity", "hk_equity", "crypto"]},
+    "no_order": {"const": true},
+    "permission_effect": {"const": "none"},
+    "catalog_status_used_as_evidence": {"const": false},
+    "stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p1_input", "p2_freeze", "p3_evidence"],
+      "properties": {
+        "p1_input": {
+          "$ref": "#/$defs/stageRecord",
+          "properties": {
+            "stage": {"const": "P1"},
+            "artifact": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "$ref": "#/$defs/artifactIdentity",
+                  "properties": {"schema_version": {"const": "research_input_manifest.v1"}}
+                }
+              ]
+            }
+          }
+        },
+        "p2_freeze": {
+          "$ref": "#/$defs/stageRecord",
+          "properties": {
+            "stage": {"const": "P2"},
+            "artifact": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "$ref": "#/$defs/artifactIdentity",
+                  "properties": {"schema_version": {"const": "strategy_config_freeze.v1"}}
+                }
+              ]
+            }
+          }
+        },
+        "p3_evidence": {
+          "$ref": "#/$defs/stageRecord",
+          "properties": {
+            "stage": {"const": "P3"},
+            "artifact": {
+              "oneOf": [
+                {"type": "null"},
+                {
+                  "$ref": "#/$defs/artifactIdentity",
+                  "properties": {"schema_version": {"const": "strategy_evidence_package.v2"}}
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {"type": "string", "minLength": 1, "pattern": ".*\\S.*"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reasonCode": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,127}$"},
+    "artifactIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "schema_version", "sha256"],
+      "properties": {
+        "artifact_id": {"$ref": "#/$defs/nonEmptyString"},
+        "schema_version": {"type": "string"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "stageRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "status", "artifact", "reason_codes"],
+      "properties": {
+        "stage": {"enum": ["P1", "P2", "P3"]},
+        "status": {"enum": ["READY", "DEFERRED", "PARKED"]},
+        "artifact": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/artifactIdentity"}]},
+        "reason_codes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/reasonCode"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "READY"}}, "required": ["status"]},
+          "then": {
+            "properties": {
+              "artifact": {"type": "object"},
+              "reason_codes": {"maxItems": 0}
+            }
+          },
+          "else": {
+            "properties": {
+              "artifact": {"type": "null"},
+              "reason_codes": {"minItems": 1}
+            }
+          }
+        }
+      ]
+    }
+  }
+}

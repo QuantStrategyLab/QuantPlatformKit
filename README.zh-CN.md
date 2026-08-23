@@ -59,6 +59,7 @@ quant-lifecycle dashboard --format all
 - [`docs/strategy_lifecycle_policy.zh-CN.md`](docs/strategy_lifecycle_policy.zh-CN.md)
 - [`docs/strategy_portfolio_action_matrix.zh-CN.md`](docs/strategy_portfolio_action_matrix.zh-CN.md)
 - [`docs/evidence_package_template.zh-CN.md`](docs/evidence_package_template.zh-CN.md)
+- [`docs/cross_asset_research_driver.zh-CN.md`](docs/cross_asset_research_driver.zh-CN.md)
 
 ## 云服务抽象层
 
