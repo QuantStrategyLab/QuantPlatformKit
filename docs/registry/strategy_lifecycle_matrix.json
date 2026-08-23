@@ -79,14 +79,14 @@
       "stages": {
         "p0": {"status": "verified", "evidence_refs": ["UsEquityStrategies/src/us_equity_strategies/entrypoints/__init__.py"]},
         "p1": {"status": "in_progress", "evidence_refs": ["UsEquityStrategies/src/us_equity_strategies/strategies/tecl_xlk_trend_income.py"]},
-        "p2": {"status": "parked", "evidence_refs": ["docs/strategy_portfolio_action_matrix.md"], "note": "当前策略明确保持 research-only，尚未形成 successor 冻结配置。"},
+        "p2": {"status": "parked", "evidence_refs": ["docs/strategy_portfolio_action_matrix.md", "docs/strategy_lifecycle_terminology.zh-CN.md"], "note": "当前策略保持 research_active：可继续自动研究与 shadow 准备，但尚未形成 successor 冻结配置。"},
         "p3": {"status": "parked", "evidence_refs": ["docs/strategy_portfolio_action_matrix.md"], "note": "未注册统一 P3 证据包，不进入 promotion。"},
         "p4": {"status": "deferred", "evidence_refs": []},
         "p5": {"status": "deferred", "evidence_refs": []},
         "p6": {"status": "deferred", "evidence_refs": []}
       },
-      "blocking_reasons": ["research_only", "strategy_specific_evidence_incomplete"],
-      "next_action": "保持 research-only；只有补齐 P1/P2 输入与 P3 证据契约后才重新评估。"
+      "blocking_reasons": ["research_active", "strategy_specific_evidence_incomplete"],
+      "next_action": "继续自动研究与候选优化；补齐 P1/P2 输入与 P3 证据契约后再评估 shadow。"
     }
   ]
 }
