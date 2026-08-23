@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from quant_platform_kit.position_sizing import (
+    constrained_kelly_recommendation,
     KellyResult,
     estimate_kelly,
     risk_budgeted_target_weight,
@@ -104,6 +105,49 @@ class PositionSizingTests(unittest.TestCase):
         self.assertEqual(result.kelly_fraction, 0.0)
         self.assertEqual(result.half_kelly, 0.0)
         self.assertEqual(result.max_position_pct, 0.0)
+
+    def test_constrained_kelly_parks_small_sample(self) -> None:
+        result = constrained_kelly_recommendation(
+            [0.05, -0.02], risk_budget_cap=0.04, observed_max_drawdown=0.01,
+        )
+        self.assertEqual(result.status, "PARKED")
+        self.assertEqual(result.reason_codes, ("insufficient_samples",))
+        self.assertEqual(result.recommended_position_pct, 0.0)
+
+    def test_constrained_kelly_parks_excessive_drawdown(self) -> None:
+        result = constrained_kelly_recommendation(
+            [0.05, -0.02] * 20,
+            risk_budget_cap=0.04,
+            observed_max_drawdown=0.30,
+        )
+        self.assertEqual(result.status, "PARKED")
+        self.assertEqual(result.reason_codes, ("drawdown_limit_exceeded",))
+
+    def test_constrained_kelly_is_fractional_and_budget_bounded(self) -> None:
+        result = constrained_kelly_recommendation(
+            [0.20] * 20 + [-0.10] * 20,
+            risk_budget_cap=0.03,
+            position_cap=0.10,
+            fractional_kelly=0.25,
+            observed_max_drawdown=0.10,
+        )
+        self.assertEqual(result.status, "KELLY_READY")
+        self.assertAlmostEqual(result.raw_kelly_fraction, 0.25)
+        self.assertAlmostEqual(result.fractional_kelly_fraction, 0.0625)
+        self.assertAlmostEqual(result.recommended_position_pct, 0.03)
+
+    def test_constrained_kelly_requires_both_sides_and_drawdown(self) -> None:
+        for kwargs, reason in (
+            ({"observed_max_drawdown": None}, "missing_drawdown"),
+            ({"observed_max_drawdown": 0.01}, "insufficient_win_loss_observations"),
+        ):
+            with self.subTest(reason=reason):
+                returns = [0.01] * 40 if reason.startswith("insufficient") else [0.01, -0.01] * 20
+                result = constrained_kelly_recommendation(
+                    returns, risk_budget_cap=0.03, **kwargs,
+                )
+                self.assertEqual(result.status, "PARKED")
+                self.assertEqual(result.reason_codes, (reason,))
 
 
 class RiskBudgetedTargetWeightTests(unittest.TestCase):

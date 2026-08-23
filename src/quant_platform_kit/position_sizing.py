@@ -19,6 +19,25 @@ class KellyResult:
     max_position_pct: float
 
 
+@dataclass(frozen=True)
+class ConstrainedKellyResult:
+    """Research-only Kelly recommendation bounded by an existing risk budget.
+
+    ``recommended_position_pct`` is an upper bound for downstream sizing, not
+    an execution instruction or an approval decision.  A ``PARKED`` result
+    always recommends zero.
+    """
+
+    status: str
+    sample_count: int
+    win_count: int
+    loss_count: int
+    raw_kelly_fraction: float
+    fractional_kelly_fraction: float
+    recommended_position_pct: float
+    reason_codes: tuple[str, ...]
+
+
 _APPROVED_BOOTSTRAP_MANDATE = "bootstrap_small_account_v2"
 _TQQQ_ETF_ONLY_RESEARCH_MANDATE = "tqqq_etf_only_research_v1"
 _BOOTSTRAP_LOSS_BUDGET_CAP = 0.01
@@ -336,4 +355,88 @@ def estimate_kelly(returns: list[float]) -> KellyResult:
         kelly_fraction=kelly_fraction,
         half_kelly=half_kelly,
         max_position_pct=max_position_pct,
+    )
+
+
+def constrained_kelly_recommendation(
+    returns: list[float],
+    *,
+    risk_budget_cap: float,
+    position_cap: float = _DEFAULT_MAX_POSITION_PCT,
+    fractional_kelly: float = 0.25,
+    min_samples: int = 30,
+    observed_max_drawdown: float | None = None,
+    max_drawdown_limit: float = 0.25,
+) -> ConstrainedKellyResult:
+    """Return a fail-closed, research-only Kelly risk-budget recommendation.
+
+    The recommendation is capped by ``risk_budget_cap`` (the authoritative
+    portfolio risk budget), ``position_cap`` and fractional Kelly.  It never
+    allocates, submits orders, or increases a risk budget.  Insufficient
+    samples, missing win/loss sides, invalid inputs, or excessive drawdown are
+    explicitly parked instead of extrapolating from fragile estimates.
+    """
+
+    def parked(reason_codes: tuple[str, ...], *, sample_count: int = 0,
+               win_count: int = 0, loss_count: int = 0) -> ConstrainedKellyResult:
+        return ConstrainedKellyResult(
+            status="PARKED",
+            sample_count=sample_count,
+            win_count=win_count,
+            loss_count=loss_count,
+            raw_kelly_fraction=0.0,
+            fractional_kelly_fraction=0.0,
+            recommended_position_pct=0.0,
+            reason_codes=reason_codes,
+        )
+
+    if not isinstance(returns, list):
+        return parked(("invalid_returns",))
+    sample_count = len(returns)
+    if any(isinstance(value, bool) or not isinstance(value, (int, float))
+           or not math.isfinite(float(value)) for value in returns):
+        return parked(("invalid_returns",), sample_count=sample_count)
+    wins = sum(value > 0.0 for value in returns)
+    losses = sum(value < 0.0 for value in returns)
+    numeric = (risk_budget_cap, position_cap, fractional_kelly, max_drawdown_limit)
+    if (any(isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(float(value)) for value in numeric)
+            or not isinstance(min_samples, int) or isinstance(min_samples, bool)
+            or min_samples < 2):
+        return parked(("invalid_constraints",), sample_count=sample_count,
+                      win_count=wins, loss_count=losses)
+    caps = tuple(float(value) for value in numeric)
+    if (any(value <= 0.0 for value in caps)
+            or caps[2] >= 1.0 or caps[3] > 1.0):
+        return parked(("invalid_constraints",), sample_count=sample_count,
+                      win_count=wins, loss_count=losses)
+    if sample_count < min_samples:
+        return parked(("insufficient_samples",), sample_count=sample_count,
+                      win_count=wins, loss_count=losses)
+    if not wins or not losses:
+        return parked(("insufficient_win_loss_observations",),
+                      sample_count=sample_count, win_count=wins, loss_count=losses)
+    if observed_max_drawdown is None or isinstance(observed_max_drawdown, bool):
+        return parked(("missing_drawdown",), sample_count=sample_count,
+                      win_count=wins, loss_count=losses)
+    drawdown = float(observed_max_drawdown)
+    if not math.isfinite(drawdown) or drawdown < 0.0 or drawdown > caps[3]:
+        return parked(("drawdown_limit_exceeded",), sample_count=sample_count,
+                      win_count=wins, loss_count=losses)
+
+    result = estimate_kelly([float(value) for value in returns])
+    fractional = result.kelly_fraction * caps[2]
+    recommendation = min(fractional, caps[0], caps[1])
+    if not math.isfinite(recommendation) or recommendation <= 0.0:
+        return parked(("non_positive_edge",), sample_count=sample_count,
+                      win_count=wins, loss_count=losses)
+    return ConstrainedKellyResult(
+        status="KELLY_READY",
+        sample_count=sample_count,
+        win_count=wins,
+        loss_count=losses,
+        raw_kelly_fraction=result.kelly_fraction,
+        fractional_kelly_fraction=fractional,
+        recommended_position_pct=recommendation,
+        reason_codes=(),
     )
