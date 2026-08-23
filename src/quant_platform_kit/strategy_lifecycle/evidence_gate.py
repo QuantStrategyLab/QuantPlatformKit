@@ -18,13 +18,17 @@ from .evidence_package_v2 import (
 )
 
 ALLOWED_EVIDENCE_STAGES = (
+    "research_active",
+    "shadow_active",
+    "paper_active",
+    "live_enabled",
     "research_backtest_only",
     "ai_monitored_candidate",
     "shadow_candidate",
     "live_candidate",
     "runtime_enabled",
 )
-LIVE_EVIDENCE_STAGES = {"live_candidate", "runtime_enabled"}
+LIVE_EVIDENCE_STAGES = {"live_candidate", "live_enabled", "runtime_enabled"}
 ALLOWED_PLUGIN_GATE_STATUSES = {
     "automation_approved",
     "deprecated_compatibility",
@@ -191,6 +195,7 @@ def validate_evidence_package(
             issues.append("plugin_gate evidence is incomplete or unsupported")
 
     if requested_stage in {
+        "research_active",
         "research_backtest_only",
         "ai_monitored_candidate",
     } and not _is_non_empty(rollout_notes):

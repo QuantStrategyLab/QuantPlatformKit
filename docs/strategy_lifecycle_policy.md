@@ -15,27 +15,43 @@ capital impact.
 - A strategy can be observed earlier than it can trade.
 - Live enablement remains a platform decision, not just a backtest decision.
 
-## Recommended Lifecycle Stages
+## Canonical Lifecycle Stages
 
 | Stage | Meaning | Capital impact | Typical owner |
 | --- | --- | --- | --- |
-| `research_backtest_only` | Backtests, feature work, or evidence collection only | none | strategy repo |
-| `ai_monitored_candidate` | Eligible for AI review, drift scoring, and shadow tracking | none | strategy lifecycle |
-| `shadow_candidate` | Shadow runs are stable enough for repeatable comparisons | none | strategy lifecycle |
+| `research_active` | Backtests, optimization, evidence collection, and candidate generation | none | strategy repo |
+| `shadow_active` | Forward/shadow observation and drift tracking | none | strategy lifecycle |
+| `paper_active` | Simulated-account execution when a platform supports it | simulated only | platform |
 | `live_candidate` | Passed validation and is awaiting platform enablement | gated | platform + strategy |
-| `runtime_enabled` | Exposed by `get_runtime_enabled_profiles()` and allowed in runtime settings | yes | platform repo |
+| `live_enabled` | Runs only inside an independently approved deployment envelope | approved envelope only | deployment control plane |
 
 ### Practical interpretation
 
-- `research_backtest_only` is the default for anything new.
-- `ai_monitored_candidate` is the lowest-friction review stage when the
-  organization already has automated monitoring.
-- `shadow_candidate` should require repeatable shadow consistency, not just one
+- `research_active` is the default for anything new and remains actively researched.
+- AI monitoring is a capability of every applicable stage, not a promotion stage.
+- `shadow_active` should require repeatable shadow consistency, not just one
   good backtest.
 - `live_candidate` should only be used when the strategy has enough evidence to
   justify platform enablement.
-- `runtime_enabled` is the only stage that should influence live deployment
-  defaults.
+- `live_enabled` records an existing deployment authorization; it does not
+  create or enlarge that authorization.
+
+### Legacy catalog compatibility
+
+Read-only consumers normalize legacy values conservatively:
+
+| Legacy value | Canonical catalog interpretation |
+| --- | --- |
+| `research_backtest_only` | `research_active` |
+| `ai_monitored_candidate` | `research_active` |
+| `shadow_candidate` | `shadow_active` |
+| `runtime_enabled` | `live_candidate` |
+
+The last mapping is intentional. Historically, `runtime_enabled` often meant
+"selectable by the runtime package", not "approved to submit broker orders".
+An existing live deployment may report `live_enabled` only from its independent
+deployment authorization record. Catalog, inventory, and evidence records have
+no permission effect by themselves.
 
 ## Three-Gate Rule
 
@@ -48,8 +64,8 @@ A strategy should clear all three gates before live use:
    - If the strategy depends on plugins, are those plugins at least
      `automation_approved` or explicitly `notification_only`?
 3. **Platform gate**
-   - Does the target platform expose the profile via
-     `get_runtime_enabled_profiles()` and accept the required runtime inputs?
+   - Does the target platform accept the profile and required runtime inputs,
+     and does the deployment control plane hold a current explicit authorization?
 
 Any one of these gates failing should keep the profile out of live settings.
 
@@ -57,7 +73,7 @@ Any one of these gates failing should keep the profile out of live settings.
 
 - Keep the monitoring threshold relatively low so candidates are visible early.
 - If AI monitoring already exists, use it to move promising profiles into
-  `ai_monitored_candidate` quickly; this stage is for visibility, not capital.
+  `research_active` quickly; monitoring is for visibility, not capital.
 - Keep the live-enable threshold high so runtime exposure remains deliberate.
 - Prefer promotion by evidence package, not by ad hoc overrides. A promotion
   package should include backtest summary, drift notes, risk review, and
@@ -80,5 +96,7 @@ Any one of these gates failing should keep the profile out of live settings.
 
 ## Operational Rule
 
-If a profile is not returned by `get_runtime_enabled_profiles()`, it should
-stay out of live runtime settings regardless of monitoring status.
+`get_runtime_enabled_profiles()` remains a legacy compatibility API and means
+runtime-selectable only. A profile absent from it must stay out of the runtime;
+a profile present in it still needs explicit deployment authorization, a
+current risk gate, and broker/account permission before orders are possible.

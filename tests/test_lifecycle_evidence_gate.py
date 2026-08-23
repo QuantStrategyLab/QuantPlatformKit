@@ -27,6 +27,20 @@ def test_research_package_valid() -> None:
     assert result.package.strategy_profile == "cn_equity_combo"
 
 
+def test_canonical_research_active_package_is_supported() -> None:
+    result = validate_evidence_package(
+        {
+            "profile": "cn_equity_combo",
+            "market": "cn_equity",
+            "requested_stage": "research_active",
+            "backtest_summary": {"observation_count": 252, "sharpe_ratio": 1.2},
+        }
+    )
+
+    assert result.valid
+    assert result.no_order is True
+
+
 def test_live_package_requires_compatibility_and_drift() -> None:
     result = validate_evidence_package(
         {
@@ -106,8 +120,8 @@ def test_file_loader_and_cli(tmp_path: Path) -> None:
     assert exit_code == 0
 
 
-def test_legacy_live_and_runtime_requests_are_research_only_holds() -> None:
-    for stage in ("live_candidate", "runtime_enabled"):
+def test_live_and_legacy_runtime_requests_are_research_only_holds() -> None:
+    for stage in ("live_candidate", "live_enabled", "runtime_enabled"):
         result = validate_evidence_package(
             {
                 "strategy_profile": "legacy_profile",

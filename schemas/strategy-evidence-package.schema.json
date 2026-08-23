@@ -32,6 +32,10 @@
     "requested_stage": {
       "type": "string",
       "enum": [
+        "research_active",
+        "shadow_active",
+        "paper_active",
+        "live_enabled",
         "research_backtest_only",
         "ai_monitored_candidate",
         "shadow_candidate",
