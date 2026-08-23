@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 
 from quant_platform_kit.strategy_lifecycle.lifecycle_status import (
-    catalog_status_grants_execution_permission,
-    normalize_catalog_lifecycle_status,
+    CANONICAL_LIFECYCLE_STATES,
+    require_canonical_lifecycle_write,
 )
 
 
@@ -26,6 +26,7 @@ def test_inventory_is_metadata_only_and_covers_non_us_domains():
 
 def test_inventory_entries_have_explicit_next_actions_and_no_live_grant():
     inventory = _inventory()
+    assert inventory["schema_version"] == "cross_asset_strategy_inventory.v2"
     assert inventory["permission_effect"] == "none"
     entries = inventory["entries"]
     assert entries
@@ -33,10 +34,12 @@ def test_inventory_entries_have_explicit_next_actions_and_no_live_grant():
     assert len(ids) == len(set(ids))
     for entry in entries:
         assert entry["owner_repo"]
-        assert entry["catalog_status"]
-        assert entry["canonical_status"] == normalize_catalog_lifecycle_status(
-            entry["catalog_status"]
+        assert "catalog_status" not in entry
+        assert "canonical_status" not in entry
+        assert entry["lifecycle_status"] in CANONICAL_LIFECYCLE_STATES
+        assert (
+            require_canonical_lifecycle_write(entry["lifecycle_status"])
+            == entry["lifecycle_status"]
         )
-        assert catalog_status_grants_execution_permission(entry["catalog_status"]) is False
         assert entry["next_action"]
         assert "live" not in entry.get("authority", "").lower()

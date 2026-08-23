@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.dev/schemas/lifecycle-migration-snapshot.v1.schema.json",
+  "title": "lifecycle_migration_snapshot.v1",
+  "description": "One-time read compatibility snapshot. It does not grant or change execution permission.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "compatibility_mode",
+    "write_policy",
+    "live_permission_effect",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {"const": "lifecycle_migration_snapshot.v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "compatibility_mode": {"const": "one_time_read"},
+    "write_policy": {"const": "canonical_only"},
+    "live_permission_effect": {"const": "unchanged"},
+    "entries": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/entry"}
+    }
+  },
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_kind",
+        "source_status",
+        "canonical_status",
+        "permission_effect"
+      ],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "source_kind": {"enum": ["catalog", "inventory", "runtime_deployment"]},
+        "source_status": {
+          "enum": [
+            "research_backtest_only",
+            "ai_monitored_candidate",
+            "shadow_candidate",
+            "runtime_enabled"
+          ]
+        },
+        "canonical_status": {
+          "enum": [
+            "research_active",
+            "shadow_active",
+            "paper_active",
+            "live_candidate",
+            "live_enabled"
+          ]
+        },
+        "permission_effect": {"const": "none"},
+        "live_authority_ref": {"type": "string", "minLength": 1},
+        "rollback_ref": {"type": "string", "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"canonical_status": {"const": "live_enabled"}},
+            "required": ["canonical_status"]
+          },
+          "then": {
+            "properties": {"source_kind": {"const": "runtime_deployment"}},
+            "required": ["live_authority_ref", "rollback_ref"]
+          }
+        }
+      ]
+    }
+  }
+}
