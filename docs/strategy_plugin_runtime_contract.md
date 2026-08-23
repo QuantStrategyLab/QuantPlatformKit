@@ -86,7 +86,8 @@ To expand a plugin later, update the shared definition or pass an explicit
 definition registry into the parser/loader. This keeps future plugin eligibility
 changes out of platform runtime code.
 
-Tech/Communication Pullback Enhancement is also not listed because it is a research-only
+Tech/Communication Pullback Enhancement is also not listed because it remains
+research-active without runtime trading authority
 profile and should not appear in current configurable plugin mounts.
 
 SOXL/SOXX is listed as a `market_regime_control` runtime mount. Its strategy
