@@ -1,7 +1,23 @@
 name: Open Downstream QPK Pin PRs
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - "QPK_PIN"
+  schedule:
+    - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      phase:
+        description: "Staged dependency rollout phase"
+        required: true
+        default: auto
+        type: choice
+        options:
+          - auto
+          - strategies
+          - consumers
 
 permissions:
   contents: read
@@ -27,13 +43,34 @@ jobs:
         id: sync
         env:
           QSL_REPO_SYNC_TOKEN: ${{ secrets.QSL_REPO_SYNC_TOKEN }}
+          QSL_PIN_PHASE: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'auto' }}
         run: |
           set -euo pipefail
           if [ -z "${QSL_REPO_SYNC_TOKEN:-}" ]; then
             echo "missing_token=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          python3 scripts/open_downstream_qpk_pin_prs.py | tee downstream-prs.txt
+          python3 scripts/open_downstream_qpk_pin_prs.py --phase "$QSL_PIN_PHASE" | tee downstream-prs.txt
+
+      - name: Create coherent aggregate bundle PR
+        if: steps.sync.outputs.missing_token != 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.QSL_REPO_SYNC_TOKEN }}
+          commit-message: "chore(deps): reconcile coherent QSL pin bundle"
+          title: "chore(deps): reconcile coherent QSL pin bundle"
+          body: |
+            Reconciles the aggregate QSL dependency bundle only after every strategy
+            package on `main` pins the staged `QPK_PIN`.
+
+            The consumer phase validates each broker/QMT dependency closure before
+            opening its downstream PR.
+          branch: auto/qsl-pin-bundle
+          delete-branch: true
+          base: main
+          add-paths: |
+            qsl-pins.txt
+            constraints.txt
 
       - name: Summarize missing token
         if: steps.sync.outputs.missing_token == 'true'
