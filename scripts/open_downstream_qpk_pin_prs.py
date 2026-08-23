@@ -55,6 +55,13 @@ CONSUMER_REPOS = (
     RepoSpec("QmtPlatform"),
 )
 
+STRATEGY_QSL_KEYS = {
+    "CnEquityStrategies": "cn_equity_strategies",
+    "HkEquityStrategies": "hk_equity_strategies",
+    "UsEquityStrategies": "us_equity_strategies",
+    "CryptoStrategies": "crypto_strategies",
+}
+
 def run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=cwd, env=env, text=True, capture_output=True, check=True)
 
@@ -127,6 +134,63 @@ def update_strategy_dependency_pins(
             path.write_text(updated, encoding="utf-8")
             changed = True
     return changed
+
+
+def update_qsl_strategy_requires(
+    repo_dir: Path,
+    strategy_heads: dict[str, str],
+) -> bool:
+    path = repo_dir / "qsl.toml"
+    if not path.is_file():
+        return False
+    original = path.read_text(encoding="utf-8")
+    updated = original
+    table_match = QSL_REQUIRES_TABLE_RE.search(updated)
+    if table_match is None:
+        return False
+    body = table_match.group("body")
+    updated_body = body
+    for repo, sha in strategy_heads.items():
+        key = STRATEGY_QSL_KEYS[repo]
+        pattern = re.compile(
+            rf'''(?m)^(?P<prefix>\s*["']?{re.escape(key)}["']?\s*=\s*["'])[a-f0-9]{{40}}(?P<suffix>["']\s*)$'''
+        )
+        updated_body = pattern.sub(rf"\g<prefix>{sha}\g<suffix>", updated_body)
+    if updated_body == body:
+        return False
+    start, end = table_match.span("body")
+    updated = updated[:start] + updated_body + updated[end:]
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def update_qsl_metadata_test_contract(
+    repo_dir: Path,
+    *,
+    qpk_sha: str,
+    strategy_heads: dict[str, str],
+) -> bool:
+    path = repo_dir / "tests" / "test_qsl_metadata.py"
+    if not path.is_file():
+        return False
+    original = path.read_text(encoding="utf-8")
+    updated = original
+    expected = {"quant_platform_kit": qpk_sha}
+    expected.update(
+        {
+            STRATEGY_QSL_KEYS[repo]: sha
+            for repo, sha in strategy_heads.items()
+        }
+    )
+    for key, sha in expected.items():
+        pattern = re.compile(
+            rf'''(?m)(requires\[["']{re.escape(key)}["']\]\s*==\s*["'])[a-f0-9]{{40}}(["'])'''
+        )
+        updated = pattern.sub(rf"\g<1>{sha}\g<2>", updated)
+    if updated == original:
+        return False
+    path.write_text(updated, encoding="utf-8")
+    return True
 
 
 def update_aggregate_bundle(
@@ -216,6 +280,12 @@ def update_repo(
     )
     if strategy_heads:
         update_strategy_dependency_pins(repo_dir, strategy_heads)
+        update_qsl_strategy_requires(repo_dir, strategy_heads)
+        update_qsl_metadata_test_contract(
+            repo_dir,
+            qpk_sha=get_qpk_pin_sha(pin_file=qpk_pin),
+            strategy_heads=strategy_heads,
+        )
     maybe_run_uv_lock(repo_dir)
     verify_dependency_closure(repo_dir)
     return has_changes(repo_dir)

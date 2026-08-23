@@ -14,6 +14,8 @@ from scripts.open_downstream_qpk_pin_prs import (
     STRATEGY_REPOS,
     qpk_refs,
     update_aggregate_bundle,
+    update_qsl_metadata_test_contract,
+    update_qsl_strategy_requires,
     update_qsl_compat_qpk_pin,
     update_qpk_revision_contract,
     update_strategy_dependency_pins,
@@ -206,6 +208,44 @@ override-dependencies = [
 
         self.assertEqual(2, updated.count(TARGET))
         self.assertNotIn(STALE, updated)
+
+    def test_qsl_strategy_map_and_test_contract_update_together(self) -> None:
+        heads = {
+            "CnEquityStrategies": "1" * 40,
+            "HkEquityStrategies": "2" * 40,
+            "UsEquityStrategies": "3" * 40,
+            "CryptoStrategies": "4" * 40,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.joinpath("qsl.toml").write_text(
+                "[qsl.requires]\n"
+                f'quant_platform_kit = "{STALE}"\n'
+                f'cn_equity_strategies = "{STALE}"\n',
+                encoding="utf-8",
+            )
+            root.joinpath("tests").mkdir()
+            contract = root / "tests" / "test_qsl_metadata.py"
+            contract.write_text(
+                f'assert requires["quant_platform_kit"] == "{STALE}"\n'
+                f'assert requires["cn_equity_strategies"] == "{STALE}"\n',
+                encoding="utf-8",
+            )
+
+            self.assertTrue(update_qsl_strategy_requires(root, heads))
+            self.assertTrue(
+                update_qsl_metadata_test_contract(
+                    root,
+                    qpk_sha=TARGET,
+                    strategy_heads=heads,
+                )
+            )
+            qsl = root.joinpath("qsl.toml").read_text(encoding="utf-8")
+            test_contract = contract.read_text(encoding="utf-8")
+
+        self.assertIn(f'cn_equity_strategies = "{heads["CnEquityStrategies"]}"', qsl)
+        self.assertIn(TARGET, test_contract)
+        self.assertIn(heads["CnEquityStrategies"], test_contract)
 
     def test_aggregate_bundle_updates_qpk_and_all_strategy_heads(self) -> None:
         strategy_heads = {
