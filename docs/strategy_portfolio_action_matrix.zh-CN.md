@@ -70,7 +70,8 @@ combo 现在不该和主 live 线争位置，应该先重做成 composition engi
 
 - `notification_only` 适合监控和研究可见性
 - `automation_candidate` 适合 shadow 和 pre-live 验证
-- `automation_approved + position_control_allowed` 仍然是自动仓位影响的硬门槛
+- 旧 `automation_approved + position_control_allowed` 插件元数据只用于回放；
+  自动仓位影响必须由归属策略候选生成，并通过中央 Risk Gate
 - AI monitored 不等于 live enabled
 
 ## 推荐的下一步

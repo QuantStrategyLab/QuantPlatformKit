@@ -7,6 +7,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from quant_platform_kit.common.strategy_plugins import (
+    STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED,
+)
+
 from .evidence_package_v2 import (
     STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
     read_evidence_package_v2_json,
@@ -357,7 +361,10 @@ def _plugin_gate_is_usable(plugin_gate: Any) -> bool:
         if status and status not in ALLOWED_PLUGIN_GATE_STATUSES:
             return False
         if status == "automation_approved":
-            return bool(plugin_gate.get("position_control_allowed", False))
+            return bool(
+                STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED
+                and plugin_gate.get("position_control_allowed", False)
+            )
         return True
     if isinstance(plugin_gate, (list, tuple)):
         return all(_plugin_gate_is_usable(item) for item in plugin_gate)

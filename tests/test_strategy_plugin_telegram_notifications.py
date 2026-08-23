@@ -204,7 +204,7 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
         self.assertNotIn("ibkr / live-slot-a", calls[0]["body"])
         self.assertTrue(tmp_dir)
 
-    def test_publish_strategy_plugin_telegram_alerts_skips_auto_consumable_signals(self):
+    def test_publish_strategy_plugin_telegram_alerts_reviews_legacy_position_control(self):
         calls = []
 
         result = publish_strategy_plugin_telegram_alerts(
@@ -217,9 +217,9 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
             log_message=lambda *_args, **_kwargs: None,
         )
 
-        self.assertEqual(result.attempted_count, 0)
-        self.assertEqual(result.sent_count, 0)
-        self.assertEqual(calls, [])
+        self.assertEqual(result.attempted_count, 1)
+        self.assertEqual(result.sent_count, 1)
+        self.assertEqual(len(calls), 1)
 
     def test_publish_strategy_plugin_telegram_alerts_compacts_market_regime_body(self):
         calls = []

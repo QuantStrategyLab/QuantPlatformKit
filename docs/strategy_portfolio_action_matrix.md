@@ -75,8 +75,9 @@ Crypto is the most regime-sensitive domain, so the live gate should stay strict:
 
 - `notification_only` is fine for monitoring and research visibility.
 - `automation_candidate` is fine for shadow and pre-live validation.
-- `automation_approved + position_control_allowed` remains the hard gate for
-  any automatic position impact.
+- Legacy `automation_approved + position_control_allowed` plugin metadata is
+  replay-only. Automatic position impact must be emitted by the owning strategy
+  candidate and pass the central Risk Gate.
 - A strategy being AI-monitored is not the same as being live-enabled.
 
 ## Recommended next implementation steps

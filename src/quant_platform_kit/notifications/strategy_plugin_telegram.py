@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from quant_platform_kit.common.strategy_plugins import (
+    STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED,
     StrategyPluginAlertMessage,
     build_strategy_plugin_alert_messages,
 )
@@ -223,6 +224,8 @@ def _is_manual_review_telegram_signal(signal: object) -> bool:
     if target_type == "notification_target":
         return True
     action = str(getattr(signal, "suggested_action", None) or "").strip().lower()
+    if action in _AUTOMATED_POSITION_ACTIONS:
+        return True
     if action in _MANUAL_REVIEW_ACTIONS:
         return True
     controls = _signal_execution_controls(signal)
@@ -242,6 +245,8 @@ def _is_manual_review_telegram_signal(signal: object) -> bool:
 
 
 def _is_auto_consumable_signal(signal: object) -> bool:
+    if not STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED:
+        return False
     action = str(getattr(signal, "suggested_action", None) or "").strip().lower()
     if action not in _AUTOMATED_POSITION_ACTIONS:
         return False
