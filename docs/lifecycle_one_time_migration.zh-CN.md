@@ -17,6 +17,8 @@ live_enabled
   `runtime_enabled` 只允许在一次性迁移快照中读取。
 - 完成消费者验证后删除旧读取兼容层，不在核心架构长期维护双写。
 - inventory 和 evidence 永远没有权限效果。
+- 跨资产 inventory v2 只写 `lifecycle_status` 规范字段，不再双写
+  `catalog_status` / `canonical_status`。
 
 ## 旧 live 回滚边界
 
