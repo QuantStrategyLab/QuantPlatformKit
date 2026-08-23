@@ -1,0 +1,24 @@
+{
+  "schema_version": "strategy_lifecycle_catalog.v1",
+  "source_policy": "Inventory only. Catalog entries define reusable lifecycle wiring; they do not claim evidence, authorize promotion, or permit trading.",
+  "lifecycle_template": ["p0", "p1", "p2", "p3", "p4", "p5", "p6"],
+  "entries": [
+    {"id": "us_equity_etf_rotation", "display_name": "US ETF Rotation", "kind": "strategy", "domain": "us_equity", "owner_repo": "UsEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "注册具体候选配置并生成 P0-P3 evidence。"},
+    {"id": "us_equity_growth_income", "display_name": "US Growth/Income", "kind": "strategy", "domain": "us_equity", "owner_repo": "UsEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "注册具体候选配置并生成 P0-P3 evidence。"},
+    {"id": "soxl_soxx_trend_income", "display_name": "SOXL/SOXX Trend Income", "kind": "strategy", "domain": "us_equity", "owner_repo": "UsEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "沿用 leveraged ETF adapter，补齐候选与证据状态。"},
+    {"id": "tqqq_core_only", "display_name": "TQQQ Core Only", "kind": "strategy", "domain": "us_equity", "owner_repo": "UsEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "由具体 immutable candidate_id（如 p2_v2/p2_v5）承载证据。"},
+    {"id": "nasdaq_sp500_smart_dca", "display_name": "Nasdaq/S&P 500 Smart DCA", "kind": "strategy", "domain": "us_equity", "owner_repo": "UsEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "将研究结果注册为统一 P3 evidence package。"},
+    {"id": "tecl_xlk_trend_income", "display_name": "TECL/XLK Trend Income", "kind": "strategy", "domain": "us_equity", "owner_repo": "UsEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "保持 research-only，补齐输入契约后再推进。"},
+    {"id": "hk_global_etf_tactical_rotation", "display_name": "HK Global ETF Tactical Rotation", "kind": "strategy", "domain": "hk_equity", "owner_repo": "HkEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "接入 HK snapshot manifest 与统一 P1/P3 adapter。"},
+    {"id": "hk_low_vol_dividend_quality", "display_name": "HK Low-Vol Dividend Quality", "kind": "strategy", "domain": "hk_equity", "owner_repo": "HkEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "接入 HK snapshot manifest 与统一 P1/P3 adapter。"},
+    {"id": "cn_industry_etf_rotation", "display_name": "CN Industry ETF Rotation", "kind": "strategy", "domain": "cn_equity", "owner_repo": "CnEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "保持 planned/研究状态，先完成数据身份绑定。"},
+    {"id": "cn_stock_momentum_rotation", "display_name": "CN Stock Momentum Rotation", "kind": "strategy", "domain": "cn_equity", "owner_repo": "CnEquityStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "保持 planned/研究状态，先完成数据身份绑定。"},
+    {"id": "crypto_live_pool_rotation", "display_name": "Crypto Live Pool Rotation", "kind": "strategy", "domain": "crypto", "owner_repo": "CryptoStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "接入 pool artifact manifest 与统一 P1/P3 adapter。"},
+    {"id": "crypto_btc_dca", "display_name": "Crypto BTC DCA", "kind": "strategy", "domain": "crypto", "owner_repo": "CryptoStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "接入 DCA 输入契约并保持 no-order research gate。"},
+    {"id": "crypto_trend_rotation", "display_name": "Crypto Trend Rotation", "kind": "strategy", "domain": "crypto", "owner_repo": "CryptoStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "接入 trend 输入契约并保持 no-order research gate。"},
+    {"id": "us_combo_russell_ibit", "display_name": "US Combo Russell Top50 + IBIT", "kind": "portfolio", "domain": "quant_combo", "owner_repo": "QuantUsComboStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "消费组件 evidence digest，生成组合级 P3/P5 状态。"},
+    {"id": "us_combo_leveraged", "display_name": "US Leveraged Combo", "kind": "portfolio", "domain": "quant_combo", "owner_repo": "QuantUsComboStrategies", "inventory_refs": ["docs/ARCHITECTURE.md"], "next_step": "消费 TQQQ/SOXL/BOXX 与 SPY MA200 组件证据，再评估组合风险。"},
+    {"id": "strategy_signal_sidecar", "display_name": "Strategy Signal Sidecar Plugin", "kind": "plugin", "domain": "cross_domain", "owner_repo": "QuantPlatformKit", "inventory_refs": ["docs/strategy_plugin_runtime_contract.md"], "next_step": "作为策略 sidecar 发布 lineage/digest，不单独创建生命周期。"},
+    {"id": "portfolio_risk_overlay", "display_name": "Portfolio Risk Overlay Plugin", "kind": "plugin", "domain": "cross_domain", "owner_repo": "QuantPlatformKit", "inventory_refs": ["src/quant_platform_kit/risk/contracts.py"], "next_step": "消费 RiskSnapshot，只输出研究建议和门控状态。"}
+  ]
+}
