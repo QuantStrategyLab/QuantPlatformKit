@@ -7,14 +7,17 @@ never calculates targets, infers exposure from an order side, or calls a broker.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date
 from enum import Enum
 from typing import Any
 
 from .execution_commands import ExecutionCommand, ExecutionCommandState
-from .strategy_release import StrategyReleaseIdentity, build_strategy_release_identity
+from .strategy_release import (
+    StrategyReleaseIdentity,
+    validate_runtime_loaded_receipt,
+)
 
 
 RUNTIME_COMMAND_GATE_RECEIPT_SCHEMA_VERSION = "runtime_command_gate_receipt.v1"
@@ -57,6 +60,32 @@ class RuntimeCommandExposureEffect(str, Enum):
     UNKNOWN = "unknown"
 
 
+class RuntimeCommandIntegrityFinding(str, Enum):
+    """Stable, redacted integrity signals accepted by the runtime gate.
+
+    Strategy and plugin code may report these codes to a platform adapter, but
+    they never acquire broker or allocation authority by doing so.  Unknown
+    values are deliberately normalized to one opaque fail-closed code.
+    """
+
+    BROKER_OUTCOME_UNKNOWN = "broker_outcome_unknown"
+    COMMAND_DIGEST_MISMATCH = "command_digest_mismatch"
+    DATA_ARTIFACT_INVALID = "data_artifact_invalid"
+    DATA_STALE = "data_stale"
+    DATA_UNAVAILABLE = "data_unavailable"
+    DURABLE_EVENT_HISTORY_INVALID = "durable_event_history_invalid"
+    EXECUTION_REPLAY_DETECTED = "execution_replay_detected"
+    INVALID_EFFECTIVE_SESSION = "invalid_effective_session"
+    MANUAL_KILL_SWITCH = "manual_kill_switch"
+    PLUGIN_INVALID = "plugin_invalid"
+    POSITION_RECONCILIATION_MISMATCH = "position_reconciliation_mismatch"
+    RELEASE_IDENTITY_INVALID = "release_identity_invalid"
+    RELEASE_IDENTITY_MISMATCH = "release_identity_mismatch"
+    RELEASE_RECEIPT_MISSING = "release_receipt_missing"
+    SIGNAL_TIMING_INVALID = "signal_timing_invalid"
+    UNKNOWN_INTEGRITY_FINDING = "unknown_integrity_finding"
+
+
 _MODE_PRIORITY = {
     RuntimeCommandGateMode.ACTIVE: 0,
     RuntimeCommandGateMode.REDUCING: 1,
@@ -64,27 +93,28 @@ _MODE_PRIORITY = {
 }
 _HALTING_FINDINGS = frozenset(
     {
-        "broker_outcome_unknown",
-        "command_digest_mismatch",
-        "durable_event_history_invalid",
-        "execution_replay_detected",
-        "invalid_effective_session",
-        "manual_kill_switch",
-        "plugin_invalid",
-        "position_reconciliation_mismatch",
-        "release_identity_invalid",
-        "release_identity_mismatch",
-        "release_receipt_missing",
-        "signal_timing_invalid",
+        RuntimeCommandIntegrityFinding.BROKER_OUTCOME_UNKNOWN.value,
+        RuntimeCommandIntegrityFinding.COMMAND_DIGEST_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.DURABLE_EVENT_HISTORY_INVALID.value,
+        RuntimeCommandIntegrityFinding.EXECUTION_REPLAY_DETECTED.value,
+        RuntimeCommandIntegrityFinding.INVALID_EFFECTIVE_SESSION.value,
+        RuntimeCommandIntegrityFinding.MANUAL_KILL_SWITCH.value,
+        RuntimeCommandIntegrityFinding.PLUGIN_INVALID.value,
+        RuntimeCommandIntegrityFinding.POSITION_RECONCILIATION_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.RELEASE_IDENTITY_INVALID.value,
+        RuntimeCommandIntegrityFinding.RELEASE_IDENTITY_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.RELEASE_RECEIPT_MISSING.value,
+        RuntimeCommandIntegrityFinding.SIGNAL_TIMING_INVALID.value,
     }
 )
 _REDUCING_FINDINGS = frozenset(
     {
-        "data_artifact_invalid",
-        "data_unavailable",
-        "data_stale",
+        RuntimeCommandIntegrityFinding.DATA_ARTIFACT_INVALID.value,
+        RuntimeCommandIntegrityFinding.DATA_UNAVAILABLE.value,
+        RuntimeCommandIntegrityFinding.DATA_STALE.value,
     }
 )
+_KNOWN_INTEGRITY_FINDINGS = _HALTING_FINDINGS | _REDUCING_FINDINGS
 
 
 def _normalize_enum(value: object, enum_type: type[Enum], *, field_name: str) -> Enum:
@@ -184,40 +214,28 @@ class RuntimeCommandGateDecision:
         return payload
 
 
-def _release_attestation(
-    *,
-    receipt: Mapping[str, Any] | None,
-    expected_release: StrategyReleaseIdentity | Mapping[str, object] | None,
-    required: bool,
-) -> tuple[str | None, tuple[str, ...]]:
-    try:
-        expected = (
-            build_strategy_release_identity(expected_release)
-            if expected_release is not None
-            else None
+def normalize_runtime_command_integrity_findings(
+    findings: Iterable[object],
+) -> tuple[str, ...]:
+    """Return only stable gate codes and fail closed for every unknown value.
+
+    This is the shared boundary for platform monitors and strategy plugins. It
+    prevents an untrusted plugin error string from leaking into a durable gate
+    receipt while still making the resulting broker write fail closed.
+    """
+
+    normalized_findings: list[str] = []
+    for finding in findings:
+        normalized = str(finding.value if isinstance(finding, Enum) else finding or "").strip().lower()
+        if not normalized:
+            continue
+        safe_code = (
+            normalized
+            if normalized in _KNOWN_INTEGRITY_FINDINGS
+            else RuntimeCommandIntegrityFinding.UNKNOWN_INTEGRITY_FINDING.value
         )
-    except ValueError:
-        return None, ("release_identity_invalid",)
-    if not required and expected is None:
-        return None, ()
-    if expected is None:
-        return None, ("release_identity_invalid",)
-    if not isinstance(receipt, Mapping):
-        return expected.release_id, ("release_receipt_missing",)
-    if str(receipt.get("attestation_state") or "") != "self_attested":
-        return expected.release_id, ("release_receipt_missing",)
-    raw_identity = receipt.get("strategy_release")
-    if not isinstance(raw_identity, Mapping):
-        return expected.release_id, ("release_receipt_missing",)
-    try:
-        actual = build_strategy_release_identity(raw_identity)
-    except ValueError:
-        return expected.release_id, ("release_identity_invalid",)
-    if str(receipt.get("release_id") or "") != actual.release_id:
-        return expected.release_id, ("release_identity_invalid",)
-    if actual != expected:
-        return expected.release_id, ("release_identity_mismatch",)
-    return actual.release_id, ()
+        _append_reason(normalized_findings, safe_code)
+    return tuple(normalized_findings)
 
 
 def evaluate_runtime_command_gate(
@@ -229,7 +247,7 @@ def evaluate_runtime_command_gate(
     as_of_session: object | None = None,
     runtime_release_receipt: Mapping[str, Any] | None = None,
     expected_strategy_release: StrategyReleaseIdentity | Mapping[str, object] | None = None,
-    integrity_findings: tuple[str, ...] | list[str] = (),
+    integrity_findings: Iterable[object] = (),
     policy: RuntimeCommandGatePolicy | None = None,
 ) -> RuntimeCommandGateDecision:
     """Classify a broker operation without touching a broker.
@@ -247,10 +265,7 @@ def evaluate_runtime_command_gate(
     )
     mode = resolved_policy.mode
     reasons: list[str] = []
-    for finding in integrity_findings:
-        normalized = str(finding or "").strip().lower()
-        if not normalized:
-            continue
+    for normalized in normalize_runtime_command_integrity_findings(integrity_findings):
         if normalized in _HALTING_FINDINGS:
             mode = _raise_mode(mode, RuntimeCommandGateMode.HALTED)
             _append_reason(reasons, normalized)
@@ -259,7 +274,7 @@ def evaluate_runtime_command_gate(
             _append_reason(reasons, normalized)
         else:
             mode = _raise_mode(mode, RuntimeCommandGateMode.HALTED)
-            _append_reason(reasons, f"unknown_integrity_finding:{normalized}")
+            _append_reason(reasons, normalized)
 
     if command_state is not None:
         resolved_state = _normalize_enum(
@@ -287,12 +302,12 @@ def evaluate_runtime_command_gate(
             mode = _raise_mode(mode, RuntimeCommandGateMode.HALTED)
             _append_reason(reasons, "signal_timing_invalid")
 
-    release_id, release_reasons = _release_attestation(
-        receipt=runtime_release_receipt,
-        expected_release=expected_strategy_release,
+    release_verification = validate_runtime_loaded_receipt(
+        runtime_release_receipt,
+        expected_strategy_release=expected_strategy_release,
         required=resolved_policy.require_release_attestation and is_write,
     )
-    for reason in release_reasons:
+    for reason in release_verification.findings:
         mode = _raise_mode(mode, RuntimeCommandGateMode.HALTED)
         _append_reason(reasons, reason)
 
@@ -321,7 +336,7 @@ def evaluate_runtime_command_gate(
         enforcement=resolved_policy.enforcement,
         policy_allows=policy_allows,
         reasons=tuple(reasons),
-        release_id=release_id,
+        release_id=release_verification.release_id,
         effective_session=command.effective_date if command is not None else None,
         as_of_session=as_of_date,
     )
@@ -333,7 +348,9 @@ __all__ = [
     "RuntimeCommandExposureEffect",
     "RuntimeCommandGateDecision",
     "RuntimeCommandGateEnforcement",
+    "RuntimeCommandIntegrityFinding",
     "RuntimeCommandGateMode",
     "RuntimeCommandGatePolicy",
     "evaluate_runtime_command_gate",
+    "normalize_runtime_command_integrity_findings",
 ]

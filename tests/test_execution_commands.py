@@ -8,6 +8,7 @@ from quant_platform_kit.common.execution_commands import (
     ExecutionCommand,
     ExecutionCommandState,
     ExecutionCommandStore,
+    validate_execution_command_release_binding,
     validate_execution_command_transition,
 )
 
@@ -25,6 +26,19 @@ def _command() -> ExecutionCommand:
         intent={"targets": {"SOXL": 0.0, "SOXX": 0.70}, "reason": "volatility_delever"},
         created_at="2026-08-24T20:00:00+00:00",
     )
+
+
+def _release_identity() -> dict[str, str]:
+    return {
+        "release_id": "soxl-p2-v3.20260824",
+        "manifest_sha256": "a" * 64,
+        "strategy_revision": "soxl-p2-v3",
+        "config_sha256": "b" * 64,
+        "risk_policy_sha256": "c" * 64,
+        "evidence_sha256": "d" * 64,
+        "plugin_bundle_sha256": "e" * 64,
+        "effective_session": "2026-08-25",
+    }
 
 
 class ExecutionCommandTests(unittest.TestCase):
@@ -48,6 +62,33 @@ class ExecutionCommandTests(unittest.TestCase):
         self.assertEqual(command.intent["targets"]["SOXX"], 0.70)
         self.assertTrue(command.is_due_on("2026-08-25"))
         self.assertFalse(command.is_due_on("2026-08-26"))
+
+    def test_command_release_binding_is_immutable_and_fail_closed(self) -> None:
+        release = _release_identity()
+        command = ExecutionCommand.from_decision(
+            platform="longbridge",
+            account_scope="SG",
+            strategy_profile="soxl_soxx_trend_income",
+            execution_mode="paper",
+            signal_date="2026-08-24",
+            effective_date="2026-08-25",
+            execution_timing_contract="next_trading_day",
+            decision_digest="sha256:decision-v1",
+            intent={"targets": {"SOXL": 0.0}, "strategy_release": release},
+        )
+
+        valid = validate_execution_command_release_binding(
+            command,
+            expected_strategy_release=release,
+        )
+        missing = validate_execution_command_release_binding(
+            _command(),
+            expected_strategy_release=release,
+        )
+
+        self.assertTrue(valid.is_valid)
+        self.assertEqual(valid.release_id, release["release_id"])
+        self.assertEqual(missing.findings, ("release_identity_mismatch",))
 
     def test_enqueue_is_create_only_and_lists_due_commands(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
