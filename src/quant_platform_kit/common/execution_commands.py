@@ -15,7 +15,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,7 @@ EXECUTION_COMMAND_EVENT_SCHEMA_VERSION = "execution_command_event.v1"
 DEFAULT_EXECUTION_COMMAND_NAMESPACE = "execution_commands"
 
 
-class ExecutionCommandState(StrEnum):
+class ExecutionCommandState(str, Enum):
     QUEUED = "queued"
     CLAIMED = "claimed"
     SUBMITTED = "submitted"
@@ -128,6 +128,8 @@ def _safe_path_part(value: object, *, field_name: str) -> str:
 
 
 def _normalize_state(value: ExecutionCommandState | str) -> ExecutionCommandState:
+    if isinstance(value, ExecutionCommandState):
+        return value
     try:
         return ExecutionCommandState(str(value).strip().lower())
     except ValueError as exc:
