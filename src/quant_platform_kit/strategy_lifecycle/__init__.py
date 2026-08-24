@@ -52,6 +52,11 @@ from quant_platform_kit.strategy_lifecycle.live_candidate_notifications import (
     LiveCandidateNotificationEvent,
     build_live_candidate_notification,
 )
+from quant_platform_kit.strategy_lifecycle.release_readiness import (
+    RELEASE_READINESS_DIAGNOSTIC_SCHEMA_VERSION,
+    StrategyReleaseReadiness,
+    assess_strategy_release_readiness,
+)
 from quant_platform_kit.strategy_lifecycle.lifecycle_status import (
     CANONICAL_LIFECYCLE_STATES,
     LEGACY_CATALOG_STATUS_MAP,
@@ -84,6 +89,7 @@ __all__ = [
     "RESEARCH_SPEC_SCHEMA_VERSION",
     "OPTIMIZATION_SPEC_SCHEMA_VERSION",
     "StrategyHealthScore",
+    "StrategyReleaseReadiness",
     "STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION",
     "StrategyPerformanceSnapshot",
     "UpdateLogEntry",
@@ -94,6 +100,7 @@ __all__ = [
     "FORWARD_RISK_SCHEMA_VERSION",
     "FORWARD_RISK_TERMINAL_STATUSES",
     "P4_OBSERVATION_MODES",
+    "RELEASE_READINESS_DIAGNOSTIC_SCHEMA_VERSION",
     "InvalidForwardRiskArtifact",
     "LiveCandidateNotificationEvent",
     "CANONICAL_LIFECYCLE_STATES",
@@ -106,6 +113,7 @@ __all__ = [
     "canonical_evidence_package_v2_bytes",
     "read_evidence_package_v2_json",
     "build_live_candidate_notification",
+    "assess_strategy_release_readiness",
     "build_forward_risk_terminal_artifact",
     "build_nonready_forward_risk_stage",
     "build_nonready_research_stage",
