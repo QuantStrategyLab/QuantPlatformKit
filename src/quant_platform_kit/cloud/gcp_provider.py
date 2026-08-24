@@ -128,6 +128,17 @@ class GcpObjectStore:
         self.client.bucket(bucket).blob(blob).upload_from_string(data, content_type=content_type)
         return uri
 
+    def create_text(self, uri: str, data: str, content_type: str = "text/plain") -> bool:
+        from google.api_core.exceptions import Conflict, PreconditionFailed
+        bucket, blob = self._parse_uri(uri)
+        try:
+            self.client.bucket(bucket).blob(blob).upload_from_string(
+                data, content_type=content_type, if_generation_match=0
+            )
+            return True
+        except (Conflict, PreconditionFailed):
+            return False
+
     def write_bytes(self, uri: str, data: bytes, content_type: str = "application/octet-stream") -> str:
         bucket, blob = self._parse_uri(uri)
         self.client.bucket(bucket).blob(blob).upload_from_string(data, content_type=content_type)

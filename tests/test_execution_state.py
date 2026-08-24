@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -59,6 +60,42 @@ class ExecutionStateTests(unittest.TestCase):
             self.assertTrue(store.has_marker(key))
             marker_path = Path(tmpdir) / "execution_markers"
             self.assertTrue(any(marker_path.iterdir()))
+
+    def test_local_claim_is_single_winner_under_concurrency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ExecutionMarkerStore(local_dir=tmpdir, cloud_prefix_uri=None)
+            barrier = threading.Barrier(8)
+            results: list[bool] = []
+
+            def claim() -> None:
+                barrier.wait()
+                results.append(store.claim_marker("live/account/strategy/2026-08-24"))
+
+            threads = [threading.Thread(target=claim) for _ in range(8)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+            self.assertEqual(results.count(True), 1)
+            self.assertEqual(results.count(False), 7)
+
+    def test_claim_backend_failure_is_not_treated_as_success(self) -> None:
+        class BrokenStore:
+            def create_text(self, *_args, **_kwargs):
+                raise OSError("backend unavailable")
+
+        class CloudExecutionStore(ExecutionMarkerStore):
+            def _object_store(self):
+                return BrokenStore()
+
+        store = CloudExecutionStore(local_dir=None, cloud_prefix_uri="gs://bucket/claims")
+        with self.assertRaises(OSError):
+            store.claim_marker("live/account/strategy/2026-08-24")
+
+    def test_claim_without_durable_backend_fails_closed(self) -> None:
+        store = ExecutionMarkerStore(local_dir=None, cloud_prefix_uri=None)
+        with self.assertRaises(RuntimeError):
+            store.claim_marker("live/account/strategy/2026-08-24")
 
     def test_build_store_from_env(self) -> None:
         env = {

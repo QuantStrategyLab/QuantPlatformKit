@@ -2,6 +2,12 @@
 
 `open-downstream-qpk-pin-prs` workflow 需要 `QSL_REPO_SYNC_TOKEN` 才能跨仓 push 分支并开 PR。
 
+## 当前发布链说明
+
+QPK 发布采用 release-set 两阶段流程：先生成候选 QPK 版本并验证依赖闭包，再由下游仓库分别通过 CI 后更新正式 release-set。旧的 `auto/qpk-pin-sync-*` 和孤立的 `auto/qpk-pin-update` 分支不再作为发布输入；如果发现没有对应开放 PR 的孤立自动分支，应删除后再重新触发发布流程。
+
+跨仓同步 token 只用于创建下游 PR，不用于部署、运行时交易或修改任何 broker 权限。优先使用仅限目标仓库的 fine-grained token；不要把个人长期 token 写入仓库文件、workflow 日志或 issue。
+
 ## 为什么用仓库级 Secret（不是 Org Secret）
 
 `QuantPlatformKit` 是 **public** 仓库。在 GitHub Free org 上，org-level secret 对 public 仓的注入不可靠（workflow 里会静默变成空字符串）。**仓库级 secret** 是唯一已验证稳定的方案。
