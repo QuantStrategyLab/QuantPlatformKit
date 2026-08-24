@@ -19,10 +19,17 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from .strategy_release import (
+    StrategyReleaseIdentity,
+    StrategyReleaseVerification,
+    validate_strategy_release_binding,
+)
+
 
 EXECUTION_COMMAND_SCHEMA_VERSION = "execution_command.v1"
 EXECUTION_COMMAND_EVENT_SCHEMA_VERSION = "execution_command_event.v1"
 DEFAULT_EXECUTION_COMMAND_NAMESPACE = "execution_commands"
+EXECUTION_COMMAND_STRATEGY_RELEASE_FIELD = "strategy_release"
 
 
 class ExecutionCommandState(str, Enum):
@@ -245,6 +252,25 @@ class ExecutionCommand:
         if command.command_id != str(payload.get("command_id") or ""):
             raise ValueError("execution command identity does not match its immutable content")
         return command
+
+
+def validate_execution_command_release_binding(
+    command: ExecutionCommand,
+    *,
+    expected_strategy_release: StrategyReleaseIdentity | Mapping[str, object] | None,
+) -> StrategyReleaseVerification:
+    """Verify the reserved immutable release identity inside a command intent.
+
+    Producers place the compact identity at ``intent['strategy_release']``.
+    The intent is content-addressed by :class:`ExecutionCommand`, so a
+    platform can reject an old or altered decision before it touches its
+    broker-specific adapter.
+    """
+
+    return validate_strategy_release_binding(
+        command.intent.get(EXECUTION_COMMAND_STRATEGY_RELEASE_FIELD),
+        expected_strategy_release=expected_strategy_release,
+    )
 
 
 @dataclass(frozen=True)

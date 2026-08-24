@@ -13,7 +13,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
-from typing import Mapping
+from typing import Any, Mapping
 
 
 STRATEGY_RELEASE_MANIFEST_SCHEMA_VERSION = "strategy_release_manifest.v1"
@@ -181,6 +181,23 @@ class StrategyReleaseIdentity:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class StrategyReleaseVerification:
+    """Redacted result of comparing a release identity with an expectation.
+
+    Strategy packages, plugins, and platform adapters can share this result
+    without exposing the configuration or evidence payload that produced the
+    identity.  ``findings`` contains only stable gate codes.
+    """
+
+    release_id: str | None
+    findings: tuple[str, ...] = ()
+
+    @property
+    def is_valid(self) -> bool:
+        return not self.findings
+
+
 def build_strategy_release_identity(
     value: StrategyReleaseIdentity | Mapping[str, object],
 ) -> StrategyReleaseIdentity:
@@ -202,6 +219,82 @@ def build_strategy_release_identity(
     if missing:
         raise ValueError(f"strategy_release is missing required fields: {', '.join(missing)}")
     return StrategyReleaseIdentity(**{field: value[field] for field in required_fields})
+
+
+def validate_strategy_release_binding(
+    actual_strategy_release: StrategyReleaseIdentity | Mapping[str, object] | None,
+    *,
+    expected_strategy_release: StrategyReleaseIdentity | Mapping[str, object] | None,
+) -> StrategyReleaseVerification:
+    """Fail closed unless an embedded release identity exactly matches.
+
+    This deliberately validates only the compact immutable identities.  The
+    research control plane remains responsible for proving the evidence behind
+    the expected identity before it is promoted into a runtime target.
+    """
+
+    try:
+        expected = (
+            build_strategy_release_identity(expected_strategy_release)
+            if expected_strategy_release is not None
+            else None
+        )
+    except ValueError:
+        return StrategyReleaseVerification(None, ("release_identity_invalid",))
+    if expected is None:
+        return StrategyReleaseVerification(None, ("release_identity_invalid",))
+    if actual_strategy_release is None:
+        return StrategyReleaseVerification(expected.release_id, ("release_identity_mismatch",))
+    try:
+        actual = build_strategy_release_identity(actual_strategy_release)
+    except ValueError:
+        return StrategyReleaseVerification(expected.release_id, ("release_identity_invalid",))
+    if actual != expected:
+        return StrategyReleaseVerification(expected.release_id, ("release_identity_mismatch",))
+    return StrategyReleaseVerification(actual.release_id)
+
+
+def validate_runtime_loaded_receipt(
+    receipt: Mapping[str, Any] | None,
+    *,
+    expected_strategy_release: StrategyReleaseIdentity | Mapping[str, object] | None,
+    required: bool = True,
+) -> StrategyReleaseVerification:
+    """Verify the self-attestation emitted by a strategy or platform runtime.
+
+    A matching receipt says only that the running process loaded the expected
+    immutable identity.  It is not a substitute for evidence validation or
+    cross-platform promotion approval.
+    """
+
+    if not required and expected_strategy_release is None:
+        return StrategyReleaseVerification(None)
+    try:
+        expected = (
+            build_strategy_release_identity(expected_strategy_release)
+            if expected_strategy_release is not None
+            else None
+        )
+    except ValueError:
+        return StrategyReleaseVerification(None, ("release_identity_invalid",))
+    if expected is None:
+        return StrategyReleaseVerification(None, ("release_identity_invalid",))
+    if not isinstance(receipt, Mapping):
+        return StrategyReleaseVerification(expected.release_id, ("release_receipt_missing",))
+    if str(receipt.get("attestation_state") or "") != "self_attested":
+        return StrategyReleaseVerification(expected.release_id, ("release_receipt_missing",))
+    raw_identity = receipt.get("strategy_release")
+    if not isinstance(raw_identity, Mapping):
+        return StrategyReleaseVerification(expected.release_id, ("release_receipt_missing",))
+    result = validate_strategy_release_binding(
+        raw_identity,
+        expected_strategy_release=expected,
+    )
+    if not result.is_valid:
+        return result
+    if str(receipt.get("release_id") or "") != result.release_id:
+        return StrategyReleaseVerification(expected.release_id, ("release_identity_invalid",))
+    return result
 
 
 def build_runtime_loaded_receipt(
@@ -247,6 +340,19 @@ def build_runtime_loaded_receipt(
     if image_digest is not None:
         receipt["runtime_image_digest"] = image_digest
     return receipt
+
+
+__all__ = [
+    "RUNTIME_LOADED_RECEIPT_SCHEMA_VERSION",
+    "STRATEGY_RELEASE_MANIFEST_SCHEMA_VERSION",
+    "StrategyReleaseIdentity",
+    "StrategyReleaseManifest",
+    "StrategyReleaseVerification",
+    "build_runtime_loaded_receipt",
+    "build_strategy_release_identity",
+    "validate_runtime_loaded_receipt",
+    "validate_strategy_release_binding",
+]
 
 
 def _optional_text(value: object) -> str | None:

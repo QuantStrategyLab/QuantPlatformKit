@@ -8,9 +8,11 @@ from quant_platform_kit.common.runtime_command_gate import (
     RuntimeCommandAction,
     RuntimeCommandExposureEffect,
     RuntimeCommandGateEnforcement,
+    RuntimeCommandIntegrityFinding,
     RuntimeCommandGateMode,
     RuntimeCommandGatePolicy,
     evaluate_runtime_command_gate,
+    normalize_runtime_command_integrity_findings,
 )
 from quant_platform_kit.common.strategy_release import build_runtime_loaded_receipt
 
@@ -180,7 +182,15 @@ class RuntimeCommandGateTests(unittest.TestCase):
 
         self.assertEqual(decision.mode, RuntimeCommandGateMode.HALTED)
         self.assertFalse(decision.broker_write_allowed)
-        self.assertIn("unknown_integrity_finding:future_adapter_alarm", decision.reasons)
+        self.assertIn("unknown_integrity_finding", decision.reasons)
+
+    def test_plugin_and_platform_findings_share_a_redacted_contract(self) -> None:
+        findings = normalize_runtime_command_integrity_findings(
+            (RuntimeCommandIntegrityFinding.PLUGIN_INVALID, "untrusted plugin error: token=secret")
+        )
+
+        self.assertEqual(findings, ("plugin_invalid", "unknown_integrity_finding"))
+        self.assertNotIn("secret", " ".join(findings))
 
 
 if __name__ == "__main__":
