@@ -1,0 +1,57 @@
+from __future__ import annotations
+
+import unittest
+
+from quant_platform_kit.common.strategy_release import (
+    StrategyReleaseManifest,
+    build_runtime_loaded_receipt,
+)
+
+
+class StrategyReleaseTests(unittest.TestCase):
+    def test_manifest_digest_is_deterministic_and_runtime_identity_is_complete(self) -> None:
+        digest = "c" * 64
+        manifest = StrategyReleaseManifest(
+            release_id="soxl-p2-v3.20260824",
+            strategy_profile="soxl_soxx_trend_income",
+            strategy_revision="2e3bb51",
+            config_sha256=digest,
+            risk_policy_sha256=digest,
+            evidence_sha256=digest,
+            plugin_bundle_sha256=digest,
+            effective_session="2026-08-25",
+            target_set_id="us-equity-soxl-paper-v1",
+            targets=("longbridge:SG", "interactive_brokers:US", "charles_schwab:US"),
+        )
+
+        identity = manifest.runtime_identity()
+
+        self.assertEqual(identity.release_id, manifest.release_id)
+        self.assertEqual(identity.manifest_sha256, manifest.manifest_sha256)
+        self.assertEqual(len(manifest.manifest_sha256), 64)
+
+    def test_legacy_runtime_receipt_is_explicit(self) -> None:
+        receipt = build_runtime_loaded_receipt(strategy_release=None)
+
+        self.assertEqual(receipt["attestation_state"], "legacy_unattested")
+        self.assertEqual(receipt["missing"], ["strategy_release"])
+
+    def test_release_manifest_rejects_duplicate_targets(self) -> None:
+        digest = "c" * 64
+        with self.assertRaisesRegex(ValueError, "duplicates"):
+            StrategyReleaseManifest(
+                release_id="soxl-p2-v3.20260824",
+                strategy_profile="soxl_soxx_trend_income",
+                strategy_revision="2e3bb51",
+                config_sha256=digest,
+                risk_policy_sha256=digest,
+                evidence_sha256=digest,
+                plugin_bundle_sha256=digest,
+                effective_session="2026-08-25",
+                target_set_id="us-equity-soxl-paper-v1",
+                targets=("longbridge:SG", "longbridge:SG"),
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

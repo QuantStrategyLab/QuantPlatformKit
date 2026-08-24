@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .strategy_release import build_runtime_loaded_receipt
 from .runtime_target import RuntimeTarget
 
 RUNTIME_REPORT_SCHEMA_VERSION = "runtime_report.v1"
@@ -52,14 +53,28 @@ def build_runtime_report_base(
     summary: Mapping[str, Any] | None = None,
     diagnostics: Mapping[str, Any] | None = None,
     artifacts: Mapping[str, Any] | None = None,
+    runtime_revision: str | None = None,
+    runtime_image_digest: str | None = None,
 ) -> dict[str, Any]:
+    normalized_target = _normalize_runtime_target(runtime_target)
+    target_release = (
+        runtime_target.strategy_release
+        if isinstance(runtime_target, RuntimeTarget)
+        else normalized_target.get("strategy_release")
+    )
     return {
         "schema_version": RUNTIME_REPORT_SCHEMA_VERSION,
         "platform": str(platform),
         "deploy_target": str(deploy_target),
         "service_name": str(service_name),
         "strategy_profile": str(strategy_profile),
-        "runtime_target": _normalize_runtime_target(runtime_target),
+        "runtime_target": normalized_target,
+        "runtime_release_receipt": build_runtime_loaded_receipt(
+            strategy_release=target_release,
+            loaded_at=started_at,
+            runtime_revision=runtime_revision,
+            runtime_image_digest=runtime_image_digest,
+        ),
         "strategy_domain": _optional_string(strategy_domain),
         "account_scope": _resolve_account_scope(
             account_scope=account_scope,

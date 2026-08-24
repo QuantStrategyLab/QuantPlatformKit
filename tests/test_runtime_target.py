@@ -67,6 +67,36 @@ class RuntimeTargetTests(unittest.TestCase):
         self.assertEqual(target.execution_mode, "live")
         self.assertEqual(target.account_selector, ())
 
+    def test_runtime_target_carries_complete_strategy_release_identity(self) -> None:
+        digest = "a" * 64
+        target = build_runtime_target(
+            platform_id="longbridge",
+            strategy_profile="soxl_soxx_trend_income",
+            dry_run_only=True,
+            strategy_release={
+                "release_id": "soxl-p2-v3.20260824",
+                "manifest_sha256": digest,
+                "strategy_revision": "2e3bb51",
+                "config_sha256": digest,
+                "risk_policy_sha256": digest,
+                "evidence_sha256": digest,
+                "plugin_bundle_sha256": digest,
+                "effective_session": "2026-08-25",
+            },
+        )
+
+        self.assertEqual(target.strategy_release.release_id, "soxl-p2-v3.20260824")
+        self.assertEqual(target.to_dict()["strategy_release"]["effective_session"], "2026-08-25")
+
+    def test_runtime_target_rejects_incomplete_strategy_release_identity(self) -> None:
+        with self.assertRaisesRegex(ValueError, "strategy_release is missing required fields"):
+            build_runtime_target(
+                platform_id="longbridge",
+                strategy_profile="soxl_soxx_trend_income",
+                dry_run_only=True,
+                strategy_release={"release_id": "soxl-p2-v3"},
+            )
+
     def test_resolve_runtime_target_from_env_prefers_structured_json(self) -> None:
         target = resolve_runtime_target_from_env(
             env={

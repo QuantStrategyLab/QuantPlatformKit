@@ -74,6 +74,14 @@ from .runtime_target import (
     build_runtime_target,
     resolve_runtime_target_from_env,
 )
+from .strategy_release import (
+    RUNTIME_LOADED_RECEIPT_SCHEMA_VERSION,
+    STRATEGY_RELEASE_MANIFEST_SCHEMA_VERSION,
+    StrategyReleaseIdentity,
+    StrategyReleaseManifest,
+    build_runtime_loaded_receipt,
+    build_strategy_release_identity,
+)
 from .market_signal_artifacts import (
     MARKET_SIGNAL_ARTIFACT_LINK_FIELDS,
     cache_root_for_market_signal_artifact_tree,
@@ -204,6 +212,10 @@ __all__ = [
     "resolve_strategy_display_name",
     "resolve_strategy_run_stage",
     "RuntimeTarget",
+    "RUNTIME_LOADED_RECEIPT_SCHEMA_VERSION",
+    "STRATEGY_RELEASE_MANIFEST_SCHEMA_VERSION",
+    "StrategyReleaseIdentity",
+    "StrategyReleaseManifest",
     "build_runtime_context_fields",
     "build_run_id",
     "emit_runtime_log",
@@ -225,6 +237,8 @@ __all__ = [
     "build_strategy_plugin_report_payload",
     "extract_strategy_plugin_localized_message",
     "build_runtime_target",
+    "build_runtime_loaded_receipt",
+    "build_strategy_release_identity",
     "load_configured_strategy_plugin_notification_target_signals",
     "load_configured_strategy_plugin_signals",
     "load_strategy_plugin_signal",
