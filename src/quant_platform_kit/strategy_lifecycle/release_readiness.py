@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from quant_platform_kit.common.strategy_release import StrategyReleaseManifest
+from quant_platform_kit.data.multisource_assurance import MultiSourceDailyBarAssurance
 
 from .evidence_gate import validate_evidence_package_file
 
@@ -68,6 +69,7 @@ class StrategyReleaseReadiness:
     evidence_sha256: str | None
     plugin_bundle_sha256: str | None
     findings: tuple[str, ...] = ()
+    data_assurance_sha256: str | None = None
 
     @property
     def is_ready(self) -> bool:
@@ -76,7 +78,7 @@ class StrategyReleaseReadiness:
     def to_diagnostic(self) -> dict[str, object]:
         """Return safe monitoring data without paths, content, or raw evidence."""
 
-        return {
+        diagnostic = {
             "schema_version": RELEASE_READINESS_DIAGNOSTIC_SCHEMA_VERSION,
             "release_id": self.release_id,
             "strategy_profile": self.strategy_profile,
@@ -87,6 +89,9 @@ class StrategyReleaseReadiness:
             "ready": self.is_ready,
             "findings": list(self.findings),
         }
+        if self.data_assurance_sha256 is not None:
+            diagnostic["data_assurance_sha256"] = self.data_assurance_sha256
+        return diagnostic
 
     def build_manifest(self) -> StrategyReleaseManifest:
         """Return an immutable manifest, or refuse to create one when blocked."""
@@ -111,6 +116,7 @@ class StrategyReleaseReadiness:
             effective_session=self.effective_session,
             target_set_id=self.target_set_id,
             targets=self.targets,
+            data_assurance_sha256=self.data_assurance_sha256,
         )
 
 
@@ -126,12 +132,16 @@ def assess_strategy_release_readiness(
     risk_policy_path: str | Path,
     evidence_path: str | Path,
     plugin_bundle_paths: Iterable[str | Path],
+    data_assurance: MultiSourceDailyBarAssurance | None = None,
+    require_data_assurance: bool = False,
 ) -> StrategyReleaseReadiness:
     """Assess whether a strategy can receive a loadable release identity.
 
     The evidence package must be structurally valid, explicitly promotion
     eligible, and bound to the same strategy profile and source revision. A
     failed assessment is useful monitoring output but cannot create a manifest.
+    Source-sensitive profiles can additionally require a verified multi-source
+    data report; existing profiles stay compatible until they opt in.
     """
 
     findings: list[str] = []
@@ -153,6 +163,16 @@ def assess_strategy_release_readiness(
         findings=findings,
     )
     plugin_bundle_sha256 = _plugin_bundle_sha256(plugin_bundle_paths, findings)
+    data_assurance_sha256: str | None = None
+    if data_assurance is None:
+        if require_data_assurance:
+            _append_unique(findings, "data_assurance_missing")
+    elif not isinstance(data_assurance, MultiSourceDailyBarAssurance):
+        _append_unique(findings, "data_assurance_invalid")
+    elif not data_assurance.can_publish_research_input:
+        _append_unique(findings, "data_assurance_not_verified")
+    else:
+        data_assurance_sha256 = data_assurance.report_sha256
 
     evidence_file = Path(evidence_path)
     evidence_sha256 = _sha256_file(
@@ -192,6 +212,7 @@ def assess_strategy_release_readiness(
             effective_session=session_text,
             target_set_id=target_set_text,
             targets=target_values,
+            data_assurance_sha256=data_assurance_sha256,
         )
     except ValueError:
         _append_unique(findings, "release_metadata_invalid")
@@ -208,6 +229,7 @@ def assess_strategy_release_readiness(
         evidence_sha256=evidence_sha256,
         plugin_bundle_sha256=plugin_bundle_sha256,
         findings=tuple(findings),
+        data_assurance_sha256=data_assurance_sha256,
     )
 
 
