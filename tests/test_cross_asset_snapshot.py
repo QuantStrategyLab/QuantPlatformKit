@@ -14,7 +14,8 @@ def _snapshot(**overrides):
         "applied_fraction": 0.10,
         "circuit_state": "ACTIVE",
         "evidence_package_id": "sha256:abc",
-        "expires_at": "2026-08-24T00:00:00Z",
+        # Keep the fixture valid regardless of the CI run time on 2026-08-24.
+        "expires_at": "2026-08-25T00:00:00Z",
     }
     values.update(overrides)
     return build_risk_snapshot(values)
