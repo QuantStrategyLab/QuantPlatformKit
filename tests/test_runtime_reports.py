@@ -67,6 +67,40 @@ class RuntimeReportsTests(unittest.TestCase):
         self.assertEqual(report["status"], "started")
         self.assertEqual(report["summary"]["managed_symbols"], ["TQQQ", "BOXX"])
         self.assertTrue(report["started_at"].endswith("Z"))
+        self.assertEqual(
+            report["runtime_release_receipt"]["attestation_state"],
+            "legacy_unattested",
+        )
+
+    def test_runtime_report_self_attests_complete_strategy_release_identity(self) -> None:
+        digest = "b" * 64
+        report = build_runtime_report_base(
+            platform="longbridge",
+            deploy_target="cloud_run",
+            service_name="longbridge-runtime",
+            strategy_profile="soxl_soxx_trend_income",
+            run_id="run-release-001",
+            run_source="cloud_run",
+            runtime_target={
+                "strategy_release": {
+                    "release_id": "soxl-p2-v3.20260824",
+                    "manifest_sha256": digest,
+                    "strategy_revision": "2e3bb51",
+                    "config_sha256": digest,
+                    "risk_policy_sha256": digest,
+                    "evidence_sha256": digest,
+                    "plugin_bundle_sha256": digest,
+                    "effective_session": "2026-08-25",
+                }
+            },
+            started_at="2026-08-24T01:00:00Z",
+            runtime_revision="longbridge-00042-abc",
+        )
+
+        receipt = report["runtime_release_receipt"]
+        self.assertEqual(receipt["attestation_state"], "self_attested")
+        self.assertEqual(receipt["release_id"], "soxl-p2-v3.20260824")
+        self.assertEqual(receipt["runtime_revision"], "longbridge-00042-abc")
 
     def test_finalize_and_write_runtime_report(self) -> None:
         report = build_runtime_report_base(

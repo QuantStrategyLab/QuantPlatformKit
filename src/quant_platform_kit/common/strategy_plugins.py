@@ -814,7 +814,9 @@ def build_strategy_plugin_metadata(signals: Sequence[StrategyPluginSignal]) -> d
         plugin = str(getattr(signal, "plugin", "") or "").strip()
         if not plugin:
             continue
-        payload = dict(getattr(signal, "payload", {}) or {})
+        payload = _build_non_authoritative_runtime_plugin_payload(
+            getattr(signal, "payload", {}) or {}
+        )
         plugin_payloads[plugin] = payload
         summaries[plugin] = signal.report_summary()
     if not plugin_payloads:
@@ -825,6 +827,39 @@ def build_strategy_plugin_metadata(signals: Sequence[StrategyPluginSignal]) -> d
     }
     metadata.update(plugin_payloads)
     return metadata
+
+
+def _build_non_authoritative_runtime_plugin_payload(payload: Mapping[str, Any] | object) -> dict[str, Any]:
+    """Copy a sidecar payload for strategy metadata without delegation rights.
+
+    The V2 plugin contract permits strategy metadata for deterministic
+    observability and research. It does not permit a plugin artifact to grant
+    itself allocation or broker authority. Preserve the original artifact on
+    ``StrategyPluginSignal.payload`` for audit, while making this injected copy
+    explicitly non-authoritative for every strategy consumer.
+    """
+
+    if not isinstance(payload, Mapping):
+        return {"strategy_runtime_metadata_non_authoritative": True}
+    normalized = dict(payload)
+    for control_key in ("execution_controls", "consumption_policy"):
+        source = payload.get(control_key)
+        if not isinstance(source, Mapping):
+            continue
+        controls = dict(source)
+        controls.update(
+            {
+                "broker_order_allowed": False,
+                "live_allocation_mutation_allowed": False,
+                "repository_broker_write_allowed": False,
+                "repository_allocation_mutation_allowed": False,
+                "position_control_allowed": False,
+                "consumption_evidence_status": "shadow_only",
+            }
+        )
+        normalized[control_key] = controls
+    normalized["strategy_runtime_metadata_non_authoritative"] = True
+    return normalized
 
 
 def attach_strategy_plugin_metadata(snapshot: Any, signals: Sequence[StrategyPluginSignal]) -> Any:

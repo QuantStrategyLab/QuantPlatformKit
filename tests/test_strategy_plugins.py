@@ -27,6 +27,7 @@ from quant_platform_kit.common.strategy_plugins import (
     StrategyPluginDefinition,
     attach_strategy_plugin_metadata,
     build_strategy_plugin_alert_messages,
+    build_strategy_plugin_metadata,
     build_strategy_plugin_error_notification_lines,
     build_strategy_plugin_notification_lines,
     build_strategy_plugin_report_payload,
@@ -602,6 +603,27 @@ class StrategyPluginsTests(unittest.TestCase):
 
         self.assertIs(enriched, snapshot)
         self.assertEqual(enriched.metadata, {"account_hash": "demo"})
+
+    def test_runtime_metadata_cannot_delegate_position_control_from_plugin_artifact(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "execution_controls": _auditable_position_control_controls(),
+                "consumption_policy": {
+                    "position_control_allowed": True,
+                    "evidence_status": "automation_approved",
+                },
+            }
+        )
+
+        metadata = build_strategy_plugin_metadata((signal,))
+        injected = metadata[PLUGIN_MARKET_REGIME_CONTROL]
+
+        self.assertTrue(signal.execution_controls["position_control_allowed"])
+        self.assertFalse(injected["execution_controls"]["position_control_allowed"])
+        self.assertEqual(injected["execution_controls"]["consumption_evidence_status"], "shadow_only")
+        self.assertFalse(injected["consumption_policy"]["position_control_allowed"])
+        self.assertTrue(injected["strategy_runtime_metadata_non_authoritative"])
 
     def test_strategy_plugin_notification_lines_use_translator_when_available(self):
         signal = validate_strategy_plugin_signal_payload(_signal_payload())
