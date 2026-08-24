@@ -10,6 +10,14 @@ from quant_platform_kit.strategy_lifecycle.release_readiness import (
     RELEASE_READINESS_DIAGNOSTIC_SCHEMA_VERSION,
     assess_strategy_release_readiness,
 )
+from quant_platform_kit.data.multisource_assurance import (
+    SOURCE_OBSERVATION_READY,
+    DailyBar,
+    DailyBarSourceObservation,
+    DailyBarSourceSnapshot,
+    MultiSourceDailyBarPolicy,
+    assess_multisource_daily_bars,
+)
 
 
 def _evidence_result(*, profile: str = "soxl_soxx_trend_income", revision: str = "a" * 40) -> EvidenceGateResult:
@@ -53,6 +61,33 @@ def _readiness_kwargs(root: Path) -> dict[str, object]:
         "evidence_path": evidence,
         "plugin_bundle_paths": (plugin,),
     }
+
+
+def _verified_data_assurance():
+    policy = MultiSourceDailyBarPolicy(
+        scope_id="us-equity:soxl-daily",
+        symbol="SOXL",
+        date_cutoff="2026-08-21",
+        adjustment_basis="total_return_adjusted",
+        required_source_ids=("source_a", "source_b"),
+    )
+    bar = DailyBar("2026-08-21", 100.0, 102.0, 99.0, 101.0, 1_000_000)
+    observations = tuple(
+        DailyBarSourceObservation(
+            source_id,
+            SOURCE_OBSERVATION_READY,
+            DailyBarSourceSnapshot(
+                source_id=source_id,
+                symbol="SOXL",
+                date_cutoff="2026-08-21",
+                adjustment_basis="total_return_adjusted",
+                source_artifact_sha256=digest * 64,
+                bars=(bar,),
+            ),
+        )
+        for source_id, digest in (("source_a", "a"), ("source_b", "b"))
+    )
+    return assess_multisource_daily_bars(policy, observations)
 
 
 def test_ready_evidence_and_artifacts_build_an_immutable_manifest(tmp_path: Path) -> None:
@@ -123,3 +158,38 @@ def test_plugin_bundle_identity_is_content_based_not_workspace_based(tmp_path: P
     assert first_readiness.is_ready
     assert second_readiness.is_ready
     assert first_readiness.plugin_bundle_sha256 == second_readiness.plugin_bundle_sha256
+
+
+def test_verified_data_assurance_can_be_required_and_binds_the_manifest(tmp_path: Path) -> None:
+    kwargs = _readiness_kwargs(tmp_path)
+    assurance = _verified_data_assurance()
+    with patch(
+        "quant_platform_kit.strategy_lifecycle.release_readiness.validate_evidence_package_file",
+        return_value=_evidence_result(),
+    ):
+        readiness = assess_strategy_release_readiness(
+            **kwargs,
+            data_assurance=assurance,
+            require_data_assurance=True,
+        )
+
+    manifest = readiness.build_manifest()
+
+    assert readiness.is_ready
+    assert readiness.data_assurance_sha256 == assurance.report_sha256
+    assert manifest.data_assurance_sha256 == assurance.report_sha256
+    assert readiness.to_diagnostic()["data_assurance_sha256"] == assurance.report_sha256
+
+
+def test_required_data_assurance_fails_closed_when_missing_or_degraded(tmp_path: Path) -> None:
+    kwargs = _readiness_kwargs(tmp_path)
+    degraded = assess_multisource_daily_bars(_verified_data_assurance().policy, ())
+    with patch(
+        "quant_platform_kit.strategy_lifecycle.release_readiness.validate_evidence_package_file",
+        return_value=_evidence_result(),
+    ):
+        missing = assess_strategy_release_readiness(**kwargs, require_data_assurance=True)
+        rejected = assess_strategy_release_readiness(**kwargs, data_assurance=degraded)
+
+    assert missing.findings == ("data_assurance_missing",)
+    assert "data_assurance_not_verified" in rejected.findings

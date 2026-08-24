@@ -76,6 +76,7 @@ class StrategyReleaseManifest:
     targets: tuple[str, ...]
     supersedes: str | None = None
     rollback_to: str | None = None
+    data_assurance_sha256: str | None = None
 
     def __post_init__(self) -> None:
         release_id = _required_text(self.release_id, field_name="release_id")
@@ -117,6 +118,12 @@ class StrategyReleaseManifest:
         object.__setattr__(self, "targets", _normalize_targets(self.targets))
         object.__setattr__(self, "supersedes", _optional_text(self.supersedes))
         object.__setattr__(self, "rollback_to", _optional_text(self.rollback_to))
+        assurance = _optional_text(self.data_assurance_sha256)
+        object.__setattr__(
+            self,
+            "data_assurance_sha256",
+            None if assurance is None else _normalize_sha256(assurance, field_name="data_assurance_sha256"),
+        )
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
