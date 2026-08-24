@@ -161,6 +161,23 @@ class AzureObjectStore:
         )
         return uri
 
+    def create_text(self, uri: str, data: str, content_type: str = "text/plain") -> bool:
+        """Create a blob only if it does not already exist."""
+        _, container, blob = self._parse_uri(uri)
+        try:
+            self._get_blob_client(container, blob).upload_blob(
+                data.encode("utf-8"),
+                overwrite=False,
+                content_settings={"content_type": content_type},
+            )
+            return True
+        except Exception as exc:
+            from azure.core.exceptions import ResourceExistsError
+
+            if isinstance(exc, ResourceExistsError):
+                return False
+            raise
+
     def write_bytes(self, uri: str, data: bytes, content_type: str = "application/octet-stream") -> str:
         account, container, blob = self._parse_uri(uri)
         self._get_blob_client(container, blob).upload_blob(

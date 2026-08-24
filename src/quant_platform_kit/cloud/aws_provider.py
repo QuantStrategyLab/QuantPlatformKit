@@ -115,6 +115,24 @@ class AwsObjectStore:
         self.client.put_object(Bucket=bucket, Key=key, Body=data.encode("utf-8"), ContentType=content_type)
         return uri
 
+    def create_text(self, uri: str, data: str, content_type: str = "text/plain") -> bool:
+        """Create an object only if it does not already exist."""
+        bucket, key = self._parse_uri(uri)
+        try:
+            self.client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=data.encode("utf-8"),
+                ContentType=content_type,
+                IfNoneMatch="*",
+            )
+            return True
+        except self.client.exceptions.ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in {"PreconditionFailed", "412", "ConditionalRequestConflict"}:
+                return False
+            raise
+
     def write_bytes(self, uri: str, data: bytes, content_type: str = "application/octet-stream") -> str:
         bucket, key = self._parse_uri(uri)
         self.client.put_object(Bucket=bucket, Key=key, Body=data, ContentType=content_type)
