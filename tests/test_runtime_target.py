@@ -3,9 +3,11 @@ from __future__ import annotations
 import unittest
 
 from quant_platform_kit.common.runtime_target import (
+    RuntimeExecutionEnvironment,
     RuntimeTarget,
     build_runtime_context_fields,
     build_runtime_target,
+    resolve_runtime_execution_environment,
     resolve_runtime_target_from_env,
 )
 
@@ -46,6 +48,7 @@ class RuntimeTargetTests(unittest.TestCase):
         self.assertEqual(target.platform_id, "longbridge")
         self.assertEqual(target.strategy_profile, "soxl_soxx_trend_income")
         self.assertEqual(target.execution_mode, "paper")
+        self.assertEqual(target.execution_environment, RuntimeExecutionEnvironment.DRY_RUN)
         self.assertEqual(target.deployment_selector, "HK")
         self.assertEqual(target.account_selector, ("U123",))
         self.assertEqual(target.account_scope, "hk")
@@ -65,6 +68,7 @@ class RuntimeTargetTests(unittest.TestCase):
         )
 
         self.assertEqual(target.execution_mode, "live")
+        self.assertEqual(target.execution_environment, RuntimeExecutionEnvironment.LIVE)
         self.assertEqual(target.account_selector, ())
 
     def test_runtime_target_carries_complete_strategy_release_identity(self) -> None:
@@ -132,6 +136,7 @@ class RuntimeTargetTests(unittest.TestCase):
         self.assertEqual(target.strategy_profile, "global_etf_rotation")
         self.assertTrue(target.dry_run_only)
         self.assertEqual(target.execution_mode, "paper")
+        self.assertEqual(target.execution_environment, RuntimeExecutionEnvironment.DRY_RUN)
         self.assertEqual(target.deployment_selector, "HK")
         self.assertEqual(target.account_selector, ("HK",))
         self.assertEqual(target.account_scope, "HK")
@@ -154,6 +159,35 @@ class RuntimeTargetTests(unittest.TestCase):
             },
             expected_platform_id="schwab",
         )
+
+    def test_runtime_target_supports_explicit_broker_paper_environment(self) -> None:
+        target = resolve_runtime_target_from_env(
+            env={
+                "RUNTIME_TARGET_JSON": (
+                    '{"platform_id":"ibkr","strategy_profile":"global_etf_rotation",'
+                    '"dry_run_only":false,"execution_mode":"live",'
+                    '"execution_environment":"paper"}'
+                )
+            },
+            expected_platform_id="ibkr",
+        )
+
+        self.assertFalse(target.dry_run_only)
+        self.assertEqual(target.execution_mode, "live")
+        self.assertEqual(target.execution_environment, RuntimeExecutionEnvironment.PAPER)
+        self.assertEqual(target.to_dict()["execution_environment"], "paper")
+
+    def test_runtime_execution_environment_rejects_ambiguous_combinations(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires execution_environment=dry_run"):
+            resolve_runtime_execution_environment(
+                dry_run_only=True,
+                execution_environment="paper",
+            )
+        with self.assertRaisesRegex(ValueError, "requires dry_run_only=true"):
+            resolve_runtime_execution_environment(
+                dry_run_only=False,
+                execution_environment="dry_run",
+            )
 
     def test_resolve_runtime_target_from_env_rejects_partial_market_metadata(self) -> None:
         with self.assertRaisesRegex(ValueError, "market metadata must include"):
