@@ -270,5 +270,6 @@ def test_staged_pin_auto_advance_is_limited_to_verified_machine_prs() -> None:
     assert 'if [ "$files" != "QPK_PIN" ]; then' in workflow
     assert "candidate_is_not_on_main_history" in workflow
     assert "actions/checkout" not in workflow
+    assert "secrets.QSL_REPO_SYNC_TOKEN || github.token" in workflow
     assert "--auto --rebase --delete-branch" in workflow
     assert "--match-head-commit" in workflow
