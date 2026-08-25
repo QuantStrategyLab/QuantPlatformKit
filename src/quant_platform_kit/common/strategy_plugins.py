@@ -321,9 +321,38 @@ class StrategyPluginSignal:
             "suggested_action": self.suggested_action,
             "would_trade_if_enabled": self.would_trade_if_enabled,
             "execution_controls": dict(self.execution_controls),
+            "runtime_consumption": _strategy_plugin_runtime_consumption_summary(self),
             "source_uri": self.source_uri,
             "local_path": self.local_path,
         }
+
+
+def _strategy_plugin_runtime_consumption_summary(signal: StrategyPluginSignal) -> dict[str, Any]:
+    """Describe the authority actually granted to a loaded sidecar.
+
+    Artifact controls remain in ``execution_controls`` as source evidence.  This
+    separate summary prevents a legacy artifact from making a runtime report
+    look authorized when the shared runtime deliberately clamps all direct
+    position control to shadow-only metadata.
+    """
+
+    controls = _strategy_plugin_execution_controls(signal)
+    policy = _strategy_plugin_consumption_policy(signal)
+    artifact_position_control_requested = _as_bool(
+        controls.get("position_control_allowed"), default=False
+    ) or _as_bool(policy.get("position_control_allowed"), default=False)
+    direct_position_control_allowed = bool(STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED)
+    return {
+        "authority": (
+            "direct_position_control" if direct_position_control_allowed else "shadow_only"
+        ),
+        "direct_position_control_allowed": direct_position_control_allowed,
+        "broker_order_allowed": False,
+        "live_allocation_mutation_allowed": False,
+        "runtime_metadata_non_authoritative": not direct_position_control_allowed,
+        "artifact_position_control_requested": artifact_position_control_requested,
+        "artifact_schema_is_legacy_v1": signal.schema_version.endswith(".v1"),
+    }
 
 
 @dataclass(frozen=True)

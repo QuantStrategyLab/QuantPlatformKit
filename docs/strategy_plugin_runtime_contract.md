@@ -164,6 +164,12 @@ The loader validates:
 For `shadow`, platform runtimes should only add logs, runtime report fields, and
 notification context.
 
+Runtime reports retain an artifact's source `execution_controls` for audit, and
+also publish `runtime_consumption`. Operators must use the latter for the
+effective authority: the current shared contract reports `authority=shadow_only`,
+`direct_position_control_allowed=false`, and no broker or live-allocation
+permission even when a legacy V1 artifact requests position control.
+
 Artifacts may include display-only i18n fields:
 
 - `localized_messages.schema_version = strategy_plugin_messages.v1`

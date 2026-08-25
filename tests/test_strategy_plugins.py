@@ -555,7 +555,32 @@ class StrategyPluginsTests(unittest.TestCase):
 
         self.assertEqual(report_payload["strategy_plugins"][0]["strategy"], "tqqq_growth_income")
         self.assertEqual(report_payload["strategy_plugins"][0]["plugin"], "crisis_response_shadow")
+        runtime_consumption = report_payload["strategy_plugins"][0]["runtime_consumption"]
+        self.assertEqual(runtime_consumption["authority"], "shadow_only")
+        self.assertFalse(runtime_consumption["direct_position_control_allowed"])
+        self.assertFalse(runtime_consumption["broker_order_allowed"])
+        self.assertTrue(runtime_consumption["artifact_schema_is_legacy_v1"])
         self.assertNotIn("payload", report_payload["strategy_plugins"][0])
+
+    def test_runtime_report_separates_legacy_position_request_from_runtime_authority(self):
+        signal = validate_strategy_plugin_signal_payload(
+            {
+                **_signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL),
+                "execution_controls": _auditable_position_control_controls(),
+                "consumption_policy": {
+                    "position_control_allowed": True,
+                    "evidence_status": "automation_approved",
+                },
+            }
+        )
+
+        runtime_consumption = signal.report_summary()["runtime_consumption"]
+
+        self.assertTrue(runtime_consumption["artifact_position_control_requested"])
+        self.assertEqual(runtime_consumption["authority"], "shadow_only")
+        self.assertFalse(runtime_consumption["direct_position_control_allowed"])
+        self.assertTrue(runtime_consumption["runtime_metadata_non_authoritative"])
+        self.assertTrue(runtime_consumption["artifact_schema_is_legacy_v1"])
 
     def test_attach_strategy_plugin_metadata_adds_payloads_to_snapshot(self):
         signal = validate_strategy_plugin_signal_payload(
