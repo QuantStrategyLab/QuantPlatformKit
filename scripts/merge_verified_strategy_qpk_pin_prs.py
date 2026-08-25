@@ -40,6 +40,8 @@ QPK_REF_RE = re.compile(
     re.IGNORECASE,
 )
 AUTOMATION_AUTHOR = "Pigbibi"
+GENERATED_BRANCH_PREFIX = "auto/qpk-pin-sync-"
+GENERATED_TITLE_PREFIX = "chore(deps): align QPK pin to "
 
 
 def run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -63,7 +65,7 @@ def candidate_reason(
 ) -> str | None:
     """Return a fail-closed reason when a generated PR is not mergeable."""
 
-    expected_title = f"chore(deps): align QPK pin to {qpk_sha[:12]}"
+    expected_title = f"{GENERATED_TITLE_PREFIX}{qpk_sha[:12]}"
     author = (pr.get("author") or {}).get("login")
     if author != AUTOMATION_AUTHOR:
         return "unexpected_author"
@@ -83,6 +85,24 @@ def candidate_reason(
 
     if set(QPK_REF_RE.findall(pyproject_text)) != {qpk_sha}:
         return "qpk_pin_mismatch"
+    return None
+
+
+def superseded_pr_reason(*, pr: dict[str, Any], current_branch: str) -> str | None:
+    """Return a reason unless this is a safely recognizable obsolete PR."""
+
+    author = (pr.get("author") or {}).get("login")
+    if author != AUTOMATION_AUTHOR:
+        return "unexpected_author"
+    if pr.get("baseRefName") != "main" or pr.get("isCrossRepository") or pr.get("isDraft"):
+        return "unexpected_pr_target"
+    head_ref = pr.get("headRefName") or ""
+    if head_ref == current_branch:
+        return "current_branch"
+    if not head_ref.startswith(GENERATED_BRANCH_PREFIX):
+        return "unexpected_branch"
+    if not (pr.get("title") or "").startswith(GENERATED_TITLE_PREFIX):
+        return "unexpected_title"
     return None
 
 
@@ -109,18 +129,45 @@ def open_pr_payload(repo: RepoSpec, branch: str, *, env: dict[str, str]) -> dict
         raise RuntimeError(f"ambiguous_generated_prs:count={len(payload)}")
     pr_number = str(payload[0]["number"])
     return _json(
+        pr_view_command(repo, pr_number),
+        env=env,
+    )
+
+
+def pr_view_command(repo: RepoSpec, pr_number: str) -> list[str]:
+    return [
+        "gh",
+        "pr",
+        "view",
+        pr_number,
+        "--repo",
+        f"QuantStrategyLab/{repo.name}",
+        "--json",
+        "author,baseRefName,headRefName,headRefOid,isCrossRepository,isDraft,number,statusCheckRollup,title,url",
+    ]
+
+
+def open_generated_prs(repo: RepoSpec, *, env: dict[str, str]) -> list[dict[str, Any]]:
+    payload = _json(
         [
             "gh",
             "pr",
-            "view",
-            pr_number,
+            "list",
             "--repo",
             f"QuantStrategyLab/{repo.name}",
+            "--state",
+            "open",
+            "--limit",
+            "100",
             "--json",
-            "author,baseRefName,headRefName,headRefOid,isCrossRepository,isDraft,number,statusCheckRollup,title,url",
+            "number",
         ],
         env=env,
     )
+    return [
+        _json(pr_view_command(repo, str(item["number"])), env=env)
+        for item in payload
+    ]
 
 
 def changed_files(repo: RepoSpec, pr_number: int, *, env: dict[str, str]) -> list[str]:
@@ -171,10 +218,71 @@ def merge_candidate(repo: RepoSpec, pr: dict[str, Any], *, env: dict[str, str]) 
     )
 
 
+def qpk_ref_from_pyproject(text: str) -> str | None:
+    refs = set(QPK_REF_RE.findall(text))
+    return next(iter(refs)) if len(refs) == 1 else None
+
+
+def is_main_history_ancestor(*, candidate_sha: str, qpk_sha: str, env: dict[str, str]) -> bool:
+    status = run(
+        [
+            "gh",
+            "api",
+            f"repos/QuantStrategyLab/QuantPlatformKit/compare/{candidate_sha}...{qpk_sha}",
+            "--jq",
+            ".status",
+        ],
+        env=env,
+    ).stdout.strip()
+    return status == "ahead"
+
+
+def close_superseded_candidates(
+    repo: RepoSpec,
+    *,
+    current_branch: str,
+    qpk_sha: str,
+    env: dict[str, str],
+) -> list[str]:
+    """Close only fully recognizable older pins that lead to the current pin."""
+
+    results: list[str] = []
+    for pr in open_generated_prs(repo, env=env):
+        reason = superseded_pr_reason(pr=pr, current_branch=current_branch)
+        if reason is not None:
+            continue
+        old_qpk_sha = qpk_ref_from_pyproject(pyproject_text(repo, pr["headRefOid"], env=env))
+        if old_qpk_sha is None or not is_main_history_ancestor(
+            candidate_sha=old_qpk_sha,
+            qpk_sha=qpk_sha,
+            env=env,
+        ):
+            continue
+        run(
+            [
+                "gh",
+                "pr",
+                "close",
+                str(pr["number"]),
+                "--repo",
+                f"QuantStrategyLab/{repo.name}",
+                "--delete-branch",
+            ],
+            env=env,
+        )
+        results.append(str(pr["number"]))
+    return results
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Merge verified generated strategy QPK pin PRs.")
     parser.add_argument("--qpk-sha", required=True)
     parser.add_argument("--token-env", default="QSL_REPO_SYNC_TOKEN")
+    parser.add_argument(
+        "--close-superseded",
+        action="store_true",
+        help="Close only verified older generated strategy pin PRs after a current PR is green.",
+    )
     return parser.parse_args()
 
 
@@ -207,6 +315,15 @@ def main() -> int:
                 continue
             merge_candidate(repo, pr, env=env)
             print(f"{repo.name}: queued:{pr['url']}")
+            if args.close_superseded:
+                closed = close_superseded_candidates(
+                    repo,
+                    current_branch=branch,
+                    qpk_sha=qpk_sha,
+                    env=env,
+                )
+                if closed:
+                    print(f"{repo.name}: closed_superseded:{','.join(closed)}")
         except (RuntimeError, subprocess.CalledProcessError, ValueError, UnicodeDecodeError) as exc:
             failures += 1
             if isinstance(exc, subprocess.CalledProcessError):
