@@ -100,6 +100,18 @@ from .runtime_command_gate import (
     evaluate_runtime_command_gate,
     normalize_runtime_command_integrity_findings,
 )
+from .paper_execution_admission import (
+    PAPER_RISK_ADMISSION_RECEIPT_INTENT_FIELD,
+    PAPER_RISK_ADMISSION_RECEIPT_SCHEMA_VERSION,
+    PaperExecutionAdmissionDecision,
+    PaperExecutionAdmissionFinding,
+    PaperRiskAdmissionDisposition,
+    PaperRiskAdmissionReceipt,
+    build_paper_risk_admission_receipt,
+    calculate_paper_risk_admission_receipt_sha256,
+    canonical_paper_risk_admission_receipt_json,
+    evaluate_paper_execution_admission,
+)
 from .runtime_logging import (
     RuntimeLogContext,
     build_run_id,
@@ -334,4 +346,14 @@ __all__ = [
     "RuntimeCommandGatePolicy",
     "evaluate_runtime_command_gate",
     "normalize_runtime_command_integrity_findings",
+    "PAPER_RISK_ADMISSION_RECEIPT_INTENT_FIELD",
+    "PAPER_RISK_ADMISSION_RECEIPT_SCHEMA_VERSION",
+    "PaperExecutionAdmissionDecision",
+    "PaperExecutionAdmissionFinding",
+    "PaperRiskAdmissionDisposition",
+    "PaperRiskAdmissionReceipt",
+    "build_paper_risk_admission_receipt",
+    "calculate_paper_risk_admission_receipt_sha256",
+    "canonical_paper_risk_admission_receipt_json",
+    "evaluate_paper_execution_admission",
 ]

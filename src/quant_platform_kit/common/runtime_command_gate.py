@@ -85,6 +85,14 @@ class RuntimeCommandIntegrityFinding(str, Enum):
     MANUAL_KILL_SWITCH = "manual_kill_switch"
     PLUGIN_INVALID = "plugin_invalid"
     POSITION_RECONCILIATION_MISMATCH = "position_reconciliation_mismatch"
+    PAPER_EXECUTION_MODE_INVALID = "paper_execution_mode_invalid"
+    PAPER_RISK_ADMISSION_COMMAND_MISMATCH = "paper_risk_admission_command_mismatch"
+    PAPER_RISK_ADMISSION_HALTED = "paper_risk_admission_halted"
+    PAPER_RISK_ADMISSION_POLICY_MISMATCH = "paper_risk_admission_policy_mismatch"
+    PAPER_RISK_ADMISSION_RECEIPT_INVALID = "paper_risk_admission_receipt_invalid"
+    PAPER_RISK_ADMISSION_RECEIPT_MISSING = "paper_risk_admission_receipt_missing"
+    PAPER_RISK_ADMISSION_RELEASE_MISMATCH = "paper_risk_admission_release_mismatch"
+    PAPER_RISK_ADMISSION_REDUCING_ONLY = "paper_risk_admission_reducing_only"
     RELEASE_IDENTITY_INVALID = "release_identity_invalid"
     RELEASE_IDENTITY_MISMATCH = "release_identity_mismatch"
     RELEASE_RECEIPT_MISSING = "release_receipt_missing"
@@ -111,6 +119,13 @@ _HALTING_FINDINGS = frozenset(
         RuntimeCommandIntegrityFinding.EXECUTION_REPLAY_DETECTED.value,
         RuntimeCommandIntegrityFinding.INVALID_EFFECTIVE_SESSION.value,
         RuntimeCommandIntegrityFinding.MANUAL_KILL_SWITCH.value,
+        RuntimeCommandIntegrityFinding.PAPER_EXECUTION_MODE_INVALID.value,
+        RuntimeCommandIntegrityFinding.PAPER_RISK_ADMISSION_COMMAND_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.PAPER_RISK_ADMISSION_HALTED.value,
+        RuntimeCommandIntegrityFinding.PAPER_RISK_ADMISSION_POLICY_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.PAPER_RISK_ADMISSION_RECEIPT_INVALID.value,
+        RuntimeCommandIntegrityFinding.PAPER_RISK_ADMISSION_RECEIPT_MISSING.value,
+        RuntimeCommandIntegrityFinding.PAPER_RISK_ADMISSION_RELEASE_MISMATCH.value,
         RuntimeCommandIntegrityFinding.PLUGIN_INVALID.value,
         RuntimeCommandIntegrityFinding.POSITION_RECONCILIATION_MISMATCH.value,
         RuntimeCommandIntegrityFinding.RELEASE_IDENTITY_INVALID.value,
@@ -124,6 +139,7 @@ _REDUCING_FINDINGS = frozenset(
         RuntimeCommandIntegrityFinding.DATA_ARTIFACT_INVALID.value,
         RuntimeCommandIntegrityFinding.DATA_UNAVAILABLE.value,
         RuntimeCommandIntegrityFinding.DATA_STALE.value,
+        RuntimeCommandIntegrityFinding.PAPER_RISK_ADMISSION_REDUCING_ONLY.value,
     }
 )
 _KNOWN_INTEGRITY_FINDINGS = _HALTING_FINDINGS | _REDUCING_FINDINGS
