@@ -33,6 +33,7 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SOURCE_OBSERVATION_STATUSES = frozenset(
     {SOURCE_OBSERVATION_READY, SOURCE_OBSERVATION_UNAVAILABLE, SOURCE_OBSERVATION_INVALID}
 )
+_PRICE_FIELDS = frozenset({"open", "high", "low", "close"})
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -219,6 +220,8 @@ class MultiSourceDailyBarPolicy:
     minimum_ready_sources: int = 2
     price_relative_tolerance: float = 0.0001
     volume_relative_tolerance: float = 0.05
+    required_price_fields: tuple[str, ...] = ("open", "high", "low", "close")
+    compare_volume: bool = True
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "scope_id", _require_identifier(self.scope_id, field_name="scope_id"))
@@ -253,6 +256,19 @@ class MultiSourceDailyBarPolicy:
             "volume_relative_tolerance",
             _require_nonnegative_float(self.volume_relative_tolerance, field_name="volume_relative_tolerance"),
         )
+        try:
+            price_fields = tuple(self.required_price_fields)
+        except TypeError as exc:
+            raise ValueError("required_price_fields must be a non-empty sequence") from exc
+        if (
+            not price_fields
+            or any(not isinstance(field_name, str) or field_name not in _PRICE_FIELDS for field_name in price_fields)
+            or len(set(price_fields)) != len(price_fields)
+        ):
+            raise ValueError("required_price_fields must contain unique OHLC field names")
+        if not isinstance(self.compare_volume, bool):
+            raise ValueError("compare_volume must be a boolean")
+        object.__setattr__(self, "required_price_fields", price_fields)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -264,6 +280,8 @@ class MultiSourceDailyBarPolicy:
             "minimum_ready_sources": self.minimum_ready_sources,
             "price_relative_tolerance": self.price_relative_tolerance,
             "volume_relative_tolerance": self.volume_relative_tolerance,
+            "required_price_fields": list(self.required_price_fields),
+            "compare_volume": self.compare_volume,
         }
 
     @property
@@ -362,8 +380,9 @@ def assess_multisource_daily_bars(
 
     A healthy source is never enough by itself.  If a configured source is
     unavailable, malformed, on a different adjustment basis, or disagrees on
-    sessions/OHLCV, the result is non-publishable.  Callers may still retain a
-    source-specific artifact for diagnostics or shadow research.
+    sessions, policy-declared price fields, or policy-required volume, the
+    result is non-publishable. Callers may still retain a source-specific
+    artifact for diagnostics or shadow research.
     """
 
     if not isinstance(policy, MultiSourceDailyBarPolicy):
@@ -454,14 +473,15 @@ def _compare_snapshots(
         if any(
             _relative_delta(getattr(left, field_name), getattr(right, field_name))
             > policy.price_relative_tolerance
-            for field_name in ("open", "high", "low", "close")
+            for field_name in policy.required_price_fields
         ):
             _append_finding(findings, "daily_bar_price_divergence")
             break
-    for left, right in zip(baseline.bars, candidate.bars):
-        if _relative_delta(left.volume, right.volume) > policy.volume_relative_tolerance:
-            _append_finding(findings, "daily_bar_volume_divergence")
-            break
+    if policy.compare_volume:
+        for left, right in zip(baseline.bars, candidate.bars):
+            if _relative_delta(left.volume, right.volume) > policy.volume_relative_tolerance:
+                _append_finding(findings, "daily_bar_volume_divergence")
+                break
 
 
 def _append_finding(findings: list[str], finding: str) -> None:
