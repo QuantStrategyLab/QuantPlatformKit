@@ -79,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           qpk_sha=$(tr -d '[:space:]' < QPK_PIN)
-          python3 scripts/merge_verified_strategy_qpk_pin_prs.py --qpk-sha "$qpk_sha"
+          python3 scripts/merge_verified_strategy_qpk_pin_prs.py --qpk-sha "$qpk_sha" --close-superseded
 
       - name: Summarize missing token
         if: steps.sync.outputs.missing_token == 'true'
