@@ -16,13 +16,13 @@ class FakeIB:
     def positions(self):
         return [
             SimpleNamespace(
-                account="U18308207",
+                account="U00000001",
                 contract=SimpleNamespace(symbol="TQQQ"),
                 position=3,
                 avgCost=100.0,
             ),
             SimpleNamespace(
-                account="U18308207",
+                account="U00000001",
                 contract=SimpleNamespace(
                     symbol="TQQQ",
                     secType="OPT",
@@ -35,7 +35,7 @@ class FakeIB:
                 avgCost=3200.0,
             ),
             SimpleNamespace(
-                account="U15998061",
+                account="U00000000",
                 contract=SimpleNamespace(symbol="AAPL"),
                 position=5,
                 avgCost=200.0,
@@ -44,10 +44,10 @@ class FakeIB:
 
     def accountValues(self):
         return [
-            SimpleNamespace(account="U18308207", tag="NetLiquidation", currency="USD", value="1000"),
-            SimpleNamespace(account="U18308207", tag="AvailableFunds", currency="USD", value="250"),
-            SimpleNamespace(account="U15998061", tag="NetLiquidation", currency="USD", value="2000"),
-            SimpleNamespace(account="U15998061", tag="AvailableFunds", currency="USD", value="500"),
+            SimpleNamespace(account="U00000001", tag="NetLiquidation", currency="USD", value="1000"),
+            SimpleNamespace(account="U00000001", tag="AvailableFunds", currency="USD", value="250"),
+            SimpleNamespace(account="U00000000", tag="NetLiquidation", currency="USD", value="2000"),
+            SimpleNamespace(account="U00000000", tag="AvailableFunds", currency="USD", value="500"),
         ]
 
 
@@ -55,14 +55,14 @@ class IbkrPortfolioTests(unittest.TestCase):
     def test_fetch_portfolio_snapshot_filters_by_account_id(self) -> None:
         ib = FakeIB()
 
-        snapshot = fetch_portfolio_snapshot(ib, account_ids=("U18308207",), wait_seconds=0)
+        snapshot = fetch_portfolio_snapshot(ib, account_ids=("U00000001",), wait_seconds=0)
 
         self.assertTrue(ib.req_positions_called)
         self.assertEqual(snapshot.total_equity, 1000.0)
         self.assertEqual(snapshot.buying_power, 250.0)
         self.assertEqual(tuple(position.symbol for position in snapshot.positions), ("TQQQ",))
-        self.assertEqual(snapshot.positions[0].account_id, "U18308207")
-        self.assertEqual(snapshot.metadata["account_ids"], ("U18308207",))
+        self.assertEqual(snapshot.positions[0].account_id, "U00000001")
+        self.assertEqual(snapshot.metadata["account_ids"], ("U00000001",))
         self.assertEqual(snapshot.metadata["option_positions"][0]["underlier"], "TQQQ")
         self.assertEqual(snapshot.metadata["option_positions"][0]["right"], "C")
         self.assertEqual(snapshot.metadata["option_positions"][0]["strike"], 70.0)
@@ -70,7 +70,7 @@ class IbkrPortfolioTests(unittest.TestCase):
     def test_fetch_portfolio_snapshot_sums_selected_accounts(self) -> None:
         snapshot = fetch_portfolio_snapshot(
             FakeIB(),
-            account_ids=("U18308207", "U15998061"),
+            account_ids=("U00000001", "U00000000"),
             wait_seconds=0,
         )
 
