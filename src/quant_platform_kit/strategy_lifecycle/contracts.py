@@ -541,6 +541,7 @@ class UpdateStage(str, enum.Enum):
     DENIED = "denied"
     DEPLOYED = "deployed"
     RUNTIME_CONFIRMED = "runtime_confirmed"
+    ROLLBACK_PROPOSED = "rollback_proposed"
     ROLLED_BACK = "rolled_back"
 
 
