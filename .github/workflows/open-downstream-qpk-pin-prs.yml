@@ -54,7 +54,7 @@ jobs:
 
       - name: Create coherent aggregate bundle PR
         if: steps.sync.outputs.missing_token != 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.8
         with:
           token: ${{ secrets.QSL_REPO_SYNC_TOKEN }}
           commit-message: "chore(deps): reconcile coherent QSL pin bundle"

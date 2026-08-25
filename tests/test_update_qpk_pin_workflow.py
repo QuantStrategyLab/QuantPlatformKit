@@ -9,6 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "update-qpk-pin.yml"
 DOWNSTREAM_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "open-downstream-qpk-pin-prs.yml"
+STAGED_PIN_GUARD_WORKFLOW_PATH = (
+    ROOT / ".github" / "workflows" / "advance-staged-qpk-pin.yml"
+)
 OLD_QPK_SHA = "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
 STRATEGY_REFS = {
     "us-equity-strategies": (
@@ -249,3 +252,23 @@ def test_downstream_rollout_is_scheduled_and_phase_gated() -> None:
     assert "- consumers" in workflow
     assert 'open_downstream_qpk_pin_prs.py --phase "$QSL_PIN_PHASE"' in workflow
     assert "Create coherent aggregate bundle PR" in workflow
+    assert "peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676" in workflow
+    assert "peter-evans/create-pull-request@v7" not in workflow
+
+
+def test_staged_pin_auto_advance_is_limited_to_verified_machine_prs() -> None:
+    workflow = STAGED_PIN_GUARD_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert 'workflows: ["CI"]' in workflow
+    assert "github.event.workflow_run.conclusion == 'success'" in workflow
+    assert "github.event.workflow_run.head_branch == 'auto/qpk-pin-update'" in workflow
+    assert '"author") or {}).get("login") == "Pigbibi"' in workflow
+    assert 'pr.get("baseRefName") == "main"' in workflow
+    assert 'pr.get("headRefName") == "auto/qpk-pin-update"' in workflow
+    assert 'pr.get("title") == "chore: advance staged QPK pin"' in workflow
+    assert "not pr.get(\"isCrossRepository\")" in workflow
+    assert 'if [ "$files" != "QPK_PIN" ]; then' in workflow
+    assert "candidate_is_not_on_main_history" in workflow
+    assert "actions/checkout" not in workflow
+    assert "--auto --rebase --delete-branch" in workflow
+    assert "--match-head-commit" in workflow
