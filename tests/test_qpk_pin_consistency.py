@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import CalledProcessError
 
 from scripts.check_qpk_pin_consistency import (
     check_repo,
@@ -12,6 +13,7 @@ from scripts.check_qpk_pin_consistency import (
 from scripts.open_downstream_qpk_pin_prs import (
     CONSUMER_REPOS,
     STRATEGY_REPOS,
+    command_failure_summary,
     qpk_refs,
     update_aggregate_bundle,
     update_qsl_metadata_test_contract,
@@ -27,6 +29,16 @@ STALE = "37c81901160c5b31127a27dba1c63944933fb6bf"
 
 
 class QpkPinConsistencyTests(unittest.TestCase):
+    def test_command_failure_summary_omits_command_output(self) -> None:
+        exc = CalledProcessError(
+            2,
+            ["uv", "pip", "install", "--python", "/tmp/resolver/bin/python", "."],
+            output="do not log resolver output",
+            stderr="do not log resolver stderr",
+        )
+
+        self.assertEqual("command=uv:exit=2", command_failure_summary(exc))
+
     def test_rollout_tiers_keep_qmt_after_strategies(self) -> None:
         self.assertEqual(
             {
