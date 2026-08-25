@@ -1,0 +1,122 @@
+name: Advance Staged QPK Pin
+
+"on":
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  advance:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'auto/qpk-pin-update'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve the completed staged pin PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPLETED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          COMPLETED_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          pr_payload=$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --head "$COMPLETED_HEAD_BRANCH" \
+            --json number,headRefOid \
+            --jq '.[0] // {}')
+          pr_number=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("number", ""))' <<<"$pr_payload")
+          pr_head_sha=$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("headRefOid", ""))' <<<"$pr_payload")
+
+          if [ -z "$pr_number" ]; then
+            echo "No open staged QPK pin PR found." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$pr_head_sha" != "$COMPLETED_HEAD_SHA" ]; then
+            echo "Skipping stale CI result for PR #$pr_number." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo "number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$pr_head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce the staged-pin trust boundary
+        id: guard
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --json author,baseRefName,changedFiles,headRefName,isCrossRepository,isDraft,title,url > pr.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          pr = json.loads(Path("pr.json").read_text(encoding="utf-8"))
+          allowed = (
+              (pr.get("author") or {}).get("login") == "Pigbibi"
+              and pr.get("baseRefName") == "main"
+              and pr.get("headRefName") == "auto/qpk-pin-update"
+              and pr.get("title") == "chore: advance staged QPK pin"
+              and pr.get("changedFiles") == 1
+              and not pr.get("isCrossRepository")
+              and not pr.get("isDraft")
+          )
+          reason = "ready" if allowed else "unexpected_pr_metadata"
+          summary = [
+              "## Staged QPK Pin Gate",
+              f"- PR: {pr.get('url', '<unknown>')}",
+              f"- Author: `{(pr.get('author') or {}).get('login', '<unknown>')}`",
+              f"- Changed files: `{pr.get('changedFiles', '<unknown>')}`",
+              f"- Cross-repository: `{'yes' if pr.get('isCrossRepository') else 'no'}`",
+              f"- Decision: `{'advance' if allowed else 'skip'}`",
+              f"- Reason: `{reason}`",
+          ]
+          Path("staged-pin-summary.md").write_text("\n".join(summary) + "\n", encoding="utf-8")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"allowed={'true' if allowed else 'false'}", file=output)
+          PY
+
+          files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename')
+          if [ "$files" != "QPK_PIN" ]; then
+            echo "::error title=Staged QPK pin gate::unexpected_changed_files"
+            exit 1
+          fi
+
+          candidate=$(gh api "repos/$GITHUB_REPOSITORY/contents/QPK_PIN?ref=$PR_HEAD_SHA" --jq '.content' \
+            | base64 --decode | tr -d '\r\n')
+          if ! [[ "$candidate" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=Staged QPK pin gate::invalid_qpk_pin"
+            exit 1
+          fi
+
+          main_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          comparison=$(gh api "repos/$GITHUB_REPOSITORY/compare/$candidate...$main_sha" --jq '.status')
+          if [ "$comparison" != "ahead" ] && [ "$comparison" != "identical" ]; then
+            echo "::error title=Staged QPK pin gate::candidate_is_not_on_main_history"
+            exit 1
+          fi
+
+      - name: Append gate summary
+        if: steps.pr.outputs.number != ''
+        run: cat staged-pin-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Queue validated staged pin for merge
+        if: steps.guard.outputs.allowed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr merge "${{ steps.pr.outputs.number }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --auto --rebase --delete-branch \
+            --match-head-commit "${{ steps.pr.outputs.head_sha }}"

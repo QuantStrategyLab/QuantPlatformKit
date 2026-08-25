@@ -8,6 +8,7 @@ on:
       - "qsl-pins.txt"
       - "constraints.txt"
       - ".github/workflows/open-downstream-qpk-pin-prs.yml"
+      - ".github/workflows/advance-staged-qpk-pin.yml"
       - ".github/workflows/update-qpk-pin.yml"
       - "scripts/check_qpk_pin_consistency.py"
       - "scripts/open_downstream_qpk_pin_prs.py"
