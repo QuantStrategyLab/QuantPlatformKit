@@ -4,6 +4,7 @@ from scripts.merge_verified_strategy_qpk_pin_prs import (
     ALLOWED_CHANGED_FILES,
     candidate_reason,
     expected_branch,
+    process_repo,
     superseded_pr_reason,
 )
 from scripts.open_downstream_qpk_pin_prs import RepoSpec
@@ -79,3 +80,41 @@ def test_only_a_recognized_older_generated_pr_can_be_closed() -> None:
     manual = _pr()
     manual["headRefName"] = "codex/manual-dependency-change"
     assert superseded_pr_reason(pr=manual, current_branch=current_branch) == "unexpected_branch"
+
+
+def test_cleanup_runs_after_current_pin_has_already_merged(monkeypatch, capsys) -> None:
+    repo = RepoSpec("UsEquityStrategies")
+    monkeypatch.setattr(
+        "scripts.merge_verified_strategy_qpk_pin_prs.open_pr_payload",
+        lambda *_args, **_kwargs: None,
+    )
+    observed: dict[str, object] = {}
+
+    def close(repo_arg, *, current_branch, qpk_sha, env):
+        observed.update(
+            repo=repo_arg,
+            current_branch=current_branch,
+            qpk_sha=qpk_sha,
+            env=env,
+        )
+        return ["123"]
+
+    monkeypatch.setattr(
+        "scripts.merge_verified_strategy_qpk_pin_prs.close_superseded_candidates",
+        close,
+    )
+
+    process_repo(
+        repo,
+        qpk_sha=TARGET,
+        close_superseded=True,
+        env={"GH_TOKEN": "test"},
+    )
+
+    assert observed["repo"] == repo
+    assert observed["current_branch"] == expected_branch(repo, TARGET)
+    assert observed["qpk_sha"] == TARGET
+    assert capsys.readouterr().out.splitlines() == [
+        "UsEquityStrategies: no current generated PR",
+        "UsEquityStrategies: closed_superseded:123",
+    ]

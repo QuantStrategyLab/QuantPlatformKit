@@ -286,6 +286,48 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def process_repo(
+    repo: RepoSpec,
+    *,
+    qpk_sha: str,
+    close_superseded: bool,
+    env: dict[str, str],
+) -> None:
+    """Queue the current pin when eligible, then retire verified older pins.
+
+    A current generated PR may already have merged by the time the hourly
+    workflow runs again.  Cleanup must therefore be independent of finding an
+    open current PR; otherwise historical proposal branches accumulate forever.
+    """
+
+    branch = expected_branch(repo, qpk_sha)
+    pr = open_pr_payload(repo, branch, env=env)
+    if pr is None:
+        print(f"{repo.name}: no current generated PR")
+    else:
+        reason = candidate_reason(
+            pr=pr,
+            changed_files=changed_files(repo, int(pr["number"]), env=env),
+            pyproject_text=pyproject_text(repo, pr["headRefOid"], env=env),
+            qpk_sha=qpk_sha,
+        )
+        if reason is not None:
+            print(f"{repo.name}: skipped:{reason}")
+        else:
+            merge_candidate(repo, pr, env=env)
+            print(f"{repo.name}: queued:{pr['url']}")
+
+    if close_superseded:
+        closed = close_superseded_candidates(
+            repo,
+            current_branch=branch,
+            qpk_sha=qpk_sha,
+            env=env,
+        )
+        if closed:
+            print(f"{repo.name}: closed_superseded:{','.join(closed)}")
+
+
 def main() -> int:
     args = parse_args()
     qpk_sha = args.qpk_sha.strip()
@@ -299,31 +341,12 @@ def main() -> int:
     failures = 0
     for repo in STRATEGY_REPOS:
         try:
-            branch = expected_branch(repo, qpk_sha)
-            pr = open_pr_payload(repo, branch, env=env)
-            if pr is None:
-                print(f"{repo.name}: no current generated PR")
-                continue
-            reason = candidate_reason(
-                pr=pr,
-                changed_files=changed_files(repo, int(pr["number"]), env=env),
-                pyproject_text=pyproject_text(repo, pr["headRefOid"], env=env),
+            process_repo(
+                repo,
                 qpk_sha=qpk_sha,
+                close_superseded=args.close_superseded,
+                env=env,
             )
-            if reason is not None:
-                print(f"{repo.name}: skipped:{reason}")
-                continue
-            merge_candidate(repo, pr, env=env)
-            print(f"{repo.name}: queued:{pr['url']}")
-            if args.close_superseded:
-                closed = close_superseded_candidates(
-                    repo,
-                    current_branch=branch,
-                    qpk_sha=qpk_sha,
-                    env=env,
-                )
-                if closed:
-                    print(f"{repo.name}: closed_superseded:{','.join(closed)}")
         except (RuntimeError, subprocess.CalledProcessError, ValueError, UnicodeDecodeError) as exc:
             failures += 1
             if isinstance(exc, subprocess.CalledProcessError):
