@@ -380,6 +380,13 @@ def evaluate_paper_execution_admission(
     except (TypeError, ValueError):
         return _halted(command, [PaperExecutionAdmissionFinding.RECEIPT_INVALID.value])
 
+    # ``decision_digest`` is the producer's immutable strategy-decision
+    # digest, calculated before the admission receipt is added to the command
+    # intent.  The command ID then content-addresses the complete intent,
+    # including this receipt, so both directions are bound without a digest
+    # self-reference.
+    if receipt.decision_digest != command.decision_digest:
+        _append_finding(findings, PaperExecutionAdmissionFinding.COMMAND_BINDING_MISMATCH.value)
     if receipt.strategy_profile != command.strategy_profile:
         _append_finding(findings, PaperExecutionAdmissionFinding.COMMAND_BINDING_MISMATCH.value)
     if receipt.effective_session != command.effective_date:

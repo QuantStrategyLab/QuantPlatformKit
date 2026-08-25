@@ -43,13 +43,14 @@ def _receipt(
     *,
     disposition: PaperRiskAdmissionDisposition = PaperRiskAdmissionDisposition.ALLOW_NEW_RISK,
     reason_codes: tuple[str, ...] = (),
+    decision_digest: str = "d" * 64,
 ) -> PaperRiskAdmissionReceipt:
     release = _release_identity()
     return build_paper_risk_admission_receipt(
         strategy_profile="soxl_soxx_trend_income",
         release_id=release["release_id"],
         risk_policy_sha256=release["risk_policy_sha256"],
-        decision_digest="d" * 64,
+        decision_digest=decision_digest,
         effective_session="2026-08-25",
         disposition=disposition,
         reason_codes=reason_codes,
@@ -61,7 +62,7 @@ def _command(
     receipt: PaperRiskAdmissionReceipt | None = None,
     include_receipt: bool = True,
     execution_mode: str = "paper",
-    decision_digest: str = "sha256:decision-v1",
+    decision_digest: str = "d" * 64,
     strategy_profile: str = "soxl_soxx_trend_income",
     effective_date: str = "2026-08-25",
 ) -> ExecutionCommand:
@@ -191,6 +192,15 @@ class PaperExecutionAdmissionTests(unittest.TestCase):
         )
         self.assertEqual(
             command_mismatch.integrity_findings,
+            (PaperExecutionAdmissionFinding.COMMAND_BINDING_MISMATCH.value,),
+        )
+
+        decision_mismatch = evaluate_paper_execution_admission(
+            command=_command(decision_digest="f" * 64),
+            expected_strategy_release=self.release,
+        )
+        self.assertEqual(
+            decision_mismatch.integrity_findings,
             (PaperExecutionAdmissionFinding.COMMAND_BINDING_MISMATCH.value,),
         )
 
