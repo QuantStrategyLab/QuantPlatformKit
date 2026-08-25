@@ -88,6 +88,20 @@ class RuntimeTargetTests(unittest.TestCase):
         self.assertEqual(target.strategy_release.release_id, "soxl-p2-v3.20260824")
         self.assertEqual(target.to_dict()["strategy_release"]["effective_session"], "2026-08-25")
 
+    def test_runtime_target_carries_redacted_account_identity_policy(self) -> None:
+        target = build_runtime_target(
+            platform_id="longbridge",
+            strategy_profile="soxl_soxx_trend_income",
+            dry_run_only=True,
+            account_identity={
+                "enforcement": "observe",
+                "expected_account_types": ["cash"],
+            },
+        )
+
+        self.assertEqual(target.account_identity["enforcement"], "observe")
+        self.assertEqual(target.to_dict()["account_identity"]["expected_account_types"], ["cash"])
+
     def test_runtime_target_rejects_incomplete_strategy_release_identity(self) -> None:
         with self.assertRaisesRegex(ValueError, "strategy_release is missing required fields"):
             build_runtime_target(

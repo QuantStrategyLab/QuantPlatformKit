@@ -24,6 +24,7 @@ class RuntimeTarget:
     market_timezone: str | None = None
     scheduler: dict[str, Any] | None = None
     strategy_release: StrategyReleaseIdentity | None = None
+    account_identity: dict[str, Any] | None = None
 
     @property
     def execution_mode(self) -> str:
@@ -31,7 +32,14 @@ class RuntimeTarget:
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
-        for field in ("market", "market_calendar", "market_timezone", "scheduler", "strategy_release"):
+        for field in (
+            "market",
+            "market_calendar",
+            "market_timezone",
+            "scheduler",
+            "strategy_release",
+            "account_identity",
+        ):
             if payload.get(field) is None:
                 payload.pop(field, None)
         payload["execution_mode"] = self.execution_mode
@@ -108,6 +116,7 @@ def build_runtime_target(
     scheduler: Mapping[str, Any] | None = None,
     execution_windows: Mapping[str, Any] | None = None,
     strategy_release: StrategyReleaseIdentity | Mapping[str, object] | None = None,
+    account_identity: Mapping[str, Any] | None = None,
 ) -> RuntimeTarget:
     normalized_market, normalized_calendar, normalized_timezone = _normalize_market_metadata(
         market=market,
@@ -132,6 +141,7 @@ def build_runtime_target(
             if strategy_release is not None
             else None
         ),
+        account_identity=dict(account_identity) if account_identity is not None else None,
     )
 
 
@@ -204,6 +214,9 @@ def resolve_runtime_target_from_env(
     strategy_release = payload.get("strategy_release")
     if strategy_release is not None and not isinstance(strategy_release, dict):
         raise ValueError("RUNTIME_TARGET_JSON.strategy_release must be an object when present")
+    account_identity = payload.get("account_identity")
+    if account_identity is not None and not isinstance(account_identity, dict):
+        raise ValueError("RUNTIME_TARGET_JSON.account_identity must be an object when present")
 
     return build_runtime_target(
         platform_id=resolved_platform_id,
@@ -219,4 +232,5 @@ def resolve_runtime_target_from_env(
         scheduler=scheduler,
         execution_windows=execution_windows,
         strategy_release=strategy_release,
+        account_identity=account_identity,
     )
