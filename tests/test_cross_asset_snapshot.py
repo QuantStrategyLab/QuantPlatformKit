@@ -14,8 +14,10 @@ def _snapshot(**overrides):
         "applied_fraction": 0.10,
         "circuit_state": "ACTIVE",
         "evidence_package_id": "sha256:abc",
-        # Keep the fixture valid regardless of the CI run time on 2026-08-24.
-        "expires_at": "2026-08-25T00:00:00Z",
+        # This fixture tests cross-asset aggregation, not expiry handling.
+        # Keep it valid independently of the CI clock; expiry is covered by
+        # the dedicated risk snapshot tests.
+        "expires_at": "2100-01-01T00:00:00Z",
     }
     values.update(overrides)
     return build_risk_snapshot(values)

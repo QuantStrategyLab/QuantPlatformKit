@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import threading
 import unittest
@@ -78,6 +79,44 @@ class ExecutionStateTests(unittest.TestCase):
                 thread.join()
             self.assertEqual(results.count(True), 1)
             self.assertEqual(results.count(False), 7)
+
+    def test_outcome_is_append_only_and_does_not_replace_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ExecutionMarkerStore(local_dir=tmpdir, cloud_prefix_uri=None)
+            key = "live/account/strategy/2026-08-24"
+
+            self.assertTrue(store.claim_marker(key, metadata={"phase": "claimed"}))
+            self.assertTrue(store.record_outcome(key, metadata={"phase": "completed"}))
+            self.assertFalse(store.record_outcome(key, metadata={"phase": "replayed"}))
+
+            claim = json.loads(store._local_path(key).read_text(encoding="utf-8"))
+            outcome = json.loads(store._outcome_local_path(key).read_text(encoding="utf-8"))
+            self.assertEqual(claim["schema_version"], "execution_claim.v1")
+            self.assertEqual(claim["metadata"]["phase"], "claimed")
+            self.assertEqual(outcome["schema_version"], "execution_outcome.v1")
+            self.assertEqual(outcome["metadata"]["phase"], "completed")
+
+    def test_cloud_outcome_uses_create_only_without_an_overwrite(self) -> None:
+        observed: dict[str, object] = {}
+
+        class CloudStore:
+            def create_text(self, uri, payload, content_type):
+                observed.setdefault("calls", []).append((uri, payload, content_type))
+                return len(observed["calls"]) == 1
+
+            def write_text(self, *_args, **_kwargs):
+                raise AssertionError("outcome must never use an overwrite")
+
+        class CloudExecutionStore(ExecutionMarkerStore):
+            def _object_store(self):
+                return CloudStore()
+
+        store = CloudExecutionStore(local_dir=None, cloud_prefix_uri="gs://bucket/runtime")
+        self.assertTrue(store.record_outcome("live/account/strategy", metadata={"action_done": True}))
+        self.assertFalse(store.record_outcome("live/account/strategy", metadata={"action_done": True}))
+        calls = observed["calls"]
+        self.assertEqual(len(calls), 2)
+        self.assertIn("/execution_outcomes/live/account/strategy.json", calls[0][0])
 
     def test_claim_backend_failure_is_not_treated_as_success(self) -> None:
         class BrokenStore:

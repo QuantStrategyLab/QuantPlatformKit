@@ -15,6 +15,7 @@ from typing import Any
 
 DEFAULT_EXECUTION_STATE_DIR = "/tmp/quant_execution_state"
 DEFAULT_EXECUTION_STATE_NAMESPACE = "execution_markers"
+DEFAULT_EXECUTION_OUTCOME_NAMESPACE = "execution_outcomes"
 
 
 def _first_non_empty(*values: object) -> str:
@@ -123,6 +124,7 @@ class ExecutionMarkerStore:
     cloud_prefix_uri: str | None = None
     project_id: str | None = None
     namespace: str = DEFAULT_EXECUTION_STATE_NAMESPACE
+    outcome_namespace: str = DEFAULT_EXECUTION_OUTCOME_NAMESPACE
     client_factory: Any = None
     prior_report_scan_limit: int = 100
 
@@ -161,6 +163,58 @@ class ExecutionMarkerStore:
             path = self._local_path(marker_key)
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(encoded, encoding="utf-8")
+
+    def record_outcome(
+        self,
+        marker_key: str,
+        *,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """Append one terminal execution outcome without replacing its claim.
+
+        The durable claim at ``execution_markers`` is the deduplication
+        authority and must remain immutable.  A post-execution outcome is
+        therefore written under a separate stable namespace with create-only
+        semantics.  It requires only object create/read permissions on cloud
+        storage and is idempotent: an already-recorded outcome returns
+        ``False`` without any overwrite attempt.
+        """
+
+        if not str(marker_key or "").strip():
+            return False
+        payload = json.dumps(
+            {
+                "schema_version": "execution_outcome.v1",
+                "marker_key": str(marker_key),
+                "recorded_at": datetime.now(timezone.utc).isoformat(),
+                "metadata": dict(metadata or {}),
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        if self.cloud_prefix_uri:
+            create = getattr(self._object_store(), "create_text", None)
+            if not callable(create):
+                raise RuntimeError("cloud execution store lacks atomic create-only support")
+            return bool(create(self._outcome_cloud_uri(marker_key), payload, "application/json"))
+        if self.local_dir:
+            path = self._outcome_local_path(marker_key)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                return False
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            except Exception:
+                path.unlink(missing_ok=True)
+                raise
+            return True
+        raise RuntimeError("execution state store has no durable outcome backend")
 
     def claim_marker(self, marker_key: str, *, metadata: Mapping[str, Any] | None = None) -> bool:
         """Atomically reserve an execution identity before broker submission."""
@@ -250,13 +304,23 @@ class ExecutionMarkerStore:
         root = Path(self.local_dir or tempfile.gettempdir()).expanduser()
         return root / self.namespace / f"{_clean_relative_key(marker_key)}.json"
 
+    def _outcome_local_path(self, marker_key: str) -> Path:
+        root = Path(self.local_dir or tempfile.gettempdir()).expanduser()
+        return root / self.outcome_namespace / f"{_clean_relative_key(marker_key)}.json"
+
     def _cloud_uri(self, marker_key: str) -> str:
+        return self._cloud_uri_for_namespace(marker_key, self.namespace)
+
+    def _outcome_cloud_uri(self, marker_key: str) -> str:
+        return self._cloud_uri_for_namespace(marker_key, self.outcome_namespace)
+
+    def _cloud_uri_for_namespace(self, marker_key: str, namespace: str) -> str:
         bucket_name, prefix = _parse_cloud_uri(str(self.cloud_prefix_uri or ""))
         object_name = "/".join(
             part.strip("/")
             for part in (
                 prefix,
-                self.namespace,
+                namespace,
                 f"{_clean_relative_key(marker_key)}.json",
             )
             if part and part.strip("/")
