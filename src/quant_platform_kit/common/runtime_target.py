@@ -3,10 +3,59 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass, asdict
+from enum import Enum
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .strategy_release import StrategyReleaseIdentity, build_strategy_release_identity
+
+
+class RuntimeExecutionEnvironment(str, Enum):
+    """The boundary where a runtime may have external execution side effects.
+
+    ``dry_run`` may only create local previews or simulations. ``paper`` may
+    target a broker's dedicated PAPER account, while ``live`` may target a
+    funded account. The environment describes capability, not authorization:
+    every broker write must still pass its admission and command gates.
+    """
+
+    DRY_RUN = "dry_run"
+    PAPER = "paper"
+    LIVE = "live"
+
+
+def resolve_runtime_execution_environment(
+    *,
+    dry_run_only: bool,
+    execution_environment: RuntimeExecutionEnvironment | str | None = None,
+) -> RuntimeExecutionEnvironment:
+    """Resolve the explicit three-state execution contract fail-closed.
+
+    ``dry_run_only`` remains the backwards-compatible source of truth when
+    the new field is absent. Explicit ``paper`` therefore requires
+    ``dry_run_only=false``: it represents a broker PAPER account, rather than
+    a local dry-run preview.
+    """
+
+    if execution_environment is None or not str(execution_environment).strip():
+        return (
+            RuntimeExecutionEnvironment.DRY_RUN
+            if dry_run_only
+            else RuntimeExecutionEnvironment.LIVE
+        )
+    if isinstance(execution_environment, RuntimeExecutionEnvironment):
+        resolved = execution_environment
+    else:
+        try:
+            resolved = RuntimeExecutionEnvironment(str(execution_environment).strip().lower())
+        except ValueError as exc:
+            allowed = ", ".join(item.value for item in RuntimeExecutionEnvironment)
+            raise ValueError(f"execution_environment must be one of: {allowed}") from exc
+    if dry_run_only and resolved is not RuntimeExecutionEnvironment.DRY_RUN:
+        raise ValueError("dry_run_only=true requires execution_environment=dry_run")
+    if not dry_run_only and resolved is RuntimeExecutionEnvironment.DRY_RUN:
+        raise ValueError("execution_environment=dry_run requires dry_run_only=true")
+    return resolved
 
 
 @dataclass(frozen=True)
@@ -25,6 +74,17 @@ class RuntimeTarget:
     scheduler: dict[str, Any] | None = None
     strategy_release: StrategyReleaseIdentity | None = None
     account_identity: dict[str, Any] | None = None
+    execution_environment: RuntimeExecutionEnvironment | str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "execution_environment",
+            resolve_runtime_execution_environment(
+                dry_run_only=self.dry_run_only,
+                execution_environment=self.execution_environment,
+            ),
+        )
 
     @property
     def execution_mode(self) -> str:
@@ -43,6 +103,7 @@ class RuntimeTarget:
             if payload.get(field) is None:
                 payload.pop(field, None)
         payload["execution_mode"] = self.execution_mode
+        payload["execution_environment"] = self.execution_environment.value
         return payload
 
 
@@ -117,6 +178,7 @@ def build_runtime_target(
     execution_windows: Mapping[str, Any] | None = None,
     strategy_release: StrategyReleaseIdentity | Mapping[str, object] | None = None,
     account_identity: Mapping[str, Any] | None = None,
+    execution_environment: RuntimeExecutionEnvironment | str | None = None,
 ) -> RuntimeTarget:
     normalized_market, normalized_calendar, normalized_timezone = _normalize_market_metadata(
         market=market,
@@ -142,6 +204,7 @@ def build_runtime_target(
             else None
         ),
         account_identity=dict(account_identity) if account_identity is not None else None,
+        execution_environment=execution_environment,
     )
 
 
@@ -233,4 +296,5 @@ def resolve_runtime_target_from_env(
         execution_windows=execution_windows,
         strategy_release=strategy_release,
         account_identity=account_identity,
+        execution_environment=payload.get("execution_environment"),
     )

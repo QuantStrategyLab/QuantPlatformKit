@@ -121,8 +121,10 @@ from .runtime_logging import (
 from .runtime_assembly import RuntimeAssembly, build_runtime_assembly
 from .runtime_target import (
     build_runtime_context_fields,
+    RuntimeExecutionEnvironment,
     RuntimeTarget,
     build_runtime_target,
+    resolve_runtime_execution_environment,
     resolve_runtime_target_from_env,
 )
 from .strategy_release import (
@@ -287,6 +289,7 @@ __all__ = [
     "evaluate_account_identity",
     "extract_cloud_trace",
     "RuntimeLogContext",
+    "RuntimeExecutionEnvironment",
     "RuntimeAssembly",
     "build_runtime_assembly",
     "StrategyPluginAlertMessage",
@@ -303,6 +306,7 @@ __all__ = [
     "build_strategy_plugin_report_payload",
     "extract_strategy_plugin_localized_message",
     "build_runtime_target",
+    "resolve_runtime_execution_environment",
     "build_runtime_loaded_receipt",
     "build_strategy_release_identity",
     "validate_runtime_loaded_receipt",
