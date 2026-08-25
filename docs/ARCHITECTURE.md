@@ -488,7 +488,7 @@ Notifications are dispatched through a shared `NotificationPublisher` that wraps
 | `drift_detector` | Detect strategy performance drift vs. backtest expectations |
 | `performance_monitor` | Real-time performance tracking (CAGR, Sharpe, drawdown) |
 | `ai_reviewer` | LLM-based strategy code review and performance commentary |
-| `rollback_manager` | Manage strategy version rollbacks with audit trail |
+| `rollback_manager` | Detect degradation and record no-order rollback proposals with an audit trail; platform-specific, owner-authorized rollback remains separate |
 | `shadow_validator` | Validate shadow-mode execution outcomes against live results |
 | `health_dashboard` | Aggregate health metrics across platforms |
 | `audit_log` | Immutable audit log for strategy changes |

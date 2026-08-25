@@ -254,6 +254,7 @@ class ContractsTests(unittest.TestCase):
         self.assertEqual(UpdateStage.PATCH_CREATED.value, "patch_created")
         self.assertEqual(UpdateStage.DEPLOYED.value, "deployed")
         self.assertEqual(UpdateStage.RUNTIME_CONFIRMED.value, "runtime_confirmed")
+        self.assertEqual(UpdateStage.ROLLBACK_PROPOSED.value, "rollback_proposed")
         self.assertEqual(UpdateStage.ROLLED_BACK.value, "rolled_back")
 
     def test_health_score(self) -> None:
