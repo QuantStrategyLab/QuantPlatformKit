@@ -68,6 +68,12 @@ class RuntimeCommandIntegrityFinding(str, Enum):
     values are deliberately normalized to one opaque fail-closed code.
     """
 
+    ACCOUNT_IDENTITY_CONFIGURATION_INVALID = "account_identity_configuration_invalid"
+    ACCOUNT_IDENTITY_EVIDENCE_UNAVAILABLE = "account_identity_evidence_unavailable"
+    ACCOUNT_IDENTITY_ID_MISMATCH = "account_identity_id_mismatch"
+    ACCOUNT_IDENTITY_MODE_MISMATCH = "account_identity_mode_mismatch"
+    ACCOUNT_IDENTITY_PLATFORM_MISMATCH = "account_identity_platform_mismatch"
+    ACCOUNT_IDENTITY_TYPE_MISMATCH = "account_identity_type_mismatch"
     BROKER_OUTCOME_UNKNOWN = "broker_outcome_unknown"
     COMMAND_DIGEST_MISMATCH = "command_digest_mismatch"
     DATA_ARTIFACT_INVALID = "data_artifact_invalid"
@@ -93,6 +99,12 @@ _MODE_PRIORITY = {
 }
 _HALTING_FINDINGS = frozenset(
     {
+        RuntimeCommandIntegrityFinding.ACCOUNT_IDENTITY_CONFIGURATION_INVALID.value,
+        RuntimeCommandIntegrityFinding.ACCOUNT_IDENTITY_EVIDENCE_UNAVAILABLE.value,
+        RuntimeCommandIntegrityFinding.ACCOUNT_IDENTITY_ID_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.ACCOUNT_IDENTITY_MODE_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.ACCOUNT_IDENTITY_PLATFORM_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.ACCOUNT_IDENTITY_TYPE_MISMATCH.value,
         RuntimeCommandIntegrityFinding.BROKER_OUTCOME_UNKNOWN.value,
         RuntimeCommandIntegrityFinding.COMMAND_DIGEST_MISMATCH.value,
         RuntimeCommandIntegrityFinding.DURABLE_EVENT_HISTORY_INVALID.value,

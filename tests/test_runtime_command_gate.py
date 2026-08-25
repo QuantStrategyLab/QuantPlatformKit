@@ -192,6 +192,22 @@ class RuntimeCommandGateTests(unittest.TestCase):
         self.assertEqual(findings, ("plugin_invalid", "unknown_integrity_finding"))
         self.assertNotIn("secret", " ".join(findings))
 
+    def test_account_identity_findings_halt_the_shared_command_gate(self) -> None:
+        decision = evaluate_runtime_command_gate(
+            action="submit",
+            exposure_effect="reduces",
+            command=self.command,
+            as_of_session="2026-08-25",
+            runtime_release_receipt=self.receipt,
+            expected_strategy_release=self.release,
+            integrity_findings=("account_identity_type_mismatch",),
+            policy=_strict_policy(),
+        )
+
+        self.assertEqual(decision.mode, RuntimeCommandGateMode.HALTED)
+        self.assertFalse(decision.broker_write_allowed)
+        self.assertIn("account_identity_type_mismatch", decision.reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -61,6 +61,19 @@ from .execution_outcomes import (
     normalize_stage,
     resolve_strategy_run_stage,
 )
+from .account_identity import (
+    ACCOUNT_IDENTITY_RECEIPT_SCHEMA_VERSION,
+    AccountIdentityBlockedError,
+    AccountIdentityDecision,
+    AccountIdentityEnforcement,
+    AccountIdentityEvidenceSource,
+    AccountIdentityField,
+    AccountIdentityFinding,
+    AccountIdentityGuardedExecutionPort,
+    AccountIdentityPolicy,
+    BrokerAccountIdentity,
+    evaluate_account_identity,
+)
 from .execution_commands import (
     DEFAULT_EXECUTION_COMMAND_NAMESPACE,
     EXECUTION_COMMAND_EVENT_SCHEMA_VERSION,
@@ -170,6 +183,15 @@ from .strategy_plugins import (
 )
 
 __all__ = [
+    "ACCOUNT_IDENTITY_RECEIPT_SCHEMA_VERSION",
+    "AccountIdentityBlockedError",
+    "AccountIdentityDecision",
+    "AccountIdentityEnforcement",
+    "AccountIdentityEvidenceSource",
+    "AccountIdentityField",
+    "AccountIdentityFinding",
+    "AccountIdentityGuardedExecutionPort",
+    "AccountIdentityPolicy",
     "FEATURE_SNAPSHOT_MANIFEST_TYPE",
     "RELEASE_MANIFEST_TYPE",
     "STRATEGY_PLUGIN_MANIFEST_TYPE",
@@ -193,6 +215,7 @@ __all__ = [
     "write_release_manifest",
     "zscore",
     "COMMON_ZH_NOTIFICATION_REPLACEMENTS",
+    "BrokerAccountIdentity",
     "CRISIS_RESPONSE_SHADOW_SUPPORTED_STRATEGIES",
     "DEFAULT_EXECUTION_BLOCKING_SKIP_REASONS",
     "DEFAULT_STRATEGY_PLUGIN_DEFINITIONS",
@@ -249,6 +272,7 @@ __all__ = [
     "build_runtime_context_fields",
     "build_run_id",
     "emit_runtime_log",
+    "evaluate_account_identity",
     "extract_cloud_trace",
     "RuntimeLogContext",
     "RuntimeAssembly",
