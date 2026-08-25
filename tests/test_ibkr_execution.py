@@ -110,14 +110,14 @@ class IbkrExecutionTests(unittest.TestCase):
         ib = FakeIB()
         report = submit_order_intent(
             ib,
-            OrderIntent(symbol="SPY", side="buy", quantity=5, account_id="U18308207"),
+            OrderIntent(symbol="SPY", side="buy", quantity=5, account_id="U00000001"),
             wait_seconds=0,
             stock_factory=FakeContract,
             market_order_factory=FakeMarketOrder,
         )
 
-        self.assertEqual(ib.orders[0][1].account, "U18308207")
-        self.assertEqual(report.raw_payload["account_id"], "U18308207")
+        self.assertEqual(ib.orders[0][1].account, "U00000001")
+        self.assertEqual(report.raw_payload["account_id"], "U00000001")
 
     def test_submit_order_intent_rejects_notional_equity_order(self) -> None:
         ib = FakeIB()
@@ -144,8 +144,8 @@ class IbkrExecutionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             submit_order_intent(
                 ib,
-                OrderIntent(symbol="SPY", side="buy", quantity=5, account_id="U18308207"),
-                account_id="U15998061",
+                OrderIntent(symbol="SPY", side="buy", quantity=5, account_id="U00000001"),
+                account_id="U00000000",
                 wait_seconds=0,
                 stock_factory=FakeContract,
                 market_order_factory=FakeMarketOrder,

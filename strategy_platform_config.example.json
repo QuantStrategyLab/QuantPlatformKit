@@ -13,8 +13,8 @@
       "accounts": {
         "schwab": {
           "account_scope": "default",
-          "execution_mode": "live",
-          "dry_run_only": false
+          "execution_mode": "paper",
+          "dry_run_only": true
         }
       }
     },
@@ -27,9 +27,9 @@
       },
       "accounts": {
         "ibkr": {
-          "account_ids": ["U15998061"],
-          "execution_mode": "live",
-          "dry_run_only": false
+          "account_ids": ["U00000000"],
+          "execution_mode": "paper",
+          "dry_run_only": true
         }
       }
     }
