@@ -66,6 +66,18 @@ def run(cmd: list[str], *, cwd: Path | None = None, env: dict[str, str] | None =
     return subprocess.run(cmd, cwd=cwd, env=env, text=True, capture_output=True, check=True)
 
 
+def command_failure_summary(exc: subprocess.CalledProcessError) -> str:
+    """Return an actionable failure marker without copying command output to logs."""
+    command = exc.cmd
+    if isinstance(command, (list, tuple)) and command:
+        executable = Path(str(command[0])).name
+    elif isinstance(command, str):
+        executable = command.split(maxsplit=1)[0]
+    else:
+        executable = "unknown"
+    return f"command={executable}:exit={exc.returncode}"
+
+
 def has_changes(repo_dir: Path) -> bool:
     result = run(["git", "status", "--porcelain"], cwd=repo_dir)
     return bool(result.stdout.strip())
@@ -496,11 +508,19 @@ def main() -> int:
         target_root.mkdir()
         for repo in repo_specs:
             repo_dir = clone_repo(repo, target_root, token, dry_run=args.dry_run)
-            if not update_repo(
-                repo_dir,
-                qpk_pin,
-                strategy_heads=strategy_heads if phase == "consumers" else None,
-            ):
+            try:
+                changed = update_repo(
+                    repo_dir,
+                    qpk_pin,
+                    strategy_heads=strategy_heads if phase == "consumers" else None,
+                )
+            except subprocess.CalledProcessError as exc:
+                results.append(
+                    f"{repo.name}: dependency_update_failed:{command_failure_summary(exc)}"
+                )
+                failures += 1
+                continue
+            if not changed:
                 results.append(f"{repo.name}: no changes needed")
                 continue
             try:
