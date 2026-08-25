@@ -111,11 +111,26 @@ jobs:
         if: steps.pr.outputs.number != ''
         run: cat staged-pin-summary.md >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Queue validated staged pin for merge
+      - name: Refresh or queue validated staged pin
         if: steps.guard.outputs.allowed == 'true'
         env:
           GH_TOKEN: ${{ secrets.QSL_REPO_SYNC_TOKEN || github.token }}
         run: |
+          set -euo pipefail
+          merge_state=$(gh pr view "${{ steps.pr.outputs.number }}" \
+            --repo "$GITHUB_REPOSITORY" --json mergeStateStatus --jq '.mergeStateStatus')
+          if [ "$merge_state" = "BEHIND" ]; then
+            gh api --method PUT \
+              "repos/$GITHUB_REPOSITORY/pulls/${{ steps.pr.outputs.number }}/update-branch" \
+              -f expected_head_sha="${{ steps.pr.outputs.head_sha }}" >/dev/null
+            echo "Validated staged pin branch was behind main; requested branch update before merge." \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$merge_state" != "CLEAN" ]; then
+            echo "Staged QPK pin is not mergeable yet: $merge_state." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           gh pr merge "${{ steps.pr.outputs.number }}" \
             --repo "$GITHUB_REPOSITORY" \
             --auto --rebase --delete-branch \
