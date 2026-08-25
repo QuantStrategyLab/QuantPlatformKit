@@ -254,6 +254,8 @@ def test_downstream_rollout_is_scheduled_and_phase_gated() -> None:
     assert "Create coherent aggregate bundle PR" in workflow
     assert "peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676" in workflow
     assert "peter-evans/create-pull-request@v7" not in workflow
+    assert "Queue verified strategy pin PRs" in workflow
+    assert "merge_verified_strategy_qpk_pin_prs.py --qpk-sha" in workflow
 
 
 def test_staged_pin_auto_advance_is_limited_to_verified_machine_prs() -> None:
