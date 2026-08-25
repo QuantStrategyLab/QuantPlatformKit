@@ -146,6 +146,11 @@ loader 会校验：
 
 对于 `shadow` 插件，平台运行时只能附加日志、运行报告字段和通知上下文。
 
+运行报告会保留 artifact 的原始 `execution_controls` 供审计，同时发布
+`runtime_consumption`。运营判断必须以后者为准：当前共享契约固定报告
+`authority=shadow_only`、`direct_position_control_allowed=false`，且不授予
+broker 或 live allocation 权限；即使 legacy V1 artifact 自身请求了仓位控制也一样。
+
 artifact 可以包含展示层 i18n 字段：
 
 - `localized_messages.schema_version = strategy_plugin_messages.v1`
