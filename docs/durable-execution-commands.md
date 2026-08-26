@@ -36,3 +36,19 @@ Adapters must first use this contract in paper mode, look up broker orders by
 the command identity before any recovery, and prove reconciliation behavior.
 No live adapter is enabled by this module.  That staged migration remains
 tracked in QuantPlatformKit issue #342.
+
+## Reduce-only emergency path
+
+`RuntimeCommandGateMode.REDUCING` permits only a broker operation whose
+exposure reduction has been proven by the platform.  For long-only cash
+equities, adapters must validate every proposed sell with
+`validate_long_only_reduce_only_order()` immediately after refreshing broker
+positions.  The validation requires an allowed symbol, a positive sell
+quantity, zero observed short quantity, and a requested quantity no greater
+than the broker-reported sellable quantity.
+
+This is an execution safety check, not an allocation rule: it never chooses a
+de-lever target, creates an order, converts a rejected growth decision into a
+sell, or permits a buy.  Platforms must first prove it in paper/shadow mode
+and write the normal durable command and broker-outcome evidence before any
+live use.
