@@ -25,6 +25,10 @@ _DEFAULT_ARTIFACT_ROOTS: Mapping[str, str] = {
 _RETURN_MATRIX_FILENAME = "portfolio_and_tracker_returns.csv"
 
 
+class MissingStrategyBenchmarkError(ValueError):
+    """Raised when strict monitoring has no explicit benchmark binding."""
+
+
 class ReturnCollector:
     """Discover and read return matrices from market pipeline artifact directories.
 
@@ -188,13 +192,28 @@ def resolve_strategy_benchmark(
     domain: str,
     *,
     catalog_benchmarks: Mapping[str, str] | None = None,
+    require_explicit: bool = False,
 ) -> str:
     """Resolve the benchmark symbol for a strategy.
 
-    Falls back through: catalog metadata → domain defaults.
+    In normal compatibility mode this falls back through catalog metadata then
+    domain defaults. Strict mode is intended for promotion-grade or leveraged
+    monitoring: every profile must have a catalog binding, preventing a silent
+    and potentially inappropriate fallback to SPY.
     """
-    if catalog_benchmarks and strategy_profile in catalog_benchmarks:
-        return catalog_benchmarks[strategy_profile]
+    profile = str(strategy_profile or "").strip()
+    if catalog_benchmarks and profile in catalog_benchmarks:
+        benchmark = str(catalog_benchmarks[profile] or "").strip()
+        if benchmark:
+            return benchmark
+        raise MissingStrategyBenchmarkError(
+            f"explicit benchmark for strategy_profile={profile!r} is blank"
+        )
+    if require_explicit:
+        raise MissingStrategyBenchmarkError(
+            f"no explicit benchmark binding for strategy_profile={profile!r}; "
+            "provide a validated strategy benchmark catalog"
+        )
 
     # Domain defaults
     defaults = {

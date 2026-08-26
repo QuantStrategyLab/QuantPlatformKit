@@ -25,11 +25,21 @@ def _run_monitor(args: argparse.Namespace) -> int:
         "quant_platform_kit.strategy_lifecycle.performance_monitor",
         "run_monitor",
     )
-    snapshots = run_monitor(
-        domain=args.domain,
-        strategy_profile=args.strategy,
-        output_dir=args.output_dir,
-    )
+    kwargs: dict[str, Any] = {
+        "domain": args.domain,
+        "strategy_profile": args.strategy,
+        "output_dir": args.output_dir,
+    }
+    benchmark_catalog = getattr(args, "benchmark_catalog", None)
+    if benchmark_catalog:
+        load_strategy_benchmark_catalog = _load_callable(
+            "quant_platform_kit.strategy_lifecycle.benchmark_catalog",
+            "load_strategy_benchmark_catalog",
+        )
+        kwargs["strategy_benchmarks"] = load_strategy_benchmark_catalog(benchmark_catalog)
+    if getattr(args, "require_explicit_benchmark", False):
+        kwargs["require_explicit_benchmark"] = True
+    snapshots = run_monitor(**kwargs)
     _print(f"[monitor] Generated {len(snapshots)} performance snapshots")
     return 0
 
@@ -189,7 +199,15 @@ def _run_autopilot(args: argparse.Namespace) -> int:
 def _run_lifecycle(args: argparse.Namespace) -> int:
     _print(f"[lifecycle] Running full lifecycle for domain={args.domain}")
     _print("[lifecycle] Step: monitor")
-    monitor_status = _run_monitor(argparse.Namespace(domain=args.domain, strategy=None, output_dir=None))
+    monitor_status = _run_monitor(
+        argparse.Namespace(
+            domain=args.domain,
+            strategy=None,
+            output_dir=None,
+            benchmark_catalog=getattr(args, "benchmark_catalog", None),
+            require_explicit_benchmark=getattr(args, "require_explicit_benchmark", False),
+        )
+    )
     if monitor_status != 0:
         return monitor_status
 
@@ -295,6 +313,16 @@ def build_parser() -> argparse.ArgumentParser:
     monitor.add_argument("--domain", default="us_equity")
     monitor.add_argument("--strategy", default=None)
     monitor.add_argument("--output-dir", default=None)
+    monitor.add_argument(
+        "--benchmark-catalog",
+        default=None,
+        help="Validated JSON mapping strategy profiles to their monitoring benchmarks.",
+    )
+    monitor.add_argument(
+        "--require-explicit-benchmark",
+        action="store_true",
+        help="Fail closed if a strategy binding or its benchmark data is unavailable.",
+    )
     monitor.set_defaults(func=_run_monitor)
 
     drift = subparsers.add_parser("drift", help="Run drift detection and publish drift alerts.")
@@ -354,6 +382,8 @@ def build_parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--skip-optimization", action="store_true")
     lifecycle.add_argument("--no-alerts", action="store_true")
     lifecycle.add_argument("--dry-run-alerts", action="store_true")
+    lifecycle.add_argument("--benchmark-catalog", default=None)
+    lifecycle.add_argument("--require-explicit-benchmark", action="store_true")
     _add_baseline_options(lifecycle)
     lifecycle.set_defaults(func=_run_lifecycle)
 
