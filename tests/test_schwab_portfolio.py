@@ -64,13 +64,33 @@ class SchwabPortfolioTests(unittest.TestCase):
             snapshot = fetch_account_snapshot(FakeClient(), strategy_symbols=("TQQQ", "BOXX"))
 
         self.assertEqual(snapshot.metadata["account_hash"], "abc123")
-        self.assertEqual(snapshot.total_equity, 1200.0)
+        self.assertEqual(snapshot.total_equity, 1210.0)
         self.assertEqual(snapshot.buying_power, 1000.0)
         self.assertEqual(snapshot.cash_balance, 1000.0)
         self.assertEqual(snapshot.metadata["cash_available_for_trading"], 1000.0)
         self.assertEqual(snapshot.metadata["cash_available_for_withdrawal"], 800.0)
+        self.assertEqual(
+            snapshot.metadata["total_equity_source"],
+            "cash_available_plus_all_position_market_values",
+        )
+        self.assertRegex(snapshot.metadata["source_digest_sha256"], r"^[0-9a-f]{64}$")
         self.assertEqual(len(snapshot.positions), 1)
         self.assertEqual(snapshot.positions[0].symbol, "TQQQ")
+
+    def test_fetch_account_snapshot_prefers_broker_liquidation_value(self) -> None:
+        class LiquidationValueClient(FakeClient):
+            def get_account(self, account_hash, fields):
+                payload = super().get_account(account_hash, fields).json()
+                payload["securitiesAccount"]["currentBalances"]["liquidationValue"] = 2_500.0
+                return FakeResponse(payload)
+
+        with self._install_fake_schwab_module():
+            snapshot = fetch_account_snapshot(
+                LiquidationValueClient(), strategy_symbols=("TQQQ",)
+            )
+
+        self.assertEqual(snapshot.total_equity, 2_500.0)
+        self.assertEqual(snapshot.metadata["total_equity_source"], "broker_liquidation_value")
 
     def test_fetch_account_snapshot_retries_account_numbers_server_error(self) -> None:
         class FlakyAccountNumbersClient(FakeClient):
