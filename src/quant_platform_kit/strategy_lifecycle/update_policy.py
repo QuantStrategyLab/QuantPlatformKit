@@ -11,8 +11,8 @@ from typing import Any
 class UpdatePolicy:
     """Policy controlling the safe update lifecycle."""
 
-    # Auto-approval: skip human review when param change is below this threshold
-    # and all dimensions improved.
+    # Retained only to parse older policy files.  Parameter changes are never
+    # auto-approved; every promotion still requires bound human acceptance.
     auto_approve_threshold: float = 0.10
 
     # Shadow validation

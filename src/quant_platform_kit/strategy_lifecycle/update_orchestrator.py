@@ -92,15 +92,22 @@ def _check_approval(
     proposal: OptimizationProposal, domain: str, strategy: str,
     store: PerformanceStore, auto_approve: bool, policy: UpdatePolicy,
 ) -> tuple[bool, dict[str, Any] | None]:
-    """Check approval rules. Returns (approved, deny_response_or_None)."""
-    can_auto = auto_approve and _meets_auto_approve_criteria(proposal, policy)
-    if can_auto:
-        record_audit_entry(strategy, domain, UpdateStage.APPROVED, reason="Auto-approved", approval_source="auto")
-        return True, None
+    """Require human acceptance before a parameter patch can be created.
+
+    ``auto_approve`` remains an accepted argument for backwards-compatible CLI
+    callers, but it must never bypass the evidence/promotion boundary.  The
+    automated lifecycle can monitor, freeze, and start non-live observation;
+    it cannot alter a strategy's parameters on its own.
+    """
     if proposal.recommendation == "promote":
-        record_audit_entry(strategy, domain, UpdateStage.PENDING_APPROVAL, reason="Human approval needed")
+        reason = (
+            "Automatic approval is disabled; human approval needed"
+            if auto_approve
+            else "Human approval needed"
+        )
+        record_audit_entry(strategy, domain, UpdateStage.PENDING_APPROVAL, reason=reason)
         return False, {
-            "stage": "pending_approval", "reason": "Human approval required",
+            "stage": "pending_approval", "reason": reason,
             "proposal_summary": {"strategy": strategy, "improvement": proposal.improvement_score,
                 "winning": list(proposal.winning_dimensions), "regressing": list(proposal.regressing_dimensions)},
         }
@@ -205,29 +212,3 @@ def process_update_from_proposal(
         except OSError:
             pass
 
-
-def _meets_auto_approve_criteria(proposal: OptimizationProposal, policy: UpdatePolicy) -> bool:
-    """Check if a proposal meets the auto-approval threshold."""
-    if proposal.recommendation != "promote":
-        return False
-    if proposal.confidence < 0.5:
-        return False
-    if len(proposal.regressing_dimensions) > 0:
-        return False
-
-    # Check that param changes are within the auto-approve threshold
-    total_change = 0.0
-    count = 0
-    for key in proposal.proposed_params:
-        current = proposal.current_params.get(key)
-        proposed = proposal.proposed_params.get(key)
-        if current is not None and proposed is not None and isinstance(current, (int, float)) and isinstance(proposed, (int, float)):
-            if abs(float(current)) > 0.001:
-                total_change += abs(float(proposed) - float(current)) / abs(float(current))
-                count += 1
-
-    if count > 0:
-        avg_change = total_change / count
-        return avg_change <= policy.auto_approve_threshold
-
-    return True
