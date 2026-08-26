@@ -380,6 +380,29 @@ def _snapshot_metrics(
     }, observed, total_equity, set()
 
 
+def _static_gate_total_equity(portfolio_snapshot: Any) -> float | None:
+    """Return the equity needed to normalize value targets in the live gate.
+
+    The non-evidence ``apply_risk_gate`` path accepts both weight and value
+    targets.  A value target has no meaningful concentration without the same
+    account equity used by the strategy invocation, so an absent or malformed
+    snapshot must never turn it into a zero-weight target.
+    """
+    try:
+        if isinstance(portfolio_snapshot, Mapping):
+            raw_total_equity = portfolio_snapshot.get("total_equity")
+        elif isinstance(portfolio_snapshot, PortfolioSnapshot):
+            raw_total_equity = portfolio_snapshot.total_equity
+        else:
+            return None
+    except Exception:
+        return None
+    total_equity = _finite_number(raw_total_equity)
+    if total_equity is None or total_equity <= 0.0:
+        return None
+    return total_equity
+
+
 def _exact_numeric_mapping(value: Any, expected: Mapping[str, float]) -> bool:
     normalized = _canonical_numeric_mapping(value, maximum=1.0)
     if normalized is None or set(normalized) != set(expected):
@@ -1291,6 +1314,7 @@ def _apply_risk_gate_static(
     max_single_weight: Any,
     max_positions: Any,
     max_total_exposure: Any,
+    portfolio_snapshot: Any,
     engine_action: Any,
     engine_failed: bool,
 ) -> StrategyDecision:
@@ -1464,13 +1488,12 @@ def _apply_risk_gate_static(
         )
 
     positions = raw_positions if type(raw_positions) is tuple else ()
+    value_target_total_equity = _static_gate_total_equity(portfolio_snapshot)
     weights: list[tuple[PositionTarget, float]] = []
     if static_rejection is None:
         for position in positions:
             raw_weight = position.target_weight
-            if raw_weight is None:
-                weight = 0.0
-            else:
+            if raw_weight is not None:
                 normalized_weight = _finite_number(raw_weight)
                 if normalized_weight is None:
                     if type(raw_weight) is str:
@@ -1485,6 +1508,22 @@ def _apply_risk_gate_static(
                         )
                     break
                 weight = abs(normalized_weight)
+            else:
+                target_value = _finite_number(position.target_value)
+                if target_value is None or value_target_total_equity is None:
+                    static_rejection = (
+                        "rejected:invalid_decision_exposure",
+                        "金额目标缺少有效账户净值",
+                    )
+                    break
+                normalized_weight = target_value / value_target_total_equity
+                if not math.isfinite(normalized_weight) or normalized_weight < 0.0:
+                    static_rejection = (
+                        "rejected:invalid_decision_exposure",
+                        f"{position.symbol} 金额目标无效",
+                    )
+                    break
+                weight = normalized_weight
             if weight > 0.0:
                 weights.append((position, weight))
 
@@ -1660,6 +1699,7 @@ def apply_risk_gate(
             max_single_weight=max_single_weight,
             max_positions=max_positions,
             max_total_exposure=max_total_exposure,
+            portfolio_snapshot=portfolio_snapshot,
             engine_action=engine_action,
             engine_failed=engine_failed,
         )
