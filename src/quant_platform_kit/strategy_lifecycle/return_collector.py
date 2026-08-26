@@ -192,7 +192,12 @@ class ReturnCollector:
                     else:
                         all_strategies[name] = series
 
-        live_series = self.collect_from_live_runs(domain, stream_id=live_stream_id)
+        if live_stream_id:
+            live_series = self.collect_from_live_runs(domain, stream_id=live_stream_id)
+        else:
+            # Keep the original call shape for integrations that replace this
+            # best-effort collector with a compatible one-argument adapter.
+            live_series = self.collect_from_live_runs(domain)
         return self._merge_return_series(all_strategies, live_series)
 
     def collect_benchmark(
