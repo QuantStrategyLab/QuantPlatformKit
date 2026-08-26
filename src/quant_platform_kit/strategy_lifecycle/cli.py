@@ -39,6 +39,9 @@ def _run_monitor(args: argparse.Namespace) -> int:
         kwargs["strategy_benchmarks"] = load_strategy_benchmark_catalog(benchmark_catalog)
     if getattr(args, "require_explicit_benchmark", False):
         kwargs["require_explicit_benchmark"] = True
+    live_stream_id = getattr(args, "live_stream_id", None)
+    if live_stream_id:
+        kwargs["live_stream_id"] = live_stream_id
     snapshots = run_monitor(**kwargs)
     _print(f"[monitor] Generated {len(snapshots)} performance snapshots")
     return 0
@@ -206,6 +209,7 @@ def _run_lifecycle(args: argparse.Namespace) -> int:
             output_dir=None,
             benchmark_catalog=getattr(args, "benchmark_catalog", None),
             require_explicit_benchmark=getattr(args, "require_explicit_benchmark", False),
+            live_stream_id=getattr(args, "live_stream_id", None),
         )
     )
     if monitor_status != 0:
@@ -314,6 +318,11 @@ def build_parser() -> argparse.ArgumentParser:
     monitor.add_argument("--strategy", default=None)
     monitor.add_argument("--output-dir", default=None)
     monitor.add_argument(
+        "--live-stream-id",
+        default=None,
+        help="Monitor one stable account/runtime telemetry stream; never mix streams.",
+    )
+    monitor.add_argument(
         "--benchmark-catalog",
         default=None,
         help="Validated JSON mapping strategy profiles to their monitoring benchmarks.",
@@ -384,6 +393,7 @@ def build_parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--dry-run-alerts", action="store_true")
     lifecycle.add_argument("--benchmark-catalog", default=None)
     lifecycle.add_argument("--require-explicit-benchmark", action="store_true")
+    lifecycle.add_argument("--live-stream-id", default=None)
     _add_baseline_options(lifecycle)
     lifecycle.set_defaults(func=_run_lifecycle)
 

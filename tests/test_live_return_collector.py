@@ -14,7 +14,7 @@ from quant_platform_kit.strategy_lifecycle.live_equity import (
     resolve_consecutive_losses,
     stamp_consecutive_losses_on_snapshot,
 )
-from quant_platform_kit.strategy_lifecycle.performance_monitor import PerformanceMonitor
+from quant_platform_kit.strategy_lifecycle.performance_monitor import PerformanceMonitor, resolve_lifecycle_stream_id
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 from quant_platform_kit.strategy_lifecycle.return_collector import ReturnCollector
 
@@ -142,6 +142,16 @@ class LiveEquityTests(unittest.TestCase):
 
 
 class ReturnCollectorLiveRunTests(unittest.TestCase):
+    def test_stream_identity_prefers_explicit_value_and_then_platform(self) -> None:
+        self.assertEqual(
+            resolve_lifecycle_stream_id("account-a", execution_result={"platform": "schwab"}),
+            "account-a",
+        )
+        self.assertEqual(
+            resolve_lifecycle_stream_id(execution_result={"platform": "schwab", "account_scope": "u1"}),
+            "schwab:u1",
+        )
+
     def test_collect_merges_live_run_returns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
@@ -155,16 +165,18 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
             second_recorded_at = (
                 pd.Timestamp(first_record["recorded_at"]).normalize() + pd.Timedelta(days=1, hours=10)
             ).isoformat()
-            # Second record on a later day so pct_change has one observation.
-            second = store._local_path("live_runs/us_equity/global_etf_rotation/manual-day2.json")
-            second.parent.mkdir(parents=True, exist_ok=True)
-            second.write_text(
-                (
-                    '{"strategy_profile":"global_etf_rotation","domain":"us_equity",'
-                    f'"recorded_at":"{second_recorded_at}","record_kind":"execution",'
-                    '"execution_result":{"total_equity":102.0}}'
-                ),
-                encoding="utf-8",
+            # Second record on a later day in the same account-safe stream.
+            store.save_live_run_record(
+                "global_etf_rotation",
+                "us_equity",
+                {
+                    "strategy_profile": "global_etf_rotation",
+                    "domain": "us_equity",
+                    "recorded_at": second_recorded_at,
+                    "record_kind": "execution",
+                    "execution_result": {"total_equity": 102.0},
+                },
+                stream_id="schwab",
             )
 
             collector = ReturnCollector(store=store, projects_root=Path(tmp))
@@ -176,6 +188,33 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
             merged = collector.collect("us_equity")
             self.assertIn("global_etf_rotation", merged)
             self.assertIsInstance(merged["global_etf_rotation"], pd.Series)
+
+    def test_collect_refuses_to_merge_multiple_account_streams(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            for stream_id, first_equity, second_equity in (
+                ("account-a", 100.0, 102.0),
+                ("account-b", 250.0, 230.0),
+            ):
+                for day, equity in (("2026-07-01T10:00:00+00:00", first_equity), ("2026-07-02T10:00:00+00:00", second_equity)):
+                    store.save_live_run_record(
+                        "soxl_soxx_trend_income",
+                        "us_equity",
+                        {
+                            "strategy_profile": "soxl_soxx_trend_income",
+                            "domain": "us_equity",
+                            "recorded_at": day,
+                            "record_kind": "execution",
+                            "execution_result": {"total_equity": equity},
+                        },
+                        stream_id=stream_id,
+                    )
+
+            collector = ReturnCollector(store=store, projects_root=Path(tmp))
+            self.assertNotIn("soxl_soxx_trend_income", collector.collect_from_live_runs("us_equity"))
+
+            account_a = collector.collect_from_live_runs("us_equity", stream_id="account-a")
+            self.assertAlmostEqual(float(account_a["soxl_soxx_trend_income"].iloc[0]), 0.02)
 
 
 if __name__ == "__main__":

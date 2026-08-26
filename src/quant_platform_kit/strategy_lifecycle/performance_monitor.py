@@ -33,6 +33,37 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def resolve_lifecycle_stream_id(
+    explicit_stream_id: str = "",
+    *,
+    execution_result: Mapping[str, Any] | None = None,
+) -> str:
+    """Return a stable, account-safe telemetry stream identity.
+
+    Cloud Run supplies ``K_SERVICE`` per deployed service, which keeps the
+    same strategy on different broker accounts from being combined into a
+    synthetic equity curve.  ``LIFECYCLE_STREAM_ID`` is available for
+    non-Cloud-Run runtimes that need a stable explicit identity.
+    """
+    import os
+
+    for candidate in (
+        explicit_stream_id,
+        os.environ.get("LIFECYCLE_STREAM_ID"),
+        os.environ.get("K_SERVICE"),
+    ):
+        value = str(candidate or "").strip()
+        if value:
+            return value
+
+    payload = execution_result if isinstance(execution_result, Mapping) else {}
+    platform = str(payload.get("platform") or "").strip()
+    account_scope = str(payload.get("account_scope") or payload.get("service_name") or "").strip()
+    if platform and account_scope:
+        return f"{platform}:{account_scope}"
+    return platform
+
+
 def _is_valid_series(series: object, *, min_observations: int = 10) -> bool:
     if not isinstance(series, pd.Series):
         return False
@@ -51,6 +82,7 @@ def run_monitor(
     collector: ReturnCollector | None = None,
     strategy_benchmarks: Mapping[str, str] | None = None,
     require_explicit_benchmark: bool = False,
+    live_stream_id: str | None = None,
 ) -> list[StrategyPerformanceSnapshot]:
     """Run the performance monitor for the given domain.
 
@@ -67,6 +99,9 @@ def run_monitor(
         require_explicit_benchmark: Refuse to monitor profiles without a binding
             or without the declared benchmark return series. This is the
             promotion-grade setting for leveraged strategies.
+        live_stream_id: Optional stable telemetry stream identity.  When live
+            account data is used, this prevents independent broker accounts
+            from being merged into one return series.
 
     Returns:
         List of StrategyPerformanceSnapshot objects generated.
@@ -75,7 +110,10 @@ def run_monitor(
     collector = collector or ReturnCollector()
 
     # 1. Collect returns
-    all_returns = collector.collect(domain)
+    if isinstance(collector, ReturnCollector):
+        all_returns = collector.collect(domain, live_stream_id=live_stream_id)
+    else:
+        all_returns = collector.collect(domain)
     if not all_returns:
         if fail_on_empty:
             raise RuntimeError(
@@ -118,7 +156,7 @@ def run_monitor(
         snapshot = StrategyPerformanceSnapshot(
             strategy_profile=profile,
             domain=domain,
-            platform="",
+            platform=str(live_stream_id or "").strip(),
             as_of=date.today(),
             benchmark_symbol=benchmark_symbol,
             computed_at=_now_iso(),
@@ -234,6 +272,7 @@ class PerformanceMonitor:
         execution_result: Mapping[str, Any] | None = None,
         *,
         domain: str = "",
+        stream_id: str = "",
     ) -> dict[str, Any]:
         profile = str(profile_id or "").strip()
         if not profile:
@@ -246,8 +285,21 @@ class PerformanceMonitor:
             "decision": _serialize_decision(decision),
             "execution_result": dict(execution_result or {}),
         }
-        self._store.save_live_run_record(profile, str(domain or "").strip(), payload)
-        return {"ok": True, "profile": profile, "domain": str(domain or "").strip()}
+        resolved_stream_id = resolve_lifecycle_stream_id(stream_id, execution_result=execution_result)
+        if resolved_stream_id:
+            payload["lifecycle_stream_id"] = resolved_stream_id
+        self._store.save_live_run_record(
+            profile,
+            str(domain or "").strip(),
+            payload,
+            stream_id=resolved_stream_id,
+        )
+        return {
+            "ok": True,
+            "profile": profile,
+            "domain": str(domain or "").strip(),
+            "stream_id": resolved_stream_id,
+        }
 
     def record_execution(
         self,
@@ -256,6 +308,7 @@ class PerformanceMonitor:
         *,
         domain: str = "",
         decision: Any | None = None,
+        stream_id: str = "",
     ) -> dict[str, Any]:
         """Persist platform-layer execution telemetry after order routing."""
         profile = str(profile_id or "").strip()
@@ -273,8 +326,21 @@ class PerformanceMonitor:
         }
         if decision is not None:
             payload["decision"] = _serialize_decision(decision)
-        self._store.save_live_run_record(profile, str(domain or "").strip(), payload)
-        return {"ok": True, "profile": profile, "domain": str(domain or "").strip()}
+        resolved_stream_id = resolve_lifecycle_stream_id(stream_id, execution_result=execution_result)
+        if resolved_stream_id:
+            payload["lifecycle_stream_id"] = resolved_stream_id
+        self._store.save_live_run_record(
+            profile,
+            str(domain or "").strip(),
+            payload,
+            stream_id=resolved_stream_id,
+        )
+        return {
+            "ok": True,
+            "profile": profile,
+            "domain": str(domain or "").strip(),
+            "stream_id": resolved_stream_id,
+        }
 
 
 def infer_strategy_domain(profile_id: str, *, explicit_domain: str = "") -> str:
@@ -297,6 +363,7 @@ def try_record_platform_execution(
     *,
     domain: str = "",
     decision: Any | None = None,
+    stream_id: str = "",
 ) -> None:
     """Best-effort execution recorder for platform runtimes; never raises."""
     try:
@@ -308,6 +375,7 @@ def try_record_platform_execution(
             execution_result,
             domain=infer_strategy_domain(profile_id, explicit_domain=domain),
             decision=decision,
+            stream_id=stream_id,
         )
     except Exception as exc:  # pragma: no cover
         logger.warning("PerformanceMonitor.record_execution failed: %s", exc)
