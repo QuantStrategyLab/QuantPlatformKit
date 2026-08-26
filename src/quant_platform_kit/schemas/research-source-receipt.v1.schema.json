@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantplatformkit.local/schemas/research-source-receipt.v1.schema.json",
+  "title": "ResearchSourceReceipt v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "source_id",
+    "source_url",
+    "publisher",
+    "retrieved_at",
+    "content_sha256",
+    "declared_license",
+    "usage_scope",
+    "license_review_id",
+    "untrusted",
+    "grants_execution_authority",
+    "receipt_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "research_source_receipt.v1" },
+    "source_id": { "type": "string", "minLength": 1 },
+    "source_url": { "type": "string", "format": "uri", "pattern": "^https://" },
+    "publisher": { "type": "string", "minLength": 1 },
+    "retrieved_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "content_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "declared_license": { "type": ["string", "null"] },
+    "usage_scope": { "enum": ["citation_or_summary", "candidate_copy"] },
+    "license_review_id": { "type": ["string", "null"] },
+    "untrusted": { "const": true },
+    "grants_execution_authority": { "const": false },
+    "receipt_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  },
+  "additionalProperties": false
+}
