@@ -8,7 +8,12 @@ from fractions import Fraction
 import unicodedata
 from unittest.mock import Mock, patch
 
-from quant_platform_kit.common.capital_base import CapitalBaseBinding, CapitalBaseSnapshot
+from quant_platform_kit.common.capital_base import (
+    CapitalBaseBinding,
+    CapitalBaseSnapshot,
+    CapitalScope,
+    CapitalValuationBasis,
+)
 from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.risk.contracts import (
     ROUTE_BLOCKED,
@@ -76,6 +81,8 @@ def _capital_base(*, as_of: datetime | None = None, **overrides: object) -> Capi
         "runtime_scope": "runtime-a",
         "strategy_scope": "soxl_soxx_trend_income",
         "source_digest_sha256": "a" * 64,
+        "capital_scope": CapitalScope.ACCOUNT,
+        "valuation_basis": CapitalValuationBasis.BROKER_ACCOUNT_NET_LIQUIDATION,
     }
     values.update(overrides)
     return CapitalBaseSnapshot(**values)  # type: ignore[arg-type]
@@ -87,6 +94,8 @@ def _capital_base_binding(**overrides: object) -> CapitalBaseBinding:
         "runtime_scope": "runtime-a",
         "strategy_scope": "soxl_soxx_trend_income",
         "target_currency": "USD",
+        "capital_scope": CapitalScope.ACCOUNT,
+        "valuation_basis": CapitalValuationBasis.BROKER_ACCOUNT_NET_LIQUIDATION,
     }
     values.update(overrides)
     return CapitalBaseBinding(**values)  # type: ignore[arg-type]

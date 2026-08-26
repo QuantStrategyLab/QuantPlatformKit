@@ -8,6 +8,8 @@ from quant_platform_kit.common.capital_base import (
     CapitalBaseBinding,
     CapitalBaseFinding,
     CapitalBaseSnapshot,
+    CapitalScope,
+    CapitalValuationBasis,
     build_capital_base_snapshot,
     validate_capital_base,
 )
@@ -23,6 +25,8 @@ def _binding(**overrides: object) -> CapitalBaseBinding:
         "runtime_scope": "us-equity-live-a",
         "strategy_scope": "soxl_soxx_trend_income",
         "target_currency": "USD",
+        "capital_scope": CapitalScope.ACCOUNT,
+        "valuation_basis": CapitalValuationBasis.BROKER_ACCOUNT_NET_LIQUIDATION,
         "max_age_seconds": 300.0,
     }
     values.update(overrides)
@@ -40,6 +44,8 @@ def _snapshot(**overrides: object) -> CapitalBaseSnapshot:
         "runtime_scope": "us-equity-live-a",
         "strategy_scope": "soxl_soxx_trend_income",
         "source_digest_sha256": "a" * 64,
+        "capital_scope": CapitalScope.ACCOUNT,
+        "valuation_basis": CapitalValuationBasis.BROKER_ACCOUNT_NET_LIQUIDATION,
     }
     values.update(overrides)
     return CapitalBaseSnapshot(**values)  # type: ignore[arg-type]
@@ -54,10 +60,14 @@ def test_validates_fresh_same_scope_base_and_redacts_scope_material() -> None:
     assert safe["findings"] == []
     assert "broker-account-a" not in repr(safe)
     assert safe["snapshot"] == {
-        "contract_version": "qpk.capital_base.v1",
+        "contract_version": "qpk.capital_base.v2",
         "as_of": "2026-08-27T09:59:30Z",
         "reported_currency": "USD",
         "target_currency": "USD",
+        "capital_scope": "account",
+        "valuation_basis": "broker_account_net_liquidation",
+        "allocation_scope_digest_sha256": None,
+        "component_coverage_digest_sha256": None,
         "fx_applied": False,
         "source_digest_sha256": "a" * 64,
         "fx_source_digest_sha256": None,
@@ -85,6 +95,8 @@ def test_build_adapter_uses_only_canonical_snapshot_values_and_explicit_evidence
         target_currency="USD",
         fx_rate_to_target=1.0,
         source_digest_sha256="a" * 64,
+        capital_scope=CapitalScope.ACCOUNT,
+        valuation_basis=CapitalValuationBasis.BROKER_ACCOUNT_NET_LIQUIDATION,
     )
 
     assert adapted.reported_equity == portfolio_snapshot.total_equity
@@ -106,6 +118,8 @@ def test_build_adapter_does_not_accept_platform_shaped_or_missing_evidence() -> 
             target_currency="USD",
             fx_rate_to_target=1.0,
             source_digest_sha256="a" * 64,
+            capital_scope=CapitalScope.ACCOUNT,
+            valuation_basis=CapitalValuationBasis.BROKER_ACCOUNT_NET_LIQUIDATION,
         )
 
     snapshot = PortfolioSnapshot(as_of=NOW, total_equity=100_000.0)
@@ -119,6 +133,59 @@ def test_build_adapter_does_not_accept_platform_shaped_or_missing_evidence() -> 
             target_currency="USD",
             fx_rate_to_target=1.0,
             source_digest_sha256="",
+            capital_scope=CapitalScope.ACCOUNT,
+            valuation_basis=CapitalValuationBasis.BROKER_ACCOUNT_NET_LIQUIDATION,
+        )
+
+
+def test_capital_scope_and_valuation_basis_are_strictly_bound() -> None:
+    full_account_binding = _binding(
+        valuation_basis=CapitalValuationBasis.FULL_ACCOUNT_MARK_TO_MARKET,
+    )
+    full_account = _snapshot(
+        valuation_basis=CapitalValuationBasis.FULL_ACCOUNT_MARK_TO_MARKET,
+        component_coverage_digest_sha256="c" * 64,
+    )
+
+    assert validate_capital_base(full_account, binding=full_account_binding, now=NOW).is_valid
+
+    with pytest.raises(ValueError, match="requires component_coverage"):
+        _snapshot(valuation_basis=CapitalValuationBasis.FULL_ACCOUNT_MARK_TO_MARKET)
+    with pytest.raises(ValueError, match="must not set allocation_scope"):
+        _snapshot(allocation_scope="shared-cash-ledger")
+
+
+def test_allocated_sleeve_requires_an_explicit_ledger_and_coverage() -> None:
+    binding = _binding(
+        capital_scope=CapitalScope.ALLOCATED_SLEEVE,
+        valuation_basis=CapitalValuationBasis.ALLOCATED_SLEEVE_LEDGER,
+        allocation_scope="sleeve-ledger-a",
+    )
+    snapshot = _snapshot(
+        capital_scope=CapitalScope.ALLOCATED_SLEEVE,
+        valuation_basis=CapitalValuationBasis.ALLOCATED_SLEEVE_LEDGER,
+        allocation_scope="sleeve-ledger-a",
+        component_coverage_digest_sha256="b" * 64,
+    )
+
+    assert validate_capital_base(snapshot, binding=binding, now=NOW).is_valid
+    mismatch = validate_capital_base(
+        _snapshot(
+            capital_scope=CapitalScope.ALLOCATED_SLEEVE,
+            valuation_basis=CapitalValuationBasis.ALLOCATED_SLEEVE_LEDGER,
+            allocation_scope="sleeve-ledger-b",
+            component_coverage_digest_sha256="b" * 64,
+        ),
+        binding=binding,
+        now=NOW,
+    )
+    assert mismatch.findings == (CapitalBaseFinding.ALLOCATION_SCOPE_MISMATCH.value,)
+
+    with pytest.raises(ValueError, match="allocated_sleeve requires allocation_scope"):
+        _snapshot(
+            capital_scope=CapitalScope.ALLOCATED_SLEEVE,
+            valuation_basis=CapitalValuationBasis.ALLOCATED_SLEEVE_LEDGER,
+            component_coverage_digest_sha256="b" * 64,
         )
 
 
@@ -201,6 +268,31 @@ def test_missing_or_untrusted_mapping_fails_closed() -> None:
 
     assert missing.findings == (CapitalBaseFinding.MISSING.value,)
     assert unknown.findings == (CapitalBaseFinding.INVALID.value,)
+
+
+def test_v1_shape_remains_readable_but_never_admits_strict_value_targets() -> None:
+    legacy_snapshot = CapitalBaseSnapshot(
+        reported_equity=100_000.0,
+        reported_currency="USD",
+        target_currency="USD",
+        fx_rate_to_target=1.0,
+        as_of=NOW - timedelta(seconds=30),
+        account_scope="broker-account-a",
+        runtime_scope="us-equity-live-a",
+        strategy_scope="soxl_soxx_trend_income",
+        source_digest_sha256="a" * 64,
+    )
+    legacy_binding = CapitalBaseBinding(
+        account_scope="broker-account-a",
+        runtime_scope="us-equity-live-a",
+        strategy_scope="soxl_soxx_trend_income",
+        target_currency="USD",
+    )
+
+    result = validate_capital_base(legacy_snapshot, binding=legacy_binding, now=NOW)
+
+    assert legacy_snapshot.contract_version == "qpk.capital_base.v1"
+    assert result.findings == (CapitalBaseFinding.LEGACY_CONTRACT.value,)
 
 
 def test_scale_metamorphism_preserves_normalized_value_target_weight() -> None:
