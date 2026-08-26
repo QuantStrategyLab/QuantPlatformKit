@@ -130,6 +130,34 @@ class ApplyRiskGateTests(unittest.TestCase):
         self.assertEqual(len(result.positions), 1)
         self.assertIn("risk_gate:passed", result.risk_flags)
 
+    def test_no_mandate_normalizes_value_targets_before_concentration_check(self) -> None:
+        approved = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SPY", target_value=10_000.0),)),
+            product_leverage_factors={"SPY": 1},
+            portfolio_snapshot=_portfolio_snapshot(),
+        )
+        rejected = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SPY", target_value=10_001.0),)),
+            product_leverage_factors={"SPY": 1},
+            portfolio_snapshot=_portfolio_snapshot(),
+        )
+
+        self.assertIn("risk_gate:passed", approved.risk_flags)
+        self.assertEqual(rejected.positions, ())
+        self.assertEqual(rejected.risk_flags, ("rejected:concentration",))
+
+    def test_no_mandate_rejects_value_target_without_valid_equity(self) -> None:
+        for snapshot in (None, {}, {"total_equity": 0.0}, {"total_equity": float("inf")}):
+            with self.subTest(snapshot=snapshot):
+                result = apply_risk_gate(
+                    _decision(positions=(PositionTarget(symbol="SPY", target_value=10_000.0),)),
+                    product_leverage_factors={"SPY": 1},
+                    portfolio_snapshot=snapshot,
+                )
+
+            self.assertEqual(result.positions, ())
+            self.assertEqual(result.risk_flags, ("rejected:invalid_decision_exposure",))
+
     def test_no_mandate_rejects_missing_or_leveraged_classification(self) -> None:
         decision = _decision(
             positions=(PositionTarget(symbol="SPY", target_weight=0.10),),
