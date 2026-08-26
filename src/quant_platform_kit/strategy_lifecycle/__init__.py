@@ -14,6 +14,13 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     UpdateStage,
     WindowPerformance,
 )
+from quant_platform_kit.strategy_lifecycle.benchmark_catalog import (
+    STRATEGY_BENCHMARK_CATALOG_SCHEMA,
+    StrategyBenchmarkBinding,
+    StrategyBenchmarkCatalogError,
+    build_strategy_benchmark_catalog,
+    load_strategy_benchmark_catalog,
+)
 from quant_platform_kit.strategy_spec import (
     OPTIMIZATION_SPEC_SCHEMA_VERSION,
     RESEARCH_SPEC_SCHEMA_VERSION,
@@ -80,6 +87,9 @@ from quant_platform_kit.strategy_lifecycle.research_driver import (
 
 __all__ = [
     "BacktestResult",
+    "STRATEGY_BENCHMARK_CATALOG_SCHEMA",
+    "StrategyBenchmarkBinding",
+    "StrategyBenchmarkCatalogError",
     "DriftDimension",
     "DriftResult",
     "DriftStatus",
@@ -110,9 +120,11 @@ __all__ = [
     "RESEARCH_DRIVER_SCHEMA_VERSION",
     "RESEARCH_DRIVER_TERMINAL_STATUSES",
     "load_evidence_package",
+    "load_strategy_benchmark_catalog",
     "canonical_evidence_package_v2_bytes",
     "read_evidence_package_v2_json",
     "build_live_candidate_notification",
+    "build_strategy_benchmark_catalog",
     "assess_strategy_release_readiness",
     "build_forward_risk_terminal_artifact",
     "build_nonready_forward_risk_stage",

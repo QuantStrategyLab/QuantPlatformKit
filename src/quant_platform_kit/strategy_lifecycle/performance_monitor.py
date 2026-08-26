@@ -49,6 +49,8 @@ def run_monitor(
     fail_on_empty: bool = True,
     store: PerformanceStore | None = None,
     collector: ReturnCollector | None = None,
+    strategy_benchmarks: Mapping[str, str] | None = None,
+    require_explicit_benchmark: bool = False,
 ) -> list[StrategyPerformanceSnapshot]:
     """Run the performance monitor for the given domain.
 
@@ -61,6 +63,10 @@ def run_monitor(
         fail_on_empty: Raise when no usable return series can be monitored.
         store: PerformanceStore instance; auto-created from env if None.
         collector: ReturnCollector instance; auto-created if None.
+        strategy_benchmarks: Explicit strategy-profile to benchmark bindings.
+        require_explicit_benchmark: Refuse to monitor profiles without a binding
+            or without the declared benchmark return series. This is the
+            promotion-grade setting for leveraged strategies.
 
     Returns:
         List of StrategyPerformanceSnapshot objects generated.
@@ -89,8 +95,20 @@ def run_monitor(
         series = normalize_return_series(returns)
 
         # Resolve benchmark
-        benchmark_symbol = resolve_strategy_benchmark(profile, domain)
+        benchmark_symbol = resolve_strategy_benchmark(
+            profile,
+            domain,
+            catalog_benchmarks=strategy_benchmarks,
+            require_explicit=require_explicit_benchmark,
+        )
         benchmark_series = collector.collect_benchmark(domain, benchmark_symbol)
+        if require_explicit_benchmark and not _is_valid_series(
+            benchmark_series, min_observations=min_observations
+        ):
+            raise RuntimeError(
+                f"explicit benchmark data is unavailable or insufficient for "
+                f"strategy_profile={profile!r}, benchmark={benchmark_symbol!r}"
+            )
         benchmark_returns = normalize_return_series(benchmark_series) if benchmark_series is not None else None
 
         # Load backtest reference for comparison
