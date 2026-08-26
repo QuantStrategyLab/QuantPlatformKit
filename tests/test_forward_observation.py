@@ -102,6 +102,35 @@ def test_milestones_and_full_window_never_promote_live() -> None:
     assert completed.live_authority_granted is False
 
 
+def test_each_candidate_supplies_its_own_forward_window_without_soxl_defaults() -> None:
+    policy = ForwardObservationPolicy(
+        candidate_id="global-etf-monthly-v1",
+        strategy_profile="global_etf_rotation",
+        domain="us_equity",
+        benchmark_symbol="ACWI",
+        required_trading_sessions=63,
+        review_milestones=(15, 42),
+        automatic_non_live_modes=("shadow", "paper"),
+        auto_resume_clean_sessions=2,
+    )
+
+    result = evaluate_forward_observation(
+        policy,
+        ForwardObservationSnapshot(
+            historical_evidence_verified=True,
+            historical_evidence_ref="sha256:global-etf-monthly-v1-p3",
+            observations_completed=63,
+            previous_observations_completed=62,
+        ),
+    )
+
+    assert policy.to_dict()["required_trading_sessions"] == 63
+    assert policy.to_dict()["review_milestones"] == [15, 42]
+    assert result.benchmark_symbol == "ACWI"
+    assert result.state == "FORWARD_COMPLETE_HUMAN_REVIEW"
+    assert result.live_authority_granted is False
+
+
 def test_policy_and_snapshot_reject_ambiguous_configuration() -> None:
     with pytest.raises(ForwardObservationPolicyError, match="automatic_non_live_modes"):
         _policy(automatic_non_live_modes=("shadow",))
