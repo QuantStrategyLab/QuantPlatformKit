@@ -169,6 +169,34 @@ class ApplyRiskGateTests(unittest.TestCase):
 
         self.assertIn("risk_gate:passed", result.risk_flags)
         self.assertEqual(result.diagnostics["value_target_exposure_policy"], "legacy_compatibility")
+        self.assertEqual(
+            result.diagnostics["value_target_exposure_audit"],
+            {
+                "version": "qpk.value_target_exposure_audit.v1",
+                "enforcement": "legacy_compatibility",
+                "migration_required": True,
+                "equity_available": True,
+                "active_target_count": 1,
+                "invalid_target_value": False,
+                "max_target_weight": 0.70,
+                "total_target_weight": 0.70,
+            },
+        )
+
+    def test_enforced_value_targets_record_normalized_exposure_audit(self) -> None:
+        result = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SPY", target_value=10_000.0),)),
+            product_leverage_factors={"SPY": 1},
+            portfolio_snapshot=_portfolio_snapshot(),
+            enforce_value_target_exposure=True,
+        )
+
+        self.assertIn("risk_gate:passed", result.risk_flags)
+        audit = result.diagnostics["value_target_exposure_audit"]
+        self.assertEqual(audit["enforcement"], "enforced")
+        self.assertIs(audit["migration_required"], False)
+        self.assertEqual(audit["max_target_weight"], 0.10)
+        self.assertEqual(audit["total_target_weight"], 0.10)
 
     def test_no_mandate_rejects_missing_or_leveraged_classification(self) -> None:
         decision = _decision(
