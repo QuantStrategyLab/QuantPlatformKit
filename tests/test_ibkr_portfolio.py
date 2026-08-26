@@ -63,6 +63,8 @@ class IbkrPortfolioTests(unittest.TestCase):
         self.assertEqual(tuple(position.symbol for position in snapshot.positions), ("TQQQ",))
         self.assertEqual(snapshot.positions[0].account_id, "U00000001")
         self.assertEqual(snapshot.metadata["account_ids"], ("U00000001",))
+        self.assertEqual(snapshot.metadata["total_equity_source"], "broker_net_liquidation")
+        self.assertEqual(len(snapshot.metadata["source_digest_sha256"]), 64)
         self.assertEqual(snapshot.metadata["option_positions"][0]["underlier"], "TQQQ")
         self.assertEqual(snapshot.metadata["option_positions"][0]["right"], "C")
         self.assertEqual(snapshot.metadata["option_positions"][0]["strike"], 70.0)
@@ -76,6 +78,14 @@ class IbkrPortfolioTests(unittest.TestCase):
 
         self.assertEqual(snapshot.total_equity, 3000.0)
         self.assertEqual(snapshot.buying_power, 750.0)
+        self.assertEqual(snapshot.metadata["total_equity_source"], "broker_net_liquidation")
+
+    def test_snapshot_without_explicit_account_scope_has_no_strict_capital_evidence(self) -> None:
+        snapshot = fetch_portfolio_snapshot(FakeIB(), wait_seconds=0)
+
+        self.assertEqual(snapshot.total_equity, 3000.0)
+        self.assertEqual(snapshot.metadata["total_equity_source"], "unverified_net_liquidation")
+        self.assertNotIn("source_digest_sha256", snapshot.metadata)
         self.assertEqual(tuple(position.symbol for position in snapshot.positions), ("TQQQ", "AAPL"))
         self.assertEqual(len(snapshot.metadata["option_positions"]), 1)
 
