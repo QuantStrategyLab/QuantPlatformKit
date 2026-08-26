@@ -1,10 +1,36 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from hashlib import sha256
+import json
+import math
 from typing import Any, Iterable
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from .market_data import _request_with_retries, decode_response_json
+
+
+def _payload_digest(payload: Any) -> str:
+    """Bind a normalized snapshot to the broker response without retaining it."""
+
+    canonical = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    return sha256(canonical).hexdigest()
+
+
+def _positive_finite_balance(balances: dict[str, Any], key: str) -> float | None:
+    """Return an explicit broker account-value field only when usable."""
+
+    try:
+        value = float(balances.get(key))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) and value > 0.0 else None
 
 
 def fetch_account_snapshot(
@@ -37,19 +63,31 @@ def fetch_account_snapshot(
 
     allowed_symbols = set(strategy_symbols)
     positions = []
+    all_position_market_value = 0.0
     for raw_position in account.get("positions", []):
         symbol = raw_position["instrument"]["symbol"]
+        market_value = float(raw_position.get("marketValue", 0.0))
+        all_position_market_value += market_value
         if allowed_symbols and symbol not in allowed_symbols:
             continue
         positions.append(
             Position(
                 symbol=symbol,
                 quantity=float(raw_position.get("longQuantity", 0)),
-                market_value=float(raw_position.get("marketValue", 0.0)),
+                market_value=market_value,
             )
         )
 
-    total_equity = cash_for_equity + sum(position.market_value for position in positions)
+    liquidation_value = _positive_finite_balance(balances, "liquidationValue")
+    if liquidation_value is not None:
+        total_equity = liquidation_value
+        total_equity_source = "broker_liquidation_value"
+    else:
+        # Strategy symbols only control the positions exposed to a strategy;
+        # they must not silently change the account-level denominator used by
+        # value-target risk controls.
+        total_equity = cash_for_equity + all_position_market_value
+        total_equity_source = "cash_available_plus_all_position_market_values"
 
     return PortfolioSnapshot(
         as_of=datetime.now(timezone.utc),
@@ -61,5 +99,7 @@ def fetch_account_snapshot(
             "account_hash": account_hash,
             "cash_available_for_trading": cash_for_equity,
             "cash_available_for_withdrawal": raw_withdrawable,
+            "total_equity_source": total_equity_source,
+            "source_digest_sha256": _payload_digest(account_payload),
         },
     )
