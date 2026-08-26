@@ -102,6 +102,39 @@ Any one of these gates failing should keep the profile out of live settings.
 - When a strategy is a wrapper or orchestrator, promote it only after the
   wrapped components are stable and the wrapper itself has been validated.
 
+## Candidate and Human-Decision Contract
+
+`strategy_candidate.v1` is a research artifact, not an additional lifecycle
+state. It records one bounded candidate kind: `parameter_change`,
+`strategy_revision`, `new_strategy`, or `plugin_revision`. Its research-local
+sub-status is descriptive only and does not move a profile between the
+canonical lifecycle stages above.
+
+Every candidate binds, by SHA-256 digest, the existing `CandidateRiskIdentity`,
+the applicable `ResearchSpec`, an `OptimizationSpec` for parameter changes, and
+the complete ordered set of `SourceReceipt` records. A source receipt preserves
+the source URI, retrieval time, content hash, and license, but is explicitly
+`untrusted`; web material cannot create authority or change a runtime setting.
+
+`strategy_candidate.v2` is the forward-only form for research-factory output.
+It replaces embedded source-receipt projections with an ordered list of exactly
+`{schema_version, receipt_sha256}` references. The only accepted source schema
+is `research_source_receipt.v1`. A v2 candidate cannot carry raw content, URLs,
+license fields, or a converted receipt digest; that producer owns receipt
+validation. `strategy_candidate.v1` remains readable for existing artifacts but
+new factory-backed candidates should write v2.
+
+`promotion_decision.v1` records a named human review, exact candidate digest,
+non-live scope (`research`, `shadow`, or `paper`), and expiry. Its serialized
+`grants_live` and `grants_execution_authority` fields are always `false`. It
+therefore cannot enable live trading, increase a risk budget, or replace the
+separate platform, risk, and broker controls.
+
+Automated systems may propose candidates, run backtests, collect evidence, and
+open human-review PRs. They must not auto-approve, auto-merge, deploy, or live
+enable a change with capital impact. The legacy `--auto-approve` CLI argument
+is accepted only for compatibility and is ignored.
+
 ## Repo-Level Guidance
 
 - **US equity**: long-history trend / rotation profiles can move through the

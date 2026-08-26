@@ -61,7 +61,7 @@ class AiReviewerTests(unittest.TestCase):
         )
         v = review_proposal(p)
         self.assertEqual(v.verdict, "approve")
-        self.assertFalse(v.requires_human)
+        self.assertTrue(v.requires_human)
 
     def test_excellent_proposal_high_score(self) -> None:
         p = _make_proposal(

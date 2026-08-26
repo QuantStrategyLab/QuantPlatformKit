@@ -1,7 +1,7 @@
 """Codex integration bridge — connects strategy_lifecycle to the Codex ecosystem.
 
 Integrates with three existing systems:
-- CodexAuditBridge: automated monthly audits + PR creation + auto-merge
+- CodexAuditBridge: automated monthly audits + reviewable PR creation
 - ai_audit.py (QuantStrategyPlugins): reusable AI audit client (Codex/OpenAI/Anthropic)
 - TelegramCodexBot: GitHub issue → Codex session bridge + notifications
 
@@ -10,7 +10,7 @@ optimization by:
 1. Auto-creating GitHub issues when drift reaches REVIEW/CRITICAL
 2. Invoking AI-driven optimization decisions via ai_audit.py
 3. Generating structured proposals that CodexAuditBridge can turn into PRs
-4. Auto-approving low-risk parameter changes
+4. Preparing bounded candidate evidence for a human decision
 """
 
 from __future__ import annotations
@@ -157,8 +157,8 @@ def _codex_action_directive(drift: DriftResult) -> str:
             "**REVIEW**: Codex should:\n"
             "1. Run parameter optimization for `{profile}`\n"
             "2. Compare proposed vs current parameters\n"
-            "3. If auto-approve criteria met (change <10%, all improvements), create auto-merge PR\n"
-            "4. Otherwise, create PR with human-review-required label"
+            "3. Record a bound candidate and evidence package for human review\n"
+            "4. Create a human-review-required PR; do not auto-merge or deploy"
         ).format(profile=drift.strategy_profile)
     return (
         "**WATCH**: No immediate optimization needed. Continue monitoring."
@@ -479,9 +479,8 @@ def _process_optimization_decision(
     store: PerformanceStore,
     dry_run: bool,
 ) -> dict[str, object]:
-    """Phase 4: AI decide → optimize → review → deploy for one drift."""
+    """Phase 4: AI decide → optimize → review → await human decision."""
     from quant_platform_kit.strategy_lifecycle.ai_reviewer import review_proposal, llm_enhanced_review
-    from quant_platform_kit.strategy_lifecycle.update_orchestrator import process_update_from_proposal
 
     snapshot = store.load_latest_snapshot(drift.domain, drift.strategy_profile)
     context = AiOptimizationContext(
@@ -522,7 +521,7 @@ def _process_optimization_decision(
         }
 
         if proposal.recommendation not in ("promote", "needs_review"):
-            entry["auto_deployed"] = False
+            entry["execution_authorized"] = False
             return entry
 
         # Rule-based review
@@ -530,23 +529,24 @@ def _process_optimization_decision(
         entry["ai_review"] = verdict.to_dict()
 
         if verdict.verdict == "approve":
-            update_result = process_update_from_proposal(
-                proposal, auto_approve=True, store=store,
+            entry["execution_authorized"] = False
+            entry["requires_human_approval"] = True
+            entry["note"] = (
+                "Automated review passed; create a bound candidate and obtain "
+                "an expiring human decision before any non-live promotion."
             )
-            entry["update_result"] = update_result
-            entry["auto_deployed"] = update_result.get("stage") in {"deployed", "runtime_confirmed"}
         elif verdict.verdict == "escalate":
             llm_v = llm_enhanced_review(proposal, drift=drift, dry_run=dry_run)
             entry["llm_review"] = llm_v.to_dict()
             if llm_v.verdict == "approve":
-                entry["auto_deployed"] = False
+                entry["execution_authorized"] = False
                 entry["escalated_to_human"] = True
-                entry["note"] = "LLM approved proposal, but deployment remains manual until patch is applied and runtime is confirmed"
+                entry["note"] = "LLM review is evidence only; human approval remains required"
             else:
-                entry["auto_deployed"] = False
+                entry["execution_authorized"] = False
                 entry["escalated_to_human"] = True
         else:
-            entry["auto_deployed"] = False
+            entry["execution_authorized"] = False
 
     except Exception as exc:
         entry["optimization_error"] = str(exc)
@@ -568,7 +568,7 @@ def run_auto_pilot_cycle(
       1. _run_monitor_phase  — run performance monitoring
       2. _run_drift_phase    — run drift detection
       3. _run_issue_phase    — create GitHub issues (optional)
-      4. _process_optimization_decision — AI optimize → review → deploy (per drift)
+      4. _process_optimization_decision — AI optimize → review → await human decision
     """
     store = store or PerformanceStore.from_env()
     summary: dict[str, Any] = {

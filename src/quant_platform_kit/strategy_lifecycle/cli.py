@@ -349,7 +349,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     update = subparsers.add_parser("update", help="Process a parameter update proposal.")
     update.add_argument("--proposal", required=True)
-    update.add_argument("--auto-approve", action="store_true")
+    update.add_argument(
+        "--auto-approve",
+        action="store_true",
+        help="Deprecated and ignored; parameter changes always require human approval.",
+    )
     update.set_defaults(func=_run_update)
 
     dashboard = subparsers.add_parser("dashboard", help="Build the unified strategy health dashboard.")
