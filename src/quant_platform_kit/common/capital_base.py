@@ -20,6 +20,8 @@ import re
 import unicodedata
 from typing import Any
 
+from .models import PortfolioSnapshot
+
 
 CAPITAL_BASE_CONTRACT_VERSION = "qpk.capital_base.v1"
 
@@ -291,6 +293,42 @@ class CapitalBaseSnapshot:
             "fx_source_digest_sha256": self.fx_source_digest_sha256,
             "scope_digest_sha256": self.scope_digest_sha256,
         }
+
+
+def build_capital_base_snapshot(
+    portfolio_snapshot: PortfolioSnapshot,
+    *,
+    account_scope: str,
+    runtime_scope: str,
+    strategy_scope: str,
+    reported_currency: str,
+    target_currency: str,
+    fx_rate_to_target: float,
+    source_digest_sha256: str,
+    fx_source_digest_sha256: str | None = None,
+) -> CapitalBaseSnapshot:
+    """Adapt a canonical portfolio snapshot into verified capital evidence.
+
+    This is intentionally a small, pure adapter: it copies only
+    ``total_equity`` and ``as_of`` from the already-normalized portfolio
+    snapshot.  Account/runtime/strategy scopes, currency conversion and both
+    source digests remain explicit inputs.  It does not read environment
+    variables, infer account identity from metadata, or fabricate a digest.
+    """
+    if not isinstance(portfolio_snapshot, PortfolioSnapshot):
+        raise TypeError("portfolio_snapshot must be a PortfolioSnapshot")
+    return CapitalBaseSnapshot(
+        reported_equity=portfolio_snapshot.total_equity,
+        reported_currency=reported_currency,
+        target_currency=target_currency,
+        fx_rate_to_target=fx_rate_to_target,
+        as_of=portfolio_snapshot.as_of,
+        account_scope=account_scope,
+        runtime_scope=runtime_scope,
+        strategy_scope=strategy_scope,
+        source_digest_sha256=source_digest_sha256,
+        fx_source_digest_sha256=fx_source_digest_sha256,
+    )
 
 
 class CapitalBaseFinding(str, Enum):

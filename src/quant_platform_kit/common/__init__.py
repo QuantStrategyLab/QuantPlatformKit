@@ -80,6 +80,7 @@ from .capital_base import (
     CapitalBaseFinding,
     CapitalBaseSnapshot,
     CapitalBaseValidation,
+    build_capital_base_snapshot,
     validate_capital_base,
 )
 from .execution_commands import (
@@ -351,6 +352,7 @@ __all__ = [
     "ExecutionCommandState",
     "ExecutionCommandStore",
     "build_execution_command_store_from_env",
+    "build_capital_base_snapshot",
     "validate_execution_command_release_binding",
     "validate_capital_base",
     "validate_execution_command_transition",

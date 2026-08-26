@@ -34,6 +34,29 @@ capital_base = CapitalBaseSnapshot(
 )
 ```
 
+When the platform has already built a canonical `PortfolioSnapshot`, it may
+use the pure adapter instead of copying `total_equity` and `as_of` itself:
+
+```python
+from quant_platform_kit.common.capital_base import build_capital_base_snapshot
+
+capital_base = build_capital_base_snapshot(
+    portfolio_snapshot,
+    account_scope="stable-account-scope",
+    runtime_scope="stable-runtime-scope",
+    strategy_scope="soxl_soxx_trend_income",
+    reported_currency="USD",
+    target_currency="USD",
+    fx_rate_to_target=1.0,
+    source_digest_sha256=broker_snapshot_digest,
+)
+```
+
+This helper intentionally accepts only a canonical `PortfolioSnapshot`. It
+does not read environment variables, inspect untrusted snapshot metadata, or
+infer scope, currency, FX, or digests; platforms must supply those reviewed
+facts explicitly.
+
 When `reported_currency` and `target_currency` differ, set a positive
 `fx_rate_to_target` and provide `fx_source_digest_sha256`.  The contract
 rejects missing, zero, non-finite, future, stale, currency-mismatched, or

@@ -8,8 +8,10 @@ from quant_platform_kit.common.capital_base import (
     CapitalBaseBinding,
     CapitalBaseFinding,
     CapitalBaseSnapshot,
+    build_capital_base_snapshot,
     validate_capital_base,
 )
+from quant_platform_kit.common.models import PortfolioSnapshot
 
 
 NOW = datetime(2026, 8, 27, 10, 0, tzinfo=timezone.utc)
@@ -61,6 +63,63 @@ def test_validates_fresh_same_scope_base_and_redacts_scope_material() -> None:
         "fx_source_digest_sha256": None,
         "scope_digest_sha256": _binding().scope_digest_sha256,
     }
+
+
+def test_build_adapter_uses_only_canonical_snapshot_values_and_explicit_evidence() -> None:
+    portfolio_snapshot = PortfolioSnapshot(
+        as_of=NOW - timedelta(seconds=30),
+        total_equity=100_000.0,
+        metadata={
+            "account_scope": "untrusted-metadata-account",
+            "currency": "USDT",
+            "source_digest_sha256": "f" * 64,
+        },
+    )
+
+    adapted = build_capital_base_snapshot(
+        portfolio_snapshot,
+        account_scope="broker-account-a",
+        runtime_scope="us-equity-live-a",
+        strategy_scope="soxl_soxx_trend_income",
+        reported_currency="USD",
+        target_currency="USD",
+        fx_rate_to_target=1.0,
+        source_digest_sha256="a" * 64,
+    )
+
+    assert adapted.reported_equity == portfolio_snapshot.total_equity
+    assert adapted.as_of == portfolio_snapshot.as_of
+    assert adapted.account_scope == "broker-account-a"
+    assert adapted.reported_currency == "USD"
+    assert adapted.source_digest_sha256 == "a" * 64
+    assert validate_capital_base(adapted, binding=_binding(), now=NOW).is_valid
+
+
+def test_build_adapter_does_not_accept_platform_shaped_or_missing_evidence() -> None:
+    with pytest.raises(TypeError, match="PortfolioSnapshot"):
+        build_capital_base_snapshot(
+            {"total_equity": 100_000.0, "as_of": NOW},  # type: ignore[arg-type]
+            account_scope="broker-account-a",
+            runtime_scope="us-equity-live-a",
+            strategy_scope="soxl_soxx_trend_income",
+            reported_currency="USD",
+            target_currency="USD",
+            fx_rate_to_target=1.0,
+            source_digest_sha256="a" * 64,
+        )
+
+    snapshot = PortfolioSnapshot(as_of=NOW, total_equity=100_000.0)
+    with pytest.raises(ValueError, match="source_digest_sha256"):
+        build_capital_base_snapshot(
+            snapshot,
+            account_scope="broker-account-a",
+            runtime_scope="us-equity-live-a",
+            strategy_scope="soxl_soxx_trend_income",
+            reported_currency="USD",
+            target_currency="USD",
+            fx_rate_to_target=1.0,
+            source_digest_sha256="",
+        )
 
 
 @pytest.mark.parametrize(
