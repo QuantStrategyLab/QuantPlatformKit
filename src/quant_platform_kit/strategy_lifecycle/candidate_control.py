@@ -17,14 +17,12 @@ from typing import Any, Mapping
 
 
 SOURCE_RECEIPT_SCHEMA_VERSION = "source_receipt.v1"
+RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION = "research_source_receipt.v1"
 STRATEGY_CANDIDATE_SCHEMA_VERSION = "strategy_candidate.v1"
 STRATEGY_CANDIDATE_V2_SCHEMA_VERSION = "strategy_candidate.v2"
 PROMOTION_DECISION_SCHEMA_VERSION = "promotion_decision.v1"
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
-_SCHEMA_VERSION = re.compile(
-    r"^[a-z][a-z0-9_]*(?:[.-][a-z0-9_-]+)*\.v[1-9][0-9]*$"
-)
 _RFC3339_DATETIME = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
 )
@@ -88,11 +86,6 @@ def _require_identifier(value: str, name: str) -> None:
 def _require_sha256(value: str, name: str) -> None:
     if not isinstance(value, str) or not _SHA256.fullmatch(value):
         raise ValueError(f"{name} must be a lowercase SHA-256 digest")
-
-
-def _require_schema_version(value: str, name: str) -> None:
-    if not isinstance(value, str) or not _SCHEMA_VERSION.fullmatch(value):
-        raise ValueError(f"{name} must be a canonical versioned schema name")
 
 
 def _parse_rfc3339(value: str, name: str) -> datetime:
@@ -240,7 +233,11 @@ class ResearchSourceReceiptRef:
     receipt_sha256: str
 
     def __post_init__(self) -> None:
-        _require_schema_version(self.schema_version, "schema_version")
+        if self.schema_version != RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION:
+            raise ValueError(
+                "schema_version must be "
+                f"{RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION!r}"
+            )
         _require_sha256(self.receipt_sha256, "receipt_sha256")
 
     @property
@@ -690,10 +687,11 @@ def _validate_research_source_receipt_ref(
         issues.append(f"{label} must contain only schema_version and receipt_sha256")
     schema_version = ref.get("schema_version")
     receipt_sha256 = ref.get("receipt_sha256")
-    try:
-        _require_schema_version(schema_version, f"{label}.schema_version")
-    except ValueError:
-        issues.append(f"{label}.schema_version must be a canonical versioned schema name")
+    if schema_version != RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION:
+        issues.append(
+            f"{label}.schema_version must be "
+            f"{RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION!r}"
+        )
     _validate_sha(receipt_sha256, f"{label}.receipt_sha256", issues)
     if not isinstance(schema_version, str) or not isinstance(receipt_sha256, str):
         return None

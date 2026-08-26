@@ -64,8 +64,7 @@
         "required": ["schema_version", "receipt_sha256"],
         "properties": {
           "schema_version": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9_]*(?:[.-][a-z0-9_-]+)*\\.v[1-9][0-9]*$"
+            "const": "research_source_receipt.v1"
           },
           "receipt_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
         },

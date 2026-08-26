@@ -10,6 +10,7 @@ from jsonschema import Draft202012Validator
 from quant_platform_kit.risk.contracts import CandidateRiskIdentity
 from quant_platform_kit.strategy_lifecycle.candidate_control import (
     PROMOTION_DECISION_SCHEMA_VERSION,
+    RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION,
     SOURCE_RECEIPT_SCHEMA_VERSION,
     STRATEGY_CANDIDATE_SCHEMA_VERSION,
     STRATEGY_CANDIDATE_V2_SCHEMA_VERSION,
@@ -84,8 +85,8 @@ def _candidate() -> StrategyCandidate:
 def _candidate_v2() -> StrategyCandidateV2:
     refs = tuple(sorted(
         (
-            ResearchSourceReceiptRef("research_factory.v1", "3" * 64),
-            ResearchSourceReceiptRef("research_source_receipt.v1", "4" * 64),
+            ResearchSourceReceiptRef(RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION, "3" * 64),
+            ResearchSourceReceiptRef(RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION, "4" * 64),
         ),
         key=lambda ref: (ref.schema_version, ref.receipt_sha256),
     ))
@@ -134,18 +135,23 @@ def test_v2_candidate_binds_only_ordered_source_receipt_references() -> None:
 
 def test_v2_candidate_rejects_embedded_source_material_and_unsorted_references() -> None:
     payload = _candidate_v2().to_dict()
+    payload["research_source_receipt_refs"][0]["schema_version"] = "research_factory.v1"
     payload["research_source_receipt_refs"][0]["source_uri"] = "https://example.test/raw"
     payload["source_receipts"] = []
 
     issues = validate_strategy_candidate_v2(payload)
 
     assert "research_source_receipt_refs[0] must contain only schema_version and receipt_sha256" in issues
+    assert (
+        "research_source_receipt_refs[0].schema_version must be "
+        "'research_source_receipt.v1'"
+    ) in issues
     assert any("must not embed source material" in issue for issue in issues)
     assert "candidate_sha256 does not match canonical artifact content" in issues
 
     refs = (
-        ResearchSourceReceiptRef("research_source_receipt.v1", "4" * 64),
-        ResearchSourceReceiptRef("research_factory.v1", "3" * 64),
+        ResearchSourceReceiptRef(RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION, "4" * 64),
+        ResearchSourceReceiptRef(RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION, "3" * 64),
     )
     with pytest.raises(ValueError, match="unique and sorted"):
         StrategyCandidateV2(
@@ -164,10 +170,10 @@ def test_v2_candidate_rejects_embedded_source_material_and_unsorted_references()
 
 
 def test_v2_source_reference_requires_a_versioned_schema_and_digest() -> None:
-    with pytest.raises(ValueError, match="canonical versioned schema"):
+    with pytest.raises(ValueError, match="research_source_receipt.v1"):
         ResearchSourceReceiptRef("source-receipt", "3" * 64)
     with pytest.raises(ValueError, match="SHA-256"):
-        ResearchSourceReceiptRef("research_factory.v1", "not-a-digest")
+        ResearchSourceReceiptRef(RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION, "not-a-digest")
 
 
 def test_parameter_change_requires_optimization_spec_but_other_candidate_kinds_do_not() -> None:

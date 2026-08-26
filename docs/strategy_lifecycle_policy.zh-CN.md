@@ -98,9 +98,10 @@
 产生权限，也不能改写运行时设置。
 
 `strategy_candidate.v2` 是面向研究工厂输出的只引用形式：它以完整、有序的
-`{schema_version, receipt_sha256}` 列表替代内嵌的来源回执投影。它不能携带原始内容、
-URL、许可证字段或转换后的 receipt digest；由引用所指定的生产者负责回执验证。
-`strategy_candidate.v1` 继续保持已有工件的可读兼容，但新的研究工厂候选应写入 v2。
+`{schema_version, receipt_sha256}` 列表替代内嵌的来源回执投影。唯一允许的来源 schema
+是 `research_source_receipt.v1`。它不能携带原始内容、URL、许可证字段或转换后的
+receipt digest；该生产者负责回执验证。`strategy_candidate.v1` 继续保持已有工件的可读
+兼容，但新的研究工厂候选应写入 v2。
 
 `promotion_decision.v1` 记录具名人工复核、精确候选哈希、非 live 范围
 （`research`、`shadow` 或 `paper`）和过期时间。序列化字段 `grants_live` 与

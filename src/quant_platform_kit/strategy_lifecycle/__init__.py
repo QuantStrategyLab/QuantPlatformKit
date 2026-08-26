@@ -23,6 +23,7 @@ from quant_platform_kit.strategy_lifecycle.benchmark_catalog import (
 )
 from quant_platform_kit.strategy_lifecycle.candidate_control import (
     PROMOTION_DECISION_SCHEMA_VERSION,
+    RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION,
     SOURCE_RECEIPT_SCHEMA_VERSION,
     STRATEGY_CANDIDATE_SCHEMA_VERSION,
     STRATEGY_CANDIDATE_V2_SCHEMA_VERSION,
@@ -161,6 +162,7 @@ __all__ = [
     "ParamDimension",
     "ParamSearchSpace",
     "RESEARCH_SPEC_SCHEMA_VERSION",
+    "RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION",
     "OPTIMIZATION_SPEC_SCHEMA_VERSION",
     "SOURCE_RECEIPT_SCHEMA_VERSION",
     "PROMOTION_DECISION_SCHEMA_VERSION",

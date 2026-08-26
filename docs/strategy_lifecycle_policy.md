@@ -118,10 +118,11 @@ the source URI, retrieval time, content hash, and license, but is explicitly
 
 `strategy_candidate.v2` is the forward-only form for research-factory output.
 It replaces embedded source-receipt projections with an ordered list of exactly
-`{schema_version, receipt_sha256}` references. It cannot carry raw content,
-URLs, license fields, or a converted receipt digest; the producer named by the
-reference owns receipt validation. `strategy_candidate.v1` remains readable for
-existing artifacts but new factory-backed candidates should write v2.
+`{schema_version, receipt_sha256}` references. The only accepted source schema
+is `research_source_receipt.v1`. A v2 candidate cannot carry raw content, URLs,
+license fields, or a converted receipt digest; that producer owns receipt
+validation. `strategy_candidate.v1` remains readable for existing artifacts but
+new factory-backed candidates should write v2.
 
 `promotion_decision.v1` records a named human review, exact candidate digest,
 non-live scope (`research`, `shadow`, or `paper`), and expiry. Its serialized
