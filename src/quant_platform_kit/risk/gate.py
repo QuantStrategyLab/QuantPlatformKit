@@ -1315,6 +1315,7 @@ def _apply_risk_gate_static(
     max_positions: Any,
     max_total_exposure: Any,
     portfolio_snapshot: Any,
+    enforce_value_target_exposure: Any,
     engine_action: Any,
     engine_failed: bool,
 ) -> StrategyDecision:
@@ -1354,6 +1355,9 @@ def _apply_risk_gate_static(
     requested_single_weight = _finite_number(max_single_weight)
     position_limit = _bounded_nonnegative_int(max_positions)
     total_exposure_limit = _finite_number(max_total_exposure)
+    value_target_exposure_enforced = type(enforce_value_target_exposure) is bool and bool(
+        enforce_value_target_exposure
+    )
     available_exposure = (
         None
         if available_account_exposure is None
@@ -1375,6 +1379,7 @@ def _apply_risk_gate_static(
         or position_limit is None
         or total_exposure_limit is None
         or total_exposure_limit < 0.0
+        or type(enforce_value_target_exposure) is not bool
         or (
             available_account_exposure is not None
             and available_exposure is None
@@ -1489,6 +1494,10 @@ def _apply_risk_gate_static(
 
     positions = raw_positions if type(raw_positions) is tuple else ()
     value_target_total_equity = _static_gate_total_equity(portfolio_snapshot)
+    if any(position.target_value is not None for position in positions if type(position) is PositionTarget):
+        diagnostics["value_target_exposure_policy"] = (
+            "enforced" if value_target_exposure_enforced else "legacy_compatibility"
+        )
     weights: list[tuple[PositionTarget, float]] = []
     if static_rejection is None:
         for position in positions:
@@ -1508,7 +1517,7 @@ def _apply_risk_gate_static(
                         )
                     break
                 weight = abs(normalized_weight)
-            else:
+            elif value_target_exposure_enforced:
                 target_value = _finite_number(position.target_value)
                 if target_value is None or value_target_total_equity is None:
                     static_rejection = (
@@ -1524,6 +1533,11 @@ def _apply_risk_gate_static(
                     )
                     break
                 weight = normalized_weight
+            else:
+                # Existing value-target strategies must explicitly opt in to
+                # enforcement.  This preserves their validated execution
+                # contract while surfacing the migration state in diagnostics.
+                continue
             if weight > 0.0:
                 weights.append((position, weight))
 
@@ -1677,8 +1691,16 @@ def apply_risk_gate(
     max_total_exposure: float = 1.0,
     portfolio_snapshot: Any | None = None,
     market_data: Mapping[str, Any] | None = None,
+    enforce_value_target_exposure: bool = False,
 ) -> StrategyDecision:
-    """Apply hard checks and call RiskEngine.assess exactly once."""
+    """Apply hard checks and call RiskEngine.assess exactly once.
+
+    Weight targets are always assessed.  Value targets need account equity for
+    a meaningful concentration calculation, so callers must explicitly set
+    ``enforce_value_target_exposure=True`` before they are treated as weights.
+    Until a legacy value-target strategy is migrated, the gate records
+    ``value_target_exposure_policy=legacy_compatibility`` in diagnostics.
+    """
     try:
         engine_action = build_risk_engine().assess(
             decision,
@@ -1700,6 +1722,7 @@ def apply_risk_gate(
             max_positions=max_positions,
             max_total_exposure=max_total_exposure,
             portfolio_snapshot=portfolio_snapshot,
+            enforce_value_target_exposure=enforce_value_target_exposure,
             engine_action=engine_action,
             engine_failed=engine_failed,
         )

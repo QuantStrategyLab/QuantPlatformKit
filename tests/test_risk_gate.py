@@ -135,11 +135,13 @@ class ApplyRiskGateTests(unittest.TestCase):
             _decision(positions=(PositionTarget(symbol="SPY", target_value=10_000.0),)),
             product_leverage_factors={"SPY": 1},
             portfolio_snapshot=_portfolio_snapshot(),
+            enforce_value_target_exposure=True,
         )
         rejected = apply_risk_gate(
             _decision(positions=(PositionTarget(symbol="SPY", target_value=10_001.0),)),
             product_leverage_factors={"SPY": 1},
             portfolio_snapshot=_portfolio_snapshot(),
+            enforce_value_target_exposure=True,
         )
 
         self.assertIn("risk_gate:passed", approved.risk_flags)
@@ -153,10 +155,20 @@ class ApplyRiskGateTests(unittest.TestCase):
                     _decision(positions=(PositionTarget(symbol="SPY", target_value=10_000.0),)),
                     product_leverage_factors={"SPY": 1},
                     portfolio_snapshot=snapshot,
+                    enforce_value_target_exposure=True,
                 )
 
             self.assertEqual(result.positions, ())
             self.assertEqual(result.risk_flags, ("rejected:invalid_decision_exposure",))
+
+    def test_value_targets_require_explicit_enforcement_during_legacy_migration(self) -> None:
+        result = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SPY", target_value=70_000.0),)),
+            portfolio_snapshot=_portfolio_snapshot(),
+        )
+
+        self.assertIn("risk_gate:passed", result.risk_flags)
+        self.assertEqual(result.diagnostics["value_target_exposure_policy"], "legacy_compatibility")
 
     def test_no_mandate_rejects_missing_or_leveraged_classification(self) -> None:
         decision = _decision(
