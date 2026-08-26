@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+import math
 from typing import Any
 
 import pandas as pd
@@ -15,18 +16,32 @@ _EQUITY_KEYS = (
     "total_strategy_equity",
     "portfolio_equity",
 )
+_EXTERNAL_CASH_FLOW_KEYS = (
+    "net_external_cash_flow",
+    "external_cash_flow",
+)
 
 
 def _as_float(value: Any) -> float | None:
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
     try:
         parsed = float(value)
     except (TypeError, ValueError):
         return None
-    if parsed <= 0:
+    if not math.isfinite(parsed) or parsed <= 0:
         return None
     return parsed
+
+
+def _as_finite_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _nested_mapping(value: Any) -> Mapping[str, Any] | None:
@@ -65,6 +80,62 @@ def extract_equity_value(payload: Mapping[str, Any] | None) -> float | None:
     return None
 
 
+def extract_external_cash_flow(payload: Mapping[str, Any] | None) -> float | None:
+    """Extract a signed external flow used for live performance adjustment.
+
+    Producers should write one of ``net_external_cash_flow`` or
+    ``external_cash_flow`` in account currency: deposits are positive and
+    withdrawals are negative.  Internal cash sweeps, realized PnL and broker
+    cash balances must not be supplied here.  A missing field means zero; a
+    present but invalid field returns ``None`` so the affected daily return is
+    excluded instead of being misreported.
+    """
+    if not isinstance(payload, Mapping):
+        return None
+    candidates: list[Mapping[str, Any]] = [payload]
+    execution = _nested_mapping(payload.get("execution_result"))
+    if execution is not None:
+        candidates.append(execution)
+        execution_portfolio = _nested_mapping(execution.get("portfolio"))
+        if execution_portfolio is not None:
+            candidates.append(execution_portfolio)
+    portfolio = _nested_mapping(payload.get("portfolio"))
+    if portfolio is not None:
+        candidates.append(portfolio)
+    for candidate in candidates:
+        for key in _EXTERNAL_CASH_FLOW_KEYS:
+            if key in candidate:
+                return _as_finite_number(candidate.get(key))
+    return 0.0
+
+
+def cash_flow_adjusted_return(
+    previous_equity: Any,
+    ending_equity: Any,
+    *,
+    net_external_cash_flow: Any = 0.0,
+) -> float | None:
+    """Return a period return under an end-of-period external-flow convention.
+
+    This is a daily time-weighted-return-compatible calculation:
+    ``(ending_equity - signed_external_flow) / previous_equity - 1``.  It is
+    exact when flows occur at the end of the observation period, which is the
+    only timing available in persisted daily run records.  ``None`` represents
+    insufficient or impossible evidence and is intentionally not coerced to a
+    zero return.
+    """
+    start = _as_float(previous_equity)
+    end = _as_float(ending_equity)
+    flow = _as_finite_number(net_external_cash_flow)
+    if start is None or end is None or flow is None:
+        return None
+    adjusted_end = end - flow
+    if not math.isfinite(adjusted_end) or adjusted_end <= 0.0:
+        return None
+    result = (adjusted_end / start) - 1.0
+    return result if math.isfinite(result) else None
+
+
 def _parse_recorded_at(value: Any) -> pd.Timestamp | None:
     text = str(value or "").strip()
     if not text:
@@ -76,27 +147,65 @@ def _parse_recorded_at(value: Any) -> pd.Timestamp | None:
 
 
 def live_run_records_to_return_series(records: Sequence[Mapping[str, Any]]) -> pd.Series:
-    """Convert ordered live run records with equity snapshots into daily returns."""
-    points: list[tuple[pd.Timestamp, float]] = []
+    """Convert live run records to cash-flow-adjusted daily returns.
+
+    Multiple records from the same day use the final equity observation and
+    accumulate their declared external flows.  This prevents a pure deposit or
+    withdrawal from becoming a spurious gain or loss in lifecycle monitoring.
+    """
+    points: list[tuple[pd.Timestamp, float, float]] = []
+    invalid_cash_flow_dates: set[pd.Timestamp] = set()
     for record in records:
         if not isinstance(record, Mapping):
             continue
-        equity = extract_equity_value(record)
         recorded_at = _parse_recorded_at(record.get("recorded_at"))
+        if recorded_at is None:
+            continue
+        cash_flow = extract_external_cash_flow(record)
+        if cash_flow is None:
+            invalid_cash_flow_dates.add(recorded_at)
+            continue
+        equity = extract_equity_value(record)
         if equity is None or recorded_at is None:
             continue
-        points.append((recorded_at, equity))
+        points.append((recorded_at, equity, cash_flow))
 
     if len(points) < 2:
         return pd.Series(dtype=float)
 
     frame = (
-        pd.DataFrame(points, columns=["date", "equity"])
-        .drop_duplicates(subset=["date"], keep="last")
-        .sort_values("date")
+        pd.DataFrame(points, columns=["date", "equity", "external_cash_flow"])
+        .sort_values("date", kind="stable")
+        .groupby("date", sort=True, as_index=False)
+        .agg({"equity": "last", "external_cash_flow": "sum"})
+    )
+    if invalid_cash_flow_dates:
+        frame = frame[~frame["date"].isin(invalid_cash_flow_dates)]
+    if len(frame) < 2:
+        return pd.Series(dtype=float)
+    frame = (
+        frame
+        .sort_values("date", kind="stable")
         .set_index("date")
     )
-    returns = frame["equity"].pct_change().dropna()
+    return_points: list[tuple[pd.Timestamp, float]] = []
+    previous_equity: float | None = None
+    for as_of, point in frame.iterrows():
+        current_equity = float(point["equity"])
+        if previous_equity is not None:
+            adjusted_return = cash_flow_adjusted_return(
+                previous_equity,
+                current_equity,
+                net_external_cash_flow=point["external_cash_flow"],
+            )
+            if adjusted_return is not None:
+                return_points.append((as_of, adjusted_return))
+        previous_equity = current_equity
+    returns = pd.Series(
+        (value for _, value in return_points),
+        index=pd.Index((as_of for as_of, _ in return_points), name="date"),
+        dtype=float,
+    )
     returns.name = "live_return"
     return returns.astype(float)
 

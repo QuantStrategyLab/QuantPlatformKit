@@ -14,6 +14,12 @@ import unicodedata
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
+from quant_platform_kit.common.capital_base import (
+    CapitalBaseBinding,
+    CapitalBaseSnapshot,
+    CapitalBaseValidation,
+    validate_capital_base,
+)
 from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.position_sizing import validate_reduce_only_normalization
 from quant_platform_kit.risk.contracts import (
@@ -408,6 +414,7 @@ def _value_target_exposure_audit(
     *,
     total_equity: float | None,
     enforced: bool,
+    capital_base_validation: CapitalBaseValidation | None = None,
 ) -> dict[str, Any] | None:
     """Summarize value-target exposure without changing legacy execution.
 
@@ -447,6 +454,8 @@ def _value_target_exposure_audit(
     if total_equity is not None and target_values:
         audit["max_target_weight"] = max(target_values) / total_equity
         audit["total_target_weight"] = sum(target_values) / total_equity
+    if enforced and capital_base_validation is not None:
+        audit["capital_base"] = capital_base_validation.to_safe_dict()
     return audit
 
 
@@ -966,6 +975,8 @@ def _assess_with_evidence_static(
     candidate_identity: CandidateRiskIdentity | None,
     normalization_origin_weights: Mapping[str, float] | None,
     risk_control_state: Mapping[str, Any] | None,
+    capital_base: CapitalBaseSnapshot | Mapping[str, Any] | None,
+    capital_base_binding: CapitalBaseBinding | Mapping[str, Any] | None,
     now: datetime,
     risk_action: Any,
     risk_engine_failed: bool,
@@ -995,6 +1006,27 @@ def _assess_with_evidence_static(
         max_snapshot_age_seconds=mandate.get("max_snapshot_age_seconds"),
     )
     reason_codes.update(snapshot_errors)
+    value_targets_present = any(
+        type(position) is PositionTarget and position.target_value is not None
+        for position in getattr(decision, "positions", ())
+    )
+    if value_targets_present:
+        capital_base_validation = validate_capital_base(
+            capital_base,
+            binding=capital_base_binding,
+            now=now,
+        )
+        snapshot_payload["capital_base"] = capital_base_validation.to_safe_dict()
+        if not capital_base_validation.is_valid:
+            reason_codes.update(capital_base_validation.findings)
+        elif (
+            type(candidate_identity) is CandidateRiskIdentity
+            and capital_base_validation.binding is not None
+            and capital_base_validation.binding.strategy_scope
+            != candidate_identity.strategy_profile
+        ):
+            reason_codes.add("capital_base_strategy_candidate_mismatch")
+        total_equity = capital_base_validation.target_equity
     decision_payload, active_positions, decision_errors = _decision_metrics(
         decision,
         total_equity=total_equity,
@@ -1281,6 +1313,8 @@ def assess_with_evidence(
     candidate_identity: CandidateRiskIdentity | None = None,
     normalization_origin_weights: Mapping[str, float] | None = None,
     risk_control_state: Mapping[str, Any] | None = None,
+    capital_base: CapitalBaseSnapshot | Mapping[str, Any] | None = None,
+    capital_base_binding: CapitalBaseBinding | Mapping[str, Any] | None = None,
 ) -> RiskGateResult:
     """Assess exactly once and fail closed with a redacted canonical receipt."""
     try:
@@ -1304,6 +1338,8 @@ def assess_with_evidence(
             candidate_identity=candidate_identity,
             normalization_origin_weights=normalization_origin_weights,
             risk_control_state=risk_control_state,
+            capital_base=capital_base,
+            capital_base_binding=capital_base_binding,
             now=now,
             risk_action=risk_action,
             risk_engine_failed=risk_engine_failed,
@@ -1363,6 +1399,9 @@ def _apply_risk_gate_static(
     max_total_exposure: Any,
     portfolio_snapshot: Any,
     enforce_value_target_exposure: Any,
+    capital_base: CapitalBaseSnapshot | Mapping[str, Any] | None,
+    capital_base_binding: CapitalBaseBinding | Mapping[str, Any] | None,
+    now: datetime,
     engine_action: Any,
     engine_failed: bool,
 ) -> StrategyDecision:
@@ -1546,6 +1585,19 @@ def _apply_risk_gate_static(
         for position in positions
         if type(position) is PositionTarget
     )
+    capital_base_validation: CapitalBaseValidation | None = None
+    if value_targets_present and value_target_exposure_enforced:
+        capital_base_validation = validate_capital_base(
+            capital_base,
+            binding=capital_base_binding,
+            now=now,
+        )
+        value_target_total_equity = capital_base_validation.target_equity
+        if not capital_base_validation.is_valid:
+            static_rejection = static_rejection or (
+                "rejected:capital_base",
+                ",".join(capital_base_validation.findings),
+            )
     if value_targets_present:
         diagnostics["value_target_exposure_policy"] = (
             "enforced" if value_target_exposure_enforced else "legacy_compatibility"
@@ -1554,6 +1606,7 @@ def _apply_risk_gate_static(
             positions,
             total_equity=value_target_total_equity,
             enforced=value_target_exposure_enforced,
+            capital_base_validation=capital_base_validation,
         )
         if audit is not None:
             diagnostics["value_target_exposure_audit"] = audit
@@ -1751,13 +1804,16 @@ def apply_risk_gate(
     portfolio_snapshot: Any | None = None,
     market_data: Mapping[str, Any] | None = None,
     enforce_value_target_exposure: bool = False,
+    capital_base: CapitalBaseSnapshot | Mapping[str, Any] | None = None,
+    capital_base_binding: CapitalBaseBinding | Mapping[str, Any] | None = None,
 ) -> StrategyDecision:
     """Apply hard checks and call RiskEngine.assess exactly once.
 
-    Weight targets are always assessed.  Value targets need account equity for
-    a meaningful concentration calculation, so callers must explicitly set
-    ``enforce_value_target_exposure=True`` before they are treated as weights.
-    Until a legacy value-target strategy is migrated, the gate records
+    Weight targets are always assessed.  A caller that enables
+    ``enforce_value_target_exposure`` must provide a fresh ``capital_base``
+    bound to the same account/runtime/strategy scope via
+    ``capital_base_binding``; otherwise value targets fail closed.  Until a
+    legacy value-target strategy is migrated, the default path records
     ``value_target_exposure_policy=legacy_compatibility`` in diagnostics.
     """
     try:
@@ -1771,6 +1827,7 @@ def apply_risk_gate(
         engine_failed = True
     else:
         engine_failed = False
+    now = _utc_now()
     try:
         return _apply_risk_gate_static(
             decision,
@@ -1782,6 +1839,9 @@ def apply_risk_gate(
             max_total_exposure=max_total_exposure,
             portfolio_snapshot=portfolio_snapshot,
             enforce_value_target_exposure=enforce_value_target_exposure,
+            capital_base=capital_base,
+            capital_base_binding=capital_base_binding,
+            now=now,
             engine_action=engine_action,
             engine_failed=engine_failed,
         )

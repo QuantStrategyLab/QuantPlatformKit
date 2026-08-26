@@ -7,9 +7,11 @@ from pathlib import Path
 import pandas as pd
 
 from quant_platform_kit.strategy_lifecycle.live_equity import (
+    cash_flow_adjusted_return,
     consecutive_losses_from_live_run_records,
     count_consecutive_losses,
     extract_equity_value,
+    extract_external_cash_flow,
     live_run_records_to_return_series,
     resolve_consecutive_losses,
     stamp_consecutive_losses_on_snapshot,
@@ -39,6 +41,56 @@ class LiveEquityTests(unittest.TestCase):
         )
         self.assertEqual(len(series), 1)
         self.assertAlmostEqual(float(series.iloc[0]), 0.01)
+
+    def test_external_cash_flow_extraction_is_signed_and_does_not_use_cash_balances(self) -> None:
+        self.assertEqual(
+            extract_external_cash_flow(
+                {"execution_result": {"external_cash_flow": -50.0, "cash_balance": 500.0}}
+            ),
+            -50.0,
+        )
+        self.assertEqual(extract_external_cash_flow({"cash_balance": 500.0}), 0.0)
+        self.assertIsNone(extract_external_cash_flow({"net_external_cash_flow": "invalid"}))
+
+    def test_cash_flow_adjusted_return_is_invariant_to_pure_deposits_and_withdrawals(self) -> None:
+        self.assertAlmostEqual(
+            cash_flow_adjusted_return(100.0, 200.0, net_external_cash_flow=100.0) or 0.0,
+            0.0,
+        )
+        self.assertAlmostEqual(
+            cash_flow_adjusted_return(200.0, 100.0, net_external_cash_flow=-100.0) or 0.0,
+            0.0,
+        )
+        self.assertAlmostEqual(
+            cash_flow_adjusted_return(100.0, 210.0, net_external_cash_flow=100.0) or 0.0,
+            0.10,
+        )
+        self.assertIsNone(cash_flow_adjusted_return(0.0, 100.0, net_external_cash_flow=100.0))
+
+    def test_live_returns_aggregate_same_day_cash_flows_before_adjustment(self) -> None:
+        series = live_run_records_to_return_series(
+            [
+                {"recorded_at": "2026-07-07T10:00:00+00:00", "total_equity": 100.0},
+                {
+                    "recorded_at": "2026-07-08T09:00:00+00:00",
+                    "total_equity": 150.0,
+                    "external_cash_flow": 50.0,
+                },
+                {
+                    "recorded_at": "2026-07-08T16:00:00+00:00",
+                    "total_equity": 200.0,
+                    "external_cash_flow": 50.0,
+                },
+                {
+                    "recorded_at": "2026-07-09T10:00:00+00:00",
+                    "total_equity": 220.0,
+                },
+            ]
+        )
+
+        self.assertEqual(len(series), 2)
+        self.assertAlmostEqual(float(series.iloc[0]), 0.0)
+        self.assertAlmostEqual(float(series.iloc[1]), 0.10)
 
     def test_count_consecutive_losses_trailing_only(self) -> None:
         self.assertEqual(count_consecutive_losses(pd.Series([-0.01, 0.02, -0.01, -0.03])), 2)
