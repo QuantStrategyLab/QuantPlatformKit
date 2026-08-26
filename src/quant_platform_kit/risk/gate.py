@@ -403,6 +403,53 @@ def _static_gate_total_equity(portfolio_snapshot: Any) -> float | None:
     return total_equity
 
 
+def _value_target_exposure_audit(
+    positions: tuple[PositionTarget, ...],
+    *,
+    total_equity: float | None,
+    enforced: bool,
+) -> dict[str, Any] | None:
+    """Summarize value-target exposure without changing legacy execution.
+
+    This is deliberately diagnostic-only while a legacy strategy is being
+    migrated. It gives the runtime monitor a normalized exposure signal and
+    makes an unreviewed amount-target contract observable, without silently
+    treating missing account equity as a zero-weight target or abruptly
+    stopping every legacy strategy in one release.
+    """
+    target_values: list[float] = []
+    invalid_target_value = False
+    has_value_target = False
+    for position in positions:
+        if position.target_value is None:
+            continue
+        has_value_target = True
+        target_value = _finite_number(position.target_value)
+        if target_value is None or target_value < 0.0:
+            invalid_target_value = True
+            continue
+        if target_value > 0.0:
+            target_values.append(target_value)
+    if not has_value_target:
+        return None
+
+    active_target_count = len(target_values)
+    audit: dict[str, Any] = {
+        "version": "qpk.value_target_exposure_audit.v1",
+        "enforcement": "enforced" if enforced else "legacy_compatibility",
+        "migration_required": not enforced and active_target_count > 0,
+        "equity_available": total_equity is not None,
+        "active_target_count": active_target_count,
+        "invalid_target_value": invalid_target_value,
+        "max_target_weight": None,
+        "total_target_weight": None,
+    }
+    if total_equity is not None and target_values:
+        audit["max_target_weight"] = max(target_values) / total_equity
+        audit["total_target_weight"] = sum(target_values) / total_equity
+    return audit
+
+
 def _exact_numeric_mapping(value: Any, expected: Mapping[str, float]) -> bool:
     normalized = _canonical_numeric_mapping(value, maximum=1.0)
     if normalized is None or set(normalized) != set(expected):
@@ -1494,10 +1541,22 @@ def _apply_risk_gate_static(
 
     positions = raw_positions if type(raw_positions) is tuple else ()
     value_target_total_equity = _static_gate_total_equity(portfolio_snapshot)
-    if any(position.target_value is not None for position in positions if type(position) is PositionTarget):
+    value_targets_present = any(
+        position.target_value is not None
+        for position in positions
+        if type(position) is PositionTarget
+    )
+    if value_targets_present:
         diagnostics["value_target_exposure_policy"] = (
             "enforced" if value_target_exposure_enforced else "legacy_compatibility"
         )
+        audit = _value_target_exposure_audit(
+            positions,
+            total_equity=value_target_total_equity,
+            enforced=value_target_exposure_enforced,
+        )
+        if audit is not None:
+            diagnostics["value_target_exposure_audit"] = audit
     weights: list[tuple[PositionTarget, float]] = []
     if static_rejection is None:
         for position in positions:
