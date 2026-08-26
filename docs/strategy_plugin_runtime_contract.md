@@ -161,6 +161,14 @@ The loader validates:
 
 ## Behavior Boundary
 
+Plugin artifacts are observers, including artifacts proposed by automated or
+network-assisted research. They may emit a versioned signal, provenance, and
+notification but must not mutate a position, select a live target, or acquire
+broker authority. Only an owning strategy candidate may deterministically
+interpret an approved signal into a target; the central Risk Gate remains the
+final authority. A plugin's provenance or a successful research/CI run never
+changes this boundary.
+
 For `shadow`, platform runtimes should only add logs, runtime report fields, and
 notification context.
 
