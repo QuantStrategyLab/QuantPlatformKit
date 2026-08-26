@@ -85,6 +85,27 @@
 - 证据包建议结构见 [`evidence_package_template.zh-CN.md`](./evidence_package_template.zh-CN.md)。
 - 如果策略是 wrapper / orchestrator，应先确认被包装组件稳定，再考虑给 wrapper 晋级。
 
+## 候选与人工决定合同
+
+`strategy_candidate.v1` 是研究工件，不是另一套生命周期状态。它记录一个边界清晰的
+候选类型：`parameter_change`、`strategy_revision`、`new_strategy` 或
+`plugin_revision`。其中研究子状态只描述候选的研究进度，不能让 profile 在上面的规范
+生命周期阶段之间自动迁移。
+
+每个候选都会用 SHA-256 绑定既有 `CandidateRiskIdentity`、对应的 `ResearchSpec`、
+参数变更所需的 `OptimizationSpec`，以及完整、有序的 `SourceReceipt` 集合。来源回执
+保留来源 URI、获取时间、内容哈希和许可证，但明确标记为 `untrusted`；网页内容不能
+产生权限，也不能改写运行时设置。
+
+`promotion_decision.v1` 记录具名人工复核、精确候选哈希、非 live 范围
+（`research`、`shadow` 或 `paper`）和过期时间。序列化字段 `grants_live` 与
+`grants_execution_authority` 永远是 `false`。因此它不能启用实盘、增加风险预算，
+也不能替代独立的平台、Risk Gate 和 broker 控制。
+
+自动系统可以提出候选、回测、收集证据和创建人工复核 PR；不得自动批准、自动合并、
+部署或 live 启用任何可能影响资金的变更。旧 CLI 参数 `--auto-approve` 仅为兼容而
+保留，并会被忽略。
+
 ## 仓库级建议
 
 - **美股**：长历史趋势 / 轮动策略可以更早进入生命周期推进；wrapper combo 应优先保持 candidate 状态。

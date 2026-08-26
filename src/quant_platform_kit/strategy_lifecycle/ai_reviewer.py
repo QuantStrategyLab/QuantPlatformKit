@@ -54,7 +54,7 @@ class AiReviewVerdict:
     requires_human: bool
     reviewed_at: str = field(default_factory=_now_iso)
     confidence: float = 0.5          # AI confidence (0.0–1.0), default neutral
-    recommended_action: str = ""     # "auto_merge" | "auto_pr" | "auto_notify" | "escalate"
+    recommended_action: str = ""     # "candidate_ready" | "notify" | "escalate"
 
     def to_dict(self) -> dict[str, Any]:
         return {"verdict": self.verdict, "overall_score": self.overall_score,
@@ -91,9 +91,9 @@ def review_proposal(
     overall = np.mean([d.score for d in dims])
 
     if passed >= 5 and overall >= 0.75:
-        v, h, s = "approve", False, "All dimensions passed with high confidence."
+        v, h, s = "approve", True, "All dimensions passed with high confidence; human approval required."
     elif passed >= min_pass_dimensions and overall >= 0.55:
-        v, h, s = "approve", False, f"{passed}/{len(dims)} passed. Auto-deploying."
+        v, h, s = "approve", True, f"{passed}/{len(dims)} passed. Human approval required."
     elif passed >= 2 and overall >= 0.35:
         v, h, s = "escalate", True, f"Only {passed}/{len(dims)} passed. Needs deeper review."
     else:
@@ -183,7 +183,8 @@ def llm_enhanced_review(
     if claude and claude.verdict in ("approve", "reject"):
         return AiReviewVerdict(proposal=proposal, verdict=claude.verdict,
             overall_score=claude.overall_score, dimensions=base.dimensions,
-            summary=f"[{_PRIMARY_LLM}] {claude.summary}", requires_human=False)
+            summary=f"[{_PRIMARY_LLM}] {claude.summary}",
+            requires_human=claude.verdict == "approve")
 
     # L4: Codex VPS execution verification
     codex = None
@@ -208,8 +209,8 @@ def _resolve_multi_consensus(
 
     Decision logic (ordered):
     1. No AI available → escalate
-    2. Unanimous approve + avg confidence ≥ 0.85 → approve (auto)
-    3. Unanimous approve + avg confidence ≥ 0.60 → approve (needs human review)
+    2. Unanimous approve + avg confidence ≥ 0.85 → candidate-ready (human decision required)
+    3. Unanimous approve + avg confidence ≥ 0.60 → candidate-ready (human decision required)
     4. Unanimous reject + avg confidence ≥ 0.85 → reject
     5. Codex VERIFIED + LLMs approve + avg confidence ≥ 0.70 → approve
     6. Codex MISMATCH → reject
@@ -238,21 +239,18 @@ def _resolve_multi_consensus(
     # Unanimous approve
     if len(apps) == len(verdicts):
         if avg_conf >= 0.85:
-            note = " [AUTO-MERGE: high confidence]"
-            requires_human = False
-            action = "auto_merge"
+            note = " [candidate-ready: high confidence; human decision required]"
+            action = "candidate_ready"
         elif avg_conf >= 0.60:
-            note = " [AUTO-PR: moderate confidence, human review recommended]"
-            requires_human = True
-            action = "auto_pr"
+            note = " [candidate-ready: moderate confidence; human decision required]"
+            action = "candidate_ready"
         else:
             note = " [ESCALATE: low confidence unanimous]"
-            requires_human = True
             action = "escalate"
         cx_note = f" [{_CODEX_VPS} verified]" if cx_ok else ""
         return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=avg_score,
             dimensions=base.dimensions, summary=f"[Unanimous: {', '.join(apps)}]{cx_note}{note}",
-            requires_human=requires_human, confidence=avg_conf, recommended_action=action)
+            requires_human=True, confidence=avg_conf, recommended_action=action)
 
     # Unanimous reject
     if len(rejs) == len(verdicts):
@@ -272,12 +270,10 @@ def _resolve_multi_consensus(
     # Codex verified + LLMs approve
     if cx_ok and apps and not rejs:
         if avg_conf >= 0.70:
-            action = "auto_merge" if avg_conf >= 0.85 else "auto_pr"
-            requires_human = avg_conf < 0.85
             return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=avg_score,
                 dimensions=base.dimensions,
                 summary=f"[{_CODEX_VPS} verified] {', '.join(apps)} approve (conf={avg_conf:.0%}).",
-                requires_human=requires_human, confidence=avg_conf, recommended_action=action)
+                requires_human=True, confidence=avg_conf, recommended_action="candidate_ready")
 
     # Single LLM with high confidence
     if len(verdicts) == 1 and not codex:
@@ -285,7 +281,7 @@ def _resolve_multi_consensus(
         if sv.verdict == "approve" and sv.confidence >= 0.85:
             return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=sv.overall_score,
                 dimensions=base.dimensions, summary=f"[Single: {sl}] high confidence={sv.confidence:.0%}",
-                requires_human=False, confidence=sv.confidence, recommended_action="auto_merge")
+                requires_human=True, confidence=sv.confidence, recommended_action="candidate_ready")
 
     # Disagreement → escalate
     detail = "; ".join(f"{l}={v.verdict}(c={v.confidence:.0%})" for l, v in verdicts)
@@ -305,11 +301,12 @@ def _parse_reviewer_result(
                 m = re.search(r"\{[\s\S]*\}", getattr(r, "output", ""))
                 if m:
                     d = json.loads(m.group(0))
+                    verdict = str(d.get("verdict", "escalate"))
                     return AiReviewVerdict(proposal=proposal,
-                        verdict=str(d.get("verdict", "escalate")),
+                        verdict=verdict,
                         overall_score=float(d.get("overall_score", 0.5)), dimensions=(),
                         summary=str(d.get("summary", f"{label} done")),
-                        requires_human=bool(d.get("requires_human", True)),
+                        requires_human=(verdict == "approve") or bool(d.get("requires_human", True)),
                         confidence=float(d.get("confidence", 0.5)))
             except (json.JSONDecodeError, ValueError):
                 pass
@@ -325,7 +322,7 @@ def _parse_codex_result(proposal: OptimizationProposal, result: Any) -> AiReview
     if v == "verified":
         return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=1.0, dimensions=(),
             summary=f"Codex VPS verified: Sharpe={d.get('reproduced_sharpe')}, MaxDD={d.get('reproduced_max_dd')}",
-            requires_human=False)
+            requires_human=True, recommended_action="candidate_ready")
     if v == "mismatch":
         return AiReviewVerdict(proposal=proposal, verdict="reject", overall_score=0.0, dimensions=(),
             summary=f"Codex VPS MISMATCH: {d.get('summary', 'numbers differ')}", requires_human=False)

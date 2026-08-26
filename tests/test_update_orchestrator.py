@@ -65,7 +65,7 @@ class UpdateOrchestratorTests(unittest.TestCase):
             result = process_update_from_proposal(_proposal(), auto_approve=True)
 
         self.assertEqual(result["stage"], "pending_approval")
-        self.assertIn("automatic approval is disabled", result["reason"].lower())
+        self.assertIn("deprecated auto_approve request ignored", result["reason"].lower())
 
 
 if __name__ == "__main__":

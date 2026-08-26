@@ -94,14 +94,14 @@ def _check_approval(
 ) -> tuple[bool, dict[str, Any] | None]:
     """Require human acceptance before a parameter patch can be created.
 
-    ``auto_approve`` remains an accepted argument for backwards-compatible CLI
-    callers, but it must never bypass the evidence/promotion boundary.  The
-    automated lifecycle can monitor, freeze, and start non-live observation;
-    it cannot alter a strategy's parameters on its own.
+    ``auto_approve`` remains an ignored, deprecated argument for
+    backwards-compatible callers.  The automated lifecycle can monitor,
+    freeze, and start non-live observation; it cannot approve a change with a
+    potential capital impact.
     """
     if proposal.recommendation == "promote":
         reason = (
-            "Automatic approval is disabled; human approval needed"
+            "Deprecated auto_approve request ignored; human approval needed"
             if auto_approve
             else "Human approval needed"
         )
@@ -118,9 +118,8 @@ def _check_approval(
 def _deploy_params(
     proposal: OptimizationProposal, domain: str, strategy: str,
     current_version: int, store: PerformanceStore,
-    can_auto_approve: bool,
 ) -> dict[str, Any]:
-    """Create a config patch and require downstream deployment confirmation."""
+    """Create a reviewable patch after an external human-approval boundary."""
     patch = write_params_to_config(proposal, dry_run=True)
     new_version = patch["params_overrides"]["version"]
     record_audit_entry(
@@ -129,7 +128,7 @@ def _deploy_params(
         param_version_from=current_version, param_version_to=new_version,
         params_before=proposal.current_params, params_after=proposal.proposed_params,
         reason=f"Config patch created for v{new_version}: improvement={proposal.improvement_score:.3f}",
-        approval_source="auto" if can_auto_approve else "manual",
+        approval_source="human",
         improvement_score=proposal.improvement_score,
     )
     return {
@@ -177,7 +176,7 @@ def process_update(
         return deny
 
     # Stage 4: deploy
-    return _deploy_params(proposal, domain, strategy, version, store, approved)
+    return _deploy_params(proposal, domain, strategy, version, store)
 
 
 def process_update_from_proposal(
@@ -211,4 +210,3 @@ def process_update_from_proposal(
             _os.unlink(tmp_path)
         except OSError:
             pass
-
