@@ -116,6 +116,13 @@ the complete ordered set of `SourceReceipt` records. A source receipt preserves
 the source URI, retrieval time, content hash, and license, but is explicitly
 `untrusted`; web material cannot create authority or change a runtime setting.
 
+`strategy_candidate.v2` is the forward-only form for research-factory output.
+It replaces embedded source-receipt projections with an ordered list of exactly
+`{schema_version, receipt_sha256}` references. It cannot carry raw content,
+URLs, license fields, or a converted receipt digest; the producer named by the
+reference owns receipt validation. `strategy_candidate.v1` remains readable for
+existing artifacts but new factory-backed candidates should write v2.
+
 `promotion_decision.v1` records a named human review, exact candidate digest,
 non-live scope (`research`, `shadow`, or `paper`), and expiry. Its serialized
 `grants_live` and `grants_execution_authority` fields are always `false`. It

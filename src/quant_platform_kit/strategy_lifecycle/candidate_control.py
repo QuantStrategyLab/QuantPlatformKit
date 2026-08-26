@@ -18,9 +18,13 @@ from typing import Any, Mapping
 
 SOURCE_RECEIPT_SCHEMA_VERSION = "source_receipt.v1"
 STRATEGY_CANDIDATE_SCHEMA_VERSION = "strategy_candidate.v1"
+STRATEGY_CANDIDATE_V2_SCHEMA_VERSION = "strategy_candidate.v2"
 PROMOTION_DECISION_SCHEMA_VERSION = "promotion_decision.v1"
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_SCHEMA_VERSION = re.compile(
+    r"^[a-z][a-z0-9_]*(?:[.-][a-z0-9_-]+)*\.v[1-9][0-9]*$"
+)
 _RFC3339_DATETIME = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
 )
@@ -84,6 +88,11 @@ def _require_identifier(value: str, name: str) -> None:
 def _require_sha256(value: str, name: str) -> None:
     if not isinstance(value, str) or not _SHA256.fullmatch(value):
         raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+
+
+def _require_schema_version(value: str, name: str) -> None:
+    if not isinstance(value, str) or not _SCHEMA_VERSION.fullmatch(value):
+        raise ValueError(f"{name} must be a canonical versioned schema name")
 
 
 def _parse_rfc3339(value: str, name: str) -> datetime:
@@ -189,6 +198,65 @@ class CandidateIdentityBinding:
 
 
 @dataclass(frozen=True)
+class CandidateIdentityBindingV2:
+    """Non-source digests required to bind a v2 candidate to frozen evidence.
+
+    Source provenance is intentionally represented only by
+    :class:`ResearchSourceReceiptRef` on ``StrategyCandidateV2``.  Keeping it
+    out of this binding prevents a second, potentially divergent digest list.
+    """
+
+    candidate_risk_identity_sha256: str
+    research_spec_sha256: str
+    optimization_spec_sha256: str | None = None
+
+    def __post_init__(self) -> None:
+        _require_sha256(
+            self.candidate_risk_identity_sha256,
+            "candidate_risk_identity_sha256",
+        )
+        _require_sha256(self.research_spec_sha256, "research_spec_sha256")
+        if self.optimization_spec_sha256 is not None:
+            _require_sha256(self.optimization_spec_sha256, "optimization_spec_sha256")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "candidate_risk_identity_sha256": self.candidate_risk_identity_sha256,
+            "research_spec_sha256": self.research_spec_sha256,
+            "optimization_spec_sha256": self.optimization_spec_sha256,
+        }
+
+
+@dataclass(frozen=True)
+class ResearchSourceReceiptRef:
+    """A digest-only reference to a source receipt produced elsewhere.
+
+    This contract deliberately cannot carry a URL, publisher, license, raw
+    content, or any other source projection.  Callers must resolve and verify
+    the referenced receipt with the producer that owns ``schema_version``.
+    """
+
+    schema_version: str
+    receipt_sha256: str
+
+    def __post_init__(self) -> None:
+        _require_schema_version(self.schema_version, "schema_version")
+        _require_sha256(self.receipt_sha256, "receipt_sha256")
+
+    @property
+    def grants_execution_authority(self) -> bool:
+        """References are identity evidence only and never execution authority."""
+
+        return False
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "schema_version": self.schema_version,
+            "receipt_sha256": self.receipt_sha256,
+        }
+
+
+@dataclass(frozen=True)
 class StrategyCandidate:
     """One immutable research candidate, bound to evidence instead of power."""
 
@@ -242,6 +310,77 @@ class StrategyCandidate:
             "created_at": self.created_at,
             "identity_binding": self.identity_binding.to_dict(),
             "source_receipts": [receipt.to_dict() for receipt in self.source_receipts],
+            "grants_execution_authority": False,
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {**self._payload(), "candidate_sha256": self.candidate_sha256}
+
+
+@dataclass(frozen=True)
+class StrategyCandidateV2:
+    """A v2 candidate that binds source receipts by reference only.
+
+    Unlike ``StrategyCandidate`` v1, this class never embeds a source receipt
+    projection.  Its ordered references are the sole source-provenance fields
+    in the serialized artifact.
+    """
+
+    candidate_id: str
+    candidate_kind: CandidateKind
+    research_status: ResearchCandidateStatus
+    strategy_profile: str
+    domain: str
+    created_at: str
+    identity_binding: CandidateIdentityBindingV2
+    research_source_receipt_refs: tuple[ResearchSourceReceiptRef, ...] = ()
+    candidate_sha256: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        for name in ("candidate_id", "strategy_profile", "domain"):
+            _require_identifier(getattr(self, name), name)
+        if not isinstance(self.candidate_kind, CandidateKind):
+            raise TypeError("candidate_kind must be a CandidateKind")
+        if not isinstance(self.research_status, ResearchCandidateStatus):
+            raise TypeError("research_status must be a ResearchCandidateStatus")
+        _parse_rfc3339(self.created_at, "created_at")
+        if not isinstance(self.identity_binding, CandidateIdentityBindingV2):
+            raise TypeError("identity_binding must be a CandidateIdentityBindingV2")
+        if self.candidate_kind is CandidateKind.PARAMETER_CHANGE and (
+            self.identity_binding.optimization_spec_sha256 is None
+        ):
+            raise ValueError("parameter_change candidates require optimization_spec_sha256")
+        if any(type(ref) is not ResearchSourceReceiptRef for ref in self.research_source_receipt_refs):
+            raise TypeError("research_source_receipt_refs must contain ResearchSourceReceiptRef values")
+        ref_keys = tuple(
+            (ref.schema_version, ref.receipt_sha256)
+            for ref in self.research_source_receipt_refs
+        )
+        if tuple(sorted(ref_keys)) != ref_keys or len(set(ref_keys)) != len(ref_keys):
+            raise ValueError(
+                "research_source_receipt_refs must be unique and sorted by schema_version and receipt_sha256"
+            )
+        object.__setattr__(self, "candidate_sha256", _sha256(self._payload()))
+
+    @property
+    def grants_execution_authority(self) -> bool:
+        """Candidates are evidence only and cannot authorize execution."""
+
+        return False
+
+    def _payload(self) -> dict[str, object]:
+        return {
+            "schema_version": STRATEGY_CANDIDATE_V2_SCHEMA_VERSION,
+            "candidate_id": self.candidate_id,
+            "candidate_kind": self.candidate_kind.value,
+            "research_status": self.research_status.value,
+            "strategy_profile": self.strategy_profile,
+            "domain": self.domain,
+            "created_at": self.created_at,
+            "identity_binding": self.identity_binding.to_dict(),
+            "research_source_receipt_refs": [
+                ref.to_dict() for ref in self.research_source_receipt_refs
+            ],
             "grants_execution_authority": False,
         }
 
@@ -387,6 +526,55 @@ def validate_strategy_candidate(payload: Any) -> list[str]:
     return issues
 
 
+def validate_strategy_candidate_v2(payload: Any) -> list[str]:
+    """Validate a v2 candidate that binds source evidence by digest reference."""
+
+    required = (
+        "candidate_id", "candidate_kind", "research_status", "strategy_profile",
+        "domain", "created_at", "identity_binding", "research_source_receipt_refs",
+        "grants_execution_authority", "candidate_sha256",
+    )
+    issues = _validate_mapping(payload, STRATEGY_CANDIDATE_V2_SCHEMA_VERSION, required)
+    if not isinstance(payload, Mapping):
+        return issues
+    expected_keys = {"schema_version", *required}
+    unexpected = sorted(set(payload) - expected_keys)
+    if unexpected:
+        issues.append(
+            "v2 candidates must not embed source material or extra fields: "
+            + ", ".join(unexpected)
+        )
+    for key in ("candidate_id", "strategy_profile", "domain"):
+        _validate_identifier(payload.get(key), key, issues)
+    if payload.get("candidate_kind") not in {kind.value for kind in CandidateKind}:
+        issues.append("candidate_kind must be parameter_change, strategy_revision, new_strategy, or plugin_revision")
+    if payload.get("research_status") not in {status.value for status in ResearchCandidateStatus}:
+        issues.append("research_status must be a supported research candidate status")
+    _validate_datetime(payload.get("created_at"), "created_at", issues)
+    if payload.get("grants_execution_authority") is not False:
+        issues.append("grants_execution_authority must be False")
+
+    _validate_identity_binding_v2(payload.get("identity_binding"), payload.get("candidate_kind"), issues)
+    refs = payload.get("research_source_receipt_refs")
+    ref_keys: list[tuple[str, str]] = []
+    if not isinstance(refs, list):
+        issues.append("research_source_receipt_refs must be an array")
+    else:
+        for index, ref in enumerate(refs):
+            ref_key = _validate_research_source_receipt_ref(ref, index, issues)
+            if ref_key is not None:
+                ref_keys.append(ref_key)
+        if ref_keys != sorted(ref_keys):
+            issues.append(
+                "research_source_receipt_refs must be ordered by schema_version and receipt_sha256"
+            )
+        if len(set(ref_keys)) != len(ref_keys):
+            issues.append("research_source_receipt_refs must not contain duplicate references")
+
+    _validate_reported_digest(payload, "candidate_sha256", issues)
+    return issues
+
+
 def validate_promotion_decision(payload: Any) -> list[str]:
     """Validate a human-only, expiring, non-live decision artifact."""
 
@@ -464,6 +652,52 @@ def _validate_identity_binding(binding: Any, candidate_kind: Any, issues: list[s
         _validate_sha(digest, "identity_binding.source_receipt_sha256s item", issues)
     if sources != sorted(sources) or len(set(sources)) != len(sources):
         issues.append("identity_binding.source_receipt_sha256s must be unique and sorted")
+
+
+def _validate_identity_binding_v2(binding: Any, candidate_kind: Any, issues: list[str]) -> None:
+    if not isinstance(binding, Mapping):
+        issues.append("identity_binding must be an object")
+        return
+    expected = {
+        "candidate_risk_identity_sha256",
+        "research_spec_sha256",
+        "optimization_spec_sha256",
+    }
+    unexpected = sorted(set(binding) - expected)
+    if unexpected:
+        issues.append("identity_binding must not contain source fields or extras: " + ", ".join(unexpected))
+    for key in ("candidate_risk_identity_sha256", "research_spec_sha256"):
+        _validate_sha(binding.get(key), f"identity_binding.{key}", issues)
+    optimization = binding.get("optimization_spec_sha256")
+    if candidate_kind == CandidateKind.PARAMETER_CHANGE.value and optimization is None:
+        issues.append("parameter_change candidates require identity_binding.optimization_spec_sha256")
+    if optimization is not None:
+        _validate_sha(optimization, "identity_binding.optimization_spec_sha256", issues)
+
+
+def _validate_research_source_receipt_ref(
+    ref: Any,
+    index: int,
+    issues: list[str],
+) -> tuple[str, str] | None:
+    label = f"research_source_receipt_refs[{index}]"
+    if not isinstance(ref, Mapping):
+        issues.append(f"{label} must be an object")
+        return None
+    expected = {"schema_version", "receipt_sha256"}
+    unexpected = sorted(set(ref) - expected)
+    if unexpected:
+        issues.append(f"{label} must contain only schema_version and receipt_sha256")
+    schema_version = ref.get("schema_version")
+    receipt_sha256 = ref.get("receipt_sha256")
+    try:
+        _require_schema_version(schema_version, f"{label}.schema_version")
+    except ValueError:
+        issues.append(f"{label}.schema_version must be a canonical versioned schema name")
+    _validate_sha(receipt_sha256, f"{label}.receipt_sha256", issues)
+    if not isinstance(schema_version, str) or not isinstance(receipt_sha256, str):
+        return None
+    return schema_version, receipt_sha256
 
 
 def _validate_reported_digest(payload: Mapping[str, Any], key: str, issues: list[str]) -> None:

@@ -12,17 +12,22 @@ from quant_platform_kit.strategy_lifecycle.candidate_control import (
     PROMOTION_DECISION_SCHEMA_VERSION,
     SOURCE_RECEIPT_SCHEMA_VERSION,
     STRATEGY_CANDIDATE_SCHEMA_VERSION,
+    STRATEGY_CANDIDATE_V2_SCHEMA_VERSION,
     CandidateIdentityBinding,
+    CandidateIdentityBindingV2,
     CandidateKind,
     PromotionDecision,
     PromotionOutcome,
     PromotionScope,
     ResearchCandidateStatus,
+    ResearchSourceReceiptRef,
     SourceReceipt,
     StrategyCandidate,
+    StrategyCandidateV2,
     validate_promotion_decision,
     validate_source_receipt,
     validate_strategy_candidate,
+    validate_strategy_candidate_v2,
 )
 
 
@@ -76,6 +81,30 @@ def _candidate() -> StrategyCandidate:
     )
 
 
+def _candidate_v2() -> StrategyCandidateV2:
+    refs = tuple(sorted(
+        (
+            ResearchSourceReceiptRef("research_factory.v1", "3" * 64),
+            ResearchSourceReceiptRef("research_source_receipt.v1", "4" * 64),
+        ),
+        key=lambda ref: (ref.schema_version, ref.receipt_sha256),
+    ))
+    return StrategyCandidateV2(
+        candidate_id="candidate.soxl.parameter-risk-budget.2026-08-27",
+        candidate_kind=CandidateKind.PARAMETER_CHANGE,
+        research_status=ResearchCandidateStatus.SHADOW_READY,
+        strategy_profile="soxl_soxx_trend_income",
+        domain="us_equity",
+        created_at="2026-08-27T10:30:00Z",
+        identity_binding=CandidateIdentityBindingV2(
+            candidate_risk_identity_sha256=_risk_identity().candidate_sha256,
+            research_spec_sha256="1" * 64,
+            optimization_spec_sha256="2" * 64,
+        ),
+        research_source_receipt_refs=refs,
+    )
+
+
 def test_candidate_binds_existing_risk_identity_and_untrusted_source_receipts() -> None:
     candidate = _candidate()
     payload = candidate.to_dict()
@@ -86,6 +115,59 @@ def test_candidate_binds_existing_risk_identity_and_untrusted_source_receipts() 
     assert candidate.grants_execution_authority is False
     assert [receipt["content_trust"] for receipt in payload["source_receipts"]] == ["untrusted", "untrusted"]
     assert validate_strategy_candidate(payload) == []
+
+
+def test_v2_candidate_binds_only_ordered_source_receipt_references() -> None:
+    candidate = _candidate_v2()
+    payload = candidate.to_dict()
+
+    assert payload["schema_version"] == STRATEGY_CANDIDATE_V2_SCHEMA_VERSION
+    assert "source_receipts" not in payload
+    assert "source_receipt_sha256s" not in payload["identity_binding"]
+    assert candidate.grants_execution_authority is False
+    assert all(
+        set(ref) == {"schema_version", "receipt_sha256"}
+        for ref in payload["research_source_receipt_refs"]
+    )
+    assert validate_strategy_candidate_v2(payload) == []
+
+
+def test_v2_candidate_rejects_embedded_source_material_and_unsorted_references() -> None:
+    payload = _candidate_v2().to_dict()
+    payload["research_source_receipt_refs"][0]["source_uri"] = "https://example.test/raw"
+    payload["source_receipts"] = []
+
+    issues = validate_strategy_candidate_v2(payload)
+
+    assert "research_source_receipt_refs[0] must contain only schema_version and receipt_sha256" in issues
+    assert any("must not embed source material" in issue for issue in issues)
+    assert "candidate_sha256 does not match canonical artifact content" in issues
+
+    refs = (
+        ResearchSourceReceiptRef("research_source_receipt.v1", "4" * 64),
+        ResearchSourceReceiptRef("research_factory.v1", "3" * 64),
+    )
+    with pytest.raises(ValueError, match="unique and sorted"):
+        StrategyCandidateV2(
+            candidate_id="candidate.unsorted",
+            candidate_kind=CandidateKind.STRATEGY_REVISION,
+            research_status=ResearchCandidateStatus.DRAFT,
+            strategy_profile="soxl_soxx_trend_income",
+            domain="us_equity",
+            created_at="2026-08-27T10:30:00Z",
+            identity_binding=CandidateIdentityBindingV2(
+                candidate_risk_identity_sha256=_risk_identity().candidate_sha256,
+                research_spec_sha256="1" * 64,
+            ),
+            research_source_receipt_refs=refs,
+        )
+
+
+def test_v2_source_reference_requires_a_versioned_schema_and_digest() -> None:
+    with pytest.raises(ValueError, match="canonical versioned schema"):
+        ResearchSourceReceiptRef("source-receipt", "3" * 64)
+    with pytest.raises(ValueError, match="SHA-256"):
+        ResearchSourceReceiptRef("research_factory.v1", "not-a-digest")
 
 
 def test_parameter_change_requires_optimization_spec_but_other_candidate_kinds_do_not() -> None:
@@ -187,6 +269,7 @@ def test_serialized_contract_schemas_match_public_versions() -> None:
     expected = {
         "source-receipt.v1.schema.json": SOURCE_RECEIPT_SCHEMA_VERSION,
         "strategy-candidate.v1.schema.json": STRATEGY_CANDIDATE_SCHEMA_VERSION,
+        "strategy-candidate.v2.schema.json": STRATEGY_CANDIDATE_V2_SCHEMA_VERSION,
         "promotion-decision.v1.schema.json": PROMOTION_DECISION_SCHEMA_VERSION,
     }
     for filename, version in expected.items():
@@ -196,6 +279,7 @@ def test_serialized_contract_schemas_match_public_versions() -> None:
 
 def test_serialized_contracts_validate_against_their_json_schemas() -> None:
     candidate = _candidate()
+    candidate_v2 = _candidate_v2()
     decision = PromotionDecision(
         decision_id="decision.soxl.shadow.2026-08-27",
         candidate_sha256=candidate.candidate_sha256,
@@ -208,6 +292,7 @@ def test_serialized_contracts_validate_against_their_json_schemas() -> None:
     artifacts = {
         "source-receipt.v1.schema.json": candidate.source_receipts[0].to_dict(),
         "strategy-candidate.v1.schema.json": candidate.to_dict(),
+        "strategy-candidate.v2.schema.json": candidate_v2.to_dict(),
         "promotion-decision.v1.schema.json": decision.to_dict(),
     }
     for filename, artifact in artifacts.items():
