@@ -17,6 +17,14 @@ def _policy(**changes: object) -> ForwardObservationPolicy:
         "domain": "us_equity",
         "benchmark_symbol": "SOXX",
         "required_trading_sessions": 252,
+        "review_milestones": (20, 60),
+        "automatic_non_live_modes": ("shadow", "paper"),
+        "auto_resume_clean_sessions": 3,
+        "observation_calendar": "XNYS",
+        "observation_window_type": "fixed",
+        "observation_start_session": "2026-08-26",
+        "window_rationale_ref": "sha256:soxl-v7-forward-window-rationale",
+        "non_live_evidence_modes": ("shadow_decision", "simulated_replay"),
     }
     values.update(changes)
     return ForwardObservationPolicy(**values)  # type: ignore[arg-type]
@@ -52,10 +60,10 @@ def test_missing_p3_evidence_parks_without_starting_non_live_modes() -> None:
     assert result.notifications == ("historical_evidence_required",)
 
 
-def test_any_operational_or_risk_failure_pauses_both_non_live_modes() -> None:
+def test_transient_operational_failure_pauses_both_non_live_modes() -> None:
     result = evaluate_forward_observation(
         _policy(),
-        _snapshot(data_status="stale", paper_status="mismatch", risk_status="blocked"),
+        _snapshot(data_status="stale", paper_status="mismatch"),
     )
 
     assert result.state == "PAUSED"
@@ -63,9 +71,21 @@ def test_any_operational_or_risk_failure_pauses_both_non_live_modes() -> None:
     assert set(result.reasons) == {
         "data_status=stale",
         "paper_status=mismatch",
-        "risk_status=blocked",
     }
     assert result.live_authority_granted is False
+
+
+def test_risk_block_requires_human_review_and_never_auto_resumes() -> None:
+    blocked = evaluate_forward_observation(_policy(), _snapshot(risk_status="blocked"))
+    still_blocked = evaluate_forward_observation(
+        _policy(), _snapshot(previous_state="risk_blocked")
+    )
+
+    assert blocked.state == "RISK_BLOCKED"
+    assert blocked.non_live_actions == ("keep_shadow_stopped", "keep_paper_stopped")
+    assert blocked.notifications == ("forward_observation_risk_blocked",)
+    assert still_blocked.state == "RISK_BLOCKED"
+    assert still_blocked.non_live_actions == ("keep_shadow_stopped", "keep_paper_stopped")
 
 
 def test_non_live_pause_resumes_automatically_only_after_clean_recovery_window() -> None:
@@ -97,6 +117,7 @@ def test_milestones_and_full_window_never_promote_live() -> None:
 
     assert milestone.notifications == ("forward_review_20_sessions",)
     assert completed.state == "FORWARD_COMPLETE_HUMAN_REVIEW"
+    assert completed.non_live_actions == ("keep_shadow_stopped", "keep_paper_stopped")
     assert completed.notifications == ("forward_window_complete_human_live_review_required",)
     assert completed.live_action == "human_approval_required"
     assert completed.live_authority_granted is False
@@ -112,6 +133,11 @@ def test_each_candidate_supplies_its_own_forward_window_without_soxl_defaults() 
         review_milestones=(15, 42),
         automatic_non_live_modes=("shadow", "paper"),
         auto_resume_clean_sessions=2,
+        observation_calendar="XNYS",
+        observation_window_type="fixed",
+        observation_start_session="2026-08-26",
+        window_rationale_ref="sha256:global-etf-monthly-v1-forward-window-rationale",
+        non_live_evidence_modes=("shadow_decision", "simulated_replay"),
     )
 
     result = evaluate_forward_observation(
@@ -131,10 +157,37 @@ def test_each_candidate_supplies_its_own_forward_window_without_soxl_defaults() 
     assert result.live_authority_granted is False
 
 
+@pytest.mark.parametrize(
+    ("control_status", "expected_state"),
+    [
+        ("manual_hold", "MANUAL_HOLD"),
+        ("identity_mismatch", "IDENTITY_MISMATCH"),
+        ("revoked", "REVOKED"),
+        ("superseded", "SUPERSEDED"),
+    ],
+)
+def test_non_transient_control_states_never_auto_resume(
+    control_status: str, expected_state: str
+) -> None:
+    held = evaluate_forward_observation(_policy(), _snapshot(control_status=control_status))
+    persisted = evaluate_forward_observation(
+        _policy(), _snapshot(previous_state=control_status)
+    )
+
+    assert held.state == expected_state
+    assert held.non_live_actions == ("keep_shadow_stopped", "keep_paper_stopped")
+    assert persisted.state == expected_state
+    assert persisted.non_live_actions == ("keep_shadow_stopped", "keep_paper_stopped")
+
+
 def test_policy_and_snapshot_reject_ambiguous_configuration() -> None:
     with pytest.raises(ForwardObservationPolicyError, match="automatic_non_live_modes"):
         _policy(automatic_non_live_modes=("shadow",))
     with pytest.raises(ForwardObservationPolicyError, match="review_milestones"):
         _policy(review_milestones=(60, 20))
+    with pytest.raises(ForwardObservationPolicyError, match="paper mode"):
+        _policy(non_live_evidence_modes=("shadow_decision", "broker_paper", "simulated_replay"))
+    with pytest.raises(ForwardObservationPolicyError, match="rolling"):
+        _policy(observation_window_type="rolling", observation_start_session="2026-08-26")
     with pytest.raises(ForwardObservationPolicyError, match="cannot exceed"):
         _snapshot(observations_completed=20, previous_observations_completed=21)
