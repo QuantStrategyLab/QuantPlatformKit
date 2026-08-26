@@ -74,6 +74,14 @@ from .account_identity import (
     BrokerAccountIdentity,
     evaluate_account_identity,
 )
+from .capital_base import (
+    CAPITAL_BASE_CONTRACT_VERSION,
+    CapitalBaseBinding,
+    CapitalBaseFinding,
+    CapitalBaseSnapshot,
+    CapitalBaseValidation,
+    validate_capital_base,
+)
 from .execution_commands import (
     DEFAULT_EXECUTION_COMMAND_NAMESPACE,
     EXECUTION_COMMAND_EVENT_SCHEMA_VERSION,
@@ -206,6 +214,11 @@ __all__ = [
     "AccountIdentityFinding",
     "AccountIdentityGuardedExecutionPort",
     "AccountIdentityPolicy",
+    "CAPITAL_BASE_CONTRACT_VERSION",
+    "CapitalBaseBinding",
+    "CapitalBaseFinding",
+    "CapitalBaseSnapshot",
+    "CapitalBaseValidation",
     "FEATURE_SNAPSHOT_MANIFEST_TYPE",
     "RELEASE_MANIFEST_TYPE",
     "STRATEGY_PLUGIN_MANIFEST_TYPE",
@@ -339,6 +352,7 @@ __all__ = [
     "ExecutionCommandStore",
     "build_execution_command_store_from_env",
     "validate_execution_command_release_binding",
+    "validate_capital_base",
     "validate_execution_command_transition",
     "RUNTIME_COMMAND_GATE_RECEIPT_SCHEMA_VERSION",
     "RuntimeCommandAction",

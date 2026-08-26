@@ -8,6 +8,7 @@ from fractions import Fraction
 import unicodedata
 from unittest.mock import Mock, patch
 
+from quant_platform_kit.common.capital_base import CapitalBaseBinding, CapitalBaseSnapshot
 from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.risk.contracts import (
     ROUTE_BLOCKED,
@@ -62,6 +63,33 @@ def _decision(
 
 def _portfolio_snapshot() -> dict[str, float]:
     return {"total_equity": 100_000.0}
+
+
+def _capital_base(*, as_of: datetime | None = None, **overrides: object) -> CapitalBaseSnapshot:
+    values: dict[str, object] = {
+        "reported_equity": 100_000.0,
+        "reported_currency": "USD",
+        "target_currency": "USD",
+        "fx_rate_to_target": 1.0,
+        "as_of": as_of or datetime.now(timezone.utc),
+        "account_scope": "account-a",
+        "runtime_scope": "runtime-a",
+        "strategy_scope": "soxl_soxx_trend_income",
+        "source_digest_sha256": "a" * 64,
+    }
+    values.update(overrides)
+    return CapitalBaseSnapshot(**values)  # type: ignore[arg-type]
+
+
+def _capital_base_binding(**overrides: object) -> CapitalBaseBinding:
+    values: dict[str, object] = {
+        "account_scope": "account-a",
+        "runtime_scope": "runtime-a",
+        "strategy_scope": "soxl_soxx_trend_income",
+        "target_currency": "USD",
+    }
+    values.update(overrides)
+    return CapitalBaseBinding(**values)  # type: ignore[arg-type]
 
 
 class RiskEngineAssessmentTests(unittest.TestCase):
@@ -136,30 +164,36 @@ class ApplyRiskGateTests(unittest.TestCase):
             product_leverage_factors={"SPY": 1},
             portfolio_snapshot=_portfolio_snapshot(),
             enforce_value_target_exposure=True,
+            capital_base=_capital_base(),
+            capital_base_binding=_capital_base_binding(),
         )
         rejected = apply_risk_gate(
             _decision(positions=(PositionTarget(symbol="SPY", target_value=10_001.0),)),
             product_leverage_factors={"SPY": 1},
             portfolio_snapshot=_portfolio_snapshot(),
             enforce_value_target_exposure=True,
+            capital_base=_capital_base(),
+            capital_base_binding=_capital_base_binding(),
         )
 
         self.assertIn("risk_gate:passed", approved.risk_flags)
         self.assertEqual(rejected.positions, ())
         self.assertEqual(rejected.risk_flags, ("rejected:concentration",))
 
-    def test_no_mandate_rejects_value_target_without_valid_equity(self) -> None:
-        for snapshot in (None, {}, {"total_equity": 0.0}, {"total_equity": float("inf")}):
-            with self.subTest(snapshot=snapshot):
+    def test_no_mandate_rejects_strict_value_target_without_valid_capital_base(self) -> None:
+        for capital_base in (None, {}, {"reported_equity": 0.0}):
+            with self.subTest(capital_base=capital_base):
                 result = apply_risk_gate(
                     _decision(positions=(PositionTarget(symbol="SPY", target_value=10_000.0),)),
                     product_leverage_factors={"SPY": 1},
-                    portfolio_snapshot=snapshot,
+                    portfolio_snapshot=_portfolio_snapshot(),
                     enforce_value_target_exposure=True,
+                    capital_base=capital_base,
+                    capital_base_binding=_capital_base_binding(),
                 )
 
             self.assertEqual(result.positions, ())
-            self.assertEqual(result.risk_flags, ("rejected:invalid_decision_exposure",))
+            self.assertEqual(result.risk_flags, ("rejected:capital_base",))
 
     def test_value_targets_require_explicit_enforcement_during_legacy_migration(self) -> None:
         result = apply_risk_gate(
@@ -189,6 +223,8 @@ class ApplyRiskGateTests(unittest.TestCase):
             product_leverage_factors={"SPY": 1},
             portfolio_snapshot=_portfolio_snapshot(),
             enforce_value_target_exposure=True,
+            capital_base=_capital_base(),
+            capital_base_binding=_capital_base_binding(),
         )
 
         self.assertIn("risk_gate:passed", result.risk_flags)
@@ -197,6 +233,44 @@ class ApplyRiskGateTests(unittest.TestCase):
         self.assertIs(audit["migration_required"], False)
         self.assertEqual(audit["max_target_weight"], 0.10)
         self.assertEqual(audit["total_target_weight"], 0.10)
+        self.assertTrue(audit["capital_base"]["valid"])
+        self.assertEqual(
+            audit["capital_base"]["snapshot"]["source_digest_sha256"],
+            "a" * 64,
+        )
+
+    def test_strict_value_targets_fail_closed_for_scope_staleness_and_zero_base(self) -> None:
+        now = datetime.now(timezone.utc)
+        cases = (
+            (
+                _capital_base(account_scope="account-b", as_of=now),
+                _capital_base_binding(),
+                "capital_base_account_scope_mismatch",
+            ),
+            (
+                _capital_base(as_of=now - timedelta(seconds=301)),
+                _capital_base_binding(),
+                "stale_capital_base",
+            ),
+            (
+                {"reported_equity": 0.0},
+                _capital_base_binding(),
+                "invalid_capital_base",
+            ),
+        )
+        for capital_base, binding, reason in cases:
+            with self.subTest(reason=reason):
+                result = apply_risk_gate(
+                    _decision(positions=(PositionTarget(symbol="SPY", target_value=10_000.0),)),
+                    product_leverage_factors={"SPY": 1},
+                    portfolio_snapshot=_portfolio_snapshot(),
+                    enforce_value_target_exposure=True,
+                    capital_base=capital_base,
+                    capital_base_binding=binding,
+                )
+
+            self.assertEqual(result.risk_flags, ("rejected:capital_base",))
+            self.assertEqual(result.diagnostics["reason"], reason)
 
     def test_no_mandate_rejects_missing_or_leveraged_classification(self) -> None:
         decision = _decision(
@@ -1070,6 +1144,13 @@ class AssessWithEvidenceTests(unittest.TestCase):
                 mandate_provenance=self._mandate(),
                 market_data={},
                 candidate_identity=self._candidate(),
+                capital_base=_capital_base(
+                    as_of=self._NOW.replace(minute=27, second=55),
+                    strategy_scope="crypto_live_pool_rotation",
+                ),
+                capital_base_binding=_capital_base_binding(
+                    strategy_scope="crypto_live_pool_rotation",
+                ),
             )
 
         self.assertEqual(approved.assessment.outcome, "APPROVE")
@@ -1091,6 +1172,13 @@ class AssessWithEvidenceTests(unittest.TestCase):
                     mandate_provenance=self._mandate(),
                     market_data={},
                     candidate_identity=self._candidate(),
+                    capital_base=_capital_base(
+                        as_of=self._NOW.replace(minute=27, second=55),
+                        strategy_scope="crypto_live_pool_rotation",
+                    ),
+                    capital_base_binding=_capital_base_binding(
+                        strategy_scope="crypto_live_pool_rotation",
+                    ),
                 )
             self.assertEqual(rejected.assessment.outcome, "REJECT")
             self.assertEqual(rejected.decision.positions, ())
