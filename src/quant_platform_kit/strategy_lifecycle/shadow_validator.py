@@ -1,4 +1,10 @@
-"""Shadow validator — compare proposed params against current in shadow mode."""
+"""Legacy recent-performance proxy reviewer.
+
+This module does not run a baseline and candidate against the same input
+snapshot.  Its result is therefore explicitly marked as a performance proxy,
+not ``paired_shadow_evidence.v1``.  New P2 paired-shadow evidence lives in
+``paired_shadow_evidence`` and must be collected by a non-live adapter.
+"""
 
 from __future__ import annotations
 
@@ -12,11 +18,12 @@ from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceS
 
 
 class ShadowValidator:
-    """Run shadow validation for proposed parameters.
+    """Review proposed parameters against recent production snapshots.
 
-    Shadow validation means running the proposed parameters alongside the current
-    parameters for a period (typically 5-10 trading days) and comparing results.
-    If the shadow underperforms, the proposal is rejected.
+    This is retained for compatibility with the legacy update orchestrator. It
+    does *not* constitute paired shadow validation because it has only rolling
+    performance snapshots, not same-timestamp candidate/baseline signals,
+    hypothetical orders, positions, costs, and returns.
 
     Usage::
 
@@ -38,10 +45,8 @@ class ShadowValidator:
     ) -> dict[str, Any]:
         """Validate a proposal over a shadow period.
 
-        In a production system, this would actually run the strategy with the
-        proposed parameters in shadow mode (no real orders) and compare daily
-        returns. For the current implementation, it validates using recent
-        performance snapshots as a proxy.
+        This validates using recent performance snapshots as a proxy. It is
+        intentionally distinguishable from ``paired_shadow_evidence.v1``.
 
         Args:
             proposal: The optimization proposal to validate.
@@ -49,7 +54,8 @@ class ShadowValidator:
             shadow_days: Minimum trading days for the shadow period.
 
         Returns:
-            Dict with "passed", "reason", "shadow_metrics", "days_evaluated".
+            Dict with proxy findings. ``paired_shadow_evidence`` is always
+            false, and the result cannot grant order or live authority.
         """
         # Collect recent snapshots for the strategy
         snapshots = self._collect_recent_snapshots(proposal.strategy_profile, domain, days=shadow_days + 5)
@@ -59,6 +65,7 @@ class ShadowValidator:
                 "reason": f"Insufficient shadow data: need {shadow_days} days, got {len(snapshots)}",
                 "shadow_metrics": None,
                 "days_evaluated": len(snapshots),
+                **_proxy_safety_fields(),
             }
 
         # Compare the most recent window metrics against the proposal expectations
@@ -70,12 +77,24 @@ class ShadowValidator:
                 break
 
         if latest_126 is None:
-            return {"passed": False, "reason": "No 126-day window data available", "shadow_metrics": None, "days_evaluated": len(snapshots)}
+            return {
+                "passed": False,
+                "reason": "No 126-day window data available",
+                "shadow_metrics": None,
+                "days_evaluated": len(snapshots),
+                **_proxy_safety_fields(),
+            }
 
         # Check if recent performance is consistent with proposed backtest
         proposed = proposal.proposed_metrics
         if proposed is None:
-            return {"passed": False, "reason": "No proposed metrics to validate against", "shadow_metrics": None, "days_evaluated": len(snapshots)}
+            return {
+                "passed": False,
+                "reason": "No proposed metrics to validate against",
+                "shadow_metrics": None,
+                "days_evaluated": len(snapshots),
+                **_proxy_safety_fields(),
+            }
 
         checks: dict[str, bool] = {}
         reasons: list[str] = []
@@ -104,6 +123,7 @@ class ShadowValidator:
                 "cagr": latest_126.cagr,
             },
             "days_evaluated": len(snapshots),
+            **_proxy_safety_fields(),
         }
 
     def _collect_recent_snapshots(self, strategy_profile: str, domain: str, *, days: int) -> list:
@@ -118,3 +138,14 @@ class ShadowValidator:
             if snap is not None:
                 snapshots.append(snap)
         return snapshots
+
+
+def _proxy_safety_fields() -> dict[str, object]:
+    """Mark legacy snapshot comparison as non-paired and permanently non-live."""
+
+    return {
+        "evidence_kind": "recent_performance_proxy",
+        "paired_shadow_evidence": False,
+        "no_order": True,
+        "live_authority_granted": False,
+    }
