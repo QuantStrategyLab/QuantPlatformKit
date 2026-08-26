@@ -15,6 +15,10 @@ capital impact.
 - A strategy can be observed earlier than it can trade.
 - Live enablement remains a platform decision, not just a backtest decision.
 
+The cross-repository control-plane decision is recorded in
+[ADR 0005](./adr/0005-research-control-plane.md). It applies equally to a
+parameter change, a strategy rewrite/new strategy, and a plugin revision.
+
 ## Canonical Lifecycle Stages
 
 | Stage | Meaning | Capital impact | Typical owner |
@@ -35,6 +39,21 @@ capital impact.
   justify platform enablement.
 - `live_enabled` records an existing deployment authorization; it does not
   create or enlarge that authorization.
+
+### Research-control-plane boundary
+
+Within `research_active` and `shadow_active`, automation may discover an
+anomaly, freeze a research/optimization specification, run recorded trials,
+create a candidate/evidence pull request, start non-live observation, and
+pause a non-conforming target. It cannot merge a live change, enable or resume
+live, alter live parameters, enlarge capital/leverage, or expand broker/IAM
+authority.
+
+Every candidate must retain a versioned identity, source/data/cost/trial
+provenance, benchmark policy, and evidence digest. Human approval of a
+consequential action is bound to that candidate and to its platform/account
+scope; a successful CI run or evidence package alone never grants capital
+authority.
 
 ### Legacy catalog compatibility
 
