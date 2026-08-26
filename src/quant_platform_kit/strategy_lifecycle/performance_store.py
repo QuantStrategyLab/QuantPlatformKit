@@ -379,20 +379,37 @@ class PerformanceStore:
 
     # ── live runs (per-evaluate / per-execution records) ─────────
 
-    def _live_run_key(self, domain: str, strategy_profile: str, recorded_at: str) -> str:
+    def _live_run_key(
+        self,
+        domain: str,
+        strategy_profile: str,
+        recorded_at: str,
+        *,
+        stream_id: str = "",
+    ) -> str:
         safe_time = recorded_at.replace(":", "-")
-        return f"live_runs/{_clean_key(domain)}/{_clean_key(strategy_profile)}/{safe_time}.json"
+        root = f"live_runs/{_clean_key(domain)}/{_clean_key(strategy_profile)}"
+        stream = str(stream_id or "").strip()
+        if stream:
+            return f"{root}/streams/{_clean_key(stream)}/{safe_time}.json"
+        return f"{root}/{safe_time}.json"
 
     def save_live_run_record(
         self,
         strategy_profile: str,
         domain: str,
         payload: Mapping[str, Any],
+        *,
+        stream_id: str = "",
     ) -> None:
         recorded_at = str(payload.get("recorded_at") or _now_iso())
+        stream = str(stream_id or payload.get("lifecycle_stream_id") or "").strip()
+        stored_payload = dict(payload)
+        if stream:
+            stored_payload["lifecycle_stream_id"] = stream
         self._write(
-            self._live_run_key(domain, strategy_profile, recorded_at),
-            {**dict(payload), "schema_version": SCHEMA_VERSION},
+            self._live_run_key(domain, strategy_profile, recorded_at, stream_id=stream),
+            {**stored_payload, "schema_version": SCHEMA_VERSION},
         )
 
     def list_live_run_records(
@@ -400,11 +417,17 @@ class PerformanceStore:
         domain: str,
         *,
         strategy_profile: str | None = None,
+        stream_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Load persisted live evaluation/execution records for a domain."""
         prefix = f"live_runs/{_clean_key(domain)}/"
         if strategy_profile:
             prefix = f"{prefix}{_clean_key(strategy_profile)}/"
+        stream = str(stream_id or "").strip()
+        if stream:
+            if not strategy_profile:
+                raise ValueError("strategy_profile is required when filtering live records by stream_id")
+            prefix = f"{prefix}streams/{_clean_key(stream)}/"
 
         records: list[dict[str, Any]] = []
 
@@ -426,9 +449,12 @@ class PerformanceStore:
 
         deduped: dict[str, dict[str, Any]] = {}
         for record in records:
+            if stream and str(record.get("lifecycle_stream_id") or "").strip() != stream:
+                continue
             dedupe_key = "|".join(
                 [
                     str(record.get("strategy_profile") or ""),
+                    str(record.get("lifecycle_stream_id") or ""),
                     str(record.get("recorded_at") or ""),
                     str(record.get("record_kind") or ""),
                 ]

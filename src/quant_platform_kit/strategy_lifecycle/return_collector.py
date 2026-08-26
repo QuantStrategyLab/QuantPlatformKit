@@ -108,15 +108,42 @@ class ReturnCollector:
             return self._store
         return PerformanceStore.from_env()
 
-    def collect_from_live_runs(self, domain: str) -> Mapping[str, pd.Series]:
-        """Build per-strategy return series from persisted live run equity snapshots."""
+    def collect_from_live_runs(
+        self,
+        domain: str,
+        *,
+        stream_id: str | None = None,
+    ) -> Mapping[str, pd.Series]:
+        """Build per-strategy returns without merging independent account streams.
+
+        A caller that needs live monitoring must supply a specific stream when
+        more than one stream has reported the same strategy profile.  Skipping
+        that ambiguous profile is safer than deriving a false equity curve
+        from separate broker accounts.
+        """
         records = self._store_instance().list_live_run_records(domain)
         grouped = group_live_run_records_by_profile(records)
-        return {
-            profile: live_run_records_to_return_series(profile_records)
-            for profile, profile_records in grouped.items()
-            if live_run_records_to_return_series(profile_records).size > 0
-        }
+        result: dict[str, pd.Series] = {}
+        requested_stream = str(stream_id or "").strip()
+        for profile, profile_records in grouped.items():
+            streams = {
+                str(record.get("lifecycle_stream_id") or "").strip()
+                for record in profile_records
+            }
+            if requested_stream:
+                if requested_stream not in streams:
+                    continue
+                profile_records = [
+                    record
+                    for record in profile_records
+                    if str(record.get("lifecycle_stream_id") or "").strip() == requested_stream
+                ]
+            elif len(streams) > 1:
+                continue
+            series = live_run_records_to_return_series(profile_records)
+            if not series.empty:
+                result[profile] = series
+        return result
 
     def _merge_return_series(
         self,
@@ -140,6 +167,7 @@ class ReturnCollector:
         *,
         date_column: str = "as_of",
         benchmark_columns: Sequence[str] | None = None,
+        live_stream_id: str | None = None,
     ) -> Mapping[str, pd.Series]:
         """Collect all strategy return series for a domain.
 
@@ -164,7 +192,12 @@ class ReturnCollector:
                     else:
                         all_strategies[name] = series
 
-        live_series = self.collect_from_live_runs(domain)
+        if live_stream_id:
+            live_series = self.collect_from_live_runs(domain, stream_id=live_stream_id)
+        else:
+            # Keep the original call shape for integrations that replace this
+            # best-effort collector with a compatible one-argument adapter.
+            live_series = self.collect_from_live_runs(domain)
         return self._merge_return_series(all_strategies, live_series)
 
     def collect_benchmark(

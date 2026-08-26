@@ -77,6 +77,30 @@ class LifecycleCliTests(unittest.TestCase):
             },
         )
 
+    def test_monitor_command_passes_live_stream_filter_only_when_requested(self) -> None:
+        observed = {}
+
+        def fake_load_callable(_module_name: str, _function_name: str):
+            def fake_run_monitor(**kwargs):
+                observed.update(kwargs)
+                return [object()]
+
+            return fake_run_monitor
+
+        with patch.object(cli, "_load_callable", fake_load_callable):
+            result = cli.main([
+                "monitor",
+                "--domain",
+                "us_equity",
+                "--strategy",
+                "soxl_soxx_trend_income",
+                "--live-stream-id",
+                "longbridge-quant-sg-service",
+            ])
+
+        self.assertEqual(result, 0)
+        self.assertEqual(observed["live_stream_id"], "longbridge-quant-sg-service")
+
     def test_drift_command_counts_status_values(self) -> None:
         statuses = [
             SimpleNamespace(status=SimpleNamespace(value="critical")),
