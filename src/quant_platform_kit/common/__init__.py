@@ -80,6 +80,8 @@ from .capital_base import (
     CapitalBaseFinding,
     CapitalBaseSnapshot,
     CapitalBaseValidation,
+    CapitalScope,
+    CapitalValuationBasis,
     build_capital_base_snapshot,
     validate_capital_base,
 )
@@ -220,6 +222,8 @@ __all__ = [
     "CapitalBaseFinding",
     "CapitalBaseSnapshot",
     "CapitalBaseValidation",
+    "CapitalScope",
+    "CapitalValuationBasis",
     "FEATURE_SNAPSHOT_MANIFEST_TYPE",
     "RELEASE_MANIFEST_TYPE",
     "STRATEGY_PLUGIN_MANIFEST_TYPE",
