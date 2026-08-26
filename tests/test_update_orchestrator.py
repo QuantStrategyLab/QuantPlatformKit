@@ -54,6 +54,19 @@ class UpdateOrchestratorTests(unittest.TestCase):
         self.assertIn("patch", result)
         self.assertIn("runtime confirmation", result["reason"].lower())
 
+    def test_auto_approve_flag_never_bypasses_human_parameter_approval(self) -> None:
+        with patch(
+            "quant_platform_kit.strategy_lifecycle.update_orchestrator._check_cooldown",
+            return_value=None,
+        ), patch(
+            "quant_platform_kit.strategy_lifecycle.update_orchestrator._run_shadow_validation",
+            return_value=None,
+        ):
+            result = process_update_from_proposal(_proposal(), auto_approve=True)
+
+        self.assertEqual(result["stage"], "pending_approval")
+        self.assertIn("automatic approval is disabled", result["reason"].lower())
+
 
 if __name__ == "__main__":
     unittest.main()
