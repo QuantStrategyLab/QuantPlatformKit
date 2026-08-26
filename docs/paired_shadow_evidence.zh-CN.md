@@ -50,3 +50,26 @@ paired-shadow 证据相连，并且 Forward Observation 收据链也一一对应
 并行运行候选与基线，生成本工件，再以条件追加方式持久化。Forward Observation
 调度器和任何实盘 adapter 都不能从该工件推导下单或 Live 权限；完成窗口后仍须走
 独立人工审批。
+
+QPK 的 `runtime_reports` 已提供所有平台共用的 `artifacts` 扩展位。因此平台升级
+QPK 后，可以只调用纯函数 `build_paired_shadow_evidence_report_artifacts(...)`，并把
+返回值传给 `build_runtime_report_base(..., artifacts=...)` 或
+`finalize_runtime_report(..., artifacts=...)`：
+
+```python
+artifacts = build_paired_shadow_evidence_report_artifacts(
+    evidence,
+    policy=policy,
+    forward_observation_receipt=receipt,
+)
+report = build_runtime_report_base(..., artifacts=artifacts, dry_run=True)
+```
+
+函数会验证 policy/收据绑定后，将完整证据作为
+`paired_shadow_evidence_json`（canonical JSON 字符串）和摘要放入 `artifacts`，同时附加
+`paired_shadow_evidence_no_order=true` 与
+`paired_shadow_evidence_live_authority_granted=false`。它不接收、修改或部署 runtime
+target，也不写云端、提交订单或改变运行模式。`PlatformRunner` 本身不拥有报告
+schema 内容，因此无需为这个通用附件增加分支或平台专用逻辑。使用 JSON 字符串而非
+嵌套 mapping，是为了避免既有报告序列化为清理空值而移除首条证据的
+`previous_paired_shadow_evidence_sha256: null`，从而保持收据摘要可复验。

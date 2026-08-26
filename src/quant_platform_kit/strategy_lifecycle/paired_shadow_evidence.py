@@ -370,12 +370,55 @@ def paired_shadow_evidence_sha256(value: Mapping[str, object]) -> str:
     )
 
 
+def build_paired_shadow_evidence_report_artifacts(
+    evidence: Mapping[str, object],
+    *,
+    policy: ForwardObservationPolicy,
+    forward_observation_receipt: Mapping[str, object],
+    previous_evidence: Mapping[str, object] | None = None,
+    previous_forward_observation_receipt: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Return a platform-neutral, non-live ``runtime_reports`` attachment.
+
+    This is intentionally a pure adapter: it validates and returns an
+    ``artifacts`` mapping but does not receive or mutate a runtime report,
+    write storage, resolve a runtime target, submit an order, or create live
+    authority.  A platform may pass the result to the existing ``artifacts``
+    argument of ``build_runtime_report_base`` or ``finalize_runtime_report``.
+    """
+
+    validated = validate_paired_shadow_evidence(
+        evidence,
+        policy=policy,
+        forward_observation_receipt=forward_observation_receipt,
+        previous_evidence=previous_evidence,
+        previous_forward_observation_receipt=previous_forward_observation_receipt,
+    )
+    return {
+        # Runtime reports intentionally normalize nested mappings and may drop
+        # null values.  The first paired record necessarily contains a null
+        # predecessor digest, so carry the whole canonical artifact as text to
+        # preserve its exact digest across every platform serializer.
+        "paired_shadow_evidence_json": canonical_paired_shadow_evidence_bytes(
+            validated
+        ).decode("utf-8"),
+        "paired_shadow_evidence_sha256": validated[
+            "paired_shadow_evidence_sha256"
+        ],
+        "paired_shadow_evidence_schema_version": PAIRED_SHADOW_EVIDENCE_SCHEMA_VERSION,
+        "paired_shadow_evidence_kind": PAIRED_SHADOW_EVIDENCE_KIND,
+        "paired_shadow_evidence_no_order": True,
+        "paired_shadow_evidence_live_authority_granted": False,
+    }
+
+
 __all__ = [
     "PAIRED_SHADOW_EVIDENCE_KIND",
     "PAIRED_SHADOW_EVIDENCE_SCHEMA_VERSION",
     "PAIRED_SHADOW_LEG_FIELDS",
     "InvalidPairedShadowEvidence",
     "build_paired_shadow_evidence",
+    "build_paired_shadow_evidence_report_artifacts",
     "canonical_paired_shadow_evidence_bytes",
     "paired_shadow_evidence_sha256",
     "validate_paired_shadow_evidence",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from datetime import date
+import json
 
 import pytest
 
@@ -18,10 +19,12 @@ from quant_platform_kit.strategy_lifecycle.paired_shadow_evidence import (
     PAIRED_SHADOW_EVIDENCE_SCHEMA_VERSION,
     InvalidPairedShadowEvidence,
     build_paired_shadow_evidence,
+    build_paired_shadow_evidence_report_artifacts,
     canonical_paired_shadow_evidence_bytes,
     paired_shadow_evidence_sha256,
     validate_paired_shadow_evidence,
 )
+from quant_platform_kit.common.runtime_reports import build_runtime_report_base
 
 
 def _policy(**changes: object) -> ForwardObservationPolicy:
@@ -204,3 +207,38 @@ def test_continuous_validation_requires_the_matching_forward_receipt_chain() -> 
             observed_at="2026-08-27T20:00:00-04:00",
             previous_evidence=first,
         )
+
+
+def test_report_artifacts_embed_the_validated_evidence_without_runtime_changes() -> None:
+    receipt = _forward_receipt()
+    evidence = _evidence(forward_observation_receipt=receipt)
+    artifacts = build_paired_shadow_evidence_report_artifacts(
+        evidence,
+        policy=_policy(),
+        forward_observation_receipt=receipt,
+    )
+
+    report = build_runtime_report_base(
+        platform="platform-neutral",
+        deploy_target="non-live",
+        service_name="paired-shadow-observer",
+        strategy_profile="soxl_tactical",
+        run_id="paired-shadow-001",
+        run_source="shadow",
+        dry_run=True,
+        artifacts=artifacts,
+    )
+    serialized = json.loads(json.dumps(report, ensure_ascii=False, sort_keys=True))
+
+    assert json.loads(artifacts["paired_shadow_evidence_json"]) == evidence
+    assert artifacts["paired_shadow_evidence_no_order"] is True
+    assert artifacts["paired_shadow_evidence_live_authority_granted"] is False
+    assert serialized["runtime_target"] == {}
+    assert (
+        serialized["artifacts"]["paired_shadow_evidence_json"]
+        == artifacts["paired_shadow_evidence_json"]
+    )
+    assert (
+        json.loads(serialized["artifacts"]["paired_shadow_evidence_json"])
+        == evidence
+    )
