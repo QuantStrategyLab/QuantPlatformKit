@@ -75,7 +75,11 @@ class RuntimeCommandIntegrityFinding(str, Enum):
     ACCOUNT_IDENTITY_PLATFORM_MISMATCH = "account_identity_platform_mismatch"
     ACCOUNT_IDENTITY_TYPE_MISMATCH = "account_identity_type_mismatch"
     BROKER_OUTCOME_UNKNOWN = "broker_outcome_unknown"
+    COMMAND_ACCOUNT_SCOPE_MISMATCH = "command_account_scope_mismatch"
+    COMMAND_BINDING_INVALID = "command_binding_invalid"
     COMMAND_DIGEST_MISMATCH = "command_digest_mismatch"
+    COMMAND_PLATFORM_MISMATCH = "command_platform_mismatch"
+    COMMAND_STRATEGY_PROFILE_MISMATCH = "command_strategy_profile_mismatch"
     DATA_ARTIFACT_INVALID = "data_artifact_invalid"
     DATA_STALE = "data_stale"
     DATA_UNAVAILABLE = "data_unavailable"
@@ -114,7 +118,11 @@ _HALTING_FINDINGS = frozenset(
         RuntimeCommandIntegrityFinding.ACCOUNT_IDENTITY_PLATFORM_MISMATCH.value,
         RuntimeCommandIntegrityFinding.ACCOUNT_IDENTITY_TYPE_MISMATCH.value,
         RuntimeCommandIntegrityFinding.BROKER_OUTCOME_UNKNOWN.value,
+        RuntimeCommandIntegrityFinding.COMMAND_ACCOUNT_SCOPE_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.COMMAND_BINDING_INVALID.value,
         RuntimeCommandIntegrityFinding.COMMAND_DIGEST_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.COMMAND_PLATFORM_MISMATCH.value,
+        RuntimeCommandIntegrityFinding.COMMAND_STRATEGY_PROFILE_MISMATCH.value,
         RuntimeCommandIntegrityFinding.DURABLE_EVENT_HISTORY_INVALID.value,
         RuntimeCommandIntegrityFinding.EXECUTION_REPLAY_DETECTED.value,
         RuntimeCommandIntegrityFinding.INVALID_EFFECTIVE_SESSION.value,

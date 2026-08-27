@@ -71,6 +71,14 @@ def _runtime_receipt() -> dict[str, object]:
     return build_runtime_loaded_receipt(strategy_release=_release_identity())
 
 
+def _binding() -> dict[str, str]:
+    return {
+        "platform": "longbridge",
+        "account_scope": "paper-sg",
+        "strategy_profile": "soxl_soxx_trend_income",
+    }
+
+
 def _increasing_reconciliation(_: ExecutionCommand) -> PaperExecutionReconciliation:
     return PaperExecutionReconciliation(
         proposals=(
@@ -95,6 +103,7 @@ def test_consumer_persists_a_paper_only_lifecycle_for_reconciled_proposals(tmp_p
         reconcile_command=_increasing_reconciliation,
         runtime_release_receipt=_runtime_receipt(),
         expected_strategy_release=_release_identity(),
+        expected_command_binding=_binding(),
     )
 
     assert result == {
@@ -143,6 +152,7 @@ def test_consumer_requires_runtime_release_before_claiming(tmp_path: Path) -> No
         reconcile_command=_increasing_reconciliation,
         runtime_release_receipt=None,
         expected_strategy_release=_release_identity(),
+        expected_command_binding=_binding(),
     )
 
     assert result["status"] == "blocked"
@@ -165,6 +175,7 @@ def test_consumer_rejects_new_risk_when_admission_is_reducing_only(tmp_path: Pat
         reconcile_command=_increasing_reconciliation,
         runtime_release_receipt=_runtime_receipt(),
         expected_strategy_release=_release_identity(),
+        expected_command_binding=_binding(),
     )
 
     assert result["commands"][0]["status"] == "rejected"
@@ -191,6 +202,7 @@ def test_consumer_marks_unfinished_work_for_manual_reconciliation(tmp_path: Path
         reconcile_command=_failing_reconciliation,
         runtime_release_receipt=_runtime_receipt(),
         expected_strategy_release=_release_identity(),
+        expected_command_binding=_binding(),
     )
 
     assert result["commands"] == [
@@ -224,9 +236,69 @@ def test_consumer_rejects_unknown_platform_integrity_findings(tmp_path: Path) ->
         reconcile_command=_unknown_finding,
         runtime_release_receipt=_runtime_receipt(),
         expected_strategy_release=_release_identity(),
+        expected_command_binding=_binding(),
     )
 
     assert result["commands"][0]["status"] == "rejected"
     receipt = store.events(command)[-1].details["runtime_command_gate_receipts"][0]
     assert receipt["mode"] == "halted"
     assert receipt["reasons"] == ["unknown_integrity_finding"]
+
+
+def test_consumer_rejects_a_command_for_another_platform_without_reconciling(tmp_path: Path) -> None:
+    store = ExecutionCommandStore(local_dir=tmp_path)
+    command = ExecutionCommand.from_decision(
+        platform="schwab",
+        account_scope="paper-sg",
+        strategy_profile="soxl_soxx_trend_income",
+        execution_mode="paper",
+        signal_date="2026-08-24",
+        effective_date="2026-08-25",
+        execution_timing_contract="next_trading_day",
+        decision_digest="d" * 64,
+        intent=_command().intent,
+        created_at="2026-08-24T20:00:00+00:00",
+    )
+    assert store.enqueue(command)
+    reconciled = False
+
+    def _must_not_reconcile(_: ExecutionCommand) -> PaperExecutionReconciliation:
+        nonlocal reconciled
+        reconciled = True
+        return _increasing_reconciliation(command)
+
+    result = consume_due_paper_execution_commands(
+        store=store,
+        as_of_session="2026-08-25",
+        claimant="paper-command-verify",
+        reconcile_command=_must_not_reconcile,
+        runtime_release_receipt=_runtime_receipt(),
+        expected_strategy_release=_release_identity(),
+        expected_command_binding=_binding(),
+    )
+
+    assert reconciled is False
+    assert result["commands"][0]["status"] == "rejected"
+    receipt = store.events(command)[-1].details["runtime_command_gate_receipts"][0]
+    assert receipt["mode"] == "halted"
+    assert receipt["reasons"] == ["command_platform_mismatch"]
+
+
+def test_consumer_blocks_before_claiming_when_runtime_binding_is_invalid(tmp_path: Path) -> None:
+    store = ExecutionCommandStore(local_dir=tmp_path)
+    command = _command()
+    assert store.enqueue(command)
+
+    result = consume_due_paper_execution_commands(
+        store=store,
+        as_of_session="2026-08-25",
+        claimant="paper-command-verify",
+        reconcile_command=_increasing_reconciliation,
+        runtime_release_receipt=_runtime_receipt(),
+        expected_strategy_release=_release_identity(),
+        expected_command_binding={"platform": "longbridge"},
+    )
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "command_binding_invalid"
+    assert store.current_state(command) is ExecutionCommandState.QUEUED
