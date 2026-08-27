@@ -24,6 +24,10 @@ from quant_platform_kit.common.strategy_release import (
     StrategyReleaseIdentity,
     build_strategy_release_identity,
 )
+from quant_platform_kit.common.runtime_target import (
+    RuntimeExecutionEnvironment,
+    RuntimeTarget,
+)
 
 from .forward_observation import ForwardObservationPolicy
 from .forward_observation_receipt import (
@@ -40,6 +44,7 @@ from .paired_shadow_evidence import (
 NON_LIVE_EXECUTION_EVIDENCE_BINDING_SCHEMA_VERSION = (
     "non_live_execution_evidence_binding.v1"
 )
+NON_LIVE_RUNTIME_SCOPE_SCHEMA_VERSION = "non_live_runtime_scope.v1"
 NON_LIVE_CANDIDATE_SUBJECTS = frozenset(
     {"strategy", "portfolio", "plugin_composite"}
 )
@@ -126,6 +131,69 @@ def _channel(value: object) -> str:
     if channel not in NON_LIVE_EXECUTION_CHANNELS:
         _invalid("execution_channel must be shadow or paper")
     return channel
+
+
+def _scope_component(value: object, field: str) -> str | None:
+    if value is None:
+        return None
+    text = _text(value, field)
+    return text
+
+
+def non_live_runtime_scope_sha256(
+    *, runtime_target: RuntimeTarget, execution_channel: str
+) -> str:
+    """Derive an opaque scope identity from one non-live runtime target.
+
+    The returned digest is the only value suitable for a durable non-live
+    evidence binding.  Selectors are deliberately used only as hash material:
+    the function never returns them, logs them, or attaches them to a report.
+    A funded ``live`` target cannot be converted into non-live evidence.
+    """
+
+    if not isinstance(runtime_target, RuntimeTarget):
+        _invalid("runtime_target must be a RuntimeTarget")
+    channel = _channel(execution_channel)
+    environment = runtime_target.execution_environment
+    if environment is RuntimeExecutionEnvironment.LIVE:
+        _invalid("non-live runtime scope cannot use a live execution target")
+    if (
+        channel == "shadow"
+        and environment is not RuntimeExecutionEnvironment.DRY_RUN
+    ):
+        _invalid("shadow runtime scope requires a dry_run execution target")
+    platform = _platform(runtime_target.platform_id)
+    account_selector = tuple(
+        _scope_component(value, "runtime_target.account_selector[]")
+        for value in runtime_target.account_selector
+    )
+    material = {
+        "schema_version": NON_LIVE_RUNTIME_SCOPE_SCHEMA_VERSION,
+        "platform_id": platform,
+        "execution_channel": channel,
+        "execution_environment": environment.value,
+        "deployment_selector": _scope_component(
+            runtime_target.deployment_selector,
+            "runtime_target.deployment_selector",
+        ),
+        "account_scope": _scope_component(
+            runtime_target.account_scope, "runtime_target.account_scope"
+        ),
+        "account_selector": list(account_selector),
+        "service_name": _scope_component(
+            runtime_target.service_name, "runtime_target.service_name"
+        ),
+    }
+    if not any(
+        (
+            material["deployment_selector"],
+            material["account_scope"],
+            material["account_selector"],
+            material["service_name"],
+        )
+    ):
+        _invalid("runtime_target needs an explicit non-live scope selector")
+    return sha256(_canonical_bytes(material)).hexdigest()
 
 
 def _strategy_release(value: object) -> StrategyReleaseIdentity:
@@ -455,11 +523,13 @@ __all__ = [
     "NON_LIVE_CANDIDATE_SUBJECTS",
     "NON_LIVE_EXECUTION_CHANNELS",
     "NON_LIVE_EXECUTION_EVIDENCE_BINDING_SCHEMA_VERSION",
+    "NON_LIVE_RUNTIME_SCOPE_SCHEMA_VERSION",
     "InvalidNonLiveExecutionEvidenceBinding",
     "build_non_live_execution_evidence_binding",
     "build_non_live_execution_evidence_report_artifacts",
     "build_paired_shadow_execution_evidence_binding",
     "canonical_non_live_execution_evidence_binding_bytes",
     "non_live_execution_evidence_binding_sha256",
+    "non_live_runtime_scope_sha256",
     "validate_non_live_execution_evidence_binding",
 ]
