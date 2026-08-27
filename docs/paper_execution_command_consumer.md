@@ -11,10 +11,12 @@ The shared consumer owns only the rules that must be identical across
 platforms:
 
 1. validate the runtime-loaded strategy release before touching the queue;
-2. atomically claim only due, still-queued commands;
-3. validate the immutable paper-risk admission receipt and release binding;
-4. apply the enforced runtime command gate to every reconciled proposal; and
-5. append a create-only lifecycle: `claimed` → `submitted` → `accepted` →
+2. validate the runtime-owned platform, account scope, and strategy-profile
+   binding before reconciling a claimed command;
+3. atomically claim only due, still-queued commands;
+4. validate the immutable paper-risk admission receipt and release binding;
+5. apply the enforced runtime command gate to every reconciled proposal; and
+6. append a create-only lifecycle: `claimed` → `submitted` → `accepted` →
    `filled`, or `rejected` / `reconciliation_required`.
 
 Each platform supplies `reconcile_command(command)`.  It owns its broker
@@ -39,6 +41,9 @@ execution translation.
 - Pass the currently loaded release receipt and exact promoted
   `StrategyReleaseIdentity`.  Missing or mismatched evidence blocks before a
   command is claimed.
+- Pass `PaperExecutionCommandBinding` from the runtime target, with the exact
+  platform, account scope, and strategy profile. A command intended for a
+  different consumer is rejected without calling the platform reconciler.
 - Classify exposure from reconciled before/after positions, not an order side.
   Under a `reducing_only` admission, every proposal must prove `reduces`.
 - If reconciliation, storage, or lifecycle progression fails after a claim,

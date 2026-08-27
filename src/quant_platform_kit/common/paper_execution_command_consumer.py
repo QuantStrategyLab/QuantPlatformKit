@@ -48,6 +48,7 @@ _PAPER_COMMAND_GATE_POLICY = RuntimeCommandGatePolicy(
     enforcement=RuntimeCommandGateEnforcement.ENFORCE,
 )
 _SYMBOL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_COMMAND_BINDING_FIELD_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:[._=-][a-z0-9]+)*$")
 
 
 def _safe_symbol(value: object) -> str:
@@ -55,6 +56,13 @@ def _safe_symbol(value: object) -> str:
     if not _SYMBOL_PATTERN.fullmatch(symbol):
         raise ValueError("proposal symbol must be a bounded broker-neutral identifier")
     return symbol
+
+
+def _command_binding_field(value: object, *, field_name: str) -> str:
+    field = str(value or "").strip().lower()
+    if not _COMMAND_BINDING_FIELD_PATTERN.fullmatch(field):
+        raise ValueError(f"{field_name} must be a lowercase scoped identifier")
+    return field
 
 
 def _json_audit_mapping(value: Mapping[str, object]) -> dict[str, object]:
@@ -104,6 +112,71 @@ class PaperExecutionProposal:
             "exposure_effect": self.exposure_effect.value,
             "details": dict(self.details),
         }
+
+
+@dataclass(frozen=True)
+class PaperExecutionCommandBinding:
+    """The one platform/account/strategy scope allowed to consume a command.
+
+    Release identity proves which approved strategy build was loaded; this
+    binding proves that a valid command was delivered to the intended platform
+    runtime.  It is supplied from the runtime target, never from a command.
+    """
+
+    platform: str
+    account_scope: str
+    strategy_profile: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "platform", _command_binding_field(self.platform, field_name="platform"))
+        object.__setattr__(
+            self,
+            "account_scope",
+            _command_binding_field(self.account_scope, field_name="account_scope"),
+        )
+        object.__setattr__(
+            self,
+            "strategy_profile",
+            _command_binding_field(self.strategy_profile, field_name="strategy_profile"),
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "platform": self.platform,
+            "account_scope": self.account_scope,
+            "strategy_profile": self.strategy_profile,
+        }
+
+
+def build_paper_execution_command_binding(
+    value: PaperExecutionCommandBinding | Mapping[str, object] | None,
+) -> PaperExecutionCommandBinding:
+    """Build a strict runtime-owned command binding from explicit fields."""
+
+    if isinstance(value, PaperExecutionCommandBinding):
+        return value
+    if not isinstance(value, Mapping) or set(value) != {"platform", "account_scope", "strategy_profile"}:
+        raise ValueError("paper execution command binding requires platform, account_scope, strategy_profile")
+    return PaperExecutionCommandBinding(
+        platform=str(value["platform"]),
+        account_scope=str(value["account_scope"]),
+        strategy_profile=str(value["strategy_profile"]),
+    )
+
+
+def _command_binding_findings(
+    command: ExecutionCommand,
+    *,
+    expected_binding: PaperExecutionCommandBinding,
+) -> tuple[str, ...]:
+    findings: list[str] = []
+    if command.platform != expected_binding.platform:
+        findings.append("command_platform_mismatch")
+    if command.account_scope != expected_binding.account_scope:
+        findings.append("command_account_scope_mismatch")
+    if command.strategy_profile != expected_binding.strategy_profile:
+        findings.append("command_strategy_profile_mismatch")
+    return tuple(findings)
 
 
 @dataclass(frozen=True)
@@ -209,6 +282,7 @@ def consume_due_paper_execution_commands(
     reconcile_command: PaperExecutionCommandReconciler,
     runtime_release_receipt: Mapping[str, Any] | None,
     expected_strategy_release: StrategyReleaseIdentity | Mapping[str, object] | None,
+    expected_command_binding: PaperExecutionCommandBinding | Mapping[str, object] | None,
 ) -> dict[str, object]:
     """Claim and simulate due paper commands without creating broker orders.
 
@@ -221,6 +295,15 @@ def consume_due_paper_execution_commands(
         raise RuntimeError("paper durable execution command store is required")
     if not callable(reconcile_command):
         raise ValueError("reconcile_command must be callable")
+    try:
+        expected_binding = build_paper_execution_command_binding(expected_command_binding)
+    except ValueError:
+        return {
+            "schema_version": PAPER_EXECUTION_COMMAND_CONSUMER_SCHEMA_VERSION,
+            "status": "blocked",
+            "reason": "command_binding_invalid",
+            "commands": [],
+        }
     try:
         expected_release = build_strategy_release_identity(expected_strategy_release)
     except ValueError:
@@ -262,9 +345,19 @@ def consume_due_paper_execution_commands(
                     expected_strategy_release=expected_release,
                 ).findings
             )
-            reconciliation = reconcile_command(command)
-            if not isinstance(reconciliation, PaperExecutionReconciliation):
-                raise ValueError("reconcile_command must return PaperExecutionReconciliation")
+            binding_findings = _command_binding_findings(
+                command,
+                expected_binding=expected_binding,
+            )
+            if binding_findings:
+                reconciliation = PaperExecutionReconciliation(
+                    proposals=(),
+                    integrity_findings=binding_findings,
+                )
+            else:
+                reconciliation = reconcile_command(command)
+                if not isinstance(reconciliation, PaperExecutionReconciliation):
+                    raise ValueError("reconcile_command must return PaperExecutionReconciliation")
             integrity_findings.extend(reconciliation.integrity_findings)
             integrity_findings = list(
                 dict.fromkeys(normalize_runtime_command_integrity_findings(integrity_findings))
@@ -364,8 +457,10 @@ def consume_due_paper_execution_commands(
 
 __all__ = [
     "PAPER_EXECUTION_COMMAND_CONSUMER_SCHEMA_VERSION",
+    "PaperExecutionCommandBinding",
     "PaperExecutionCommandReconciler",
     "PaperExecutionProposal",
     "PaperExecutionReconciliation",
+    "build_paper_execution_command_binding",
     "consume_due_paper_execution_commands",
 ]
