@@ -105,6 +105,7 @@ rw.update_secret("my-token", "new-token-value")
 
 ## Useful docs
 - [`docs/strategy_lifecycle_policy.md`](docs/strategy_lifecycle_policy.md)
+- [`docs/paper_execution_command_consumer.md`](docs/paper_execution_command_consumer.md)
 - [`docs/strategy_portfolio_action_matrix.md`](docs/strategy_portfolio_action_matrix.md)
 - [`docs/evidence_package_template.md`](docs/evidence_package_template.md)
 

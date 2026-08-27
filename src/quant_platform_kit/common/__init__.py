@@ -135,6 +135,13 @@ from .paper_execution_admission import (
     canonical_paper_risk_admission_receipt_json,
     evaluate_paper_execution_admission,
 )
+from .paper_execution_command_consumer import (
+    PAPER_EXECUTION_COMMAND_CONSUMER_SCHEMA_VERSION,
+    PaperExecutionCommandReconciler,
+    PaperExecutionProposal,
+    PaperExecutionReconciliation,
+    consume_due_paper_execution_commands,
+)
 from .runtime_logging import (
     RuntimeLogContext,
     build_run_id,
@@ -396,8 +403,13 @@ __all__ = [
     "PaperExecutionAdmissionFinding",
     "PaperRiskAdmissionDisposition",
     "PaperRiskAdmissionReceipt",
+    "PAPER_EXECUTION_COMMAND_CONSUMER_SCHEMA_VERSION",
+    "PaperExecutionCommandReconciler",
+    "PaperExecutionProposal",
+    "PaperExecutionReconciliation",
     "build_paper_risk_admission_receipt",
     "calculate_paper_risk_admission_receipt_sha256",
     "canonical_paper_risk_admission_receipt_json",
     "evaluate_paper_execution_admission",
+    "consume_due_paper_execution_commands",
 ]

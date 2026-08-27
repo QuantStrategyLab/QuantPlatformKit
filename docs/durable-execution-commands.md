@@ -37,6 +37,9 @@ the command identity before any recovery, and prove reconciliation behavior.
 No live adapter is enabled by this module.  That staged migration remains
 tracked in QuantPlatformKit issue #342.
 
+For the reusable, broker-free paper consumer and the platform reconciliation
+boundary, see [paper execution-command consumer](paper_execution_command_consumer.md).
+
 ## Reduce-only emergency path
 
 `RuntimeCommandGateMode.REDUCING` permits only a broker operation whose
