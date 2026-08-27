@@ -2,6 +2,8 @@
 
 `quant_platform_kit.strategy_lifecycle.forward_observation` 是策略、插件和平台共用的纯决策层。它不连接券商、不写运行时目标、不部署服务，也不产生订单。
 
+`shadow` 是每个前瞻观察候选必须具备的非实盘通道；`paper` 是**目标平台可选能力**，不是 Shadow 或前瞻观察的前置条件。目标未声明 paper 能力时，policy 只能列出 `shadow`，snapshot 的 `paper_status=unsupported` 是正常能力事实，不能暂停 Shadow 或推导失败。
+
 每个冻结候选必须显式提供自己的 `ForwardObservationPolicy`：候选 ID、策略 profile、无杠杆基准、前瞻交易日数量、复核里程碑、恢复前需要的连续健康周期、市场日历、固定或滚动窗口、窗口起点、窗口理由引用，以及精确的非 Live 证据模式。控制器没有“252 天”“20/60 天”或某个策略的隐性默认值；新候选缺少这些字段会被拒绝，不能继承 SOXL 的参数。没有已验证的 P3 历史证据和证据引用时，状态固定为 `PARKED`。
 
 P3 通过后，控制器可以自动给出 `start_shadow`、`start_paper`、`continue_*` 和在短暂数据/运行故障恢复后的 `resume_*` 意图。证据模式必须明确为 `shadow_decision + simulated_replay` 或 `shadow_decision + broker_paper`，不能把模拟回放、订单预览和券商 Paper 混称为同一种 Paper。数据过期或 Shadow/Paper 不一致时，才会进入可自动恢复的 `PAUSED`；风险阻断、人工冻结、身份不匹配、撤销或被新候选替代，分别进入不可自动恢复的终止状态。

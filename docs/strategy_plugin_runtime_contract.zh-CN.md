@@ -1,8 +1,10 @@
-# 策略插件运行时契约
+# 旧策略插件运行时契约（历史兼容参考）
 
 [English](./strategy_plugin_runtime_contract.md)
 
-本文档说明平台运行时如何消费侧车策略插件 artifact，例如上游 snapshot
+> **状态：HISTORICAL / 不具权限效力。** 本文档保留旧 `latest_signal.json` 平台挂载格式，供历史回放和迁移排障使用。当前主线已退役按策略名称自动挂载插件 artifact 的路径；不得据此新增平台挂载、修改仓位、启用 Paper/Live 或推导任何 P4–P6 资格。当前 V2 插件只可产生受限观察/通知证据，真正可运行的对象必须是绑定策略 revision、插件 revision、输入和仓位规则的独立 composite candidate，并重新完成自己的 P1–P3 与目标通道证据。
+
+本文档历史性地说明平台运行时如何消费侧车策略插件 artifact，例如上游 snapshot
 或研究 pipeline 生成的 crisis response、macro risk governor 或统一
 `market_regime_control` 信号。
 
@@ -13,7 +15,7 @@
 - 券商下单仍属于平台仓库。
 - 策略公式仍属于策略仓库。
 
-## 平台挂载配置
+## 历史平台挂载配置（不得用于新部署）
 
 平台配置只决定某个策略挂载哪些插件 artifact，不选择插件模式。插件模式写在
 artifact 内，并固定为通知/观察用途的 `shadow`。

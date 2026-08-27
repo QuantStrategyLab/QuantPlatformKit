@@ -75,6 +75,33 @@ def test_transient_operational_failure_pauses_both_non_live_modes() -> None:
     assert result.live_authority_granted is False
 
 
+def test_shadow_only_target_does_not_pause_for_unsupported_paper() -> None:
+    policy = _policy(
+        automatic_non_live_modes=("shadow",),
+        non_live_evidence_modes=("shadow_decision",),
+    )
+    result = evaluate_forward_observation(policy, _snapshot(paper_status="unsupported"))
+
+    assert policy.supports_paper is False
+    assert result.state == "FORWARD_ACTIVE"
+    assert result.non_live_actions == ("start_shadow",)
+    assert all("paper_status" not in reason for reason in result.reasons)
+
+
+def test_shadow_only_target_pauses_only_shadow_for_transient_data_failure() -> None:
+    policy = _policy(
+        automatic_non_live_modes=("shadow",),
+        non_live_evidence_modes=("shadow_decision",),
+    )
+    result = evaluate_forward_observation(
+        policy, _snapshot(data_status="stale", paper_status="unsupported")
+    )
+
+    assert result.state == "PAUSED"
+    assert result.non_live_actions == ("pause_shadow",)
+    assert result.reasons == ("data_status=stale",)
+
+
 def test_risk_block_requires_human_review_and_never_auto_resumes() -> None:
     blocked = evaluate_forward_observation(_policy(), _snapshot(risk_status="blocked"))
     still_blocked = evaluate_forward_observation(
@@ -120,6 +147,25 @@ def test_milestones_and_full_window_never_promote_live() -> None:
     assert completed.non_live_actions == ("keep_shadow_stopped", "keep_paper_stopped")
     assert completed.notifications == ("forward_window_complete_human_live_review_required",)
     assert completed.live_action == "human_approval_required"
+    assert completed.live_authority_granted is False
+
+
+def test_shadow_only_full_window_never_promotes_or_requires_paper() -> None:
+    policy = _policy(
+        automatic_non_live_modes=("shadow",),
+        non_live_evidence_modes=("shadow_decision",),
+    )
+    completed = evaluate_forward_observation(
+        policy,
+        _snapshot(
+            observations_completed=252,
+            previous_observations_completed=251,
+            paper_status="unsupported",
+        ),
+    )
+
+    assert completed.state == "FORWARD_COMPLETE_HUMAN_REVIEW"
+    assert completed.non_live_actions == ("keep_shadow_stopped",)
     assert completed.live_authority_granted is False
 
 
@@ -182,11 +228,16 @@ def test_non_transient_control_states_never_auto_resume(
 
 def test_policy_and_snapshot_reject_ambiguous_configuration() -> None:
     with pytest.raises(ForwardObservationPolicyError, match="automatic_non_live_modes"):
-        _policy(automatic_non_live_modes=("shadow",))
+        _policy(automatic_non_live_modes=("paper",))
     with pytest.raises(ForwardObservationPolicyError, match="review_milestones"):
         _policy(review_milestones=(60, 20))
     with pytest.raises(ForwardObservationPolicyError, match="paper mode"):
         _policy(non_live_evidence_modes=("shadow_decision", "broker_paper", "simulated_replay"))
+    with pytest.raises(ForwardObservationPolicyError, match="paper mode"):
+        _policy(
+            automatic_non_live_modes=("shadow",),
+            non_live_evidence_modes=("shadow_decision", "broker_paper"),
+        )
     with pytest.raises(ForwardObservationPolicyError, match="rolling"):
         _policy(observation_window_type="rolling", observation_start_session="2026-08-26")
     with pytest.raises(ForwardObservationPolicyError, match="cannot exceed"):

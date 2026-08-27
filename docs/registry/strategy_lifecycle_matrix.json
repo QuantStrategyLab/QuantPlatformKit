@@ -1,7 +1,7 @@
 {
   "schema_version": "strategy_lifecycle_matrix.v1",
   "generated_at": "2026-08-23",
-  "source_policy": "Read-only inventory; statuses require repository evidence refs and never authorize promotion or trading.",
+  "source_policy": "Historical contract/reference inventory only. It never proves observed evidence, deployment health, promotion, runtime authority, or trading eligibility.",
   "entries": [
     {
       "id": "tqqq_core_only_p2_v2",
@@ -9,10 +9,10 @@
       "kind": "strategy",
       "lineage": "p2_v2",
       "stages": {
-        "p0": {"status": "verified", "evidence_refs": ["config/tqqq_core_only_p2_v2.json"]},
-        "p1": {"status": "verified", "evidence_refs": ["src/us_equity_snapshot_pipelines/lifecycle/tqqq_core_only_p1_binding.py"]},
-        "p2": {"status": "verified", "evidence_refs": ["config/tqqq_core_only_p2_v2.json"]},
-        "p3": {"status": "parked", "evidence_refs": ["scripts/run_tqqq_p3.py"], "note": "历史候选契约不满足可诚实回放的证据几何。"},
+        "p0": {"status": "not_started", "evidence_refs": [], "evidence_class": "not_applicable"},
+        "p1": {"status": "contract_ready", "evidence_refs": ["src/us_equity_snapshot_pipelines/lifecycle/tqqq_core_only_p1_binding.py"], "evidence_class": "contract"},
+        "p2": {"status": "contract_ready", "evidence_refs": ["config/tqqq_core_only_p2_v2.json"], "evidence_class": "contract"},
+        "p3": {"status": "parked", "evidence_refs": ["scripts/run_tqqq_p3.py"], "evidence_class": "not_applicable", "note": "历史候选契约不满足可诚实回放的证据几何。"},
         "p4": {"status": "deferred", "evidence_refs": []},
         "p5": {"status": "deferred", "evidence_refs": []},
         "p6": {"status": "deferred", "evidence_refs": []}
@@ -26,12 +26,12 @@
       "kind": "strategy",
       "lineage": "p2_v5",
       "stages": {
-        "p0": {"status": "verified", "evidence_refs": ["config/tqqq_core_only_p2_v5.json"]},
-        "p1": {"status": "verified", "evidence_refs": ["tests/test_tqqq_p3_synthetic_evidence.py"]},
-        "p2": {"status": "verified", "evidence_refs": ["config/tqqq_core_only_p2_v5.json"]},
-        "p3": {"status": "verified", "evidence_refs": ["tests/test_tqqq_p3_synthetic_evidence.py"]},
-        "p4": {"status": "in_progress", "evidence_refs": ["docs/tqqq-validation-and-shadow-policy.md"]},
-        "p5": {"status": "in_progress", "evidence_refs": []},
+        "p0": {"status": "not_started", "evidence_refs": [], "evidence_class": "not_applicable"},
+        "p1": {"status": "synthetic_verified", "evidence_refs": ["tests/test_tqqq_p3_synthetic_evidence.py"], "evidence_class": "synthetic"},
+        "p2": {"status": "contract_ready", "evidence_refs": ["config/tqqq_core_only_p2_v5.json"], "evidence_class": "contract"},
+        "p3": {"status": "synthetic_verified", "evidence_refs": ["tests/test_tqqq_p3_synthetic_evidence.py"], "evidence_class": "synthetic"},
+        "p4": {"status": "contract_ready", "evidence_refs": ["docs/tqqq-validation-and-shadow-policy.md"], "evidence_class": "contract"},
+        "p5": {"status": "contract_ready", "evidence_refs": [], "evidence_class": "contract"},
         "p6": {"status": "not_started", "evidence_refs": []}
       },
       "blocking_reasons": ["requires_approved_forward_observation"],
@@ -43,7 +43,7 @@
       "kind": "strategy",
       "lineage": "successor",
       "stages": {
-        "p0": {"status": "in_progress", "evidence_refs": []},
+        "p0": {"status": "not_started", "evidence_refs": [], "evidence_class": "not_applicable"},
         "p1": {"status": "in_progress", "evidence_refs": []},
         "p2": {"status": "in_progress", "evidence_refs": []},
         "p3": {"status": "in_progress", "evidence_refs": []},
@@ -60,10 +60,10 @@
       "kind": "strategy",
       "lineage": "smart_dca",
       "stages": {
-        "p0": {"status": "verified", "evidence_refs": ["UsEquityStrategies/src/us_equity_strategies/manifests/__init__.py"]},
-        "p1": {"status": "verified", "evidence_refs": ["UsEquityStrategies/tests/test_nasdaq_sp500_smart_dca.py"]},
-        "p2": {"status": "verified", "evidence_refs": ["UsEquityStrategies/docs/research/nasdaq_sp500_smart_dca.md"]},
-        "p3": {"status": "in_progress", "evidence_refs": ["UsEquityStrategies/tests/test_smart_dca_research.py", "UsEquityStrategies/tests/test_smart_dca_research_cli.py"]},
+        "p0": {"status": "not_started", "evidence_refs": [], "evidence_class": "not_applicable"},
+        "p1": {"status": "contract_ready", "evidence_refs": ["UsEquityStrategies/tests/test_nasdaq_sp500_smart_dca.py"], "evidence_class": "contract"},
+        "p2": {"status": "contract_ready", "evidence_refs": ["UsEquityStrategies/docs/research/nasdaq_sp500_smart_dca.md"], "evidence_class": "contract"},
+        "p3": {"status": "synthetic_verified", "evidence_refs": ["UsEquityStrategies/tests/test_smart_dca_research.py", "UsEquityStrategies/tests/test_smart_dca_research_cli.py"], "evidence_class": "synthetic"},
         "p4": {"status": "deferred", "evidence_refs": []},
         "p5": {"status": "deferred", "evidence_refs": []},
         "p6": {"status": "deferred", "evidence_refs": []}
@@ -77,8 +77,8 @@
       "kind": "strategy",
       "lineage": "research_only",
       "stages": {
-        "p0": {"status": "verified", "evidence_refs": ["UsEquityStrategies/src/us_equity_strategies/entrypoints/__init__.py"]},
-        "p1": {"status": "in_progress", "evidence_refs": ["UsEquityStrategies/src/us_equity_strategies/strategies/tecl_xlk_trend_income.py"]},
+        "p0": {"status": "not_started", "evidence_refs": [], "evidence_class": "not_applicable"},
+        "p1": {"status": "contract_ready", "evidence_refs": ["UsEquityStrategies/src/us_equity_strategies/strategies/tecl_xlk_trend_income.py"], "evidence_class": "contract"},
         "p2": {"status": "parked", "evidence_refs": ["docs/strategy_portfolio_action_matrix.md", "docs/strategy_lifecycle_terminology.zh-CN.md"], "note": "当前策略保持 research_active：可继续自动研究与 shadow 准备，但尚未形成 successor 冻结配置。"},
         "p3": {"status": "parked", "evidence_refs": ["docs/strategy_portfolio_action_matrix.md"], "note": "未注册统一 P3 证据包，不进入 promotion。"},
         "p4": {"status": "deferred", "evidence_refs": []},
