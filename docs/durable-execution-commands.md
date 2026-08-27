@@ -52,3 +52,15 @@ de-lever target, creates an order, converts a rejected growth decision into a
 sell, or permits a buy.  Platforms must first prove it in paper/shadow mode
 and write the normal durable command and broker-outcome evidence before any
 live use.
+
+## Approved long-only reduction admission
+
+`evaluate_reduce_only_command_admission(...)` composes the long-only
+reconciliation check with the durable command and runtime-release gates. The
+approved command must carry `reduce_only_order_sha256`, produced by
+`build_reduce_only_order_digest(order)`, so it cannot be replayed with a
+different quantity, limit, routing account, or time-in-force.
+
+It remains a pure admission boundary. A platform must supply fresh broker
+quantities and call it immediately before submission; it does not select a
+sell target, query a broker, or submit an order.
