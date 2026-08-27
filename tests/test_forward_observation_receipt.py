@@ -65,6 +65,23 @@ def test_receipt_binds_exact_policy_dependencies_and_sanitized_modes() -> None:
     assert all(token not in str(receipt).lower() for token in ("account", "order", "price"))
 
 
+def test_shadow_only_policy_emits_a_receipt_without_paper_evidence() -> None:
+    policy = _policy(
+        automatic_non_live_modes=("shadow",),
+        non_live_evidence_modes=("shadow_decision",),
+    )
+    receipt = build_forward_observation_receipt(
+        policy=policy,
+        observation_session="2026-08-26",
+        observation_index=1,
+        dependency_digests=_dependencies(),
+        evidence_modes=("shadow_decision",),
+    )
+
+    assert receipt["evidence_modes"] == ["shadow_decision"]
+    assert validate_forward_observation_receipt(receipt, policy=policy) == receipt
+
+
 def test_receipts_append_only_with_a_stable_candidate_policy_and_hash_chain() -> None:
     first = _receipt()
     second = _receipt(previous=first, index=2, session="2026-08-27")
@@ -111,6 +128,15 @@ def test_receipt_rejects_ambiguous_modes_missing_digests_and_content_tampering()
             observation_index=1,
             dependency_digests=_dependencies(),
             evidence_modes=("shadow_decision", "broker_paper"),
+        )
+
+    with pytest.raises(InvalidForwardObservationReceipt, match="at most one paper mode"):
+        build_forward_observation_receipt(
+            policy=_policy(),
+            observation_session="2026-08-26",
+            observation_index=1,
+            dependency_digests=_dependencies(),
+            evidence_modes=("shadow_decision", "broker_paper", "simulated_replay"),
         )
 
     missing = _dependencies()

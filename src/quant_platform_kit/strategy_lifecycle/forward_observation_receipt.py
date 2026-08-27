@@ -137,15 +137,16 @@ def _evidence_modes(value: object) -> tuple[str, ...]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
         _invalid("evidence_modes must be an array")
     modes = tuple(_text(item, "evidence_modes").lower() for item in value)
+    paper_modes = {"simulated_replay", "broker_paper"} & set(modes)
     if (
-        len(modes) != 2
-        or len(set(modes)) != 2
+        len(modes) not in {1, 2}
+        or len(set(modes)) != len(modes)
         or set(modes) - FORWARD_OBSERVATION_EVIDENCE_MODES
         or "shadow_decision" not in modes
-        or not ({"simulated_replay", "broker_paper"} & set(modes))
+        or len(paper_modes) > 1
     ):
         _invalid(
-            "evidence_modes must contain shadow_decision and exactly one paper mode"
+            "evidence_modes must contain shadow_decision and at most one paper mode"
         )
     return modes
 
