@@ -6,6 +6,10 @@ import json
 import pytest
 
 from quant_platform_kit.common.runtime_reports import build_runtime_report_base
+from quant_platform_kit.common.runtime_target import (
+    RuntimeExecutionEnvironment,
+    build_runtime_target,
+)
 from quant_platform_kit.common.strategy_release import build_strategy_release_identity
 from quant_platform_kit.strategy_lifecycle.forward_observation import (
     ForwardObservationPolicy,
@@ -22,6 +26,7 @@ from quant_platform_kit.strategy_lifecycle.non_live_execution_evidence import (
     build_paired_shadow_execution_evidence_binding,
     canonical_non_live_execution_evidence_binding_bytes,
     non_live_execution_evidence_binding_sha256,
+    non_live_runtime_scope_sha256,
     validate_non_live_execution_evidence_binding,
 )
 from quant_platform_kit.strategy_lifecycle.paired_shadow_evidence import (
@@ -159,6 +164,78 @@ def test_generic_binding_accepts_the_shared_release_identity_object() -> None:
     binding = _binding(strategy_release=build_strategy_release_identity(_release()))
 
     assert binding["strategy_release"] == _release()
+
+
+def test_runtime_scope_digest_is_opaque_stable_and_target_bound() -> None:
+    target = build_runtime_target(
+        platform_id="longbridge_sg",
+        strategy_profile="soxl_tactical",
+        dry_run_only=True,
+        deployment_selector="sg",
+        account_selector=("paper_scope",),
+        account_scope="sg_paper",
+        service_name="longbridge-shadow-observer",
+    )
+    changed_target = build_runtime_target(
+        platform_id="longbridge_sg",
+        strategy_profile="soxl_tactical",
+        dry_run_only=True,
+        deployment_selector="sg",
+        account_selector=("different_scope",),
+        account_scope="sg_paper",
+        service_name="longbridge-shadow-observer",
+    )
+
+    first = non_live_runtime_scope_sha256(
+        runtime_target=target, execution_channel="shadow"
+    )
+    assert first == non_live_runtime_scope_sha256(
+        runtime_target=target, execution_channel="shadow"
+    )
+    assert first != non_live_runtime_scope_sha256(
+        runtime_target=changed_target, execution_channel="shadow"
+    )
+    assert len(first) == 64
+    assert "paper_scope" not in first
+
+
+def test_runtime_scope_rejects_live_or_ambiguous_shadow_targets() -> None:
+    live_target = build_runtime_target(
+        platform_id="longbridge_sg",
+        strategy_profile="soxl_tactical",
+        dry_run_only=False,
+        deployment_selector="sg",
+    )
+    paper_target = build_runtime_target(
+        platform_id="longbridge_sg",
+        strategy_profile="soxl_tactical",
+        dry_run_only=False,
+        deployment_selector="sg",
+        execution_environment=RuntimeExecutionEnvironment.PAPER,
+    )
+    unscoped_shadow_target = build_runtime_target(
+        platform_id="longbridge_sg",
+        strategy_profile="soxl_tactical",
+        dry_run_only=True,
+    )
+
+    with pytest.raises(InvalidNonLiveExecutionEvidenceBinding, match="live execution"):
+        non_live_runtime_scope_sha256(
+            runtime_target=live_target, execution_channel="paper"
+        )
+    with pytest.raises(InvalidNonLiveExecutionEvidenceBinding, match="dry_run"):
+        non_live_runtime_scope_sha256(
+            runtime_target=paper_target, execution_channel="shadow"
+        )
+    assert len(
+        non_live_runtime_scope_sha256(
+            runtime_target=paper_target, execution_channel="paper"
+        )
+    ) == 64
+    with pytest.raises(InvalidNonLiveExecutionEvidenceBinding, match="scope selector"):
+        non_live_runtime_scope_sha256(
+            runtime_target=unscoped_shadow_target, execution_channel="shadow"
+        )
 
 
 @pytest.mark.parametrize("candidate_subject", ("strategy", "portfolio", "plugin_composite"))

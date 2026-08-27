@@ -26,7 +26,7 @@
 
 ## 账户与运行范围
 
-记录只保存 `runtime_scope_sha256`，不保存账户号、账户 selector、服务名、部署 URL、凭证或券商原始响应。平台在其受控环境内从自己的运行时目标计算该摘要；审计/存储层只按摘要匹配。实际的账户身份核验、Paper 命令范围和订单准入仍由已有的 runtime-target、account-identity、paper-command 和 risk-gate 契约负责。
+记录只保存 `runtime_scope_sha256`，不保存账户号、账户 selector、服务名、部署 URL、凭证或券商原始响应。平台应在其受控环境内调用 `non_live_runtime_scope_sha256(runtime_target=..., execution_channel=...)`：它只把 platform、部署/账户/service scope 和执行环境作为哈希材料，返回值不会包含原字段。它拒绝 Live target；Shadow 还必须使用 `dry_run` target，并且所有目标都必须有一个明确的非实盘 scope selector。审计/存储层只按摘要匹配。实际的账户身份核验、Paper 命令范围和订单准入仍由已有的 runtime-target、account-identity、paper-command 和 risk-gate 契约负责。
 
 ## 当前 Shadow 与未来 Paper
 
