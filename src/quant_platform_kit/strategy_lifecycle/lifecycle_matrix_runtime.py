@@ -18,11 +18,25 @@ _STATUSES = {
     "not_started",
     "in_progress",
     "verified",
+    "contract_ready",
+    "synthetic_verified",
+    "observed_incomplete",
+    "observed_complete",
+    "deployed_not_observed",
+    "deployed_healthy",
     "parked",
     "deferred",
     "inconclusive",
 }
 _OBSERVED_STAGES = {"p1", "p3", "p4", "p5"}
+_EVIDENCE_CLASSES = {
+    "not_applicable",
+    "legacy_unclassified",
+    "contract",
+    "synthetic",
+    "observed",
+    "deployed",
+}
 
 
 class LifecycleMatrixInputError(ValueError):
@@ -65,6 +79,18 @@ def _stage_record(payload: dict[str, Any], path: Path) -> tuple[str, dict[str, A
     if not refs:
         raise LifecycleMatrixInputError(f"{path}: evidence_ref(s) must be non-empty")
     record: dict[str, Any] = {"status": status, "evidence_refs": refs}
+    evidence_class = payload.get("evidence_class")
+    if evidence_class is None:
+        # Older terminal artifacts used a broad ``verified`` label.  Preserve
+        # read compatibility, but make their weaker semantics explicit so a
+        # projection cannot present them as observed execution evidence.
+        evidence_class = "legacy_unclassified" if status == "verified" else "not_applicable"
+    evidence_class = _required_string(evidence_class, "evidence_class", path).lower()
+    if evidence_class not in _EVIDENCE_CLASSES:
+        raise LifecycleMatrixInputError(
+            f"{path}: unsupported evidence_class {evidence_class!r}"
+        )
+    record["evidence_class"] = evidence_class
     digest = payload.get("digest", payload.get("evidence_digest"))
     if digest is not None:
         record["digest"] = _required_string(digest, "digest", path)
@@ -105,7 +131,11 @@ def build_lifecycle_matrix(
                 "kind": kind,
                 "lineage": lineage,
                 "stages": {
-                    name: {"status": "not_started", "evidence_refs": []}
+                    name: {
+                        "status": "not_started",
+                        "evidence_refs": [],
+                        "evidence_class": "not_applicable",
+                    }
                     for name in _STAGES
                 },
                 "blocking_reasons": [],
@@ -133,4 +163,3 @@ def build_lifecycle_matrix(
         "source_policy": "Read-only aggregation of terminal artifacts; never authorizes promotion or trading.",
         "entries": list(entries.values()),
     }
-

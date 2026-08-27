@@ -16,12 +16,13 @@ from typing import Any
 
 FORWARD_OBSERVATION_POLICY_SCHEMA_VERSION = "forward_observation_policy.v1"
 
-_NON_LIVE_MODES = frozenset({"shadow", "paper"})
+_SUPPORTED_NON_LIVE_MODES = frozenset({"shadow", "paper"})
 _NON_LIVE_EVIDENCE_MODES = frozenset(
     {"shadow_decision", "simulated_replay", "broker_paper"}
 )
 _DATA_STATUSES = frozenset({"ready", "stale", "unavailable"})
-_MODE_STATUSES = frozenset({"healthy", "mismatch", "unavailable"})
+_SHADOW_STATUSES = frozenset({"healthy", "mismatch", "unavailable"})
+_PAPER_STATUSES = _SHADOW_STATUSES | frozenset({"unsupported"})
 _RISK_STATUSES = frozenset({"pass", "blocked"})
 _WINDOW_TYPES = frozenset({"fixed", "rolling"})
 _CONTROL_STATUSES = frozenset(
@@ -40,7 +41,6 @@ _PREVIOUS_STATES = frozenset(
         "superseded",
     }
 )
-_STOPPED_ACTIONS = ("keep_shadow_stopped", "keep_paper_stopped")
 _PERMANENT_PREVIOUS_STATES = frozenset(
     {"manual_hold", "identity_mismatch", "risk_blocked", "revoked", "superseded"}
 )
@@ -120,9 +120,14 @@ class ForwardObservationPolicy:
             )
 
         modes = tuple(str(mode).strip().lower() for mode in self.automatic_non_live_modes)
-        if not modes or set(modes) != _NON_LIVE_MODES or len(modes) != len(_NON_LIVE_MODES):
+        if (
+            not modes
+            or len(set(modes)) != len(modes)
+            or set(modes) - _SUPPORTED_NON_LIVE_MODES
+            or "shadow" not in modes
+        ):
             raise ForwardObservationPolicyError(
-                "automatic_non_live_modes must contain shadow and paper exactly once"
+                "automatic_non_live_modes must contain shadow exactly once and may contain paper once"
             )
         milestones = tuple(self.review_milestones)
         if tuple(sorted(milestones)) != milestones or len(set(milestones)) != len(milestones):
@@ -156,16 +161,28 @@ class ForwardObservationPolicy:
         evidence_modes = tuple(
             str(mode).strip().lower() for mode in self.non_live_evidence_modes
         )
+        paper_evidence_modes = {"simulated_replay", "broker_paper"} & set(evidence_modes)
         if (
-            len(evidence_modes) != 2
-            or len(set(evidence_modes)) != 2
+            len(set(evidence_modes)) != len(evidence_modes)
             or set(evidence_modes) - _NON_LIVE_EVIDENCE_MODES
             or "shadow_decision" not in evidence_modes
-            or not ({"simulated_replay", "broker_paper"} & set(evidence_modes))
+            or len(paper_evidence_modes) > 1
+            or (self.supports_paper and len(paper_evidence_modes) != 1)
+            or (not self.supports_paper and paper_evidence_modes)
         ):
             raise ForwardObservationPolicyError(
-                "non_live_evidence_modes must contain shadow_decision and exactly one paper mode"
+                "non_live_evidence_modes must contain shadow_decision and exactly one paper mode only when paper is enabled"
             )
+
+    @property
+    def supports_paper(self) -> bool:
+        """Whether this target has an explicitly configured paper channel.
+
+        Shadow is mandatory for every forward-observation policy.  Paper is a
+        target capability, not a global lifecycle prerequisite.
+        """
+
+        return "paper" in self.automatic_non_live_modes
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -226,9 +243,9 @@ class ForwardObservationSnapshot:
             raise ForwardObservationPolicyError("unsupported previous_state")
         if self.data_status not in _DATA_STATUSES:
             raise ForwardObservationPolicyError("unsupported data_status")
-        if self.shadow_status not in _MODE_STATUSES:
+        if self.shadow_status not in _SHADOW_STATUSES:
             raise ForwardObservationPolicyError("unsupported shadow_status")
-        if self.paper_status not in _MODE_STATUSES:
+        if self.paper_status not in _PAPER_STATUSES:
             raise ForwardObservationPolicyError("unsupported paper_status")
         if self.risk_status not in _RISK_STATUSES:
             raise ForwardObservationPolicyError("unsupported risk_status")
@@ -291,7 +308,7 @@ def evaluate_forward_observation(
             policy,
             snapshot,
             state="PARKED",
-            actions=_STOPPED_ACTIONS,
+            actions=_stopped_actions(policy),
             notifications=("historical_evidence_required",),
             reasons=("verified P3 historical evidence is required before P4",),
         )
@@ -303,7 +320,7 @@ def evaluate_forward_observation(
             policy,
             snapshot,
             state=state,
-            actions=_STOPPED_ACTIONS,
+            actions=_stopped_actions(policy),
             notifications=(notification,) if notification else (),
             reasons=(reason,),
         )
@@ -313,7 +330,7 @@ def evaluate_forward_observation(
             policy,
             snapshot,
             state="RISK_BLOCKED",
-            actions=_STOPPED_ACTIONS,
+            actions=_stopped_actions(policy),
             notifications=(
                 ("forward_observation_risk_blocked",)
                 if snapshot.previous_state != "risk_blocked"
@@ -322,13 +339,13 @@ def evaluate_forward_observation(
             reasons=("risk_status=blocked; explicit human review is required",),
         )
 
-    health_reasons = _health_reasons(snapshot)
+    health_reasons = _health_reasons(policy, snapshot)
     if health_reasons:
         return _decision(
             policy,
             snapshot,
             state="PAUSED",
-            actions=("pause_shadow", "pause_paper"),
+            actions=_paused_actions(policy),
             notifications=("forward_observation_paused",),
             reasons=tuple(health_reasons),
         )
@@ -341,7 +358,7 @@ def evaluate_forward_observation(
             policy,
             snapshot,
             state="PAUSED",
-            actions=("keep_shadow_paused", "keep_paper_paused"),
+            actions=_keep_paused_actions(policy),
             notifications=(),
             reasons=(
                 "recovery observation is still collecting clean sessions "
@@ -357,26 +374,18 @@ def evaluate_forward_observation(
             policy,
             snapshot,
             state="FORWARD_COMPLETE_HUMAN_REVIEW",
-            actions=_STOPPED_ACTIONS,
+            actions=_stopped_actions(policy),
             notifications=tuple(notifications),
             reasons=(
                 "forward window is complete; non-live observation is stopped and live remains blocked pending explicit human approval",
             ),
         )
 
-    actions = (
-        ("resume_shadow", "resume_paper")
-        if snapshot.previous_state == "paused"
-        else (
-            ("start_shadow", "start_paper")
-            if snapshot.previous_state == "not_started"
-            else ("continue_shadow", "continue_paper")
-        )
-    )
+    actions = _active_actions(policy, snapshot.previous_state)
     notifications = list(_crossed_milestones(policy, snapshot))
     state = "FORWARD_ACTIVE"
     reasons = [
-        "P3 evidence is verified; non-live shadow and paper observation may run automatically"
+        "P3 evidence is verified; configured non-live observation channels may run automatically"
     ]
     return _decision(
         policy,
@@ -388,15 +397,52 @@ def evaluate_forward_observation(
     )
 
 
-def _health_reasons(snapshot: ForwardObservationSnapshot) -> list[str]:
+def _health_reasons(
+    policy: ForwardObservationPolicy, snapshot: ForwardObservationSnapshot
+) -> list[str]:
     reasons: list[str] = []
     if snapshot.data_status != "ready":
         reasons.append(f"data_status={snapshot.data_status}")
     if snapshot.shadow_status != "healthy":
         reasons.append(f"shadow_status={snapshot.shadow_status}")
-    if snapshot.paper_status != "healthy":
+    if policy.supports_paper and snapshot.paper_status != "healthy":
         reasons.append(f"paper_status={snapshot.paper_status}")
     return reasons
+
+
+def _channel_actions(
+    policy: ForwardObservationPolicy, *, shadow: str, paper: str
+) -> tuple[str, ...]:
+    actions = [shadow]
+    if policy.supports_paper:
+        actions.append(paper)
+    return tuple(actions)
+
+
+def _stopped_actions(policy: ForwardObservationPolicy) -> tuple[str, ...]:
+    return _channel_actions(
+        policy, shadow="keep_shadow_stopped", paper="keep_paper_stopped"
+    )
+
+
+def _paused_actions(policy: ForwardObservationPolicy) -> tuple[str, ...]:
+    return _channel_actions(policy, shadow="pause_shadow", paper="pause_paper")
+
+
+def _keep_paused_actions(policy: ForwardObservationPolicy) -> tuple[str, ...]:
+    return _channel_actions(
+        policy, shadow="keep_shadow_paused", paper="keep_paper_paused"
+    )
+
+
+def _active_actions(
+    policy: ForwardObservationPolicy, previous_state: str
+) -> tuple[str, ...]:
+    if previous_state == "paused":
+        return _channel_actions(policy, shadow="resume_shadow", paper="resume_paper")
+    if previous_state == "not_started":
+        return _channel_actions(policy, shadow="start_shadow", paper="start_paper")
+    return _channel_actions(policy, shadow="continue_shadow", paper="continue_paper")
 
 
 def _controlled_stop(

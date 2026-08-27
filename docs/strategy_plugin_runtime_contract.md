@@ -1,8 +1,18 @@
-# Strategy Plugin Runtime Contract
+# Legacy Strategy Plugin Runtime Contract (Historical Compatibility Reference)
 
 [简体中文](./strategy_plugin_runtime_contract.zh-CN.md)
 
-This document describes how platform runtimes consume sidecar strategy plugin
+> **Status: HISTORICAL / no authority effect.** This document preserves the
+> legacy `latest_signal.json` platform-mount format for replay and migration
+> troubleshooting only. The current control plane has retired automatic
+> name-based plugin mounts. Do not use this contract to add a platform mount,
+> alter positions, enable Paper/Live, or infer any P4–P6 eligibility. Current
+> V2 plugins only create constrained observation/notification evidence. A
+> runnable object must bind the strategy revision, plugin revision, inputs,
+> and portfolio rules into a distinct composite candidate that completes its
+> own P1–P3 and target-channel evidence.
+
+This document historically describes how platform runtimes consumed sidecar strategy plugin
 artifacts, such as a Crisis Response plugin produced by an upstream snapshot or
 research pipeline.
 
@@ -15,7 +25,7 @@ research pipeline.
 - Broker order placement remains in platform repositories.
 - Strategy formulas remain in strategy repositories.
 
-## Platform Mount Config
+## Historical Platform Mount Config (do not use for new deployments)
 
 Platform config should only decide which plugin artifacts are mounted for a
 strategy. It must not select the plugin mode. The mode lives inside the plugin

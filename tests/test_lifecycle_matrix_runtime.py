@@ -44,7 +44,9 @@ def test_aggregates_read_only_terminal_artifacts_without_running_anything(tmp_pa
     entry = matrix["entries"][0]
     assert matrix["schema_version"] == "strategy_lifecycle_matrix.v1"
     assert entry["stages"]["p1"]["digest"] == "sha256:p1"
+    assert entry["stages"]["p1"]["evidence_class"] == "legacy_unclassified"
     assert entry["stages"]["p3"]["evidence_refs"] == ["p3/evidence.json"]
+    assert entry["stages"]["p4"]["evidence_class"] == "not_applicable"
     assert entry["stages"]["p4"]["status"] == "not_started"
     assert "promotion" in matrix["source_policy"]
 
@@ -67,3 +69,24 @@ def test_rejects_duplicate_or_unattributed_artifacts_fail_closed(tmp_path):
     with pytest.raises(LifecycleMatrixInputError, match="evidence_ref"):
         build_lifecycle_matrix([missing_ref])
 
+
+def test_retains_explicit_observation_class_without_promoting_contract_evidence(tmp_path):
+    artifact = _write(
+        tmp_path,
+        "p3.json",
+        strategy_id="soxl-soxx-v7",
+        kind="strategy",
+        lineage="v7",
+        stage="p3",
+        status="observed_incomplete",
+        evidence_class="observed",
+        evidence_ref="p3/forward-window.json",
+    )
+
+    matrix = build_lifecycle_matrix([artifact], generated_at="2026-08-27")
+
+    assert matrix["entries"][0]["stages"]["p3"] == {
+        "status": "observed_incomplete",
+        "evidence_refs": ["p3/forward-window.json"],
+        "evidence_class": "observed",
+    }

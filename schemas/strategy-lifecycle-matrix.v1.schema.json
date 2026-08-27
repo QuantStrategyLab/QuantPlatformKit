@@ -19,8 +19,9 @@
       "type": "object",
       "required": ["status", "evidence_refs"],
       "properties": {
-        "status": {"enum": ["not_started", "in_progress", "verified", "parked", "deferred", "inconclusive"]},
+        "status": {"enum": ["not_started", "in_progress", "verified", "contract_ready", "synthetic_verified", "observed_incomplete", "observed_complete", "deployed_not_observed", "deployed_healthy", "parked", "deferred", "inconclusive"]},
         "evidence_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "evidence_class": {"enum": ["not_applicable", "legacy_unclassified", "contract", "synthetic", "observed", "deployed"]},
         "digest": {"type": ["string", "null"]},
         "note": {"type": "string"}
       },
