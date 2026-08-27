@@ -6,6 +6,7 @@ from scripts.merge_verified_strategy_qpk_pin_prs import (
     expected_branch,
     process_repo,
     superseded_pr_reason,
+    wait_for_current_candidate,
 )
 from scripts.open_downstream_qpk_pin_prs import RepoSpec
 
@@ -68,6 +69,46 @@ def test_strategy_pin_pr_fails_closed_for_unexpected_changes_or_ci() -> None:
         pyproject_text=_pyproject("37c81901160c5b31127a27dba1c63944933fb6bf"),
         qpk_sha=TARGET,
     ) == "qpk_pin_mismatch"
+
+
+def test_wait_for_current_candidate_rechecks_only_pending_ci(monkeypatch) -> None:
+    repo = RepoSpec("UsEquityStrategies")
+    pending = _pr(checks=[{"status": "IN_PROGRESS", "conclusion": ""}])
+    pending["number"] = 400
+    pending["headRefOid"] = "a" * 40
+    green = _pr()
+    green["number"] = 400
+    green["headRefOid"] = "a" * 40
+    candidates = iter([pending, green])
+    monkeypatch.setattr(
+        "scripts.merge_verified_strategy_qpk_pin_prs.open_pr_payload",
+        lambda *_args, **_kwargs: next(candidates),
+    )
+    monkeypatch.setattr(
+        "scripts.merge_verified_strategy_qpk_pin_prs.changed_files",
+        lambda *_args, **_kwargs: sorted(ALLOWED_CHANGED_FILES),
+    )
+    monkeypatch.setattr(
+        "scripts.merge_verified_strategy_qpk_pin_prs.pyproject_text",
+        lambda *_args, **_kwargs: _pyproject(),
+    )
+    sleeps: list[float] = []
+    ticks = iter([0.0, 1.0])
+
+    pr, reason = wait_for_current_candidate(
+        repo,
+        branch=expected_branch(repo, TARGET),
+        qpk_sha=TARGET,
+        env={"GH_TOKEN": "test"},
+        wait_for_ci_seconds=10,
+        poll_interval_seconds=5,
+        monotonic=lambda: next(ticks),
+        sleep=sleeps.append,
+    )
+
+    assert pr == green
+    assert reason is None
+    assert sleeps == [5]
 
 
 def test_only_a_recognized_older_generated_pr_can_be_closed() -> None:

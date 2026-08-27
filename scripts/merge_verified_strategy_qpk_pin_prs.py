@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import time
 from typing import Any
 
 try:  # Package import for tests and module execution.
@@ -132,6 +133,66 @@ def open_pr_payload(repo: RepoSpec, branch: str, *, env: dict[str, str]) -> dict
         pr_view_command(repo, pr_number),
         env=env,
     )
+
+
+def current_candidate(
+    repo: RepoSpec,
+    *,
+    branch: str,
+    qpk_sha: str,
+    env: dict[str, str],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Read one generated candidate and classify it without mutating GitHub."""
+
+    pr = open_pr_payload(repo, branch, env=env)
+    if pr is None:
+        return None, "no_current_generated_pr"
+    return pr, candidate_reason(
+        pr=pr,
+        changed_files=changed_files(repo, int(pr["number"]), env=env),
+        pyproject_text=pyproject_text(repo, pr["headRefOid"], env=env),
+        qpk_sha=qpk_sha,
+    )
+
+
+def wait_for_current_candidate(
+    repo: RepoSpec,
+    *,
+    branch: str,
+    qpk_sha: str,
+    env: dict[str, str],
+    wait_for_ci_seconds: int,
+    poll_interval_seconds: int,
+    monotonic: Any = time.monotonic,
+    sleep: Any = time.sleep,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Wait only for a generated strategy PR's pending CI to settle.
+
+    The caller still validates author, branch, changed files, exact pin, and
+    completed green checks before requesting GitHub auto-merge. A timeout is
+    fail-closed and never treats missing or pending CI as success.
+    """
+
+    if wait_for_ci_seconds < 0:
+        raise ValueError("wait_for_ci_seconds must be non-negative")
+    if poll_interval_seconds <= 0:
+        raise ValueError("poll_interval_seconds must be positive")
+
+    deadline = monotonic() + wait_for_ci_seconds
+    while True:
+        pr, reason = current_candidate(
+            repo,
+            branch=branch,
+            qpk_sha=qpk_sha,
+            env=env,
+        )
+        if reason not in {"missing_ci", "ci_not_green"}:
+            return pr, reason
+
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return pr, reason
+        sleep(min(poll_interval_seconds, remaining))
 
 
 def pr_view_command(repo: RepoSpec, pr_number: str) -> list[str]:
@@ -279,6 +340,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--qpk-sha", required=True)
     parser.add_argument("--token-env", default="QSL_REPO_SYNC_TOKEN")
     parser.add_argument(
+        "--wait-for-ci-seconds",
+        type=int,
+        default=0,
+        help="Bounded wait for the current generated strategy PR CI to settle.",
+    )
+    parser.add_argument(
+        "--poll-interval-seconds",
+        type=int,
+        default=30,
+        help="Polling interval used only while a generated strategy PR CI is pending.",
+    )
+    parser.add_argument(
         "--close-superseded",
         action="store_true",
         help="Close only verified older generated strategy pin PRs after a current PR is green.",
@@ -292,6 +365,8 @@ def process_repo(
     qpk_sha: str,
     close_superseded: bool,
     env: dict[str, str],
+    wait_for_ci_seconds: int = 0,
+    poll_interval_seconds: int = 30,
 ) -> None:
     """Queue the current pin when eligible, then retire verified older pins.
 
@@ -301,16 +376,17 @@ def process_repo(
     """
 
     branch = expected_branch(repo, qpk_sha)
-    pr = open_pr_payload(repo, branch, env=env)
+    pr, reason = wait_for_current_candidate(
+        repo,
+        branch=branch,
+        qpk_sha=qpk_sha,
+        env=env,
+        wait_for_ci_seconds=wait_for_ci_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+    )
     if pr is None:
         print(f"{repo.name}: no current generated PR")
     else:
-        reason = candidate_reason(
-            pr=pr,
-            changed_files=changed_files(repo, int(pr["number"]), env=env),
-            pyproject_text=pyproject_text(repo, pr["headRefOid"], env=env),
-            qpk_sha=qpk_sha,
-        )
         if reason is not None:
             print(f"{repo.name}: skipped:{reason}")
         else:
@@ -333,6 +409,10 @@ def main() -> int:
     qpk_sha = args.qpk_sha.strip()
     if not re.fullmatch(r"[a-f0-9]{40}", qpk_sha):
         raise SystemExit("qpk_sha must be a full lowercase SHA")
+    if args.wait_for_ci_seconds < 0:
+        raise SystemExit("wait_for_ci_seconds must be non-negative")
+    if args.poll_interval_seconds <= 0:
+        raise SystemExit("poll_interval_seconds must be positive")
     token = os.environ.get(args.token_env, "").strip()
     if not token:
         raise SystemExit(f"missing required token env: {args.token_env}")
@@ -346,6 +426,8 @@ def main() -> int:
                 qpk_sha=qpk_sha,
                 close_superseded=args.close_superseded,
                 env=env,
+                wait_for_ci_seconds=args.wait_for_ci_seconds,
+                poll_interval_seconds=args.poll_interval_seconds,
             )
         except (RuntimeError, subprocess.CalledProcessError, ValueError, UnicodeDecodeError) as exc:
             failures += 1
