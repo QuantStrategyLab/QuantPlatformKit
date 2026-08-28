@@ -71,6 +71,10 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "codex_audit_service_unconfigured" in workflow
     assert "review_output_unavailable" in workflow
     assert "review_provider_degraded" in workflow
+    assert "review_completed_blocked" in workflow
+    assert 'completed_outcomes = {"fail", "disagreement"}' in workflow
+    assert 'emit_parked_record "review_completed_blocked"' in workflow
+    assert "Dual review completed and blocked promotion" in workflow
     assert "invalid_review_json" in workflow
     assert 'if [ ! -f "$review_output" ]; then' in workflow
     assert workflow.index('if [ ! -f "$review_output" ]; then') < workflow.index('cat "$review_output"')

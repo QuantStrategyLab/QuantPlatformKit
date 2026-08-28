@@ -309,9 +309,27 @@ jobs:
           if not isinstance(payload, dict):
               print("invalid_review_json:top_level_not_object")
               raise SystemExit(0)
-          print("provider_degraded" if payload.get("degraded") is True else "review_process_failed")
+          if payload.get("degraded") is True:
+              print("provider_degraded")
+              raise SystemExit(0)
+          results = payload.get("results")
+          completed_outcomes = {"fail", "disagreement"}
+          if (
+              isinstance(results, list)
+              and results
+              and all(isinstance(result, dict) for result in results)
+              and all(str(result.get("outcome") or "") in completed_outcomes for result in results)
+          ):
+              print("review_completed_blocked")
+              raise SystemExit(0)
+          print("review_process_failed")
           PY
             )"
+            if [ "$review_state" = "review_completed_blocked" ]; then
+              emit_parked_record "review_completed_blocked" "exit_code=$review_rc completed safety review blocked promotion"
+              echo "::notice::Dual review completed and blocked promotion; drift remains parked"
+              exit 0
+            fi
             review_reason="review_process_failed"
             if [ "$review_state" = "provider_degraded" ]; then
               review_reason="review_provider_degraded"
