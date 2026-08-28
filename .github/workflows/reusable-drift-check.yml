@@ -157,7 +157,7 @@ jobs:
 
       - name: Download lifecycle preflight artifact
         if: inputs.lifecycle_preflight_artifact != ''
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: ${{ inputs.lifecycle_preflight_artifact }}
           path: ${{ runner.temp }}/lifecycle-preflight
