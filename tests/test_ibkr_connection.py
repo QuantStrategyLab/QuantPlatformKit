@@ -28,8 +28,8 @@ class IbkrConnectionTests(unittest.TestCase):
         observed: dict[str, object] = {}
 
         class FakeIB:
-            def connect(self, host, port, clientId, timeout):
-                observed["args"] = (host, port, clientId, timeout)
+            def connect(self, host, port, clientId, timeout, readonly):
+                observed["args"] = (host, port, clientId, timeout, readonly)
 
         class FakeConnection:
             def close(self):
@@ -48,7 +48,29 @@ class IbkrConnectionTests(unittest.TestCase):
         )
 
         self.assertIsInstance(ib, FakeIB)
-        self.assertEqual(observed["args"], ("127.0.0.1", 4001, 9, 20))
+        self.assertEqual(observed["args"], ("127.0.0.1", 4001, 9, 20, False))
+
+    def test_connect_ib_requests_readonly_session_when_requested(self) -> None:
+        observed: dict[str, object] = {}
+
+        class FakeIB:
+            def connect(self, host, port, clientId, timeout, readonly):
+                observed["args"] = (host, port, clientId, timeout, readonly)
+
+        class FakeConnection:
+            def close(self):
+                pass
+
+        connect_ib(
+            "127.0.0.1",
+            4001,
+            9,
+            readonly=True,
+            socket_create_connection=lambda _address, _timeout: FakeConnection(),
+            ib_factory=FakeIB,
+        )
+
+        self.assertEqual(observed["args"], ("127.0.0.1", 4001, 9, 20, True))
 
     def test_connect_ib_wraps_api_handshake_timeout(self) -> None:
         observed: dict[str, object] = {}
@@ -61,7 +83,7 @@ class IbkrConnectionTests(unittest.TestCase):
             return FakeConnection()
 
         class FakeIB:
-            def connect(self, host, port, clientId, timeout):
+            def connect(self, host, port, clientId, timeout, readonly):
                 raise TimeoutError()
 
             def disconnect(self):
@@ -114,8 +136,8 @@ class IbkrConnectionTests(unittest.TestCase):
             return FakeConnection()
 
         class FakeIB:
-            def connect(self, host, port, clientId, timeout):
-                observed['ib_args'] = (host, port, clientId, timeout)
+            def connect(self, host, port, clientId, timeout, readonly):
+                observed['ib_args'] = (host, port, clientId, timeout, readonly)
 
         ib = connect_ib(
             '10.0.0.8',
@@ -130,7 +152,7 @@ class IbkrConnectionTests(unittest.TestCase):
         self.assertIsInstance(ib, FakeIB)
         self.assertEqual(observed['socket_args'], (('10.0.0.8', 4002), 3.5))
         self.assertTrue(observed['socket_closed'])
-        self.assertEqual(observed['ib_args'], ('10.0.0.8', 4002, 9, 20))
+        self.assertEqual(observed['ib_args'], ('10.0.0.8', 4002, 9, 20, False))
 
 
 if __name__ == "__main__":

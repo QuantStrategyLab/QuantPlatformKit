@@ -58,6 +58,7 @@ def connect_ib(
     client_id: int,
     *,
     timeout: int = 20,
+    readonly: bool = False,
     tcp_preflight_timeout: float | None = 3.0,
     socket_create_connection: Callable[..., Any] | None = None,
     ib_factory: Callable[[], Any] | None = None,
@@ -77,7 +78,13 @@ def connect_ib(
 
     ib = ib_factory()
     try:
-        ib.connect(host, port, clientId=client_id, timeout=timeout)
+        ib.connect(
+            host,
+            port,
+            clientId=client_id,
+            timeout=timeout,
+            readonly=bool(readonly),
+        )
     except TimeoutError as exc:
         _disconnect_quietly(ib)
         raise TimeoutError(
