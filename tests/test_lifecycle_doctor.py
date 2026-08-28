@@ -102,6 +102,23 @@ class LifecycleDoctorTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertEqual(result["issues"], [])
 
+    def test_doctor_can_require_one_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            collector = ReturnCollector(store=store)
+            collector.collect_from_live_runs = lambda domain: {"global_etf_rotation": pd.Series([0.01], index=pd.to_datetime(["2026-06-30"]))}  # type: ignore[method-assign]
+
+            result = doctor_lifecycle(
+                "us_equity",
+                strategy_profile="missing_profile",
+                store=store,
+                collector=collector,
+            )
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["profiles_discovered"], 0)
+            self.assertIn("missing_profile: no strategy return series discovered", result["issues"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -298,6 +298,7 @@ def _run_doctor(args: argparse.Namespace) -> int:
         require_backtest=args.require_backtest,
         require_drift=args.require_drift,
         max_freshness_days=args.max_freshness_days,
+        strategy_profile=args.strategy,
     )
     _print(
         f"[doctor] profiles={result.get('profiles_discovered', 0)} "
@@ -385,6 +386,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--require-backtest", action="store_true")
     doctor.add_argument("--require-drift", action="store_true")
     doctor.add_argument("--max-freshness-days", type=int, default=None)
+    doctor.add_argument("--strategy", default=None)
     doctor.set_defaults(func=_run_doctor)
 
     lifecycle = subparsers.add_parser("lifecycle", help="Run the full lifecycle pipeline.")

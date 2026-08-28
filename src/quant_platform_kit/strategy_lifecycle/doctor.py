@@ -17,12 +17,26 @@ def doctor_lifecycle(
     require_backtest: bool = False,
     require_drift: bool = False,
     max_freshness_days: int | None = None,
+    strategy_profile: str | None = None,
     store: PerformanceStore | None = None,
     collector: ReturnCollector | None = None,
 ) -> dict[str, Any]:
     lifecycle_store = store or PerformanceStore.from_env()
     return_collector = collector or ReturnCollector(store=lifecycle_store)
     profiles = sorted(return_collector.collect(domain))
+    requested_profile = str(strategy_profile or "").strip()
+    if requested_profile:
+        if requested_profile not in profiles:
+            return {
+                "ok": False,
+                "domain": domain,
+                "profiles_discovered": 0,
+                "issues": [
+                    f"{requested_profile}: no strategy return series discovered for domain={domain!r}."
+                ],
+                "profiles": [],
+            }
+        profiles = [requested_profile]
     if not profiles:
         return {
             "ok": False,
@@ -74,6 +88,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--require-backtest", action="store_true")
     parser.add_argument("--require-drift", action="store_true")
     parser.add_argument("--max-freshness-days", type=int, default=None)
+    parser.add_argument("--strategy", default=None)
     return parser
 
 
@@ -85,6 +100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         require_backtest=args.require_backtest,
         require_drift=args.require_drift,
         max_freshness_days=args.max_freshness_days,
+        strategy_profile=args.strategy,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["ok"] else 1
