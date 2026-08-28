@@ -88,6 +88,22 @@ A strategy should clear all three gates before live use:
 
 Any one of these gates failing should keep the profile out of live settings.
 
+### Rollout admission check
+
+Image rollout is a separate control boundary. Before a platform replaces a
+deployed runtime image, its deployment workflow must read only the deployed
+non-secret target identity and fail closed when any of the following drift:
+
+- the target service identity;
+- the canonical strategy profile or its platform admission;
+- the declared dry-run permission; or
+- a shadow target declared as a live submission target.
+
+This check does not promote, enable, or repair a target. A retired or
+inconsistent target remains quarantined until it re-enters the lifecycle with
+fresh evidence; a healthy protected-live target may continue under its existing
+authorization.
+
 ## Recommended Promotion Policy
 
 - Keep the monitoring threshold relatively low so candidates are visible early.
