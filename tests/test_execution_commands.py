@@ -100,6 +100,32 @@ class ExecutionCommandTests(unittest.TestCase):
             self.assertEqual(store.list_due("2026-08-25"), (command,))
             self.assertEqual(store.list_due("2026-08-26"), ())
 
+    def test_next_trading_day_command_cannot_be_claimed_on_signal_friday(self) -> None:
+        """A Friday decision stays queued until its explicit Monday session."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ExecutionCommandStore(local_dir=tmpdir)
+            command = ExecutionCommand.from_decision(
+                platform="longbridge",
+                account_scope="SG",
+                strategy_profile="soxl_soxx_trend_income",
+                execution_mode="paper",
+                signal_date="2026-08-28",  # Friday
+                effective_date="2026-08-31",  # Monday
+                execution_timing_contract="next_trading_day",
+                decision_digest="sha256:friday-to-monday",
+                intent={"targets": {"SOXL": 0.0, "SOXX": 0.70}},
+                created_at="2026-08-28T20:00:00+00:00",
+            )
+
+            self.assertTrue(store.enqueue(command))
+            self.assertEqual(store.list_due("2026-08-28"), ())
+            self.assertIsNone(store.claim_due(command, as_of_date="2026-08-28", claimant="friday-run"))
+            self.assertEqual(store.current_state(command), ExecutionCommandState.QUEUED)
+
+            self.assertEqual(store.list_due("2026-08-31"), (command,))
+            self.assertIsNotNone(store.claim_due(command, as_of_date="2026-08-31", claimant="monday-run"))
+            self.assertEqual(store.current_state(command), ExecutionCommandState.CLAIMED)
+
     def test_due_claim_is_single_winner_and_crash_stays_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             store = ExecutionCommandStore(local_dir=tmpdir)
