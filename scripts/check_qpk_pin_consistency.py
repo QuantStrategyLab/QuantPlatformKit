@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify dependent repos reference QPK_PIN across pyproject, lockfiles, and overrides."""
+"""Verify dependent repos reference QPK_PIN across dependencies and reusable workflows."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ TRACKED_FILENAMES = (
     "requirements-lock.txt",
 )
 PINNED_FILE_GLOBS = ("requirements*.txt", "constraints*.txt", "pyproject.toml")
+WORKFLOW_GLOB = ".github/workflows/*.y*ml"
 
 
 def get_qpk_pin_sha(*, pin_file: Path | None = None) -> str:
@@ -86,6 +87,8 @@ def find_dep_files(root: Path) -> list[Path]:
             if "external" in path.parts:
                 continue
             paths[str(path)] = path
+    for path in root.glob(WORKFLOW_GLOB):
+        paths[str(path)] = path
     return sorted(paths.values())
 
 
