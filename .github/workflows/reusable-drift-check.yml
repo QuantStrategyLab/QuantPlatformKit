@@ -43,6 +43,10 @@ on:
         required: false
         type: string
         default: ""
+      strategy_profile:
+        required: false
+        type: string
+        default: ""
     secrets:
       codex_audit_service_url:
         required: false
@@ -66,6 +70,7 @@ jobs:
       QUANT_PROJECTS_ROOT: ${{ github.workspace }}/external
       LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
       LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
+      LIFECYCLE_STRATEGY_PROFILE: ${{ inputs.strategy_profile }}
 
     steps:
       - name: Validate trusted caller
@@ -208,13 +213,34 @@ jobs:
           fi
 
       - name: Build lifecycle performance snapshots
-        run: quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          lifecycle_args=()
+          if [ -n "${LIFECYCLE_STRATEGY_PROFILE:-}" ]; then
+            lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")
+          fi
+          quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} "${lifecycle_args[@]}"
 
       - name: Validate lifecycle prerequisites
-        run: quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7
+        shell: bash
+        run: |
+          set -euo pipefail
+          lifecycle_args=()
+          if [ -n "${LIFECYCLE_STRATEGY_PROFILE:-}" ]; then
+            lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")
+          fi
+          quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7 "${lifecycle_args[@]}"
 
       - name: Run drift detection
-        run: quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts
+        shell: bash
+        run: |
+          set -euo pipefail
+          lifecycle_args=()
+          if [ -n "${LIFECYCLE_STRATEGY_PROFILE:-}" ]; then
+            lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")
+          fi
+          quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts "${lifecycle_args[@]}"
 
       - name: Sync drift alerts to GitHub Issues
         env:

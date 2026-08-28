@@ -22,6 +22,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "caller_event_name:" in workflow
     assert "caller_pr_head_repository:" in workflow
     assert "lifecycle_preflight_artifact:" in workflow
+    assert "strategy_profile:" in workflow
     assert "codex_audit_service_url:" in workflow
     assert 'python-version: ${{ inputs.python_version }}' in workflow
     assert "LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}" in workflow
@@ -33,12 +34,11 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "snapshot_repository mismatch for caller" in workflow
     assert "Fork pull_request callers are not trusted" in workflow
     assert "SNAPSHOT_REPOSITORY_TOKEN:" not in workflow
-    assert "quant-lifecycle monitor --domain ${{ inputs.strategy_domain }}" in workflow
-    assert (
-        "quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot "
-        "--require-backtest --max-freshness-days 7"
-    ) in workflow
-    assert "quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts" in workflow
+    assert "LIFECYCLE_STRATEGY_PROFILE: ${{ inputs.strategy_profile }}" in workflow
+    assert 'lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")' in workflow
+    assert 'quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} "${lifecycle_args[@]}"' in workflow
+    assert 'quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7 "${lifecycle_args[@]}"' in workflow
+    assert 'quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts "${lifecycle_args[@]}"' in workflow
     assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
     assert 'ref: ${{ inputs.snapshot_repository_ref }}' in workflow
     assert 'path: ${{ inputs.snapshot_checkout_path }}' in workflow
