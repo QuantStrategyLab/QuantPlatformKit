@@ -88,6 +88,23 @@ class QpkPinConsistencyTests(unittest.TestCase):
             self.assertGreater(mismatches, 0)
             self.assertTrue(any("uv.lock" in err for err in errors))
 
+    def test_detect_reusable_workflow_qpk_pin_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "drift-check.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                "jobs:\n"
+                "  drift:\n"
+                f"    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@{STALE}\n",
+                encoding="utf-8",
+            )
+
+            _files, mismatches, errors = check_repo(root=root, target_sha=TARGET, fix_mode=False)
+
+        self.assertGreater(mismatches, 0)
+        self.assertTrue(any(".github/workflows/drift-check.yml" in err for err in errors))
+
     def test_override_must_match_pin(self) -> None:
         pyproject = """
 [tool.uv]
@@ -172,6 +189,12 @@ override-dependencies = [
             root.joinpath("tests").mkdir()
             root.joinpath("tests", "test_qsl_compat_metadata.py").write_text(
                 f'QPK_REVISION = "{TARGET}"\n',
+                encoding="utf-8",
+            )
+            workflow = root / ".github" / "workflows" / "drift-check.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                f"uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@{TARGET}\n",
                 encoding="utf-8",
             )
 

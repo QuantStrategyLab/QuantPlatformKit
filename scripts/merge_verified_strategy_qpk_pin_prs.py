@@ -34,6 +34,7 @@ ALLOWED_CHANGED_FILES = frozenset(
         "qsl.toml",
         "tests/test_qsl_compat_metadata.py",
         "uv.lock",
+        ".github/workflows/drift-check.yml",
     }
 )
 QPK_REF_RE = re.compile(
