@@ -47,6 +47,19 @@ def _numeric_mapping(values: Mapping[str, float], field_name: str) -> dict[str, 
     return dict(sorted(normalized.items()))
 
 
+def canonical_sha256(payload: Mapping[str, object]) -> str:
+    """Return the SHA-256 of one canonical, JSON-compatible mapping."""
+
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _utc_iso(value: datetime, field_name: str) -> str:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{field_name} must include a timezone")
+    return value.astimezone(timezone.utc).isoformat()
+
+
 @dataclass(frozen=True)
 class MarketContextSnapshot:
     """Auditable, point-in-time market data used by a Shadow decision."""
@@ -95,6 +108,7 @@ class PlatformHealthSnapshot:
 
     def __post_init__(self) -> None:
         _nonblank(self.platform_id, "platform_id")
+        _utc_iso(self.observed_at, "observed_at")
         _bounded(self.capacity_score, "capacity_score")
         if _finite(self.expected_cost_bps, "expected_cost_bps") < 0:
             raise ValueError("expected_cost_bps must be non-negative")
@@ -103,7 +117,7 @@ class PlatformHealthSnapshot:
         return {
             "schema": PLATFORM_HEALTH_SCHEMA,
             "platform_id": self.platform_id,
-            "observed_at": self.observed_at.astimezone(timezone.utc).isoformat(),
+            "observed_at": _utc_iso(self.observed_at, "observed_at"),
             "healthy": self.healthy,
             "shadow_capable": self.shadow_capable,
             "reconciliation_ok": self.reconciliation_ok,
@@ -123,6 +137,13 @@ class PluginRiskAdjustment:
     def __post_init__(self) -> None:
         _nonblank(self.plugin_id, "plugin_id")
         _bounded(self.risk_multiplier, "risk_multiplier")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "plugin_id": self.plugin_id,
+            "risk_multiplier": self.risk_multiplier,
+            "approved": self.approved,
+        }
 
 
 @dataclass(frozen=True)
@@ -150,6 +171,19 @@ class StrategyCandidate:
         object.__setattr__(self, "required_plugins", tuple(sorted({_nonblank(item, "required_plugins item") for item in self.required_plugins})))
         object.__setattr__(self, "allowed_platform_ids", tuple(sorted({_nonblank(item, "allowed_platform_ids item") for item in self.allowed_platform_ids})))
 
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "strategy_profile": self.strategy_profile,
+            "release_digest": self.release_digest,
+            "lifecycle_stage": self.lifecycle_stage,
+            "approved_for_shadow": self.approved_for_shadow,
+            "base_score": self.base_score,
+            "estimated_volatility": self.estimated_volatility,
+            "factor_exposures": dict(self.factor_exposures),
+            "required_plugins": list(self.required_plugins),
+            "allowed_platform_ids": list(self.allowed_platform_ids),
+        }
+
 
 @dataclass(frozen=True)
 class AdaptiveSelectionPolicy:
@@ -163,6 +197,7 @@ class AdaptiveSelectionPolicy:
     cost_penalty: float
     max_recommendations: int = 1
     fail_closed_on_unknown_regime: bool = True
+    max_platform_health_age_seconds: int = 3600
 
     def __post_init__(self) -> None:
         _nonblank(self.policy_id, "policy_id")
@@ -175,6 +210,21 @@ class AdaptiveSelectionPolicy:
             raise ValueError("cost_penalty must be non-negative")
         if int(self.max_recommendations) < 1:
             raise ValueError("max_recommendations must be at least one")
+        if int(self.max_platform_health_age_seconds) < 0:
+            raise ValueError("max_platform_health_age_seconds must be non-negative")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "policy_id": self.policy_id,
+            "max_data_freshness_days": self.max_data_freshness_days,
+            "minimum_regime_confidence": self.minimum_regime_confidence,
+            "minimum_score": self.minimum_score,
+            "volatility_penalty": self.volatility_penalty,
+            "cost_penalty": self.cost_penalty,
+            "max_recommendations": self.max_recommendations,
+            "fail_closed_on_unknown_regime": self.fail_closed_on_unknown_regime,
+            "max_platform_health_age_seconds": self.max_platform_health_age_seconds,
+        }
 
 
 @dataclass(frozen=True)
@@ -221,12 +271,18 @@ class SelectionDecision:
     candidate_decisions: tuple[CandidateDecision, ...]
     recommended_strategy_profile: str | None
     recommended_platform_id: str | None
+    input_digest: str
     authority: str = SHADOW_ONLY_AUTHORITY
     no_order: bool = True
 
     def __post_init__(self) -> None:
         _nonblank(self.decision_id, "decision_id")
         _nonblank(self.policy_id, "policy_id")
+        _utc_iso(self.created_at, "created_at")
+        if len(self.input_digest) != 64 or any(
+            character not in "0123456789abcdef" for character in self.input_digest
+        ):
+            raise ValueError("input_digest must be a lowercase SHA-256 digest")
         if self.authority != SHADOW_ONLY_AUTHORITY or not self.no_order:
             raise ValueError("adaptive selection is shadow-only and cannot authorize orders")
         if any(item.proposed_weight != 0.0 for item in self.candidate_decisions):
@@ -236,7 +292,7 @@ class SelectionDecision:
         payload = {
             "schema": SELECTION_DECISION_SCHEMA,
             "decision_id": self.decision_id,
-            "created_at": self.created_at.astimezone(timezone.utc).isoformat(),
+            "created_at": _utc_iso(self.created_at, "created_at"),
             "authority": self.authority,
             "no_order": self.no_order,
             "market_context": self.market_context.to_dict(),
@@ -244,7 +300,7 @@ class SelectionDecision:
             "recommended_strategy_profile": self.recommended_strategy_profile,
             "recommended_platform_id": self.recommended_platform_id,
             "candidates": [item.to_dict() for item in self.candidate_decisions],
+            "input_digest": self.input_digest,
         }
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        payload["input_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        payload["decision_digest"] = canonical_sha256(payload)
         return payload

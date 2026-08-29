@@ -33,6 +33,7 @@ def _policy(**overrides):
         "minimum_score": 0.1,
         "volatility_penalty": 0.5,
         "cost_penalty": 0.01,
+        "max_platform_health_age_seconds": 3600,
     }
     return AdaptiveSelectionPolicy(**(values | overrides))
 
@@ -83,6 +84,7 @@ def test_shadow_selector_ranks_admitted_candidates_and_keeps_zero_weight():
     assert payload["authority"] == "shadow_only"
     assert payload["no_order"] is True
     assert len(str(payload["input_digest"])) == 64
+    assert len(str(payload["decision_digest"])) == 64
 
 
 def test_shadow_selector_fails_closed_for_unknown_or_stale_market_context():
@@ -93,6 +95,7 @@ def test_shadow_selector_fails_closed_for_unknown_or_stale_market_context():
         platform_health=[_health()],
         plugin_adjustments=[PluginRiskAdjustment("market_regime_control", 1.0)],
         policy=_policy(),
+        created_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
     )
 
     assert decision.recommended_strategy_profile is None
@@ -108,6 +111,7 @@ def test_shadow_selector_rejects_unhealthy_platform_or_missing_required_plugin()
         platform_health=[_health(healthy=False)],
         plugin_adjustments=[],
         policy=_policy(),
+        created_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
     )
 
     item = decision.candidate_decisions[0]
@@ -124,6 +128,7 @@ def test_shadow_selector_can_rank_an_approved_shadow_candidate_without_starting_
         platform_health=[_health()],
         plugin_adjustments=[PluginRiskAdjustment("market_regime_control", 1.0)],
         policy=_policy(),
+        created_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
     )
 
     assert decision.recommended_strategy_profile == "candidate_a"
@@ -134,3 +139,47 @@ def test_shadow_selector_can_rank_an_approved_shadow_candidate_without_starting_
 def test_plugin_risk_adjustment_cannot_increase_risk():
     with pytest.raises(ValueError, match="risk_multiplier"):
         PluginRiskAdjustment("market_regime_control", 1.01)
+
+
+def test_shadow_selector_rejects_stale_or_future_platform_health():
+    created_at = datetime(2026, 8, 28, 2, tzinfo=timezone.utc)
+    stale = select_shadow(
+        decision_id="decision-stale",
+        market_context=_context(),
+        candidates=[_candidate("strategy_a", 0.7)],
+        platform_health=[_health(observed_at=datetime(2026, 8, 28, tzinfo=timezone.utc))],
+        plugin_adjustments=[PluginRiskAdjustment("market_regime_control", 1.0)],
+        policy=_policy(max_platform_health_age_seconds=3599),
+        created_at=created_at,
+    )
+    future = select_shadow(
+        decision_id="decision-future",
+        market_context=_context(),
+        candidates=[_candidate("strategy_a", 0.7)],
+        platform_health=[_health(observed_at=datetime(2026, 8, 28, 3, tzinfo=timezone.utc))],
+        plugin_adjustments=[PluginRiskAdjustment("market_regime_control", 1.0)],
+        policy=_policy(),
+        created_at=created_at,
+    )
+
+    assert "platform_health_stale" in stale.candidate_decisions[0].reasons
+    assert "platform_health_from_future" in future.candidate_decisions[0].reasons
+
+
+def test_selection_digests_are_deterministic_and_bind_the_full_input():
+    common = {
+        "decision_id": "decision-digest",
+        "market_context": _context(),
+        "candidates": [_candidate("strategy_a", 0.7)],
+        "platform_health": [_health()],
+        "plugin_adjustments": [PluginRiskAdjustment("market_regime_control", 1.0)],
+        "policy": _policy(),
+        "created_at": datetime(2026, 8, 28, tzinfo=timezone.utc),
+    }
+    first = select_shadow(**common).to_dict()
+    second = select_shadow(**common).to_dict()
+    changed = select_shadow(**(common | {"market_context": _context(factors={"momentum": 0.7})})).to_dict()
+
+    assert first == second
+    assert first["input_digest"] != changed["input_digest"]
+    assert first["decision_digest"] != changed["decision_digest"]

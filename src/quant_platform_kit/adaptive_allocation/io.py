@@ -30,6 +30,23 @@ def _mapping(value: object, field_name: str) -> Mapping[str, Any]:
     return value
 
 
+def _closed_mapping(
+    value: object,
+    field_name: str,
+    *,
+    required: frozenset[str],
+    optional: frozenset[str] = frozenset(),
+) -> Mapping[str, Any]:
+    item = _mapping(value, field_name)
+    keys = set(item)
+    if keys - required - optional:
+        raise ValueError(f"{field_name} contains unsupported fields")
+    missing = required - keys
+    if missing:
+        raise ValueError(f"{field_name}.{sorted(missing)[0]} is required")
+    return item
+
+
 def _sequence(value: object, field_name: str) -> Sequence[object]:
     if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Sequence):
         raise ValueError(f"{field_name} must be an array")
@@ -96,7 +113,22 @@ def _strings(value: object, field_name: str) -> tuple[str, ...]:
 
 
 def _parse_market_context(payload: object) -> MarketContextSnapshot:
-    item = _mapping(payload, "market_context")
+    item = _closed_mapping(
+        payload,
+        "market_context",
+        required=frozenset(
+            {
+                "schema",
+                "as_of",
+                "domain",
+                "data_version",
+                "data_freshness_days",
+                "regime",
+                "regime_confidence",
+            }
+        ),
+        optional=frozenset({"factors"}),
+    )
     if item.get("schema") != MARKET_CONTEXT_SCHEMA:
         raise ValueError("market_context schema is unsupported")
     return MarketContextSnapshot(
@@ -111,7 +143,23 @@ def _parse_market_context(payload: object) -> MarketContextSnapshot:
 
 
 def _parse_candidate(payload: object) -> StrategyCandidate:
-    item = _mapping(payload, "candidate")
+    item = _closed_mapping(
+        payload,
+        "candidate",
+        required=frozenset(
+            {
+                "strategy_profile",
+                "release_digest",
+                "lifecycle_stage",
+                "approved_for_shadow",
+                "base_score",
+                "estimated_volatility",
+            }
+        ),
+        optional=frozenset(
+            {"factor_exposures", "required_plugins", "allowed_platform_ids"}
+        ),
+    )
     return StrategyCandidate(
         strategy_profile=_string(_required(item, "strategy_profile"), "candidate.strategy_profile"),
         release_digest=_string(_required(item, "release_digest"), "candidate.release_digest"),
@@ -126,7 +174,22 @@ def _parse_candidate(payload: object) -> StrategyCandidate:
 
 
 def _parse_platform_health(payload: object) -> PlatformHealthSnapshot:
-    item = _mapping(payload, "platform_health item")
+    item = _closed_mapping(
+        payload,
+        "platform_health item",
+        required=frozenset(
+            {
+                "schema",
+                "platform_id",
+                "observed_at",
+                "healthy",
+                "shadow_capable",
+                "reconciliation_ok",
+                "capacity_score",
+                "expected_cost_bps",
+            }
+        ),
+    )
     if item.get("schema") != PLATFORM_HEALTH_SCHEMA:
         raise ValueError("platform_health schema is unsupported")
     return PlatformHealthSnapshot(
@@ -141,7 +204,12 @@ def _parse_platform_health(payload: object) -> PlatformHealthSnapshot:
 
 
 def _parse_plugin_adjustment(payload: object) -> PluginRiskAdjustment:
-    item = _mapping(payload, "plugin_adjustment")
+    item = _closed_mapping(
+        payload,
+        "plugin_adjustment",
+        required=frozenset({"plugin_id", "risk_multiplier"}),
+        optional=frozenset({"approved"}),
+    )
     return PluginRiskAdjustment(
         plugin_id=_string(_required(item, "plugin_id"), "plugin_adjustment.plugin_id"),
         risk_multiplier=_number(_required(item, "risk_multiplier"), "plugin_adjustment.risk_multiplier"),
@@ -150,7 +218,27 @@ def _parse_plugin_adjustment(payload: object) -> PluginRiskAdjustment:
 
 
 def _parse_policy(payload: object) -> AdaptiveSelectionPolicy:
-    item = _mapping(payload, "policy")
+    item = _closed_mapping(
+        payload,
+        "policy",
+        required=frozenset(
+            {
+                "policy_id",
+                "max_data_freshness_days",
+                "minimum_regime_confidence",
+                "minimum_score",
+                "volatility_penalty",
+                "cost_penalty",
+            }
+        ),
+        optional=frozenset(
+            {
+                "max_recommendations",
+                "fail_closed_on_unknown_regime",
+                "max_platform_health_age_seconds",
+            }
+        ),
+    )
     return AdaptiveSelectionPolicy(
         policy_id=_string(_required(item, "policy_id"), "policy.policy_id"),
         max_data_freshness_days=_integer(_required(item, "max_data_freshness_days"), "policy.max_data_freshness_days"),
@@ -160,27 +248,47 @@ def _parse_policy(payload: object) -> AdaptiveSelectionPolicy:
         cost_penalty=_number(_required(item, "cost_penalty"), "policy.cost_penalty"),
         max_recommendations=_integer(item.get("max_recommendations", 1), "policy.max_recommendations"),
         fail_closed_on_unknown_regime=_bool(item.get("fail_closed_on_unknown_regime", True), "policy.fail_closed_on_unknown_regime"),
+        max_platform_health_age_seconds=_integer(
+            item.get("max_platform_health_age_seconds", 3600),
+            "policy.max_platform_health_age_seconds",
+        ),
     )
 
 
 def build_shadow_selection(payload: Mapping[str, object]) -> SelectionDecision:
     """Validate one versioned input bundle and produce a no-order decision record."""
-    if payload.get("schema") != SELECTION_INPUT_SCHEMA:
+    item = _closed_mapping(
+        payload,
+        "selection input",
+        required=frozenset(
+            {
+                "schema",
+                "decision_id",
+                "created_at",
+                "market_context",
+                "candidates",
+                "platform_health",
+                "policy",
+            }
+        ),
+        optional=frozenset({"plugin_adjustments"}),
+    )
+    if item.get("schema") != SELECTION_INPUT_SCHEMA:
         raise ValueError(f"schema must equal {SELECTION_INPUT_SCHEMA}")
     return select_shadow(
-        decision_id=_string(_required(payload, "decision_id"), "decision_id"),
-        created_at=_datetime(_required(payload, "created_at"), "created_at"),
-        market_context=_parse_market_context(_required(payload, "market_context")),
-        candidates=[_parse_candidate(item) for item in _sequence(_required(payload, "candidates"), "candidates")],
+        decision_id=_string(_required(item, "decision_id"), "decision_id"),
+        created_at=_datetime(_required(item, "created_at"), "created_at"),
+        market_context=_parse_market_context(_required(item, "market_context")),
+        candidates=[_parse_candidate(value) for value in _sequence(_required(item, "candidates"), "candidates")],
         platform_health=[
-            _parse_platform_health(item)
-            for item in _sequence(_required(payload, "platform_health"), "platform_health")
+            _parse_platform_health(value)
+            for value in _sequence(_required(item, "platform_health"), "platform_health")
         ],
         plugin_adjustments=[
-            _parse_plugin_adjustment(item)
-            for item in _sequence(payload.get("plugin_adjustments", []), "plugin_adjustments")
+            _parse_plugin_adjustment(value)
+            for value in _sequence(item.get("plugin_adjustments", []), "plugin_adjustments")
         ],
-        policy=_parse_policy(_required(payload, "policy")),
+        policy=_parse_policy(_required(item, "policy")),
     )
 
 

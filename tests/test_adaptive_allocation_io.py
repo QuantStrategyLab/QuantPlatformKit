@@ -60,6 +60,7 @@ def _payload(**overrides):
             "minimum_score": 0.1,
             "volatility_penalty": 0.5,
             "cost_penalty": 0.01,
+            "max_platform_health_age_seconds": 3600,
         },
     }
     return values | overrides
@@ -73,6 +74,8 @@ def test_build_shadow_selection_validates_a_versioned_bundle_and_keeps_no_order(
     assert result["no_order"] is True
     assert result["recommended_strategy_profile"] == "candidate_a"
     assert result["candidates"][0]["proposed_weight"] == 0.0
+    assert len(result["input_digest"]) == 64
+    assert len(result["decision_digest"]) == 64
 
 
 def test_build_shadow_selection_rejects_naive_platform_timestamp():
@@ -95,6 +98,15 @@ def test_build_shadow_selection_requires_versioned_context_and_integer_freshness
         build_shadow_selection(fractional_freshness)
 
 
+def test_v1_policy_without_health_ttl_remains_compatible():
+    payload = _payload()
+    del payload["policy"]["max_platform_health_age_seconds"]
+
+    decision = build_shadow_selection(payload)
+
+    assert decision.recommended_strategy_profile == "candidate_a"
+
+
 def test_cli_writes_only_a_json_decision_artifact(tmp_path):
     source = tmp_path / "input.json"
     output = tmp_path / "output" / "decision.json"
@@ -106,3 +118,25 @@ def test_cli_writes_only_a_json_decision_artifact(tmp_path):
     assert result["no_order"] is True
     assert result["candidates"][0]["proposed_weight"] == 0.0
     assert load_shadow_selection_input(source)["schema"] == SELECTION_INPUT_SCHEMA
+
+
+@pytest.mark.parametrize(
+    ("path", "field"),
+    [
+        ((), "account_id"),
+        (("market_context",), "narrative"),
+        (("candidates", 0), "target_weight"),
+        (("platform_health", 0), "broker_token"),
+        (("plugin_adjustments", 0), "order_type"),
+        (("policy",), "runtime_target"),
+    ],
+)
+def test_build_shadow_selection_rejects_unknown_fields(path, field):
+    payload = _payload()
+    target = payload
+    for part in path:
+        target = target[part]
+    target[field] = "must-not-be-accepted"
+
+    with pytest.raises(ValueError, match="unsupported fields"):
+        build_shadow_selection(payload)

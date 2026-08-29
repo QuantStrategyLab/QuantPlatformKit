@@ -1,7 +1,10 @@
-# 自适应配置控制面（P0）
+# 自适应配置控制面（Shadow-only 观察切片）
 
-P0 提供统一、只读的 Shadow 决策记录，不提供交易授权。它解决的是“为什么建议某个
+本模块提供统一、只读的 Shadow 决策记录，不提供交易授权。它解决的是“为什么建议某个
 已批准策略/平台”，而不是让模型直接改变实盘配置。
+
+这里的 selector 不是 P0–P6 生命周期中的 P0。规范 P0 仍属于授权策略与控制根；本模块
+也不代表 P4 Paper、P5 Shadow 已启动或 P6 Live 已获批准。
 
 ## 输入与输出
 
@@ -11,8 +14,9 @@ P0 提供统一、只读的 Shadow 决策记录，不提供交易授权。它解
 - `qsl.platform_health_snapshot.v1`：平台健康、对账、容量和成本估计；
 - 已批准的 immutable strategy release 与插件风险缩放。
 
-输出为 `qsl.selection_decision.v1`，完整保存候选、拒绝原因、平台选择、策略分数和
-输入摘要。输出固定为 `authority=shadow_only`、`no_order=true` 且所有建议权重为零。
+输出为 `qsl.selection_decision.v1`，完整保存候选、拒绝原因、平台选择、策略分数、
+canonical input digest 和独立 decision digest。输出固定为 `authority=shadow_only`、
+`no_order=true` 且所有建议权重为零。
 
 ## 通用接入边界
 
@@ -23,9 +27,10 @@ P0 提供统一、只读的 Shadow 决策记录，不提供交易授权。它解
 quant-adaptive-selection --input selection-input.json --output selection-decision.json
 ```
 
-输入必须提供带时区的平台健康快照、版本化市场上下文、不可变候选 release、插件风险
-缩放和冻结策略。命令不接受 broker 凭据、运行时目标或下单参数；输出文件仅是 JSON
-工件，不会修改平台或调度器。
+输入使用闭合字段，必须提供带时区且未超过 policy TTL 的平台健康快照、版本化市场
+上下文、不可变候选 release、插件风险缩放和冻结策略。新增的 TTL 字段为向后兼容的
+可选字段；缺省为 3600 秒。命令不接受 broker 凭据、运行时目标或下单参数；输出文件
+仅是 JSON 工件，不会修改平台或调度器。
 
 ## 固定边界
 
@@ -34,7 +39,7 @@ quant-adaptive-selection --input selection-input.json --output selection-decisio
 - 插件只能给出 `0..1` 的风险缩放，不能增加风险或提交订单。
 - 只有已获 Shadow 准入、并绑定 immutable release 的候选可以被排名；`shadow_candidate`
   仅可得到“建议进入 Shadow”的零仓位结论，不能由此启动 runtime。
-- P0 不能改变平台、策略、插件挂载、仓位或调度器。
+- 本模块不能改变平台、策略、插件挂载、仓位或调度器。
 
 后续 M1 才能把 Shadow 结论呈现给人工；M2/M3 还必须经过独立的 Paper、Canary、
 双 AI 复核和既有风险授权，不能由本模块单独开启。
@@ -56,7 +61,7 @@ quant-adaptive-selection --input selection-input.json --output selection-decisio
   → 人工/双 AI 建立研究假设
   → P1–P3 数据、回测与独立证据
   → immutable 策略候选
-  → P0 Shadow 选择记录
+  → Shadow-only 选择记录
   → M1 人工查看
 ```
 
