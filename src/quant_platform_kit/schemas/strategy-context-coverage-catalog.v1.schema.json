@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Strategy Context Coverage Catalog v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "authority", "bindings"],
+  "properties": {
+    "schema_version": {"const": "qsl.strategy-context-coverage-catalog.v1"},
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["research_only", "no_order"],
+      "properties": {
+        "research_only": {"const": true},
+        "no_order": {"const": true}
+      }
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/binding"}
+    }
+  },
+  "$defs": {
+    "non_empty_string": {"type": "string", "minLength": 1, "pattern": "^\\S(?:.*\\S)?$"},
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy_profile",
+        "domain",
+        "strategy_kind",
+        "instrument_classes",
+        "exposure_buckets",
+        "capital_role",
+        "benchmark_ids",
+        "allowed_m0_research_subject_types"
+      ],
+      "properties": {
+        "strategy_profile": {"$ref": "#/$defs/non_empty_string"},
+        "domain": {"$ref": "#/$defs/non_empty_string"},
+        "strategy_kind": {
+          "enum": [
+            "single_instrument_trend",
+            "sector_etf_trend",
+            "diversified_etf_rotation",
+            "equity_selection",
+            "dca",
+            "crypto_pool_rotation",
+            "multi_strategy_combo",
+            "risk_overlay",
+            "research_sidecar"
+          ]
+        },
+        "instrument_classes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "single_equity",
+              "etf",
+              "leveraged_etf",
+              "index",
+              "crypto_asset",
+              "cash_equivalent",
+              "multi_asset",
+              "derivative",
+              "plugin"
+            ]
+          }
+        },
+        "exposure_buckets": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/non_empty_string"}
+        },
+        "capital_role": {"enum": ["core", "satellite", "defensive", "reserve", "overlay"]},
+        "benchmark_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/non_empty_string"}
+        },
+        "allowed_m0_research_subject_types": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["asset_idea", "theme_context", "strategy_hypothesis", "risk_context"]
+          }
+        }
+      }
+    }
+  }
+}

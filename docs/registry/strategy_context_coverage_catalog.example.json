@@ -1,0 +1,23 @@
+{
+  "schema_version": "qsl.strategy-context-coverage-catalog.v1",
+  "authority": {
+    "research_only": true,
+    "no_order": true
+  },
+  "bindings": [
+    {
+      "strategy_profile": "example_sector_leveraged_etf",
+      "domain": "us_equity",
+      "strategy_kind": "sector_etf_trend",
+      "instrument_classes": ["etf", "leveraged_etf"],
+      "exposure_buckets": ["sector_semiconductors", "us_equity_growth"],
+      "capital_role": "satellite",
+      "benchmark_ids": ["buy_hold_SOXX"],
+      "allowed_m0_research_subject_types": [
+        "theme_context",
+        "strategy_hypothesis",
+        "risk_context"
+      ]
+    }
+  ]
+}
