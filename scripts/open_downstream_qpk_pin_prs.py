@@ -126,6 +126,33 @@ def update_qpk_revision_contract(repo_dir: Path, qpk_sha: str) -> bool:
     return True
 
 
+def update_drift_workflow_test_contract(
+    repo_dir: Path,
+    *,
+    qpk_sha: str,
+    previous_qpk_refs: set[str],
+) -> bool:
+    """Keep workflow-content assertions aligned with an updated reusable workflow pin.
+
+    Strategy repositories deliberately test their pinned reusable drift workflow
+    reference.  That test is a dependency surface just like ``pyproject.toml``
+    and ``drift-check.yml``; leaving it stale makes an otherwise coherent pin
+    update fail CI.  Only QPK SHAs observed before the update are replaced.
+    """
+    path = repo_dir / "tests" / "test_drift_workflow_config.py"
+    if not path.is_file():
+        return False
+    original = path.read_text(encoding="utf-8")
+    updated = original
+    for previous_ref in sorted(previous_qpk_refs):
+        if re.fullmatch(r"[a-f0-9]{40}", previous_ref) and previous_ref != qpk_sha:
+            updated = updated.replace(previous_ref, qpk_sha)
+    if updated == original:
+        return False
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
 def update_strategy_dependency_pins(
     repo_dir: Path,
     strategy_heads: dict[str, str],
@@ -281,6 +308,7 @@ def update_repo(
     strategy_heads: dict[str, str] | None = None,
 ) -> bool:
     script = SCRIPT_ROOT / "check_qpk_pin_consistency.py"
+    previous_qpk_refs = qpk_refs(repo_dir)
     run(
         ["python3", str(script), "--root", str(repo_dir), "--pin-file", str(qpk_pin), "--fix"],
         cwd=repo_dir,
@@ -289,6 +317,11 @@ def update_repo(
     update_qpk_revision_contract(
         repo_dir,
         get_qpk_pin_sha(pin_file=qpk_pin),
+    )
+    update_drift_workflow_test_contract(
+        repo_dir,
+        qpk_sha=get_qpk_pin_sha(pin_file=qpk_pin),
+        previous_qpk_refs=previous_qpk_refs,
     )
     if strategy_heads:
         update_strategy_dependency_pins(repo_dir, strategy_heads)

@@ -19,6 +19,7 @@ from scripts.open_downstream_qpk_pin_prs import (
     update_qsl_metadata_test_contract,
     update_qsl_strategy_requires,
     update_qsl_compat_qpk_pin,
+    update_drift_workflow_test_contract,
     update_qpk_revision_contract,
     update_strategy_dependency_pins,
 )
@@ -215,6 +216,31 @@ override-dependencies = [
                 f'QPK_REVISION = "{TARGET}"\n',
                 contract.read_text(encoding="utf-8"),
             )
+
+    def test_drift_workflow_test_contract_tracks_previously_observed_qpk_refs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.joinpath("tests").mkdir()
+            contract = root / "tests" / "test_drift_workflow_config.py"
+            contract.write_text(
+                f'QPK_REF = "{STALE}"\n'
+                f'assert "reusable-drift-check.yml@{STALE}" in workflow\n'
+                'assert "unrelated" in workflow\n',
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                update_drift_workflow_test_contract(
+                    root,
+                    qpk_sha=TARGET,
+                    previous_qpk_refs={STALE, "unrelated"},
+                )
+            )
+            updated = contract.read_text(encoding="utf-8")
+
+        self.assertEqual(2, updated.count(TARGET))
+        self.assertNotIn(STALE, updated)
+        self.assertIn("unrelated", updated)
 
     def test_consumer_strategy_pins_update_as_one_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
