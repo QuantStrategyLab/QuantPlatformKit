@@ -62,7 +62,10 @@ def select_shadow(
 
     `base_score` and `factor_exposures` must come from a separately validated,
     versioned research pipeline.  This function intentionally has no market-data
-    fetcher and does not infer financial features from narratives.
+    fetcher and does not infer financial features from narratives.  A
+    ``shadow_candidate`` that is explicitly approved for Shadow may be ranked
+    so that P0 can produce a reviewable recommendation, but the result still
+    cannot start a Shadow runtime or authorize an order.
     """
 
     health_by_platform = {item.platform_id: item for item in platform_health}

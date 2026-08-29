@@ -14,7 +14,9 @@ MARKET_CONTEXT_SCHEMA = "qsl.market_context_snapshot.v1"
 PLATFORM_HEALTH_SCHEMA = "qsl.platform_health_snapshot.v1"
 SELECTION_DECISION_SCHEMA = "qsl.selection_decision.v1"
 SHADOW_ONLY_AUTHORITY = "shadow_only"
-_SHADOW_ELIGIBLE_STAGES = frozenset({"shadow_active", "paper_active", "live_candidate", "live_enabled"})
+_SHADOW_ELIGIBLE_STAGES = frozenset(
+    {"shadow_candidate", "shadow_active", "paper_active", "live_candidate", "live_enabled"}
+)
 
 
 def _nonblank(value: str, field_name: str) -> str:

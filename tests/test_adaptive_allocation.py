@@ -116,6 +116,21 @@ def test_shadow_selector_rejects_unhealthy_platform_or_missing_required_plugin()
     assert "no_healthy_reconciled_shadow_platform" in item.reasons
 
 
+def test_shadow_selector_can_rank_an_approved_shadow_candidate_without_starting_it():
+    decision = select_shadow(
+        decision_id="decision-004",
+        market_context=_context(),
+        candidates=[_candidate("candidate_a", 0.7, lifecycle_stage="shadow_candidate")],
+        platform_health=[_health()],
+        plugin_adjustments=[PluginRiskAdjustment("market_regime_control", 1.0)],
+        policy=_policy(),
+    )
+
+    assert decision.recommended_strategy_profile == "candidate_a"
+    assert decision.no_order is True
+    assert decision.candidate_decisions[0].proposed_weight == 0.0
+
+
 def test_plugin_risk_adjustment_cannot_increase_risk():
     with pytest.raises(ValueError, match="risk_multiplier"):
         PluginRiskAdjustment("market_regime_control", 1.01)
