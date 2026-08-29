@@ -3,8 +3,10 @@ from __future__ import annotations
 import pytest
 
 from quant_platform_kit.common.strategy_risk_state import (
+    StrategyRiskStateAppendStatus,
     StrategyRiskStateChainError,
     StrategyRiskStateIdentity,
+    StrategyRiskStateStore,
     StrategyRiskStateTransition,
     build_strategy_risk_state_transition,
     validate_strategy_risk_state_chain,
@@ -86,3 +88,56 @@ def test_root_transition_cannot_claim_a_previous_digest() -> None:
 
     with pytest.raises(StrategyRiskStateChainError, match="root transition"):
         validate_strategy_risk_state_chain([child])
+
+
+def test_store_appends_one_immutable_successor_and_is_idempotent(tmp_path) -> None:
+    store = StrategyRiskStateStore(local_dir=tmp_path)
+    first = _transition(session="2026-08-24")
+    second = _transition(session="2026-08-25", previous=first)
+
+    created = store.append(first)
+    duplicate = store.append(first)
+    child = store.append(second)
+
+    assert created.status is StrategyRiskStateAppendStatus.CREATED
+    assert duplicate.status is StrategyRiskStateAppendStatus.ALREADY_APPENDED
+    assert duplicate.chain_length == 1
+    assert child.status is StrategyRiskStateAppendStatus.CREATED
+    assert store.load_chain(first.identity) == (first, second)
+
+
+def test_store_rejects_competing_or_stale_successors(tmp_path) -> None:
+    store = StrategyRiskStateStore(local_dir=tmp_path)
+    first = _transition(session="2026-08-24")
+    accepted = _transition(session="2026-08-25", previous=first)
+    competing = build_strategy_risk_state_transition(
+        identity=_identity(),
+        effective_session="2026-08-25",
+        input_sha256="c" * 64,
+        state={"cooldown_remaining_sessions": 3, "reentry_allowed": False},
+        previous_transition=first,
+    )
+    stale = build_strategy_risk_state_transition(
+        identity=_identity(),
+        effective_session="2026-08-26",
+        input_sha256="d" * 64,
+        state={"cooldown_remaining_sessions": 1, "reentry_allowed": False},
+        previous_transition=first,
+    )
+
+    store.append(first)
+    store.append(accepted)
+
+    with pytest.raises(StrategyRiskStateChainError, match="advance"):
+        store.append(competing)
+    with pytest.raises(StrategyRiskStateChainError, match="current chain head"):
+        store.append(stale)
+
+
+def test_store_requires_a_root_before_a_child(tmp_path) -> None:
+    store = StrategyRiskStateStore(local_dir=tmp_path)
+    first = _transition(session="2026-08-24")
+    child = _transition(session="2026-08-25", previous=first)
+
+    with pytest.raises(StrategyRiskStateChainError, match="missing its referenced predecessor"):
+        store.append(child)
