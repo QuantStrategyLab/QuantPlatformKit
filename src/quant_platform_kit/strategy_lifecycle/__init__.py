@@ -21,6 +21,13 @@ from quant_platform_kit.strategy_lifecycle.benchmark_catalog import (
     build_strategy_benchmark_catalog,
     load_strategy_benchmark_catalog,
 )
+from quant_platform_kit.strategy_lifecycle.strategy_context_coverage import (
+    STRATEGY_CONTEXT_COVERAGE_CATALOG_SCHEMA,
+    StrategyContextCoverage,
+    StrategyContextCoverageError,
+    build_strategy_context_coverage_catalog,
+    load_strategy_context_coverage_catalog,
+)
 from quant_platform_kit.strategy_lifecycle.candidate_control import (
     PROMOTION_DECISION_SCHEMA_VERSION,
     RESEARCH_SOURCE_RECEIPT_SCHEMA_VERSION,
@@ -169,6 +176,9 @@ __all__ = [
     "STRATEGY_CANDIDATE_V2_SCHEMA_VERSION",
     "StrategyBenchmarkBinding",
     "StrategyBenchmarkCatalogError",
+    "STRATEGY_CONTEXT_COVERAGE_CATALOG_SCHEMA",
+    "StrategyContextCoverage",
+    "StrategyContextCoverageError",
     "DriftDimension",
     "DriftResult",
     "DriftStatus",
@@ -221,10 +231,12 @@ __all__ = [
     "RESEARCH_DRIVER_TERMINAL_STATUSES",
     "load_evidence_package",
     "load_strategy_benchmark_catalog",
+    "load_strategy_context_coverage_catalog",
     "canonical_evidence_package_v2_bytes",
     "read_evidence_package_v2_json",
     "build_live_candidate_notification",
     "build_strategy_benchmark_catalog",
+    "build_strategy_context_coverage_catalog",
     "assess_strategy_release_readiness",
     "build_forward_risk_terminal_artifact",
     "build_forward_observation_receipt",
