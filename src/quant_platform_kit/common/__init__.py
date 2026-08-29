@@ -111,6 +111,15 @@ from .execution_commands import (
     validate_execution_command_release_binding,
     validate_execution_command_transition,
 )
+from .strategy_risk_state import (
+    STRATEGY_RISK_STATE_TRANSITION_SCHEMA_VERSION,
+    StrategyRiskStateChainError,
+    StrategyRiskStateIdentity,
+    StrategyRiskStateTransition,
+    build_strategy_risk_state_transition,
+    validate_strategy_risk_state_chain,
+    validate_strategy_risk_state_transition,
+)
 from .runtime_command_gate import (
     RUNTIME_COMMAND_GATE_RECEIPT_SCHEMA_VERSION,
     RuntimeCommandAction,
@@ -389,6 +398,13 @@ __all__ = [
     "validate_execution_command_release_binding",
     "validate_capital_base",
     "validate_execution_command_transition",
+    "STRATEGY_RISK_STATE_TRANSITION_SCHEMA_VERSION",
+    "StrategyRiskStateChainError",
+    "StrategyRiskStateIdentity",
+    "StrategyRiskStateTransition",
+    "build_strategy_risk_state_transition",
+    "validate_strategy_risk_state_chain",
+    "validate_strategy_risk_state_transition",
     "RUNTIME_COMMAND_GATE_RECEIPT_SCHEMA_VERSION",
     "RuntimeCommandAction",
     "RuntimeCommandExposureEffect",
