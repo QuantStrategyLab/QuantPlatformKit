@@ -15,6 +15,8 @@ from quant_platform_kit.adaptive_allocation.contracts import (
     SelectionDecision,
     StrategyCandidate,
     _SHADOW_ELIGIBLE_STAGES,
+    _utc_iso,
+    canonical_sha256,
 )
 
 
@@ -34,18 +36,70 @@ def _global_rejections(
 def _healthy_platforms(
     candidate: StrategyCandidate,
     platform_health: dict[str, PlatformHealthSnapshot],
+    *,
+    created_at: datetime,
+    max_age_seconds: int,
 ) -> list[PlatformHealthSnapshot]:
     return sorted(
         (
             health
             for platform_id in candidate.allowed_platform_ids
             if (health := platform_health.get(platform_id)) is not None
+            and health.observed_at <= created_at
+            and (created_at - health.observed_at).total_seconds() <= max_age_seconds
             and health.healthy
             and health.shadow_capable
             and health.reconciliation_ok
         ),
         key=lambda item: (-item.capacity_score, item.expected_cost_bps, item.platform_id),
     )
+
+
+def _platform_health_age_rejections(
+    candidate: StrategyCandidate,
+    platform_health: dict[str, PlatformHealthSnapshot],
+    *,
+    created_at: datetime,
+    max_age_seconds: int,
+) -> tuple[str, ...]:
+    observations = [
+        platform_health[platform_id]
+        for platform_id in candidate.allowed_platform_ids
+        if platform_id in platform_health
+    ]
+    reasons: list[str] = []
+    if any(item.observed_at > created_at for item in observations):
+        reasons.append("platform_health_from_future")
+    if any(
+        item.observed_at <= created_at
+        and (created_at - item.observed_at).total_seconds() > max_age_seconds
+        for item in observations
+    ):
+        reasons.append("platform_health_stale")
+    return tuple(reasons)
+
+
+def _selection_input_digest(
+    *,
+    decision_id: str,
+    created_at: datetime,
+    market_context: MarketContextSnapshot,
+    candidates: tuple[StrategyCandidate, ...],
+    platform_health: tuple[PlatformHealthSnapshot, ...],
+    plugin_adjustments: tuple[PluginRiskAdjustment, ...],
+    policy: AdaptiveSelectionPolicy,
+) -> str:
+    payload = {
+        "schema": "qsl.selection_input.v1",
+        "decision_id": decision_id,
+        "created_at": _utc_iso(created_at, "created_at"),
+        "market_context": market_context.to_dict(),
+        "candidates": [item.to_dict() for item in candidates],
+        "platform_health": [item.to_dict() for item in platform_health],
+        "plugin_adjustments": [item.to_dict() for item in plugin_adjustments],
+        "policy": policy.to_dict(),
+    }
+    return canonical_sha256(payload)
 
 
 def select_shadow(
@@ -64,16 +118,24 @@ def select_shadow(
     versioned research pipeline.  This function intentionally has no market-data
     fetcher and does not infer financial features from narratives.  A
     ``shadow_candidate`` that is explicitly approved for Shadow may be ranked
-    so that P0 can produce a reviewable recommendation, but the result still
-    cannot start a Shadow runtime or authorize an order.
+    so that the control plane can produce a reviewable recommendation, but the
+    result still cannot start a Shadow runtime or authorize an order.
     """
 
-    health_by_platform = {item.platform_id: item for item in platform_health}
-    plugin_by_id = {item.plugin_id: item for item in plugin_adjustments}
+    effective_created_at = created_at or datetime.now(timezone.utc)
+    if effective_created_at.tzinfo is None or effective_created_at.utcoffset() is None:
+        raise ValueError("created_at must include a timezone")
+    normalized_candidates = tuple(
+        sorted(candidates, key=lambda item: (item.strategy_profile, item.release_digest))
+    )
+    normalized_health = tuple(sorted(platform_health, key=lambda item: item.platform_id))
+    normalized_plugins = tuple(sorted(plugin_adjustments, key=lambda item: item.plugin_id))
+    health_by_platform = {item.platform_id: item for item in normalized_health}
+    plugin_by_id = {item.plugin_id: item for item in normalized_plugins}
     global_rejections = _global_rejections(market_context, policy)
     decisions: list[CandidateDecision] = []
 
-    for candidate in sorted(candidates, key=lambda item: item.strategy_profile):
+    for candidate in normalized_candidates:
         reasons: list[str] = []
         risk_multiplier = 1.0
         reasons.extend(global_rejections)
@@ -89,7 +151,20 @@ def select_shadow(
             else:
                 risk_multiplier *= adjustment.risk_multiplier
 
-        eligible_platforms = _healthy_platforms(candidate, health_by_platform)
+        reasons.extend(
+            _platform_health_age_rejections(
+                candidate,
+                health_by_platform,
+                created_at=effective_created_at,
+                max_age_seconds=policy.max_platform_health_age_seconds,
+            )
+        )
+        eligible_platforms = _healthy_platforms(
+            candidate,
+            health_by_platform,
+            created_at=effective_created_at,
+            max_age_seconds=policy.max_platform_health_age_seconds,
+        )
         if not eligible_platforms:
             reasons.append("no_healthy_reconciled_shadow_platform")
 
@@ -124,12 +199,21 @@ def select_shadow(
     recommended = accepted[0] if accepted else None
     return SelectionDecision(
         decision_id=decision_id,
-        created_at=created_at or datetime.now(timezone.utc),
+        created_at=effective_created_at,
         market_context=market_context,
         policy_id=policy.policy_id,
         candidate_decisions=tuple(decisions),
         recommended_strategy_profile=recommended.strategy_profile if recommended else None,
         recommended_platform_id=recommended.selected_platform_id if recommended else None,
+        input_digest=_selection_input_digest(
+            decision_id=decision_id,
+            created_at=effective_created_at,
+            market_context=market_context,
+            candidates=normalized_candidates,
+            platform_health=normalized_health,
+            plugin_adjustments=normalized_plugins,
+            policy=policy,
+        ),
         authority=SHADOW_ONLY_AUTHORITY,
         no_order=True,
     )
