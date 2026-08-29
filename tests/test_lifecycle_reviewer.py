@@ -12,6 +12,8 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     OptimizationProposal,
 )
 from quant_platform_kit.strategy_lifecycle.ai_reviewer import (
+    AiReviewVerdict,
+    _resolve_multi_consensus,
     review_proposal,
     llm_enhanced_review,
 )
@@ -45,6 +47,52 @@ def _make_proposal(
 
 
 class AiReviewerTests(unittest.TestCase):
+
+    def test_candidate_readiness_requires_both_independent_reviewers(self) -> None:
+        proposal = _make_proposal()
+        base = review_proposal(proposal)
+        primary = AiReviewVerdict(
+            proposal=proposal,
+            verdict="approve",
+            overall_score=0.9,
+            dimensions=(),
+            summary="primary approves",
+            requires_human=True,
+            confidence=0.95,
+        )
+
+        result = _resolve_multi_consensus(proposal, base, primary, None, None)
+
+        self.assertEqual(result.verdict, "escalate")
+        self.assertEqual(result.recommended_action, "escalate")
+        self.assertIn("DUAL_REVIEW_INCOMPLETE", result.summary)
+
+    def test_two_independent_approvals_can_become_candidate_ready(self) -> None:
+        proposal = _make_proposal()
+        base = review_proposal(proposal)
+        primary = AiReviewVerdict(
+            proposal=proposal,
+            verdict="approve",
+            overall_score=0.9,
+            dimensions=(),
+            summary="primary approves",
+            requires_human=True,
+            confidence=0.95,
+        )
+        secondary = AiReviewVerdict(
+            proposal=proposal,
+            verdict="approve",
+            overall_score=0.8,
+            dimensions=(),
+            summary="secondary approves",
+            requires_human=True,
+            confidence=0.9,
+        )
+
+        result = _resolve_multi_consensus(proposal, base, primary, secondary, None)
+
+        self.assertEqual(result.verdict, "approve")
+        self.assertEqual(result.recommended_action, "candidate_ready")
 
     # ── Approve cases ─────────────────────────────────────────────
 
