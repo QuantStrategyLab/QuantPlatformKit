@@ -27,6 +27,7 @@ dev = [
 [project.scripts]
 quant-lifecycle = "quant_platform_kit.strategy_lifecycle.cli:main"
 quant-strategy-spec = "quant_platform_kit.strategy_spec.cli:main"
+quant-adaptive-selection = "quant_platform_kit.adaptive_allocation.cli:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

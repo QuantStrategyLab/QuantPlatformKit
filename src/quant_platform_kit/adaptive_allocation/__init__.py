@@ -14,6 +14,11 @@ from quant_platform_kit.adaptive_allocation.contracts import (
     StrategyCandidate,
 )
 from quant_platform_kit.adaptive_allocation.selector import select_shadow
+from quant_platform_kit.adaptive_allocation.io import (
+    SELECTION_INPUT_SCHEMA,
+    build_shadow_selection,
+    load_shadow_selection_input,
+)
 
 __all__ = [
     "AdaptiveSelectionPolicy",
@@ -22,5 +27,8 @@ __all__ = [
     "PluginRiskAdjustment",
     "SelectionDecision",
     "StrategyCandidate",
+    "SELECTION_INPUT_SCHEMA",
+    "build_shadow_selection",
+    "load_shadow_selection_input",
     "select_shadow",
 ]
