@@ -32,7 +32,8 @@ quant-adaptive-selection --input selection-input.json --output selection-decisio
 - 不读取新闻叙事并直接交易；因子必须来自版本化的数据链。
 - 数据过期、状态不明、置信度不足、插件未批准、平台未对账或不健康时 fail-closed。
 - 插件只能给出 `0..1` 的风险缩放，不能增加风险或提交订单。
-- 只有已获 Shadow 准入、并绑定 immutable release 的候选可以被排名。
+- 只有已获 Shadow 准入、并绑定 immutable release 的候选可以被排名；`shadow_candidate`
+  仅可得到“建议进入 Shadow”的零仓位结论，不能由此启动 runtime。
 - P0 不能改变平台、策略、插件挂载、仓位或调度器。
 
 后续 M1 才能把 Shadow 结论呈现给人工；M2/M3 还必须经过独立的 Paper、Canary、
