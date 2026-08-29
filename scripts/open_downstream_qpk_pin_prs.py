@@ -145,7 +145,7 @@ def update_drift_workflow_test_contract(
     original = path.read_text(encoding="utf-8")
     updated = original
     for previous_ref in sorted(previous_qpk_refs):
-        if previous_ref != qpk_sha:
+        if re.fullmatch(r"[a-f0-9]{40}", previous_ref) and previous_ref != qpk_sha:
             updated = updated.replace(previous_ref, qpk_sha)
     if updated == original:
         return False

@@ -224,7 +224,8 @@ override-dependencies = [
             contract = root / "tests" / "test_drift_workflow_config.py"
             contract.write_text(
                 f'QPK_REF = "{STALE}"\n'
-                f'assert "reusable-drift-check.yml@{STALE}" in workflow\n',
+                f'assert "reusable-drift-check.yml@{STALE}" in workflow\n'
+                'assert "unrelated" in workflow\n',
                 encoding="utf-8",
             )
 
