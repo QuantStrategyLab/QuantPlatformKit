@@ -13,14 +13,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from enum import Enum
+from pathlib import Path
 from typing import Any
 
 
 STRATEGY_RISK_STATE_TRANSITION_SCHEMA_VERSION = "strategy_risk_state_transition.v1"
+STRATEGY_RISK_STATE_STORE_SCHEMA_VERSION = "strategy_risk_state_store.v1"
+DEFAULT_STRATEGY_RISK_STATE_NAMESPACE = "strategy_risk_states"
 
 _SCOPED_IDENTIFIER_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -29,6 +35,13 @@ _MAX_STATE_JSON_BYTES = 8 * 1024
 
 class StrategyRiskStateChainError(ValueError):
     """Raised when a transition cannot be linked to its prior strategy state."""
+
+
+class StrategyRiskStateAppendStatus(str, Enum):
+    """The durable result of an append attempt."""
+
+    CREATED = "created"
+    ALREADY_APPENDED = "already_appended"
 
 
 def _scoped_identifier(value: object, *, field_name: str) -> str:
@@ -226,6 +239,27 @@ class StrategyRiskStateTransition:
         )
 
 
+@dataclass(frozen=True)
+class StrategyRiskStateAppendResult:
+    """One create-only append result, suitable for a redacted runtime receipt."""
+
+    status: StrategyRiskStateAppendStatus
+    transition: StrategyRiskStateTransition
+    chain_length: int
+
+    @property
+    def created(self) -> bool:
+        return self.status is StrategyRiskStateAppendStatus.CREATED
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status.value,
+            "transition_sha256": self.transition.transition_sha256,
+            "effective_session": self.transition.effective_session,
+            "chain_length": self.chain_length,
+        }
+
+
 def build_strategy_risk_state_transition(
     *,
     identity: StrategyRiskStateIdentity | Mapping[str, object],
@@ -307,12 +341,208 @@ def validate_strategy_risk_state_chain(
         prior = transition
 
 
+@dataclass(frozen=True)
+class StrategyRiskStateStore:
+    """A create-only, single-writer chain store for strategy-owned risk state.
+
+    The storage layout holds the root at a deterministic identity location and
+    every successor at the *prior transition digest* location.  This is an
+    important concurrency property: two writers racing to append to the same
+    head contend for exactly one create-only object.  One writer wins; the
+    other receives a conflict and must fail closed.  No mutable "latest" file,
+    broker state, or execution-command storage is used.
+    """
+
+    local_dir: str | Path | None = None
+    cloud_prefix_uri: str | None = None
+    project_id: str | None = None
+    namespace: str = DEFAULT_STRATEGY_RISK_STATE_NAMESPACE
+    object_store: Any = None
+
+    def load_chain(self, identity: StrategyRiskStateIdentity | Mapping[str, object]) -> tuple[StrategyRiskStateTransition, ...]:
+        """Read and validate the sole successor path for one immutable identity."""
+
+        normalized_identity = self._identity(identity)
+        root_location = self._root_location(normalized_identity)
+        if not self._exists(root_location):
+            return ()
+        root = self._read_transition(root_location)
+        if root.identity != normalized_identity or root.previous_transition_sha256 is not None:
+            raise StrategyRiskStateChainError("risk-state root does not match its chain identity")
+
+        transitions = [root]
+        seen_digests = {root.transition_sha256}
+        while True:
+            successor_location = self._successor_location(normalized_identity, transitions[-1].transition_sha256)
+            if not self._exists(successor_location):
+                break
+            successor = self._read_transition(successor_location)
+            if successor.transition_sha256 in seen_digests:
+                raise StrategyRiskStateChainError("risk-state chain contains a successor cycle")
+            validate_strategy_risk_state_chain([*transitions, successor])
+            transitions.append(successor)
+            seen_digests.add(successor.transition_sha256)
+        return tuple(transitions)
+
+    def append(self, transition: StrategyRiskStateTransition) -> StrategyRiskStateAppendResult:
+        """Append a transition exactly once, rejecting stale or competing writers."""
+
+        if not isinstance(transition, StrategyRiskStateTransition):
+            raise TypeError("transition must be a StrategyRiskStateTransition")
+        chain = self.load_chain(transition.identity)
+        if any(item.transition_sha256 == transition.transition_sha256 for item in chain):
+            return StrategyRiskStateAppendResult(
+                status=StrategyRiskStateAppendStatus.ALREADY_APPENDED,
+                transition=transition,
+                chain_length=len(chain),
+            )
+        if not chain:
+            if transition.previous_transition_sha256 is not None:
+                raise StrategyRiskStateChainError("risk-state chain is missing its referenced predecessor")
+            location = self._root_location(transition.identity)
+        else:
+            head = chain[-1]
+            validate_strategy_risk_state_transition(
+                head,
+                identity=transition.identity,
+                effective_session=transition.effective_session,
+            )
+            if transition.previous_transition_sha256 != head.transition_sha256:
+                raise StrategyRiskStateChainError("risk-state transition does not extend the current chain head")
+            location = self._successor_location(transition.identity, head.transition_sha256)
+
+        serialized = json.dumps(transition.to_dict(), ensure_ascii=False, indent=2, sort_keys=True)
+        if self._create_text(location, serialized):
+            return StrategyRiskStateAppendResult(
+                status=StrategyRiskStateAppendStatus.CREATED,
+                transition=transition,
+                chain_length=len(chain) + 1,
+            )
+        existing = self._read_transition(location)
+        if existing == transition:
+            return StrategyRiskStateAppendResult(
+                status=StrategyRiskStateAppendStatus.ALREADY_APPENDED,
+                transition=transition,
+                chain_length=len(chain) + (0 if chain else 1),
+            )
+        raise StrategyRiskStateChainError("risk-state append conflicts with an already-recorded successor")
+
+    def _identity(self, value: StrategyRiskStateIdentity | Mapping[str, object]) -> StrategyRiskStateIdentity:
+        return value if isinstance(value, StrategyRiskStateIdentity) else StrategyRiskStateIdentity.from_dict(value)
+
+    def _chain_id(self, identity: StrategyRiskStateIdentity) -> str:
+        canonical = json.dumps(identity.to_dict(), ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _root_location(self, identity: StrategyRiskStateIdentity) -> str | Path:
+        return self._location(identity, "root.json")
+
+    def _successor_location(self, identity: StrategyRiskStateIdentity, previous_transition_sha256: str) -> str | Path:
+        previous = _sha256(previous_transition_sha256, field_name="previous_transition_sha256")
+        return self._location(identity, "successors", f"{previous}.json")
+
+    def _location(self, identity: StrategyRiskStateIdentity, *parts: str) -> str | Path:
+        chain_id = self._chain_id(identity)
+        if self.cloud_prefix_uri:
+            root = str(self.cloud_prefix_uri).rstrip("/")
+            return "/".join(
+                (
+                    root,
+                    self.namespace,
+                    STRATEGY_RISK_STATE_STORE_SCHEMA_VERSION,
+                    chain_id,
+                    *parts,
+                )
+            )
+        if self.local_dir:
+            return Path(self.local_dir) / self.namespace / STRATEGY_RISK_STATE_STORE_SCHEMA_VERSION / chain_id / Path(*parts)
+        raise RuntimeError("strategy risk state store has no durable backend")
+
+    def _exists(self, location: str | Path) -> bool:
+        if self.cloud_prefix_uri:
+            store = self.object_store or self._object_store()
+            exists = getattr(store, "exists", None)
+            if not callable(exists):
+                raise RuntimeError("cloud strategy risk state store lacks exists support")
+            return bool(exists(str(location)))
+        return Path(location).exists()
+
+    def _create_text(self, location: str | Path, data: str) -> bool:
+        if self.cloud_prefix_uri:
+            store = self.object_store or self._object_store()
+            create = getattr(store, "create_text", None)
+            if not callable(create):
+                raise RuntimeError("cloud strategy risk state store lacks atomic create-only support")
+            return bool(create(str(location), data, "application/json"))
+        path = Path(location)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = path.parent / f".{path.name}.{uuid.uuid4().hex}.tmp"
+        try:
+            fd = os.open(temporary_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            try:
+                os.link(temporary_path, path)
+            except FileExistsError:
+                return False
+            return True
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    def _read_transition(self, location: str | Path) -> StrategyRiskStateTransition:
+        try:
+            if self.cloud_prefix_uri:
+                raw = (self.object_store or self._object_store()).read_text(str(location))
+            else:
+                raw = Path(location).read_text(encoding="utf-8")
+            parsed = json.loads(raw)
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise StrategyRiskStateChainError("risk-state storage contains an unreadable transition") from exc
+        if not isinstance(parsed, Mapping):
+            raise StrategyRiskStateChainError("risk-state storage transition is not an object")
+        try:
+            return StrategyRiskStateTransition.from_dict(parsed)
+        except ValueError as exc:
+            raise StrategyRiskStateChainError("risk-state storage transition is invalid") from exc
+
+    def _object_store(self):
+        try:
+            from quant_platform_kit.cloud import get_object_store
+        except ImportError as exc:
+            raise RuntimeError("quant_platform_kit.cloud is required for cloud strategy risk state") from exc
+        return get_object_store(project_id=self.project_id)
+
+
+def build_strategy_risk_state_store_from_env(
+    *,
+    platform_env_prefix: str,
+    env_reader,
+    project_id: str | None = None,
+) -> StrategyRiskStateStore:
+    """Build a dedicated store; no command queue URI is ever reused."""
+
+    prefix = _scoped_identifier(platform_env_prefix, field_name="platform_env_prefix").upper()
+    return StrategyRiskStateStore(
+        local_dir=env_reader(f"{prefix}_STRATEGY_RISK_STATE_DIR", None),
+        cloud_prefix_uri=env_reader(f"{prefix}_STRATEGY_RISK_STATE_CLOUD_URI", None),
+        project_id=project_id,
+    )
+
+
 __all__ = [
+    "DEFAULT_STRATEGY_RISK_STATE_NAMESPACE",
     "STRATEGY_RISK_STATE_TRANSITION_SCHEMA_VERSION",
+    "STRATEGY_RISK_STATE_STORE_SCHEMA_VERSION",
+    "StrategyRiskStateAppendResult",
+    "StrategyRiskStateAppendStatus",
     "StrategyRiskStateChainError",
     "StrategyRiskStateIdentity",
+    "StrategyRiskStateStore",
     "StrategyRiskStateTransition",
     "build_strategy_risk_state_transition",
+    "build_strategy_risk_state_store_from_env",
     "validate_strategy_risk_state_chain",
     "validate_strategy_risk_state_transition",
 ]
