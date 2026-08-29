@@ -142,6 +142,7 @@ class RegimeDetector:
     VOL_PERCENTILE_STRESS = 0.90      # vol above 90th %ile → stress
     CORR_PERCENTILE_STRESS = 0.85     # correlation above 85th %ile → stress
     MIN_HISTORY_DAYS = 252            # minimum history for percentile calculation
+    CORRELATION_WINDOW_DAYS = 60
 
     def __init__(self, *, benchmark_returns: pd.Series | None = None):
         self._benchmark = normalize_return_series(benchmark_returns) if benchmark_returns is not None else None
@@ -229,14 +230,23 @@ class RegimeDetector:
         benchmark: pd.Series,
         universe: pd.DataFrame | None,
     ) -> tuple[float, float]:
-        """Compute average pairwise correlation from a universe of returns."""
+        """Compute average pairwise correlation and its rolling-history percentile.
+
+        A correlation value is not itself a percentile: mapping ``[-1, 1]`` to
+        ``[0, 1]`` conflates high absolute correlation with correlation that is
+        unusually high for this universe.  We instead compare the current
+        60-day average pairwise correlation against the historical sequence of
+        equivalent 60-day observations.  The method deliberately returns the
+        neutral fallback when there is less than one full year of aligned
+        history, rather than manufacturing precision from a short sample.
+        """
         if universe is None or universe.empty:
             return float("nan"), 0.5
 
         frame = pd.DataFrame(universe).copy()
         # Align with benchmark
-        common = frame.index.intersection(benchmark.index)
-        if len(common) < 20:
+        common = frame.index.intersection(benchmark.index).sort_values()
+        if len(common) < self.MIN_HISTORY_DAYS:
             return float("nan"), 0.5
 
         # Use up to 10 columns to keep it cheap
@@ -244,24 +254,30 @@ class RegimeDetector:
         if len(cols) < 3:
             return float("nan"), 0.5
 
-        # 60-day rolling correlation
-        corr_matrix = frame[cols].tail(60).corr()
-        # Average of lower triangle (excluding diagonal)
-        n = len(cols)
-        if n < 2:
+        aligned = frame.loc[common, cols]
+        rolling_averages = []
+        for end in range(self.CORRELATION_WINDOW_DAYS, len(aligned) + 1):
+            average = self._average_pairwise_correlation(
+                aligned.iloc[end - self.CORRELATION_WINDOW_DAYS:end]
+            )
+            if np.isfinite(average):
+                rolling_averages.append(average)
+
+        if not rolling_averages:
             return float("nan"), 0.5
 
-        values = []
-        for i in range(n):
-            for j in range(i + 1, n):
-                values.append(corr_matrix.iloc[i, j])
+        average = rolling_averages[-1]
+        history = np.asarray(rolling_averages, dtype=float)
+        percentile = float((history < average).mean())
+        return average, percentile
 
-        avg = float(np.mean(values)) if values else float("nan")
-
-        # Simple percentile: 0.5 is the default "normal"
-        corr_percentile = min(max((avg + 1.0) / 2.0, 0.0), 1.0)  # map [-1,1] → [0,1]
-
-        return avg, corr_percentile
+    @staticmethod
+    def _average_pairwise_correlation(frame: pd.DataFrame) -> float:
+        """Return the finite lower-triangle mean of a correlation matrix."""
+        corr_matrix = frame.corr()
+        values = corr_matrix.to_numpy()[np.tril_indices(len(corr_matrix), k=-1)]
+        finite_values = values[np.isfinite(values)]
+        return float(np.mean(finite_values)) if len(finite_values) else float("nan")
 
 
 # ── Convenience factory ──────────────────────────────────────────────
