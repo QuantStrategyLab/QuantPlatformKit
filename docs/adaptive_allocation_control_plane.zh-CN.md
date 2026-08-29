@@ -14,6 +14,19 @@ P0 提供统一、只读的 Shadow 决策记录，不提供交易授权。它解
 输出为 `qsl.selection_decision.v1`，完整保存候选、拒绝原因、平台选择、策略分数和
 输入摘要。输出固定为 `authority=shadow_only`、`no_order=true` 且所有建议权重为零。
 
+## 通用接入边界
+
+任何策略仓库或平台仓库都可以向 `quant-adaptive-selection` 提交
+`qsl.selection_input.v1` JSON，并得到可保存、可回放的决策工件：
+
+```bash
+quant-adaptive-selection --input selection-input.json --output selection-decision.json
+```
+
+输入必须提供带时区的平台健康快照、版本化市场上下文、不可变候选 release、插件风险
+缩放和冻结策略。命令不接受 broker 凭据、运行时目标或下单参数；输出文件仅是 JSON
+工件，不会修改平台或调度器。
+
 ## 固定边界
 
 - 不读取新闻叙事并直接交易；因子必须来自版本化的数据链。
