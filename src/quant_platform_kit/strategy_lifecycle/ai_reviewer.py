@@ -179,13 +179,6 @@ def llm_enhanced_review(
     claude = _parse_reviewer_result(proposal, results, _PRIMARY_LLM)
     gpt = _parse_reviewer_result(proposal, results, _SECONDARY_LLM)
 
-    # Claude confident → early return
-    if claude and claude.verdict in ("approve", "reject"):
-        return AiReviewVerdict(proposal=proposal, verdict=claude.verdict,
-            overall_score=claude.overall_score, dimensions=base.dimensions,
-            summary=f"[{_PRIMARY_LLM}] {claude.summary}",
-            requires_human=claude.verdict == "approve")
-
     # L4: Codex VPS execution verification
     codex = None
     if client.config.verifier is not None:
@@ -208,14 +201,10 @@ def _resolve_multi_consensus(
     """Confidence-driven consensus resolution.
 
     Decision logic (ordered):
-    1. No AI available → escalate
-    2. Unanimous approve + avg confidence ≥ 0.85 → candidate-ready (human decision required)
-    3. Unanimous approve + avg confidence ≥ 0.60 → candidate-ready (human decision required)
-    4. Unanimous reject + avg confidence ≥ 0.85 → reject
-    5. Codex VERIFIED + LLMs approve + avg confidence ≥ 0.70 → approve
-    6. Codex MISMATCH → reject
-    7. Single LLM approve + confidence ≥ 0.85 → approve
-    8. Otherwise → escalate
+    Promotion rule: both independent LLM reviewers must complete and approve.
+    Codex is an optional additional execution verifier, never a substitute for
+    either reviewer.  A missing reviewer or any disagreement is fail-closed for
+    candidate readiness.
     """
     verdicts: list[tuple[str, AiReviewVerdict]] = []
     for l, v in [(_PRIMARY_LLM, claude), (_SECONDARY_LLM, gpt), (_CODEX_VPS, codex)]:
@@ -225,6 +214,26 @@ def _resolve_multi_consensus(
         return AiReviewVerdict(proposal=proposal, verdict="escalate", overall_score=base.overall_score,
             dimensions=base.dimensions, summary="No AI available. " + base.summary,
             requires_human=True, confidence=0.0)
+
+    missing_independent_reviewers = [
+        label
+        for label, verdict in [(_PRIMARY_LLM, claude), (_SECONDARY_LLM, gpt)]
+        if verdict is None
+    ]
+    if missing_independent_reviewers:
+        return AiReviewVerdict(
+            proposal=proposal,
+            verdict="escalate",
+            overall_score=base.overall_score,
+            dimensions=base.dimensions,
+            summary=(
+                "[DUAL_REVIEW_INCOMPLETE] missing independent reviewer(s): "
+                + ", ".join(missing_independent_reviewers)
+            ),
+            requires_human=True,
+            confidence=0.0,
+            recommended_action="escalate",
+        )
 
     apps = [l for l, v in verdicts if v.verdict == "approve"]
     rejs = [l for l, v in verdicts if v.verdict == "reject"]
@@ -274,14 +283,6 @@ def _resolve_multi_consensus(
                 dimensions=base.dimensions,
                 summary=f"[{_CODEX_VPS} verified] {', '.join(apps)} approve (conf={avg_conf:.0%}).",
                 requires_human=True, confidence=avg_conf, recommended_action="candidate_ready")
-
-    # Single LLM with high confidence
-    if len(verdicts) == 1 and not codex:
-        sl, sv = verdicts[0]
-        if sv.verdict == "approve" and sv.confidence >= 0.85:
-            return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=sv.overall_score,
-                dimensions=base.dimensions, summary=f"[Single: {sl}] high confidence={sv.confidence:.0%}",
-                requires_human=True, confidence=sv.confidence, recommended_action="candidate_ready")
 
     # Disagreement → escalate
     detail = "; ".join(f"{l}={v.verdict}(c={v.confidence:.0%})" for l, v in verdicts)
