@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from quant_platform_kit.common.broker_reconciliation import build_broker_reconciliation_evidence
 from quant_platform_kit.common.broker_reconciliation_enrollment import evaluate_broker_reconciliation_baseline_enrollment
 from quant_platform_kit.common.reconciliation_recovery import (
@@ -9,6 +11,7 @@ from quant_platform_kit.common.reconciliation_recovery import (
     ReconciliationRecoveryConfirmation,
     ReconciliationRecoveryDualReview,
     ReconciliationRecoverySourceSnapshot,
+    ReconciliationRecoveryTransitionPlan,
     build_reconciliation_recovery_record,
     calculate_reconciliation_recovery_confirmation_sha256,
     evaluate_reconciliation_recovery_activation,
@@ -170,3 +173,57 @@ def test_activation_keeps_target_frozen_when_current_broker_state_drifts() -> No
 
     assert result.ready_for_atomic_state_transition is False
     assert "broker_reconciliation_cash_mismatch" in result.findings
+
+
+def test_transition_plan_round_trip_requires_every_non_executable_guard() -> None:
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    candidate = _candidate(start)
+    confirmation = _confirmation(candidate_sha256=candidate.candidate_sha256, confirmed_at=start + timedelta(minutes=3))
+    result = evaluate_reconciliation_recovery_activation(
+        recovery_id="ibkr-soxl-live-recovery",
+        candidate=candidate,
+        confirmation=confirmation,
+        current_evidence=_evidence(observed_at=start + timedelta(minutes=4), reconciled=True),
+        current_live_continuity_state="RECONCILE_ONLY",
+        dual_review_binding_reverified=True,
+        now=start + timedelta(minutes=5),
+    )
+    assert result.transition_plan is not None
+
+    payload = result.transition_plan.to_dict()
+    decoded = ReconciliationRecoveryTransitionPlan.from_dict(payload)
+
+    assert decoded == result.transition_plan
+    assert decoded.to_dict() == payload
+
+    payload.pop("requires_atomic_compare_and_set")
+    with pytest.raises(ValueError, match="invalid fields"):
+        ReconciliationRecoveryTransitionPlan.from_dict(payload)
+
+
+def test_transition_plan_decoder_rejects_extra_or_executable_fields() -> None:
+    plan = ReconciliationRecoveryTransitionPlan(
+        recovery_id="ibkr-soxl-live-recovery",
+        candidate_sha256=_digest("a"),
+        confirmation_sha256=_digest("b"),
+        baseline_id="soxl-ibkr-lkg-20260830",
+        baseline_target_sha256=_digest("c"),
+        expected_digests={
+            "positions_sha256": _digest("d"),
+            "cash_sha256": _digest("e"),
+            "open_orders_sha256": _digest("f"),
+            "recent_executions_sha256": _digest("0"),
+            "local_execution_ledger_sha256": _digest("1"),
+        },
+        verified_at=datetime(2026, 8, 30, 8, 5, tzinfo=timezone.utc),
+    )
+    payload = plan.to_dict()
+    payload["unexpected"] = True
+
+    with pytest.raises(ValueError, match="invalid fields"):
+        ReconciliationRecoveryTransitionPlan.from_dict(payload)
+
+    payload = plan.to_dict()
+    payload["execution_authority_granted"] = True
+    with pytest.raises(ValueError, match="must remain non-executable and atomic"):
+        ReconciliationRecoveryTransitionPlan.from_dict(payload)

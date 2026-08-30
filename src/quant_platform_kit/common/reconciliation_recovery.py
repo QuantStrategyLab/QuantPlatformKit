@@ -344,6 +344,35 @@ class ReconciliationRecoveryTransitionPlan:
         payload["expected_digests"] = dict(self.expected_digests)
         return payload
 
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> "ReconciliationRecoveryTransitionPlan":
+        """Decode one complete, non-executable recovery transition plan.
+
+        State-transition adapters consume plans across a persistence boundary,
+        so accepting a partial mapping here would let an omitted guard silently
+        fall back to a dataclass default.  Keep the wire representation exact
+        and let ``__post_init__`` validate every value.
+        """
+
+        required = {
+            "schema_version",
+            "recovery_id",
+            "candidate_sha256",
+            "confirmation_sha256",
+            "baseline_id",
+            "baseline_target_sha256",
+            "expected_digests",
+            "verified_at",
+            "expected_live_continuity_state",
+            "next_live_continuity_state",
+            "no_order",
+            "execution_authority_granted",
+            "requires_atomic_compare_and_set",
+        }
+        if not isinstance(value, Mapping) or set(value) != required:
+            raise ValueError("reconciliation recovery transition plan has invalid fields")
+        return cls(**dict(value))
+
 
 @dataclass(frozen=True)
 class ReconciliationRecoveryActivationEvaluation:
