@@ -203,6 +203,18 @@ from .broker_reconciliation import (
     canonical_broker_reconciliation_evidence_json,
     evaluate_broker_reconciliation_recovery,
 )
+from .broker_reconciliation_enrollment import (
+    BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION,
+    DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_AGE,
+    DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_SPAN,
+    DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MIN_SEPARATION,
+    BrokerReconciliationBaselineCandidate,
+    BrokerReconciliationEnrollmentEvaluation,
+    BrokerReconciliationEnrollmentFinding,
+    calculate_broker_reconciliation_baseline_candidate_sha256,
+    canonical_broker_reconciliation_baseline_candidate_json,
+    evaluate_broker_reconciliation_baseline_enrollment,
+)
 from .strategy_release import (
     RUNTIME_LOADED_RECEIPT_SCHEMA_VERSION,
     STRATEGY_RELEASE_MANIFEST_SCHEMA_VERSION,
