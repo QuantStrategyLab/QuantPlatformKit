@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import tempfile
@@ -16,6 +17,8 @@ from typing import Any
 DEFAULT_EXECUTION_STATE_DIR = "/tmp/quant_execution_state"
 DEFAULT_EXECUTION_STATE_NAMESPACE = "execution_markers"
 DEFAULT_EXECUTION_OUTCOME_NAMESPACE = "execution_outcomes"
+EXECUTION_LEDGER_DIGEST_SCHEMA_VERSION = "execution_ledger_digest.v1"
+DEFAULT_EXECUTION_LEDGER_DIGEST_RECORD_LIMIT = 256
 
 
 def _first_non_empty(*values: object) -> str:
@@ -300,6 +303,99 @@ class ExecutionMarkerStore:
                 return True
         return False
 
+    def calculate_recent_ledger_digest(
+        self,
+        *,
+        platform: str,
+        strategy_profile: str,
+        account_scope: str,
+        execution_mode: str,
+        record_limit: int = DEFAULT_EXECUTION_LEDGER_DIGEST_RECORD_LIMIT,
+    ) -> tuple[str, int]:
+        """Hash recent durable claims/outcomes without exposing their contents.
+
+        A continuity reconciler needs a repeatable representation of the local
+        idempotency ledger, but may not put marker names, accounts, order
+        metadata, or execution reports in a public receipt.  This method reads
+        the durable ledger scoped to one platform/profile/account/mode and
+        returns only ``(sha256, record_count)``.  It uses the newest bounded
+        records because the recovery contract reconciles the current operating
+        window, not an unbounded historical archive.
+
+        Read failures are intentionally propagated.  A caller must treat them
+        as an unmatched local ledger and keep a live baseline frozen.
+        """
+
+        try:
+            normalized_limit = int(record_limit)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("record_limit must be a positive integer") from exc
+        if normalized_limit <= 0:
+            raise ValueError("record_limit must be a positive integer")
+
+        relative_prefix = "/".join(
+            (
+                "v1",
+                _clean_key_part(platform, fallback="platform"),
+                _clean_key_part(account_scope, fallback="account"),
+                _clean_key_part(strategy_profile, fallback="strategy"),
+                _clean_key_part(execution_mode, fallback="mode"),
+            )
+        )
+        records: list[dict[str, str]] = []
+        for namespace in (self.namespace, self.outcome_namespace):
+            entries = self._recent_ledger_entries(
+                namespace=namespace,
+                relative_prefix=relative_prefix,
+                record_limit=normalized_limit,
+            )
+            records.extend(
+                {
+                    "namespace": namespace,
+                    "object_sha256": hashlib.sha256(uri.encode("utf-8")).hexdigest(),
+                    "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                }
+                for uri, content in entries
+            )
+        payload = json.dumps(
+            {
+                "schema_version": EXECUTION_LEDGER_DIGEST_SCHEMA_VERSION,
+                "records": sorted(
+                    records,
+                    key=lambda item: (
+                        item["namespace"],
+                        item["object_sha256"],
+                        item["content_sha256"],
+                    ),
+                ),
+            },
+            ensure_ascii=True,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest(), len(records)
+
+    def _recent_ledger_entries(
+        self,
+        *,
+        namespace: str,
+        relative_prefix: str,
+        record_limit: int,
+    ) -> list[tuple[str, str]]:
+        if self.cloud_prefix_uri:
+            object_store = self._object_store()
+            prefix_uri = self._cloud_prefix_for_namespace(relative_prefix, namespace)
+            uris = sorted(str(uri) for uri in object_store.list(prefix_uri))
+            selected_uris = uris[-record_limit:]
+            return [(uri, object_store.read_text(uri)) for uri in selected_uris]
+        if self.local_dir:
+            root = Path(self.local_dir).expanduser() / namespace / _clean_relative_key(relative_prefix)
+            paths = sorted(path for path in root.rglob("*.json") if path.is_file())
+            selected_paths = paths[-record_limit:]
+            return [(str(path), path.read_text(encoding="utf-8")) for path in selected_paths]
+        raise RuntimeError("execution state store has no durable ledger backend")
+
     def _local_path(self, marker_key: str) -> Path:
         root = Path(self.local_dir or tempfile.gettempdir()).expanduser()
         return root / self.namespace / f"{_clean_relative_key(marker_key)}.json"
@@ -326,6 +422,19 @@ class ExecutionMarkerStore:
             if part and part.strip("/")
         )
         return f"gs://{bucket_name}/{object_name}"
+
+    def _cloud_prefix_for_namespace(self, marker_key: str, namespace: str) -> str:
+        bucket_name, prefix = _parse_cloud_uri(str(self.cloud_prefix_uri or ""))
+        object_name = "/".join(
+            part.strip("/")
+            for part in (
+                prefix,
+                namespace,
+                _clean_relative_key(marker_key),
+            )
+            if part and part.strip("/")
+        )
+        return f"gs://{bucket_name}/{object_name}/"
 
     def _object_store(self):
         try:
