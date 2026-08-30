@@ -140,6 +140,18 @@ def test_activation_requires_post_confirmation_evidence_and_independent_dual_rec
     assert ReconciliationRecoveryActivationFinding.EVIDENCE_NOT_REOBSERVED_AFTER_CONFIRMATION.value in stale_receipt.findings
     assert ReconciliationRecoveryActivationFinding.DUAL_REVIEW_NOT_REVERIFIED.value in stale_receipt.findings
 
+    same_second_receipt = evaluate_reconciliation_recovery_activation(
+        recovery_id="ibkr-soxl-live-recovery",
+        candidate=candidate,
+        confirmation=confirmation,
+        current_evidence=_evidence(observed_at=start + timedelta(minutes=3), reconciled=True),
+        current_live_continuity_state="RECONCILE_ONLY",
+        dual_review_binding_reverified=True,
+        now=start + timedelta(minutes=5),
+    )
+    assert same_second_receipt.ready_for_atomic_state_transition is False
+    assert ReconciliationRecoveryActivationFinding.EVIDENCE_NOT_REOBSERVED_AFTER_CONFIRMATION.value in same_second_receipt.findings
+
 
 def test_activation_keeps_target_frozen_when_current_broker_state_drifts() -> None:
     start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
