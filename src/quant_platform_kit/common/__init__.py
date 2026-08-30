@@ -186,6 +186,18 @@ from .live_continuity import (
     runtime_target_permits_standard_execution,
     runtime_target_fingerprint,
 )
+from .broker_reconciliation import (
+    BROKER_RECONCILIATION_EVIDENCE_SCHEMA_VERSION,
+    DEFAULT_BROKER_RECONCILIATION_MAX_AGE,
+    BrokerReconciliationEvidence,
+    BrokerReconciliationFinding,
+    build_broker_reconciliation_evidence,
+    calculate_broker_observation_sha256,
+    calculate_broker_reconciliation_evidence_sha256,
+    canonical_broker_observation_json,
+    canonical_broker_reconciliation_evidence_json,
+    evaluate_broker_reconciliation_recovery,
+)
 from .strategy_release import (
     RUNTIME_LOADED_RECEIPT_SCHEMA_VERSION,
     STRATEGY_RELEASE_MANIFEST_SCHEMA_VERSION,
@@ -403,6 +415,16 @@ __all__ = [
     "build_live_continuity",
     "runtime_target_permits_standard_execution",
     "runtime_target_fingerprint",
+    "BROKER_RECONCILIATION_EVIDENCE_SCHEMA_VERSION",
+    "DEFAULT_BROKER_RECONCILIATION_MAX_AGE",
+    "BrokerReconciliationEvidence",
+    "BrokerReconciliationFinding",
+    "build_broker_reconciliation_evidence",
+    "calculate_broker_observation_sha256",
+    "calculate_broker_reconciliation_evidence_sha256",
+    "canonical_broker_observation_json",
+    "canonical_broker_reconciliation_evidence_json",
+    "evaluate_broker_reconciliation_recovery",
     "resolve_cloud_artifact_reference",
     "resolve_gcs_artifact_reference",  # deprecated
     "should_alert_strategy_plugin_signal",
