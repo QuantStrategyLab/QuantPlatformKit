@@ -70,9 +70,11 @@ from .execution_receipts import (
     EXECUTION_RECEIPT_OUTCOMES,
     EXECUTION_RECEIPT_SCHEMA_VERSION,
     attach_execution_receipt,
+    attach_runtime_execution_receipt,
     build_execution_receipt,
     calculate_execution_receipt_sha256,
     canonical_execution_receipt_json,
+    resolve_execution_receipt_fact,
     validate_execution_receipt,
 )
 from .account_identity import (
@@ -403,9 +405,11 @@ __all__ = [
     "TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES",
     "filter_execution_blocking_skips",
     "attach_execution_receipt",
+    "attach_runtime_execution_receipt",
     "build_execution_receipt",
     "calculate_execution_receipt_sha256",
     "canonical_execution_receipt_json",
+    "resolve_execution_receipt_fact",
     "is_funding_block",
     "is_retryable_strategy_run_stage",
     "is_terminal_funding_block",

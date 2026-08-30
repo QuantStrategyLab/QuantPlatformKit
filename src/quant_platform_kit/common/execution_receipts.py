@@ -184,6 +184,80 @@ def attach_execution_receipt(
     return runtime_report
 
 
+def attach_runtime_execution_receipt(
+    runtime_report: dict[str, Any],
+    *,
+    outcome: object,
+    broker_confirmation: object | None = None,
+    observed_at: datetime | str | None = None,
+) -> dict[str, Any]:
+    """Build and attach a receipt from an already-attested runtime report.
+
+    This is deliberately only a binding helper: each platform remains
+    responsible for deriving ``outcome`` from facts it has actually observed.
+    It does not inspect an order payload, call a broker, or infer a fill from a
+    submission. Reusing the report's attested identity prevents platform
+    adapters from duplicating release-revision extraction inconsistently.
+    """
+
+    if not isinstance(runtime_report, dict):
+        raise ValueError("runtime_report must be a dictionary")
+    target = runtime_report.get("runtime_target")
+    runtime_loaded = runtime_report.get("runtime_release_receipt")
+    target_mapping = target if isinstance(target, Mapping) else {}
+    strategy_release = runtime_loaded.get("strategy_release") if isinstance(runtime_loaded, Mapping) else None
+    strategy_release_mapping = strategy_release if isinstance(strategy_release, Mapping) else {}
+    receipt = build_execution_receipt(
+        platform=runtime_report.get("platform"),
+        strategy_profile=runtime_report.get("strategy_profile"),
+        strategy_revision=strategy_release_mapping.get("strategy_revision"),
+        execution_mode=target_mapping.get("execution_mode"),
+        outcome=outcome,
+        broker_confirmation=broker_confirmation,
+        observed_at=observed_at,
+    )
+    return attach_execution_receipt(runtime_report, receipt)
+
+
+def resolve_execution_receipt_fact(
+    *,
+    dry_run: bool,
+    submission_attempted: bool = False,
+    broker_acknowledged: bool = False,
+    partially_filled: bool = False,
+    filled: bool = False,
+    reconciliation_required: bool = False,
+    risk_blocked: bool = False,
+    failed: bool = False,
+) -> tuple[str, str]:
+    """Translate explicit execution observations into one safe receipt fact.
+
+    The caller must pass only facts it can evidence.  In particular, setting
+    ``submission_attempted`` never produces an acknowledgement or fill.  A
+    failed broker-facing operation stays ``not_observed`` until reconciliation
+    establishes a more specific state.  The return values are accepted by
+    :func:`attach_runtime_execution_receipt`.
+    """
+
+    if dry_run:
+        return "no_action", "not_applicable"
+    if reconciliation_required:
+        return "reconciliation_required", "reconciliation_required"
+    if filled:
+        return "filled", "filled"
+    if partially_filled:
+        return "partially_filled", "partially_filled"
+    if broker_acknowledged:
+        return "broker_acknowledged", "acknowledged"
+    if failed:
+        return "failed", "not_observed" if submission_attempted else "not_applicable"
+    if submission_attempted:
+        return "submitted", "not_observed"
+    if risk_blocked:
+        return "risk_blocked", "not_applicable"
+    return "no_action", "not_applicable"
+
+
 def canonical_execution_receipt_json(value: Mapping[str, Any] | object) -> str:
     """Return the deterministic JSON form used to calculate a receipt digest."""
 
@@ -280,8 +354,10 @@ __all__ = [
     "EXECUTION_RECEIPT_OUTCOMES",
     "EXECUTION_RECEIPT_BROKER_CONFIRMATIONS",
     "attach_execution_receipt",
+    "attach_runtime_execution_receipt",
     "build_execution_receipt",
     "calculate_execution_receipt_sha256",
     "canonical_execution_receipt_json",
+    "resolve_execution_receipt_fact",
     "validate_execution_receipt",
 ]
