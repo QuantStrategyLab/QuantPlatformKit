@@ -51,3 +51,23 @@
 面才可验证工件来源、保存不可变审计记录，并在同一 runtime target 上原子写入预期
 摘要及显式状态转换。任一环节失败、超时、审计不可用、审计意见不一致或人工未确认，
 都保持 `RECONCILE_ONLY`。
+
+## 通用发布与恢复计划接口
+
+`reconciliation_recovery.py` 把跨平台部分固定为三个**无副作用**契约：
+
+1. `ReconciliationRecoverySourceSnapshot` 将已脱敏的候选、双审绑定、观察时间窗和稳定
+   阻断码输出为 `qsl_reconciliation_recovery_source_snapshot.v1`。它可由专用 publisher
+   port 发送到统一管理站，但不包含账户、持仓、现金、订单、成交或五项状态摘要。
+2. `ReconciliationRecoveryConfirmation` 只读取管理站保存的
+   `qsl_reconciliation_recovery_confirmation.v1`。该回执恒为 `no_order=true`、
+   `execution_authority_granted=false`，不能被解释为订单或 state-write 权限。
+3. `evaluate_reconciliation_recovery_activation` 要求确认后的**新**只读券商收据、已独立
+   重验的双审绑定、当前状态仍为 `RECONCILE_ONLY`，以及五项摘要仍与候选相同；全部
+   通过时仅返回 `RECONCILE_ONLY -> ACTIVE_LKG` 的 compare-and-set 计划。
+
+共享库不实现 publisher 的 HTTP、确认回执的读取通道、双审验证或状态写入。平台私有
+控制器必须各自以最小 IAM 实现这些 ports，并在同一存储事务/原子比较中检查当前状态、
+冻结 target 摘要和五项摘要后才可应用计划。读取失败、确认过期、收据早于确认、双审
+无法独立复核或 compare-and-set 失败时，均不得重试为普通执行，必须保持
+`RECONCILE_ONLY`。
