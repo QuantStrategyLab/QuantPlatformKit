@@ -115,6 +115,49 @@ class RuntimeTargetTests(unittest.TestCase):
                 strategy_release={"release_id": "soxl-p2-v3"},
             )
 
+    def test_runtime_target_accepts_frozen_legacy_live_continuity_baseline(self) -> None:
+        base_target = build_runtime_target(
+            platform_id="schwab",
+            strategy_profile="soxl_soxx_trend_income",
+            dry_run_only=False,
+            deployment_selector="default",
+            account_selector=("default",),
+            account_scope="default",
+            service_name="charles-schwab-quant-service",
+        )
+        from quant_platform_kit.common.live_continuity import runtime_target_fingerprint
+
+        target_payload = base_target.to_dict()
+        target_payload.pop("execution_mode")
+        target = build_runtime_target(
+            **target_payload,
+            live_continuity={
+                "state": "ACTIVE_LKG",
+                "baseline_kind": "legacy_authorized",
+                "baseline_id": "soxl-schwab-lkg-20260830",
+                "baseline_target_sha256": runtime_target_fingerprint(base_target.to_dict()),
+                "captured_at": "2026-08-30",
+            },
+        )
+
+        self.assertTrue(target.live_continuity.permits_standard_execution)
+        self.assertEqual(target.to_dict()["live_continuity"]["state"], "ACTIVE_LKG")
+
+    def test_runtime_target_rejects_continuity_fingerprint_drift(self) -> None:
+        with self.assertRaisesRegex(ValueError, "does not match the runtime target"):
+            build_runtime_target(
+                platform_id="schwab",
+                strategy_profile="soxl_soxx_trend_income",
+                dry_run_only=False,
+                live_continuity={
+                    "state": "ACTIVE_LKG",
+                    "baseline_kind": "legacy_authorized",
+                    "baseline_id": "soxl-schwab-lkg-20260830",
+                    "baseline_target_sha256": "a" * 64,
+                    "captured_at": "2026-08-30",
+                },
+            )
+
     def test_resolve_runtime_target_from_env_prefers_structured_json(self) -> None:
         target = resolve_runtime_target_from_env(
             env={
