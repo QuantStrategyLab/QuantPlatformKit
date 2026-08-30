@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, replace
 from enum import Enum
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from .live_continuity import LiveContinuity, build_live_continuity
 from .strategy_release import StrategyReleaseIdentity, build_strategy_release_identity
 
 
@@ -74,6 +75,7 @@ class RuntimeTarget:
     scheduler: dict[str, Any] | None = None
     strategy_release: StrategyReleaseIdentity | None = None
     account_identity: dict[str, Any] | None = None
+    live_continuity: LiveContinuity | None = None
     execution_environment: RuntimeExecutionEnvironment | str | None = None
 
     def __post_init__(self) -> None:
@@ -99,6 +101,7 @@ class RuntimeTarget:
             "scheduler",
             "strategy_release",
             "account_identity",
+            "live_continuity",
         ):
             if payload.get(field) is None:
                 payload.pop(field, None)
@@ -179,13 +182,15 @@ def build_runtime_target(
     strategy_release: StrategyReleaseIdentity | Mapping[str, object] | None = None,
     account_identity: Mapping[str, Any] | None = None,
     execution_environment: RuntimeExecutionEnvironment | str | None = None,
+    live_continuity: LiveContinuity | Mapping[str, object] | None = None,
+    continuity_fingerprint_payload: Mapping[str, Any] | None = None,
 ) -> RuntimeTarget:
     normalized_market, normalized_calendar, normalized_timezone = _normalize_market_metadata(
         market=market,
         market_calendar=market_calendar,
         market_timezone=market_timezone,
     )
-    return RuntimeTarget(
+    target = RuntimeTarget(
         platform_id=str(platform_id).strip(),
         strategy_profile=str(strategy_profile).strip(),
         dry_run_only=bool(dry_run_only),
@@ -206,6 +211,13 @@ def build_runtime_target(
         account_identity=dict(account_identity) if account_identity is not None else None,
         execution_environment=execution_environment,
     )
+    if live_continuity is None:
+        return target
+    continuity = build_live_continuity(live_continuity)
+    if continuity.baseline_kind == "release_attested" and target.strategy_release is None:
+        raise ValueError("release_attested live_continuity requires strategy_release")
+    continuity.assert_matches_target(continuity_fingerprint_payload or target.to_dict())
+    return replace(target, live_continuity=continuity)
 
 
 def _coerce_optional_bool(value: object) -> bool | None:
@@ -280,6 +292,9 @@ def resolve_runtime_target_from_env(
     account_identity = payload.get("account_identity")
     if account_identity is not None and not isinstance(account_identity, dict):
         raise ValueError("RUNTIME_TARGET_JSON.account_identity must be an object when present")
+    live_continuity = payload.get("live_continuity")
+    if live_continuity is not None and not isinstance(live_continuity, dict):
+        raise ValueError("RUNTIME_TARGET_JSON.live_continuity must be an object when present")
 
     return build_runtime_target(
         platform_id=resolved_platform_id,
@@ -297,4 +312,6 @@ def resolve_runtime_target_from_env(
         strategy_release=strategy_release,
         account_identity=account_identity,
         execution_environment=payload.get("execution_environment"),
+        live_continuity=live_continuity,
+        continuity_fingerprint_payload=payload,
     )

@@ -178,6 +178,13 @@ from .runtime_target import (
     resolve_runtime_execution_environment,
     resolve_runtime_target_from_env,
 )
+from .live_continuity import (
+    BASELINE_KINDS,
+    LIVE_CONTINUITY_STATES,
+    LiveContinuity,
+    build_live_continuity,
+    runtime_target_fingerprint,
+)
 from .strategy_release import (
     RUNTIME_LOADED_RECEIPT_SCHEMA_VERSION,
     STRATEGY_RELEASE_MANIFEST_SCHEMA_VERSION,
@@ -389,6 +396,11 @@ __all__ = [
     "parse_strategy_plugin_notification_targets",
     "parse_strategy_plugin_mounts",
     "resolve_runtime_target_from_env",
+    "BASELINE_KINDS",
+    "LIVE_CONTINUITY_STATES",
+    "LiveContinuity",
+    "build_live_continuity",
+    "runtime_target_fingerprint",
     "resolve_cloud_artifact_reference",
     "resolve_gcs_artifact_reference",  # deprecated
     "should_alert_strategy_plugin_signal",
