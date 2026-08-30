@@ -6,6 +6,8 @@ from quant_platform_kit.common.execution_outcomes import (
     STAGE_PARTIAL_SUBMITTED,
     STAGE_SUBMITTED,
     filter_execution_blocking_skips,
+    is_funding_block,
+    is_retryable_strategy_run_stage,
     is_terminal_funding_block,
     is_terminal_strategy_run_stage,
     resolve_strategy_run_stage,
@@ -74,6 +76,7 @@ def test_filter_execution_blocking_skips_and_terminal_funding_block():
         {"symbol": "AAA", "reason": "below_trade_threshold"},
         {"symbol": "BBB", "reason": "quote_unavailable"},
         {"symbol": "CCC", "reason": "insufficient_cash_for_whole_share"},
+        {"symbol": "DDD", "reason": "insufficient_cash"},
     ]
 
     blocking = filter_execution_blocking_skips(skipped)
@@ -81,12 +84,19 @@ def test_filter_execution_blocking_skips_and_terminal_funding_block():
     assert blocking == [
         {"symbol": "BBB", "reason": "quote_unavailable"},
         {"symbol": "CCC", "reason": "insufficient_cash_for_whole_share"},
+        {"symbol": "DDD", "reason": "insufficient_cash"},
     ]
     assert is_terminal_funding_block(blocking) is False
-    assert is_terminal_funding_block(blocking[1:]) is True
+    assert is_funding_block(blocking[1:]) is True
+    assert is_funding_block(blocking[1:2]) is True
+    assert is_funding_block(blocking[2:]) is True
+    assert is_terminal_funding_block(blocking[1:2]) is True
 
 
-def test_terminal_strategy_run_stage_includes_funding_blocked():
+def test_funding_blocked_is_retryable_not_terminal():
     assert is_terminal_strategy_run_stage("submitted") is True
-    assert is_terminal_strategy_run_stage("FUNDING_BLOCKED") is True
+    assert is_terminal_strategy_run_stage("FUNDING_BLOCKED") is False
     assert is_terminal_strategy_run_stage("EXECUTION_BLOCKED") is False
+    assert is_retryable_strategy_run_stage("FUNDING_BLOCKED") is True
+    assert is_retryable_strategy_run_stage("EXECUTION_BLOCKED") is True
+    assert is_retryable_strategy_run_stage("SUBMITTED") is False

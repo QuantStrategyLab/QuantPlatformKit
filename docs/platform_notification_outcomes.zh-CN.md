@@ -18,7 +18,7 @@ helper，不要在每个仓库里各自定义一套 stage 或通知投递语义�
 | `SUBMITTED` | 是 | 已提交一个或多个真实订单。 |
 | `EXECUTION_BLOCKED` | 否 | 因可重试的执行阻塞导致没有提交订单。 |
 | `PARTIAL_SUBMITTED` | 否 | 部分订单已提交，但仍有执行阻塞需要关注。 |
-| `FUNDING_BLOCKED` | 是 | 现金不足以买入所需的一整股，因此没有提交订单。 |
+| `FUNDING_BLOCKED` | 否 | 资金不足，未提交订单；仅在执行窗口内允许重试。 |
 | `RECONCILED` | 是 | 已由平台自己的 reconciliation 流程完成核对。 |
 | `COMPLETED` | 是 | 已由平台自己的流程标记为完成。 |
 
@@ -30,13 +30,15 @@ helper，不要在每个仓库里各自定义一套 stage 或通知投递语义�
 共享 helper 默认把这些 skipped-order reason 视为执行阻塞：
 
 - `buy_quantity_zero`
+- `insufficient_cash`
 - `insufficient_cash_for_whole_share`
 - `quote_unavailable`
 - `sell_quantity_zero`
 
-当 `insufficient_cash_for_whole_share` 是唯一阻塞原因，并且没有任何真实订单已提交时，
-该周期会记为终态 `FUNDING_BLOCKED`。这样日志和通知会明确说明资金不足，同时避免
-每天重复重试同一个资金不足的运行周期。
+当 `insufficient_cash` 或 `insufficient_cash_for_whole_share` 是唯一阻塞原因，并且没有
+任何真实订单已提交时，该周期会记为可重试的 `FUNDING_BLOCKED`。平台只可在策略执行窗口
+仍开放时重试，且必须在第一次向券商发送请求前取得持久化的 create-only 提交锁。券商已受理、
+待处理或结果未知的订单永不自动重发。
 
 ## 通知 Envelope
 
