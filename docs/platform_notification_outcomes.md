@@ -19,7 +19,7 @@ stages used by platform persistence, API responses, logs, and notifications:
 | `SUBMITTED` | Yes | One or more live orders were submitted. |
 | `EXECUTION_BLOCKED` | No | No order was submitted because of a retryable execution blocker. |
 | `PARTIAL_SUBMITTED` | No | Some orders were submitted, but at least one execution blocker remains. |
-| `FUNDING_BLOCKED` | Yes | No order was submitted because available cash cannot buy the required whole share. |
+| `FUNDING_BLOCKED` | No | Funding was insufficient and no order was submitted; retry only while the execution window is open. |
 | `RECONCILED` | Yes | A submitted run was reconciled by a platform-specific process. |
 | `COMPLETED` | Yes | A run was marked complete by a platform-specific process. |
 
@@ -32,13 +32,17 @@ platform runtime while the strategy execution window remains open.
 The shared helper treats these skip reasons as execution blockers by default:
 
 - `buy_quantity_zero`
+- `insufficient_cash`
 - `insufficient_cash_for_whole_share`
 - `quote_unavailable`
 - `sell_quantity_zero`
 
-`insufficient_cash_for_whole_share` is a terminal funding block when it is the
-only blocking reason and no live order was submitted. This keeps logs and
-notifications explicit without repeatedly retrying the same underfunded run.
+`insufficient_cash` and `insufficient_cash_for_whole_share` are retryable
+funding blocks when they are the only blocking reason and no live order was
+submitted. The platform may retry only while the strategy execution window is
+open, and must acquire its durable create-only submission claim immediately
+before the first broker request. A broker-accepted, pending, or unknown
+submission is never automatically retried.
 
 ## Notification Envelope
 

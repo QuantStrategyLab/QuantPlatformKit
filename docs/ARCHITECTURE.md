@@ -470,7 +470,7 @@ Execution stages are shared constants from `quant_platform_kit.common.execution_
 | `SUBMITTED` | Yes | One or more orders were submitted |
 | `EXECUTION_BLOCKED` | No | Retryable blocker prevented execution |
 | `PARTIAL_SUBMITTED` | No | Some orders submitted, blocker remains |
-| `FUNDING_BLOCKED` | Yes | Insufficient cash for whole shares |
+| `FUNDING_BLOCKED` | No | Insufficient cash; retry only while the execution window remains open and no broker submission was made |
 | `RECONCILED` | Yes | Submitted run reconciled |
 | `COMPLETED` | Yes | Run marked complete |
 
