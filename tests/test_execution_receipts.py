@@ -6,8 +6,10 @@ import unittest
 from quant_platform_kit.common.execution_receipts import (
     EXECUTION_RECEIPT_SCHEMA_VERSION,
     attach_execution_receipt,
+    attach_runtime_execution_receipt,
     build_execution_receipt,
     calculate_execution_receipt_sha256,
+    resolve_execution_receipt_fact,
     validate_execution_receipt,
 )
 
@@ -99,3 +101,60 @@ class ExecutionReceiptTest(unittest.TestCase):
         attach_execution_receipt(duplicate, _receipt())
         with self.assertRaisesRegex(ValueError, "already has"):
             attach_execution_receipt(duplicate, _receipt(outcome="no_action"))
+
+    def test_builds_receipt_from_attested_runtime_report(self) -> None:
+        report = _runtime_report()
+
+        attached = attach_runtime_execution_receipt(report, outcome="submitted")
+
+        self.assertEqual(attached["execution_receipt"]["platform"], "ibkr")
+        self.assertEqual(attached["execution_receipt"]["strategy_profile"], "soxl_soxx_trend_income")
+        self.assertEqual(attached["execution_receipt"]["outcome"], "submitted")
+        self.assertEqual(attached["execution_receipt"]["broker_confirmation"], "not_observed")
+
+    def test_runtime_helper_requires_attested_revision(self) -> None:
+        report = _runtime_report()
+        report["runtime_release_receipt"] = {}
+
+        with self.assertRaises(ValueError):
+            attach_runtime_execution_receipt(report, outcome="no_action")
+
+    def test_resolves_only_the_highest_supported_execution_fact(self) -> None:
+        self.assertEqual(
+            resolve_execution_receipt_fact(dry_run=False, submission_attempted=True),
+            ("submitted", "not_observed"),
+        )
+        self.assertEqual(
+            resolve_execution_receipt_fact(
+                dry_run=False,
+                submission_attempted=True,
+                failed=True,
+            ),
+            ("failed", "not_observed"),
+        )
+        self.assertEqual(
+            resolve_execution_receipt_fact(
+                dry_run=False,
+                submission_attempted=True,
+                reconciliation_required=True,
+            ),
+            ("reconciliation_required", "reconciliation_required"),
+        )
+        self.assertEqual(
+            resolve_execution_receipt_fact(
+                dry_run=False,
+                submission_attempted=True,
+                filled=True,
+            ),
+            ("filled", "filled"),
+        )
+
+    def test_dry_run_never_claims_a_broker_result(self) -> None:
+        self.assertEqual(
+            resolve_execution_receipt_fact(
+                dry_run=True,
+                submission_attempted=True,
+                filled=True,
+            ),
+            ("no_action", "not_applicable"),
+        )
