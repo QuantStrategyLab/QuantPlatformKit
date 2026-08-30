@@ -80,6 +80,112 @@ class ExecutionStateTests(unittest.TestCase):
             self.assertEqual(results.count(True), 1)
             self.assertEqual(results.count(False), 7)
 
+    def test_recent_ledger_digest_is_redacted_stable_and_scoped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ExecutionMarkerStore(local_dir=tmpdir, cloud_prefix_uri=None)
+            first_key = build_execution_marker_key(
+                platform="ibkr",
+                strategy_profile="soxl_soxx_trend_income",
+                account_scope="LIVE",
+                execution_mode="live",
+                signal_date="2026-08-28",
+                effective_date="2026-08-29",
+            )
+            second_key = build_execution_marker_key(
+                platform="ibkr",
+                strategy_profile="soxl_soxx_trend_income",
+                account_scope="LIVE",
+                execution_mode="live",
+                signal_date="2026-08-29",
+                effective_date="2026-08-30",
+            )
+            other_scope_key = build_execution_marker_key(
+                platform="ibkr",
+                strategy_profile="soxl_soxx_trend_income",
+                account_scope="PAPER",
+                execution_mode="paper",
+                signal_date="2026-08-29",
+                effective_date="2026-08-30",
+            )
+            store.record_marker(first_key, metadata={"order_id": "sensitive"})
+            store.record_outcome(first_key, metadata={"status": "submitted"})
+            store.record_marker(second_key, metadata={"order_id": "sensitive-2"})
+            store.record_marker(other_scope_key, metadata={"order_id": "other"})
+
+            digest, count = store.calculate_recent_ledger_digest(
+                platform="ibkr",
+                strategy_profile="soxl_soxx_trend_income",
+                account_scope="LIVE",
+                execution_mode="live",
+            )
+            repeated_digest, repeated_count = store.calculate_recent_ledger_digest(
+                platform="ibkr",
+                strategy_profile="soxl_soxx_trend_income",
+                account_scope="LIVE",
+                execution_mode="live",
+            )
+
+            self.assertEqual(count, 3)
+            self.assertEqual((repeated_digest, repeated_count), (digest, count))
+            self.assertEqual(len(digest), 64)
+            self.assertNotIn("sensitive", digest)
+
+    def test_recent_ledger_digest_uses_bounded_newest_records_per_namespace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ExecutionMarkerStore(local_dir=tmpdir, cloud_prefix_uri=None)
+            for day in ("2026-08-27", "2026-08-28", "2026-08-29"):
+                key = build_execution_marker_key(
+                    platform="ibkr",
+                    strategy_profile="soxl_soxx_trend_income",
+                    account_scope="LIVE",
+                    execution_mode="live",
+                    signal_date=day,
+                    effective_date=day,
+                )
+                store.record_marker(key)
+
+            _digest, count = store.calculate_recent_ledger_digest(
+                platform="ibkr",
+                strategy_profile="soxl_soxx_trend_income",
+                account_scope="LIVE",
+                execution_mode="live",
+                record_limit=2,
+            )
+            self.assertEqual(count, 2)
+
+    def test_recent_ledger_digest_reads_only_scoped_cloud_prefixes(self) -> None:
+        observed: list[str] = []
+
+        class CloudStore:
+            def list(self, prefix):
+                observed.append(prefix)
+                return [prefix + "2026-08-30/next.json"]
+
+            def read_text(self, uri):
+                return '{"metadata":{"broker_order":"private"}}'
+
+        class CloudExecutionStore(ExecutionMarkerStore):
+            def _object_store(self):
+                return CloudStore()
+
+        store = CloudExecutionStore(local_dir=None, cloud_prefix_uri="gs://bucket/runtime")
+        digest, count = store.calculate_recent_ledger_digest(
+            platform="ibkr",
+            strategy_profile="soxl_soxx_trend_income",
+            account_scope="LIVE",
+            execution_mode="live",
+        )
+
+        self.assertEqual(count, 2)
+        self.assertEqual(len(digest), 64)
+        self.assertEqual(
+            observed,
+            [
+                "gs://bucket/runtime/execution_markers/v1/ibkr/live/soxl_soxx_trend_income/live/",
+                "gs://bucket/runtime/execution_outcomes/v1/ibkr/live/soxl_soxx_trend_income/live/",
+            ],
+        )
+
     def test_outcome_is_append_only_and_does_not_replace_claim(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             store = ExecutionMarkerStore(local_dir=tmpdir, cloud_prefix_uri=None)
