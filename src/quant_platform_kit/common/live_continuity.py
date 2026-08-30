@@ -138,10 +138,24 @@ def build_live_continuity(value: LiveContinuity | Mapping[str, object]) -> LiveC
     return LiveContinuity(**{field: value[field] for field in required_fields})
 
 
+def runtime_target_permits_standard_execution(runtime_target: object) -> bool:
+    """Return whether a generic runtime may issue normal strategy orders.
+
+    Older targets have no continuity record and retain their existing behavior.
+    Once a record is supplied, anything other than an active/rolled-back LKG
+    baseline is fail-closed; specialised reduce-only executors must opt in
+    separately instead of inheriting ordinary execution permission.
+    """
+
+    continuity = getattr(runtime_target, "live_continuity", None)
+    return continuity is None or bool(getattr(continuity, "permits_standard_execution", False))
+
+
 __all__ = [
     "BASELINE_KINDS",
     "LIVE_CONTINUITY_STATES",
     "LiveContinuity",
     "build_live_continuity",
+    "runtime_target_permits_standard_execution",
     "runtime_target_fingerprint",
 ]
