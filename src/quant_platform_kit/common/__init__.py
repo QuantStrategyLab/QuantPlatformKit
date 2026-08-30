@@ -183,6 +183,7 @@ from .live_continuity import (
     LIVE_CONTINUITY_STATES,
     LiveContinuity,
     build_live_continuity,
+    runtime_target_permits_standard_execution,
     runtime_target_fingerprint,
 )
 from .strategy_release import (
@@ -400,6 +401,7 @@ __all__ = [
     "LIVE_CONTINUITY_STATES",
     "LiveContinuity",
     "build_live_continuity",
+    "runtime_target_permits_standard_execution",
     "runtime_target_fingerprint",
     "resolve_cloud_artifact_reference",
     "resolve_gcs_artifact_reference",  # deprecated

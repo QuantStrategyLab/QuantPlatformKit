@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 from quant_platform_kit.common.runtime_target import (
     RuntimeExecutionEnvironment,
@@ -157,6 +158,35 @@ class RuntimeTargetTests(unittest.TestCase):
                     "captured_at": "2026-08-30",
                 },
             )
+
+    def test_live_continuity_fails_closed_for_non_standard_execution_states(self) -> None:
+        from quant_platform_kit.common.live_continuity import (
+            LiveContinuity,
+            runtime_target_permits_standard_execution,
+        )
+
+        active = SimpleNamespace(
+            live_continuity=LiveContinuity(
+                state="ACTIVE_LKG",
+                baseline_kind="legacy_authorized",
+                baseline_id="soxl-schwab-lkg-20260830",
+                baseline_target_sha256="a" * 64,
+                captured_at="2026-08-30",
+            )
+        )
+        paused = SimpleNamespace(
+            live_continuity=LiveContinuity(
+                state="PAUSED",
+                baseline_kind="legacy_authorized",
+                baseline_id="soxl-schwab-lkg-20260830",
+                baseline_target_sha256="a" * 64,
+                captured_at="2026-08-30",
+            )
+        )
+
+        self.assertTrue(runtime_target_permits_standard_execution(SimpleNamespace()))
+        self.assertTrue(runtime_target_permits_standard_execution(active))
+        self.assertFalse(runtime_target_permits_standard_execution(paused))
 
     def test_resolve_runtime_target_from_env_prefers_structured_json(self) -> None:
         target = resolve_runtime_target_from_env(
