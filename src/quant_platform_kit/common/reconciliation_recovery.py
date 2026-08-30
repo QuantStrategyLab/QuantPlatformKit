@@ -402,7 +402,10 @@ def evaluate_reconciliation_recovery_activation(
         normalized_evidence = current_evidence if isinstance(current_evidence, BrokerReconciliationEvidence) else BrokerReconciliationEvidence.from_dict(current_evidence or {})
     except (TypeError, ValueError):
         normalized_evidence = None
-    if normalized_confirmation is not None and normalized_evidence is not None and normalized_evidence.observed_at < normalized_confirmation.confirmed_at:
+    # The second-level controller must prove a *new* read after the operator
+    # confirmed the intent. Equal-second timestamps cannot establish ordering,
+    # so they remain fail-closed too.
+    if normalized_confirmation is not None and normalized_evidence is not None and normalized_evidence.observed_at <= normalized_confirmation.confirmed_at:
         add(ReconciliationRecoveryActivationFinding.EVIDENCE_NOT_REOBSERVED_AFTER_CONFIRMATION.value)
     for finding in evaluate_broker_reconciliation_recovery(
         normalized_evidence,
