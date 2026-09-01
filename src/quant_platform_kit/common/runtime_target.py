@@ -7,6 +7,8 @@ from enum import Enum
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from quant_platform_kit.data.decision_data_binding import DecisionDataBinding
+
 from .live_continuity import LiveContinuity, build_live_continuity
 from .strategy_release import StrategyReleaseIdentity, build_strategy_release_identity
 
@@ -77,6 +79,7 @@ class RuntimeTarget:
     account_identity: dict[str, Any] | None = None
     live_continuity: LiveContinuity | None = None
     execution_environment: RuntimeExecutionEnvironment | str | None = None
+    decision_data: DecisionDataBinding | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -102,6 +105,7 @@ class RuntimeTarget:
             "strategy_release",
             "account_identity",
             "live_continuity",
+            "decision_data",
         ):
             if payload.get(field) is None:
                 payload.pop(field, None)
@@ -126,6 +130,25 @@ def _normalize_optional_string(value: str | None) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _build_decision_data_binding(
+    value: DecisionDataBinding | Mapping[str, object] | None,
+) -> DecisionDataBinding | None:
+    """Verify the public control-plane binding before exposing it to a runtime."""
+
+    if value is None or isinstance(value, DecisionDataBinding):
+        return value
+    if not isinstance(value, Mapping):
+        raise ValueError("decision_data must be a DecisionDataBinding or object")
+    payload = dict(value)
+    claimed_digest = str(payload.pop("binding_sha256", "") or "").strip().lower()
+    if claimed_digest.startswith("sha256:"):
+        claimed_digest = claimed_digest.removeprefix("sha256:")
+    binding = DecisionDataBinding.from_dict(payload)
+    if claimed_digest and claimed_digest != binding.binding_sha256:
+        raise ValueError("decision_data.binding_sha256 does not match the binding")
+    return binding
 
 
 def _normalize_account_selector(value: Iterable[str] | str | None) -> tuple[str, ...]:
@@ -183,6 +206,7 @@ def build_runtime_target(
     account_identity: Mapping[str, Any] | None = None,
     execution_environment: RuntimeExecutionEnvironment | str | None = None,
     live_continuity: LiveContinuity | Mapping[str, object] | None = None,
+    decision_data: DecisionDataBinding | Mapping[str, object] | None = None,
     continuity_fingerprint_payload: Mapping[str, Any] | None = None,
 ) -> RuntimeTarget:
     normalized_market, normalized_calendar, normalized_timezone = _normalize_market_metadata(
@@ -210,6 +234,7 @@ def build_runtime_target(
         ),
         account_identity=dict(account_identity) if account_identity is not None else None,
         execution_environment=execution_environment,
+        decision_data=_build_decision_data_binding(decision_data),
     )
     if live_continuity is None:
         return target
@@ -295,6 +320,9 @@ def resolve_runtime_target_from_env(
     live_continuity = payload.get("live_continuity")
     if live_continuity is not None and not isinstance(live_continuity, dict):
         raise ValueError("RUNTIME_TARGET_JSON.live_continuity must be an object when present")
+    decision_data = payload.get("decision_data")
+    if decision_data is not None and not isinstance(decision_data, dict):
+        raise ValueError("RUNTIME_TARGET_JSON.decision_data must be an object when present")
 
     return build_runtime_target(
         platform_id=resolved_platform_id,
@@ -313,5 +341,6 @@ def resolve_runtime_target_from_env(
         account_identity=account_identity,
         execution_environment=payload.get("execution_environment"),
         live_continuity=live_continuity,
+        decision_data=decision_data,
         continuity_fingerprint_payload=payload,
     )
