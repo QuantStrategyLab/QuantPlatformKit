@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
@@ -266,13 +267,55 @@ def extract_feature_snapshot_managed_symbols(
         return tuple(
             extractor(
                 feature_snapshot,
-                benchmark_symbol=benchmark_symbol,
-                safe_haven=safe_haven_symbol,
+                **_managed_symbols_extractor_kwargs(
+                    extractor,
+                    benchmark_symbol=benchmark_symbol,
+                    safe_haven_symbol=safe_haven_symbol,
+                ),
             )
         )
     if safe_haven_symbol:
         return (safe_haven_symbol,)
     return fallback_symbols
+
+
+def _managed_symbols_extractor_kwargs(
+    extractor: Callable[..., Any],
+    *,
+    benchmark_symbol: str,
+    safe_haven_symbol: str | None,
+) -> dict[str, Any]:
+    """Adapt the two reviewed safe-haven keyword spellings at the plug-in edge.
+
+    Strategy plug-ins are independently versioned. The historical contract
+    accepted ``safe_haven`` while the global-ETF extractor uses the more
+    explicit ``safe_haven_symbol``. Inspecting the callable before calling it
+    preserves both contracts without catching a TypeError raised *inside* the
+    plug-in itself.
+    """
+
+    try:
+        parameters = inspect.signature(extractor).parameters.values()
+    except (TypeError, ValueError):
+        # Opaque callables retain the original, documented keyword spelling.
+        return {
+            "benchmark_symbol": benchmark_symbol,
+            "safe_haven": safe_haven_symbol,
+        }
+
+    accepted = {parameter.name for parameter in parameters}
+    accepts_kwargs = any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters
+    )
+    kwargs: dict[str, Any] = {}
+    if "benchmark_symbol" in accepted or accepts_kwargs:
+        kwargs["benchmark_symbol"] = benchmark_symbol
+    if "safe_haven" in accepted or accepts_kwargs:
+        kwargs["safe_haven"] = safe_haven_symbol
+    elif "safe_haven_symbol" in accepted:
+        kwargs["safe_haven_symbol"] = safe_haven_symbol
+    return kwargs
 
 
 def _apply_runtime_policy(

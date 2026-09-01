@@ -8,6 +8,7 @@ from quant_platform_kit.common.feature_snapshot_runtime import (
     FeatureSnapshotContextRequest,
     FeatureSnapshotRuntimeSettings,
     evaluate_feature_snapshot_strategy,
+    extract_feature_snapshot_managed_symbols,
 )
 from quant_platform_kit.strategy_contracts import (
     CallableStrategyEntrypoint,
@@ -42,6 +43,62 @@ def _entrypoint() -> CallableStrategyEntrypoint:
 
 
 class FeatureSnapshotRuntimeTests(unittest.TestCase):
+    def test_managed_symbol_extractor_accepts_safe_haven_symbol_contract(self) -> None:
+        observed: dict[str, object] = {}
+
+        def extractor(
+            _snapshot: object,
+            *,
+            benchmark_symbol: str | None = None,
+            safe_haven_symbol: str | None = None,
+        ) -> tuple[str, ...]:
+            observed["benchmark_symbol"] = benchmark_symbol
+            observed["safe_haven_symbol"] = safe_haven_symbol
+            return ("VT", str(safe_haven_symbol))
+
+        symbols = extract_feature_snapshot_managed_symbols(
+            runtime_adapter=StrategyRuntimeAdapter(
+                managed_symbols_extractor=extractor,
+            ),
+            feature_snapshot=(),
+            benchmark_symbol="VOO",
+            safe_haven_symbol="BIL",
+        )
+
+        self.assertEqual(symbols, ("VT", "BIL"))
+        self.assertEqual(observed, {
+            "benchmark_symbol": "VOO",
+            "safe_haven_symbol": "BIL",
+        })
+
+    def test_managed_symbol_extractor_retains_legacy_safe_haven_contract(self) -> None:
+        observed: dict[str, object] = {}
+
+        def extractor(
+            _snapshot: object,
+            *,
+            benchmark_symbol: str | None = None,
+            safe_haven: str | None = None,
+        ) -> tuple[str, ...]:
+            observed["benchmark_symbol"] = benchmark_symbol
+            observed["safe_haven"] = safe_haven
+            return ("QQQ", str(safe_haven))
+
+        symbols = extract_feature_snapshot_managed_symbols(
+            runtime_adapter=StrategyRuntimeAdapter(
+                managed_symbols_extractor=extractor,
+            ),
+            feature_snapshot=(),
+            benchmark_symbol="QQQ",
+            safe_haven_symbol="BOXX",
+        )
+
+        self.assertEqual(symbols, ("QQQ", "BOXX"))
+        self.assertEqual(observed, {
+            "benchmark_symbol": "QQQ",
+            "safe_haven": "BOXX",
+        })
+
     def test_fail_closes_when_path_missing(self) -> None:
         result = evaluate_feature_snapshot_strategy(
             entrypoint=_entrypoint(),
