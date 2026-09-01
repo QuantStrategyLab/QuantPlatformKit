@@ -22,6 +22,7 @@ from scripts.open_downstream_qpk_pin_prs import (
     update_qsl_strategy_requires,
     update_qsl_compat_qpk_pin,
     update_drift_workflow_test_contract,
+    update_qpk_test_pin_contracts,
     update_qpk_revision_contract,
     update_strategy_dependency_pins,
 )
@@ -129,6 +130,29 @@ class QpkPinConsistencyTests(unittest.TestCase):
 
         self.assertGreater(mismatches, 0)
         self.assertTrue(any(".github/workflows/drift-check.yml" in err for err in errors))
+
+    def test_update_qpk_test_pin_contracts_only_touches_explicit_contracts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            tests_dir = root / "tests"
+            tests_dir.mkdir()
+            contract = tests_dir / "test_qpk_contract.py"
+            contract.write_text(
+                f'EXPECTED = "{STALE}"\nassert "QuantPlatformKit"\n',
+                encoding="utf-8",
+            )
+            unrelated = tests_dir / "test_unrelated.py"
+            unrelated.write_text(f'EXPECTED = "{STALE}"\n', encoding="utf-8")
+
+            changed = update_qpk_test_pin_contracts(
+                root,
+                qpk_sha=TARGET,
+                previous_qpk_refs={STALE},
+            )
+
+            self.assertTrue(changed)
+            self.assertIn(TARGET, contract.read_text(encoding="utf-8"))
+            self.assertIn(STALE, unrelated.read_text(encoding="utf-8"))
 
     def test_override_must_match_pin(self) -> None:
         pyproject = """
