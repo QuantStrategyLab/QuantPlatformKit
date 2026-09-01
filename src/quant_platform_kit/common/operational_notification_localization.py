@@ -47,6 +47,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "activity_rebalance_recorded": "已记录调仓操作",
         "workflow_heartbeat_latest_failed": "最近一次运行未成功完成（结论：{conclusion}）",
         "workflow_heartbeat_no_success": "GitHub Actions 查询未返回成功的运行记录",
+        "workflow_heartbeat_query_failed": "GitHub Actions 运行记录查询失败",
         "workflow_heartbeat_missing_dispatches": "已连续 {count} 个预期周期未发现运行（阈值：{threshold}）",
     },
     "en": {
@@ -82,6 +83,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "activity_rebalance_recorded": "rebalance action recorded",
         "workflow_heartbeat_latest_failed": "The latest runtime run did not complete successfully (conclusion: {conclusion})",
         "workflow_heartbeat_no_success": "The GitHub Actions query returned no successful runtime run",
+        "workflow_heartbeat_query_failed": "The GitHub Actions runtime-run query failed",
         "workflow_heartbeat_missing_dispatches": "No runtime dispatch was found for {count} expected interval(s) (threshold: {threshold})",
     },
 }
