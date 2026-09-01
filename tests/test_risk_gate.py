@@ -1077,6 +1077,95 @@ class AssessWithEvidenceTests(unittest.TestCase):
         self.assertIn("stale_portfolio_snapshot", result.assessment.reason_codes)
         self.assertEqual(result.decision.positions, ())
 
+    def test_evidence_assessment_requires_mandate(self) -> None:
+        with patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW):
+            result = assess_with_evidence(
+                _decision(positions=(PositionTarget(symbol="BTCUSDT", target_weight=0.10),)),
+                self._snapshot(),
+                scope="MEMBER",
+                mandate_provenance=None,
+                market_data={},
+                candidate_identity=None,
+            )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn("missing_mandate", result.assessment.reason_codes)
+        self.assertFalse(result.assessment.execution_authorized)
+        self.assertEqual(result.decision.positions, ())
+
+    def test_evidence_assessment_rejects_unbounded_target_and_unknown_symbol(self) -> None:
+        cases = (
+            (
+                "10x_target",
+                _decision(positions=(PositionTarget(symbol="BTCUSDT", target_weight=10.0),)),
+                "effective_exposure_cap",
+            ),
+            (
+                "unknown_symbol",
+                _decision(positions=(PositionTarget(symbol="UNKNOWN", target_weight=0.10),)),
+                "asset_not_authorized",
+            ),
+        )
+        for name, decision, reason_code in cases:
+            with (
+                self.subTest(name=name),
+                patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW),
+            ):
+                result = assess_with_evidence(
+                    decision,
+                    self._snapshot(),
+                    scope="MEMBER",
+                    mandate_provenance=self._mandate(),
+                    market_data={},
+                    candidate_identity=self._candidate(),
+                )
+
+            self.assertEqual(result.assessment.outcome, "REJECT")
+            self.assertIn(reason_code, result.assessment.reason_codes)
+            self.assertFalse(result.assessment.execution_authorized)
+            self.assertEqual(result.decision.positions, ())
+
+    def test_evidence_assessment_rejects_expired_mandate(self) -> None:
+        with patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW):
+            result = assess_with_evidence(
+                _decision(positions=(PositionTarget(symbol="BTCUSDT", target_weight=0.10),)),
+                self._snapshot(),
+                scope="MEMBER",
+                mandate_provenance={
+                    **self._mandate(),
+                    "expires_at": "2026-08-04T04:27:59Z",
+                },
+                market_data={},
+                candidate_identity=self._candidate(),
+            )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn("expired_mandate", result.assessment.reason_codes)
+        self.assertFalse(result.assessment.execution_authorized)
+
+    def test_evidence_assessment_rejects_stale_capital_snapshot(self) -> None:
+        with patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW):
+            result = assess_with_evidence(
+                _decision(positions=(PositionTarget(symbol="BTCUSDT", target_value=10_000.0),)),
+                self._snapshot(),
+                scope="MEMBER",
+                mandate_provenance=self._mandate(),
+                market_data={},
+                candidate_identity=self._candidate(),
+                capital_base=_capital_base(
+                    as_of=self._NOW - timedelta(seconds=301),
+                    strategy_scope="crypto_live_pool_rotation",
+                ),
+                capital_base_binding=_capital_base_binding(
+                    strategy_scope="crypto_live_pool_rotation",
+                ),
+            )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn("stale_capital_base", result.assessment.reason_codes)
+        self.assertFalse(result.assessment.execution_authorized)
+        self.assertEqual(result.decision.positions, ())
+
     def test_risk_plugin_exception_rejects_without_exposing_exception(self) -> None:
         class CrashingPlugin:
             plugin_name = "crashing_plugin"
@@ -1377,8 +1466,16 @@ class CanonicalRiskMetadataSanitizationTests(unittest.TestCase):
                 ),
             ),
         )
-        first, first_engine = self._assess(decision)
-        second, second_engine = self._assess(decision)
+        first, first_engine = self._assess(
+            decision,
+            mandate=self._mandate(),
+            candidate=self._candidate(),
+        )
+        second, second_engine = self._assess(
+            decision,
+            mandate=self._mandate(),
+            candidate=self._candidate(),
+        )
 
         self.assertEqual(first.assessment.outcome, "APPROVE")
         self.assertEqual(first.assessment.assessment_sha256, second.assessment.assessment_sha256)
@@ -1568,14 +1665,20 @@ class CanonicalRiskMetadataSanitizationTests(unittest.TestCase):
         first, _engine = self._assess(
             StrategyDecision(),
             snapshot={**self._SNAPSHOT, "as_of": utc.replace(microsecond=1)},
+            mandate=self._mandate(),
+            candidate=self._candidate(),
         )
         second, _engine = self._assess(
             StrategyDecision(),
             snapshot={**self._SNAPSHOT, "as_of": offset.replace(microsecond=999_999)},
+            mandate=self._mandate(),
+            candidate=self._candidate(),
         )
         rejected, _engine = self._assess(
             StrategyDecision(),
             snapshot={**self._SNAPSHOT, "as_of": "2026-08-04T12:27:55+08:00"},
+            mandate=self._mandate(),
+            candidate=self._candidate(),
         )
 
         self.assertEqual(first.assessment.outcome, "APPROVE")
