@@ -120,7 +120,13 @@ class RiskEngine:
         *,
         market_data: Mapping[str, Any] | None = None,
     ) -> RiskAction:
-        """Assess a decision, rejecting missing or invalid account state."""
+        """Run the legacy runtime sanity check for account state.
+
+        This method is not evidence-grade and its ``approve`` result must not
+        be used as promotion authority. Promotion/evidence callers must use
+        :func:`quant_platform_kit.risk.gate.assess_with_evidence`, which adds
+        the mandate, candidate, snapshot, and exposure contract checks.
+        """
         if portfolio_snapshot is None:
             return RiskAction(
                 action="reject",

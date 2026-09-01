@@ -568,7 +568,7 @@ def _mandate_fields(
             "loss_budget": 0.0,
             "product_leverage_factors": {},
             "allowed_nonzero_assets": None,
-        }, set()
+        }, {"missing_mandate"}
     if not isinstance(mandate_provenance, Mapping):
         return {}, {"invalid_mandate"}
     if mandate_provenance.get("mandate_id") == _RETIRED_GLOBAL_ETF_RESEARCH_MANDATE:
@@ -1316,7 +1316,13 @@ def assess_with_evidence(
     capital_base: CapitalBaseSnapshot | Mapping[str, Any] | None = None,
     capital_base_binding: CapitalBaseBinding | Mapping[str, Any] | None = None,
 ) -> RiskGateResult:
-    """Assess exactly once and fail closed with a redacted canonical receipt."""
+    """Run the sole promotion/evidence-grade risk assessment API.
+
+    ``mandate_provenance`` and a matching ``candidate_identity`` are required
+    for an evidence-grade approval. Missing or invalid authority is rejected;
+    the legacy :meth:`RiskEngine.assess` approval is never sufficient on its
+    own. The returned receipt is redacted and canonical.
+    """
     try:
         risk_action = build_risk_engine().assess(
             decision,
