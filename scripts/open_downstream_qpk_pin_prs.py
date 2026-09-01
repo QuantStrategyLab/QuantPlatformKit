@@ -47,13 +47,26 @@ STRATEGY_REPOS = (
     RepoSpec("CryptoStrategies"),
 )
 
-CONSUMER_REPOS = (
+# These repositories receive generated dependency PRs only.  The workflow never
+# merges them or deploys them: execution platforms need their own runtime review,
+# while P1 pipelines need their own evidence/data review.
+EXECUTION_CONSUMER_REPOS = (
     RepoSpec("InteractiveBrokersPlatform"),
     RepoSpec("LongBridgePlatform"),
     RepoSpec("CharlesSchwabPlatform"),
     RepoSpec("FirstradePlatform"),
+    RepoSpec("BinancePlatform"),
     RepoSpec("QmtPlatform"),
 )
+
+PIPELINE_CONSUMER_REPOS = (
+    RepoSpec("CnEquitySnapshotPipelines"),
+    RepoSpec("HkEquitySnapshotPipelines"),
+    RepoSpec("UsEquitySnapshotPipelines"),
+    RepoSpec("CryptoLivePoolPipelines"),
+)
+
+CONSUMER_REPOS = (*EXECUTION_CONSUMER_REPOS, *PIPELINE_CONSUMER_REPOS)
 
 STRATEGY_QSL_KEYS = {
     "CnEquityStrategies": "cn_equity_strategies",
@@ -466,7 +479,7 @@ def parse_args() -> argparse.Namespace:
         "--phase",
         choices=("auto", "strategies", "consumers"),
         default="auto",
-        help="Roll out strategy pins before aggregate and broker/QMT consumer pins.",
+        help="Roll out strategy pins before aggregate and execution/P1 pipeline consumer pins.",
     )
     parser.add_argument("--repo", action="append", default=[], help="Limit to one or more repo names")
     return parser.parse_args()

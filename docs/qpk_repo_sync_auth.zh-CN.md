@@ -30,7 +30,7 @@ QPK 发布采用 release-set 两阶段流程：先生成候选 QPK 版本并验�
 
    https://github.com/settings/personal-access-tokens/new?name=QSL-Repo-Sync&description=QuantPlatformKit+downstream+QPK+pin+automation&target_name=QuantStrategyLab&expires_in=366&contents=write&pull_requests=write&metadata=read
 
-2. Repository access 选 **All repositories**（或至少九仓策略 + 四平台 + Binance）。
+2. Repository access 选 **All repositories**（或至少四个策略仓、六个执行平台和四个 P1 数据管道）。
 3. 生成后执行：
 
    ```bash
@@ -57,4 +57,5 @@ gh workflow run open-downstream-qpk-pin-prs.yml -R QuantStrategyLab/QuantPlatfor
 PAT 需对以下仓库有 **Contents: Read and write** + **Pull requests: Read and write**：
 
 - CnEquityStrategies, HkEquityStrategies, UsEquityStrategies, CryptoStrategies
-- InteractiveBrokersPlatform, LongBridgePlatform, CharlesSchwabPlatform, FirstradePlatform, BinancePlatform
+- InteractiveBrokersPlatform, LongBridgePlatform, CharlesSchwabPlatform, FirstradePlatform, BinancePlatform, QmtPlatform
+- CnEquitySnapshotPipelines, HkEquitySnapshotPipelines, UsEquitySnapshotPipelines, CryptoLivePoolPipelines
