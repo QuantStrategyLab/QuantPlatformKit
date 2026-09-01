@@ -149,6 +149,10 @@ class NotificationLocalizationTests(unittest.TestCase):
             "没有与当前心跳匹配的可执行运行目标；未提交订单。",
         )
         self.assertEqual(
+            operational_notification_text("zh", "workflow_heartbeat_query_failed"),
+            "GitHub Actions 运行记录查询失败",
+        )
+        self.assertEqual(
             format_operational_heartbeat_status(
                 locale="zh",
                 name="LongBridge SG",
