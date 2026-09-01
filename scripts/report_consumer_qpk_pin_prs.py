@@ -44,11 +44,27 @@ def generated_prs(repo: RepoSpec, *, env: dict[str, str]) -> list[dict[str, Any]
             "--limit",
             "100",
             "--json",
-            "author,baseRefName,headRefName,isCrossRepository,isDraft,number,title,updatedAt,url",
+            "author,baseRefName,headRefName,isCrossRepository,isDraft,number,statusCheckRollup,title,updatedAt,url",
         ],
         env=env,
     )
     return json.loads(result.stdout)
+
+
+def ci_status(pr: dict[str, Any]) -> str:
+    """Return a display-only CI state; never use it to mutate consumer PRs."""
+
+    checks = pr.get("statusCheckRollup")
+    if not isinstance(checks, list) or not checks:
+        return "MISSING"
+    if any(not isinstance(check, dict) or check.get("status") != "COMPLETED" for check in checks):
+        return "PENDING"
+    conclusions = {str(check.get("conclusion") or "").upper() for check in checks}
+    if conclusions == {"SUCCESS"}:
+        return "GREEN"
+    if conclusions & {"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}:
+        return "FAILED"
+    return "NON_GREEN"
 
 
 def classify_generated_prs(
@@ -71,7 +87,9 @@ def classify_generated_prs(
 
 
 def render_row(repo: RepoSpec, current: list[dict[str, Any]], stale: list[dict[str, Any]]) -> str:
-    current_refs = ", ".join(f"[#{item['number']}]({item['url']})" for item in current) or "—"
+    current_refs = ", ".join(
+        f"[#{item['number']}]({item['url']}) · {ci_status(item)}" for item in current
+    ) or "—"
     stale_refs = ", ".join(f"[#{item['number']}]({item['url']})" for item in stale) or "—"
     return f"| {repo.name} | {current_refs} | {stale_refs} |"
 
@@ -93,7 +111,7 @@ def main() -> int:
     print()
     print("Consumer repositories are report-only: they are never auto-merged or auto-closed.")
     print()
-    print("| Repository | Current generated PR | Recognizable stale generated PRs |")
+    print("| Repository | Current generated PR (CI) | Recognizable stale generated PRs |")
     print("| --- | --- | --- |")
     for repo in CONSUMER_REPOS:
         current, stale = classify_generated_prs(
