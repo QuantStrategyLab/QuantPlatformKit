@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+import json
 from types import SimpleNamespace
 
+from quant_platform_kit.data.decision_data_binding import DecisionDataBinding
 from quant_platform_kit.common.runtime_target import (
     RuntimeExecutionEnvironment,
     RuntimeTarget,
@@ -303,6 +305,35 @@ class RuntimeTargetTests(unittest.TestCase):
     def test_resolve_runtime_target_from_env_requires_structured_json(self) -> None:
         with self.assertRaisesRegex(EnvironmentError, "RUNTIME_TARGET_JSON"):
             resolve_runtime_target_from_env(env={})
+
+    def test_runtime_target_preserves_a_public_safe_decision_data_binding(self) -> None:
+        binding = DecisionDataBinding(
+            binding_id="soxl-p1-20260901",
+            strategy_scope="soxl_soxx_trend_income",
+            mode="artifact_optional",
+            source_ids=("uesp_p1",),
+            as_of="2026-09-01",
+            adjustment_basis="split_adjusted",
+            artifact_sha256="a" * 64,
+            assurance_status="VERIFIED",
+        )
+        payload = binding.to_dict() | {"binding_sha256": binding.binding_sha256}
+        target = resolve_runtime_target_from_env(
+            env={
+                "RUNTIME_TARGET_JSON": json.dumps(
+                    {
+                        "platform_id": "ibkr",
+                        "strategy_profile": "soxl_soxx_trend_income",
+                        "dry_run_only": True,
+                        "decision_data": payload,
+                    }
+                )
+            },
+            expected_platform_id="ibkr",
+        )
+
+        self.assertEqual(target.decision_data.binding_id, "soxl-p1-20260901")
+        self.assertEqual(target.to_dict()["decision_data"]["mode"], "artifact_optional")
 
     def test_build_runtime_context_fields_merges_runtime_target_without_overwriting_fields(self) -> None:
         target = build_runtime_target(
