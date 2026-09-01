@@ -33,6 +33,7 @@ ALLOWED_CHANGED_FILES = frozenset(
         "pyproject.toml",
         "qsl.toml",
         "tests/test_qsl_compat_metadata.py",
+        "tests/test_drift_workflow_config.py",
         "uv.lock",
         ".github/workflows/drift-check.yml",
     }
