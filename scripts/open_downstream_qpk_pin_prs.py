@@ -166,6 +166,43 @@ def update_drift_workflow_test_contract(
     return True
 
 
+def update_qpk_test_pin_contracts(
+    repo_dir: Path,
+    *,
+    qpk_sha: str,
+    previous_qpk_refs: set[str],
+) -> bool:
+    """Refresh explicit QPK SHA assertions in consumer test contracts only.
+
+    Some P1 pipelines assert their declared QPK revision in a test instead of
+    reading the declaration dynamically.  Those assertions are part of the
+    dependency surface, but must not leave a generated update red.  Restrict
+    replacement to test files that explicitly name QuantPlatformKit and to an
+    SHA that was already declared by the repository before this sync.
+    """
+    tests_dir = repo_dir / "tests"
+    if not tests_dir.is_dir():
+        return False
+
+    changed = False
+    previous = {
+        sha
+        for sha in previous_qpk_refs
+        if re.fullmatch(r"[a-f0-9]{40}", sha) and sha != qpk_sha
+    }
+    for path in sorted(tests_dir.rglob("test_*.py")):
+        original = path.read_text(encoding="utf-8")
+        if "QuantPlatformKit" not in original:
+            continue
+        updated = original
+        for prior_sha in sorted(previous):
+            updated = updated.replace(prior_sha, qpk_sha)
+        if updated != original:
+            path.write_text(updated, encoding="utf-8")
+            changed = True
+    return changed
+
+
 def update_strategy_dependency_pins(
     repo_dir: Path,
     strategy_heads: dict[str, str],
@@ -337,6 +374,11 @@ def update_repo(
         previous_qpk_refs=previous_qpk_refs,
     )
     if strategy_heads:
+        update_qpk_test_pin_contracts(
+            repo_dir,
+            qpk_sha=get_qpk_pin_sha(pin_file=qpk_pin),
+            previous_qpk_refs=previous_qpk_refs,
+        )
         update_strategy_dependency_pins(repo_dir, strategy_heads)
         update_qsl_strategy_requires(repo_dir, strategy_heads)
         update_qsl_metadata_test_contract(
