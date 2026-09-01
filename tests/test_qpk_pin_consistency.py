@@ -12,6 +12,8 @@ from scripts.check_qpk_pin_consistency import (
 )
 from scripts.open_downstream_qpk_pin_prs import (
     CONSUMER_REPOS,
+    EXECUTION_CONSUMER_REPOS,
+    PIPELINE_CONSUMER_REPOS,
     STRATEGY_REPOS,
     command_failure_summary,
     qpk_refs,
@@ -40,7 +42,7 @@ class QpkPinConsistencyTests(unittest.TestCase):
 
         self.assertEqual("command=uv:exit=2", command_failure_summary(exc))
 
-    def test_rollout_tiers_keep_qmt_after_strategies(self) -> None:
+    def test_rollout_tiers_cover_every_direct_execution_and_p1_consumer(self) -> None:
         self.assertEqual(
             {
                 "CnEquityStrategies",
@@ -50,9 +52,31 @@ class QpkPinConsistencyTests(unittest.TestCase):
             },
             {repo.name for repo in STRATEGY_REPOS},
         )
-        consumer_names = {repo.name for repo in CONSUMER_REPOS}
-        self.assertIn("QmtPlatform", consumer_names)
-        self.assertNotIn("BinancePlatform", consumer_names)
+        self.assertEqual(
+            {
+                "InteractiveBrokersPlatform",
+                "LongBridgePlatform",
+                "CharlesSchwabPlatform",
+                "FirstradePlatform",
+                "BinancePlatform",
+                "QmtPlatform",
+            },
+            {repo.name for repo in EXECUTION_CONSUMER_REPOS},
+        )
+        self.assertEqual(
+            {
+                "CnEquitySnapshotPipelines",
+                "HkEquitySnapshotPipelines",
+                "UsEquitySnapshotPipelines",
+                "CryptoLivePoolPipelines",
+            },
+            {repo.name for repo in PIPELINE_CONSUMER_REPOS},
+        )
+        self.assertEqual(
+            {repo.name for repo in EXECUTION_CONSUMER_REPOS}
+            | {repo.name for repo in PIPELINE_CONSUMER_REPOS},
+            {repo.name for repo in CONSUMER_REPOS},
+        )
 
     def test_extract_uv_lock_rev(self) -> None:
         text = (
