@@ -10,6 +10,13 @@ from quant_platform_kit.common.notification_localization import (
     merge_strategy_plugin_i18n,
     translator_uses_zh,
 )
+from quant_platform_kit.common.operational_notification_localization import (
+    format_operational_alert,
+    format_operational_heartbeat_status,
+    localize_operational_activity,
+    operational_notification_text,
+    resolve_operational_notification_locale,
+)
 
 
 def _translator_factory(no_trades_text: str):
@@ -108,6 +115,43 @@ class NotificationLocalizationTests(unittest.TestCase):
 
         self.assertEqual(merged["zh"]["strategy_plugin_name_taco_rebound_shadow"], "TACO 反弹观察通知")
         self.assertEqual(merged["en"]["strategy_plugin_route_watch"], "watch")
+
+    def test_operational_alert_renderer_keeps_technical_detail_separate_from_zh_summary(self):
+        message = format_operational_alert(
+            locale="zh-CN",
+            alert_type="runtime_guard",
+            name="LongBridge SG",
+            context={"project": "longbridgequant", "lookback_minutes": 180},
+            issues=[
+                operational_notification_text(
+                    "zh",
+                    "runtime_guard_cloud_run_log_query_failed",
+                    service="longbridge-quant-sg-service",
+                )
+            ],
+            technical_details=["HttpError: INTERNAL"],
+            workflow_url="https://example.test/run/1",
+        )
+
+        self.assertIn("[运行守卫] LongBridge SG", message)
+        self.assertIn("问题：", message)
+        self.assertIn("Cloud Run 日志查询失败", message)
+        self.assertIn("技术详情（原文）：", message)
+        self.assertIn("HttpError: INTERNAL", message)
+        self.assertIn("工作流：https://example.test/run/1", message)
+
+    def test_operational_locale_and_normal_heartbeat_are_bilingual(self):
+        self.assertEqual(resolve_operational_notification_locale("zh_TW"), "zh")
+        self.assertEqual(resolve_operational_notification_locale("fr"), "en")
+        self.assertEqual(localize_operational_activity("zh", "no trade"), "无交易")
+        self.assertEqual(
+            format_operational_heartbeat_status(
+                locale="zh",
+                name="LongBridge SG",
+                detail=operational_notification_text("zh", "heartbeat_runtime_target_disabled"),
+            ),
+            "[执行回执心跳] LongBridge SG\n状态：正常\n运行目标已停用；未提交订单。",
+        )
 
 
 if __name__ == "__main__":
