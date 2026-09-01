@@ -58,6 +58,12 @@ def test_strategy_pin_pr_fails_closed_for_unexpected_changes_or_ci() -> None:
         qpk_sha=TARGET,
     ) == "unexpected_changed_files"
     assert candidate_reason(
+        pr=_pr(),
+        changed_files=[*sorted(ALLOWED_CHANGED_FILES), "src/unrelated_runtime_change.py"],
+        pyproject_text=_pyproject(),
+        qpk_sha=TARGET,
+    ) == "unexpected_changed_files"
+    assert candidate_reason(
         pr=_pr(checks=[{"status": "IN_PROGRESS", "conclusion": ""}]),
         changed_files=sorted(ALLOWED_CHANGED_FILES),
         pyproject_text=_pyproject(),
