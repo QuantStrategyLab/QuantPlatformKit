@@ -145,6 +145,10 @@ class NotificationLocalizationTests(unittest.TestCase):
         self.assertEqual(resolve_operational_notification_locale("fr"), "en")
         self.assertEqual(localize_operational_activity("zh", "no trade"), "无交易")
         self.assertEqual(
+            operational_notification_text("zh", "heartbeat_no_enabled_target"),
+            "没有与当前心跳匹配的可执行运行目标；未提交订单。",
+        )
+        self.assertEqual(
             format_operational_heartbeat_status(
                 locale="zh",
                 name="LongBridge SG",
