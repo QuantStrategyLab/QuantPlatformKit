@@ -13,6 +13,13 @@ from .notification_localization import (
     resolve_strategy_display_name,
     translator_uses_zh,
 )
+from .operational_notification_localization import (
+    format_operational_alert,
+    format_operational_heartbeat_status,
+    localize_operational_activity,
+    operational_notification_text,
+    resolve_operational_notification_locale,
+)
 from .artifacts import (
     RELEASE_MANIFEST_TYPE,
     FEATURE_SNAPSHOT_MANIFEST_TYPE,
