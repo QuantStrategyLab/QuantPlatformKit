@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import unittest
 from collections.abc import Iterator, Mapping
 from datetime import datetime, timedelta, timezone
@@ -2094,6 +2096,727 @@ class TqqqEtfOnlyResearchMandateTests(unittest.TestCase):
                     self.assertEqual(result.decision.positions, ())
                     self.assertEqual(result.decision.budgets, ())
                     engine.assess.assert_called_once()
+
+
+class TqqqEvidenceRiskMandateTests(unittest.TestCase):
+    _NOW = datetime(2026, 9, 2, 6, 0, tzinfo=timezone.utc)
+    _SCHEMA_VERSION = "qsl.tqqq-evidence-risk-mandate.v1"
+    _RISK_STATE_SCHEMA_VERSION = "qsl.tqqq-evidence-risk-state.v1"
+    _MANDATE_ID = "tqqq_core_parity_v1"
+    _STRATEGY_PROFILE = "tqqq_core_parity_v1"
+    _DEFAULT = object()
+
+    @staticmethod
+    def _digest(value: object) -> str:
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @classmethod
+    def _candidate(cls) -> CandidateRiskIdentity:
+        return CandidateRiskIdentity(
+            strategy_profile=cls._STRATEGY_PROFILE,
+            account_mode="single_strategy_account_v1",
+            strategy_revision="b" * 40,
+            runner_revision="c" * 40,
+            config_sha256="d" * 64,
+            input_manifest_sha256="e" * 64,
+            authority_receipt_sha256="a" * 64,
+        )
+
+    @classmethod
+    def _capital_base(cls, *, as_of: datetime | None = None) -> CapitalBaseSnapshot:
+        return _capital_base(
+            as_of=as_of or cls._NOW - timedelta(seconds=1),
+            strategy_scope=cls._STRATEGY_PROFILE,
+            capital_scope=CapitalScope.ALLOCATED_SLEEVE,
+            valuation_basis=CapitalValuationBasis.ALLOCATED_SLEEVE_LEDGER,
+            allocation_scope="tqqq-candidate-research-sleeve",
+            component_coverage_digest_sha256="2" * 64,
+        )
+
+    @classmethod
+    def _capital_base_binding(cls, **overrides: object) -> CapitalBaseBinding:
+        values: dict[str, object] = {
+            "strategy_scope": cls._STRATEGY_PROFILE,
+            "capital_scope": CapitalScope.ALLOCATED_SLEEVE,
+            "valuation_basis": CapitalValuationBasis.ALLOCATED_SLEEVE_LEDGER,
+            "allocation_scope": "tqqq-candidate-research-sleeve",
+            "max_age_seconds": 300,
+        }
+        values.update(overrides)
+        return _capital_base_binding(**values)
+
+    @classmethod
+    def _risk_state(cls, **overrides: object) -> dict[str, object]:
+        state: dict[str, object] = {
+            "schema_version": cls._RISK_STATE_SCHEMA_VERSION,
+            "as_of": "2026-09-02T05:59:59Z",
+            "mandate_id": cls._MANDATE_ID,
+            "candidate_identity_sha256": cls._candidate().candidate_sha256,
+            "modeled_stress_loss_distance": 0.05,
+            "account_drawdown_fraction": 0.05,
+            "drawdown_scalar": 1.0,
+        }
+        state.update(overrides)
+        return state
+
+    @classmethod
+    def _mandate(
+        cls,
+        *,
+        capital_base: CapitalBaseSnapshot | None = None,
+        portfolio_snapshot: Mapping[str, object] | None = None,
+        risk_state: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        candidate = cls._candidate()
+        capital_base = capital_base or cls._capital_base()
+        portfolio_snapshot = portfolio_snapshot or cls._snapshot()
+        risk_state = risk_state or cls._risk_state()
+        return {
+            "schema_version": cls._SCHEMA_VERSION,
+            "mandate_id": cls._MANDATE_ID,
+            "mandate_version": "v1",
+            "purpose": "TQQQ_CANDIDATE_RESEARCH_EVIDENCE_ONLY",
+            "candidate_binding": {
+                "strategy_profile": candidate.strategy_profile,
+                "account_mode": candidate.account_mode,
+                "strategy_revision": candidate.strategy_revision,
+                "runner_revision": candidate.runner_revision,
+                "config_sha256": candidate.config_sha256,
+                "input_manifest_sha256": candidate.input_manifest_sha256,
+                "candidate_identity_sha256": candidate.candidate_sha256,
+            },
+            "validity": {
+                "effective_at": "2026-09-02T05:59:30Z",
+                "expires_at": "2026-09-02T06:04:30Z",
+                "snapshot_max_age_seconds": 300,
+                "single_consumption": True,
+            },
+            "portfolio_policy": {
+                "allowed_nonzero_assets": ["TQQQ", "QQQM", "BOXX"],
+                "benchmark_only_assets": ["QQQ"],
+                "product_leverage_factors": {"TQQQ": 3, "QQQM": 1, "BOXX": 1},
+                "max_nonzero_assets": 3,
+                "effective_exposure_cap": 0.50,
+                "nominal_caps": {"TQQQ": 0.15, "QQQM": 0.50, "BOXX": 0.50},
+                "product_effective_caps": {"TQQQ": 0.45, "QQQM": 0.50, "BOXX": 0.50},
+                "loss_budget": 0.01,
+                "loss_budget_equity_reference": "completed_session_equity",
+                "modeled_stress_loss_distance": 0.05,
+                "stress_loss_is_model_assumption": True,
+                "drawdown_scalars": {
+                    "at_or_below_0_05": 1.0,
+                    "above_0_05_to_0_10": 0.5,
+                    "above_0_10": 0.0,
+                },
+                "broker_margin_factor": 1,
+                "margin_stacking": False,
+                "borrowing": False,
+                "shorting": False,
+            },
+            "capital_binding": {
+                "schema_version": "qpk.capital_base.v2",
+                "snapshot_digest_sha256": cls._digest(
+                    {
+                        **capital_base.to_safe_dict(),
+                        "target_equity": capital_base.target_equity,
+                    }
+                ),
+                "as_of": capital_base.to_safe_dict()["as_of"],
+                "account_mode": "single_strategy_account_v1",
+                "capital_scope": "allocated_sleeve",
+                "valuation_basis": "allocated_sleeve_ledger",
+                "target_currency": "USD",
+                "max_age_seconds": 300,
+                "fx_conversion_allowed": False,
+            },
+            "portfolio_binding": {
+                "schema_version": "qsl.tqqq-evidence-portfolio-snapshot.v1",
+                "snapshot_digest_sha256": cls._digest(portfolio_snapshot),
+                "as_of": portfolio_snapshot["as_of"],
+                "source_identity_sha256": portfolio_snapshot[
+                    "source_identity_sha256"
+                ],
+                "max_age_seconds": 300,
+            },
+            "risk_state_binding": {
+                "schema_version": cls._RISK_STATE_SCHEMA_VERSION,
+                "snapshot_digest_sha256": cls._digest(risk_state),
+                "as_of": risk_state["as_of"],
+                "max_age_seconds": 300,
+            },
+            "authority": {
+                "authority_scope": "RESEARCH_ONLY",
+                "authority_receipt_sha256": candidate.authority_receipt_sha256,
+                "source_revision": "f" * 40,
+                "runner_is_authority": False,
+                "no_order": True,
+                "no_paper": True,
+                "no_shadow": True,
+                "no_live": True,
+                "no_promotion_authority": True,
+            },
+        }
+
+    @staticmethod
+    def _snapshot(**overrides: object) -> dict[str, object]:
+        snapshot: dict[str, object] = {
+            "schema_version": "qsl.tqqq-evidence-portfolio-snapshot.v1",
+            "as_of": "2026-09-02T05:59:59Z",
+            "observed_effective_exposure": 0.0,
+            "total_equity": 100_000.0,
+            "source_identity_sha256": "3" * 64,
+        }
+        snapshot.update(overrides)
+        return snapshot
+
+    def _assess(
+        self,
+        decision: StrategyDecision,
+        *,
+        mandate: Mapping[str, object] | None = None,
+        risk_state: object = _DEFAULT,
+        capital_base: object = _DEFAULT,
+        capital_base_binding: object = _DEFAULT,
+        snapshot: object = _DEFAULT,
+        logical_evaluation_time: datetime | None = _NOW,
+        wall_time: datetime | None = None,
+    ) -> tuple[object, Mock]:
+        resolved_risk_state = (
+            self._risk_state() if risk_state is self._DEFAULT else risk_state
+        )
+        resolved_capital_base = (
+            self._capital_base() if capital_base is self._DEFAULT else capital_base
+        )
+        resolved_binding = (
+            self._capital_base_binding()
+            if capital_base_binding is self._DEFAULT
+            else capital_base_binding
+        )
+        resolved_snapshot = self._snapshot() if snapshot is self._DEFAULT else snapshot
+        resolved_mandate = mandate or self._mandate(
+            capital_base=(
+                resolved_capital_base
+                if isinstance(resolved_capital_base, CapitalBaseSnapshot)
+                else self._capital_base()
+            ),
+            risk_state=(
+                resolved_risk_state
+                if isinstance(resolved_risk_state, Mapping)
+                else self._risk_state()
+            ),
+        )
+        engine = Mock()
+        engine.assess.return_value = RiskAction(action="approve", reason="passed")
+        with (
+            patch(
+                "quant_platform_kit.risk.gate._utc_now",
+                return_value=wall_time or self._NOW,
+            ),
+            patch("quant_platform_kit.risk.gate.build_risk_engine", return_value=engine),
+        ):
+            result = assess_with_evidence(
+                decision,
+                resolved_snapshot,
+                scope="MEMBER",
+                mandate_provenance=resolved_mandate,
+                market_data={},
+                candidate_identity=self._candidate(),
+                risk_control_state=resolved_risk_state,
+                capital_base=resolved_capital_base,
+                capital_base_binding=resolved_binding,
+                logical_evaluation_time=logical_evaluation_time,
+            )
+        return result, engine
+
+    def test_valid_weight_targets_approve_evidence_but_never_execution(self) -> None:
+        decision = _decision(
+            positions=(
+                PositionTarget(symbol="TQQQ", target_weight=0.10),
+                PositionTarget(symbol="QQQM", target_weight=0.05),
+                PositionTarget(symbol="BOXX", target_weight=0.05),
+            )
+        )
+
+        result, engine = self._assess(decision)
+
+        self.assertEqual(result.assessment.outcome, "APPROVE")
+        self.assertEqual(result.assessment.evaluated_at, "2026-09-02T06:00:00Z")
+        self.assertAlmostEqual(result.assessment.proposed_effective_exposure, 0.40)
+        self.assertEqual(len(result.assessment.risk_control_state_digest_sha256), 64)
+        self.assertFalse(result.assessment.execution_authorized)
+        self.assertEqual(result.decision.positions, decision.positions)
+        engine.assess.assert_called_once_with(decision, self._snapshot(), market_data={})
+
+    def test_new_schema_validation_is_exact_and_closed(self) -> None:
+        base = self._mandate()
+        invalid_mandates = []
+        for section in (
+            None,
+            "candidate_binding",
+            "validity",
+            "portfolio_policy",
+            "capital_binding",
+            "portfolio_binding",
+            "risk_state_binding",
+            "authority",
+        ):
+            mutated = dict(base)
+            if section is None:
+                mutated["unknown"] = True
+            else:
+                mutated[section] = {**base[section], "unknown": True}
+            invalid_mandates.append(mutated)
+        invalid_mandates.extend(
+            (
+                {**base, "schema_version": "qsl.tqqq-evidence-risk-mandate.v2"},
+                {
+                    **base,
+                    "validity": {**base["validity"], "single_consumption": False},
+                },
+                {
+                    **base,
+                    "validity": {
+                        **base["validity"],
+                        "expires_at": "2026-09-02T06:04:31Z",
+                    },
+                },
+                {
+                    **base,
+                    "portfolio_policy": {
+                        **base["portfolio_policy"],
+                        "stress_loss_is_model_assumption": False,
+                    },
+                },
+                {
+                    **base,
+                    "authority": {**base["authority"], "runner_is_authority": True},
+                },
+            )
+        )
+        for field in (
+            "no_order",
+            "no_paper",
+            "no_shadow",
+            "no_live",
+            "no_promotion_authority",
+        ):
+            invalid_mandates.append(
+                {
+                    **base,
+                    "authority": {**base["authority"], field: False},
+                }
+            )
+
+        for mandate in invalid_mandates:
+            with self.subTest(mandate=mandate):
+                result, engine = self._assess(_decision(), mandate=mandate)
+                self.assertEqual(result.assessment.outcome, "REJECT")
+                self.assertFalse(result.assessment.execution_authorized)
+                self.assertEqual(result.decision.positions, ())
+                engine.assess.assert_called_once()
+
+    def test_weight_targets_require_exact_capital_base_binding(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="TQQQ", target_weight=0.10),)
+        )
+        stale = self._capital_base(as_of=self._NOW - timedelta(seconds=301))
+        future = self._capital_base(as_of=self._NOW + timedelta(seconds=1))
+        wrong_scope = _capital_base(
+            as_of=self._NOW - timedelta(seconds=1),
+            strategy_scope=self._STRATEGY_PROFILE,
+        )
+        wrong_scope_binding = _capital_base_binding(
+            strategy_scope=self._STRATEGY_PROFILE,
+        )
+        digest_mismatch = self._mandate()
+        digest_mismatch["capital_binding"] = {
+            **digest_mismatch["capital_binding"],
+            "snapshot_digest_sha256": "9" * 64,
+        }
+        cases = (
+            (None, self._capital_base_binding(), self._mandate(), "missing_capital_base"),
+            (
+                stale,
+                self._capital_base_binding(),
+                self._mandate(capital_base=stale),
+                "stale_capital_base",
+            ),
+            (
+                future,
+                self._capital_base_binding(),
+                self._mandate(capital_base=future),
+                "future_capital_base",
+            ),
+            (
+                wrong_scope,
+                wrong_scope_binding,
+                self._mandate(capital_base=wrong_scope),
+                "capital_base_mandate_mismatch",
+            ),
+            (
+                self._capital_base(),
+                self._capital_base_binding(),
+                digest_mismatch,
+                "capital_base_digest_mismatch",
+            ),
+        )
+        for capital_base, binding, mandate, reason in cases:
+            with self.subTest(reason=reason):
+                result, engine = self._assess(
+                    decision,
+                    mandate=mandate,
+                    capital_base=capital_base,
+                    capital_base_binding=binding,
+                )
+                self.assertEqual(result.assessment.outcome, "REJECT")
+                self.assertIn(reason, result.assessment.reason_codes)
+                self.assertEqual(result.decision.positions, ())
+                engine.assess.assert_called_once()
+
+    def test_capital_snapshot_digest_binds_target_equity_denominator(self) -> None:
+        authorized_capital = self._capital_base()
+        substituted_capital = _capital_base(
+            reported_equity=25_000.0,
+            as_of=self._NOW - timedelta(seconds=1),
+            strategy_scope=self._STRATEGY_PROFILE,
+            capital_scope=CapitalScope.ALLOCATED_SLEEVE,
+            valuation_basis=CapitalValuationBasis.ALLOCATED_SLEEVE_LEDGER,
+            allocation_scope="tqqq-candidate-research-sleeve",
+            component_coverage_digest_sha256="2" * 64,
+        )
+        result, engine = self._assess(
+            _decision(
+                positions=(PositionTarget(symbol="TQQQ", target_value=10_000.0),)
+            ),
+            mandate=self._mandate(capital_base=authorized_capital),
+            capital_base=substituted_capital,
+        )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn("capital_base_digest_mismatch", result.assessment.reason_codes)
+        self.assertEqual(result.decision.positions, ())
+        engine.assess.assert_called_once()
+
+    def test_portfolio_snapshot_is_authority_digest_bound(self) -> None:
+        authorized_snapshot = self._snapshot(observed_effective_exposure=0.60)
+        substituted_snapshot = self._snapshot(observed_effective_exposure=0.0)
+        result, engine = self._assess(
+            _decision(
+                positions=(PositionTarget(symbol="TQQQ", target_weight=0.10),)
+            ),
+            mandate=self._mandate(portfolio_snapshot=authorized_snapshot),
+            snapshot=substituted_snapshot,
+        )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn(
+            "portfolio_snapshot_digest_mismatch",
+            result.assessment.reason_codes,
+        )
+        self.assertEqual(result.decision.positions, ())
+        engine.assess.assert_called_once()
+
+    def test_assessment_snapshot_digest_commits_to_target_equity(self) -> None:
+        first_capital = self._capital_base()
+        first_snapshot = self._snapshot()
+        second_capital = _capital_base(
+            reported_equity=25_000.0,
+            as_of=self._NOW - timedelta(seconds=1),
+            strategy_scope=self._STRATEGY_PROFILE,
+            capital_scope=CapitalScope.ALLOCATED_SLEEVE,
+            valuation_basis=CapitalValuationBasis.ALLOCATED_SLEEVE_LEDGER,
+            allocation_scope="tqqq-candidate-research-sleeve",
+            component_coverage_digest_sha256="2" * 64,
+        )
+        second_snapshot = self._snapshot(total_equity=25_000.0)
+        decision = _decision(
+            positions=(PositionTarget(symbol="TQQQ", target_weight=0.10),)
+        )
+        first, first_engine = self._assess(
+            decision,
+            mandate=self._mandate(
+                capital_base=first_capital,
+                portfolio_snapshot=first_snapshot,
+            ),
+            capital_base=first_capital,
+            snapshot=first_snapshot,
+        )
+        second, second_engine = self._assess(
+            decision,
+            mandate=self._mandate(
+                capital_base=second_capital,
+                portfolio_snapshot=second_snapshot,
+            ),
+            capital_base=second_capital,
+            snapshot=second_snapshot,
+        )
+
+        self.assertEqual(first.assessment.outcome, "APPROVE")
+        self.assertEqual(second.assessment.outcome, "APPROVE")
+        self.assertNotEqual(
+            first.assessment.portfolio_snapshot_digest_sha256,
+            second.assessment.portfolio_snapshot_digest_sha256,
+        )
+        first_engine.assess.assert_called_once()
+        second_engine.assess.assert_called_once()
+
+    def test_mandate_and_portfolio_snapshot_freshness_are_logical_time_bound(self) -> None:
+        base = self._mandate()
+        expired = {
+            **base,
+            "validity": {
+                **base["validity"],
+                "effective_at": "2026-09-02T05:55:00Z",
+                "expires_at": "2026-09-02T05:59:59Z",
+            },
+        }
+        future = {
+            **base,
+            "validity": {
+                **base["validity"],
+                "effective_at": "2026-09-02T06:00:01Z",
+                "expires_at": "2026-09-02T06:05:01Z",
+            },
+        }
+        cases = (
+            (expired, self._snapshot(), "expired_mandate"),
+            (future, self._snapshot(), "expired_mandate"),
+            (base, self._snapshot(as_of="2026-09-02T05:54:59Z"), "stale_portfolio_snapshot"),
+            (base, self._snapshot(as_of="2026-09-02T06:00:01Z"), "stale_portfolio_snapshot"),
+            (base, self._snapshot(as_of="2026-09-02T14:00:00+08:00"), "invalid_portfolio_snapshot"),
+        )
+        for mandate, snapshot, reason in cases:
+            with self.subTest(reason=reason):
+                result, engine = self._assess(
+                    _decision(),
+                    mandate=mandate,
+                    snapshot=snapshot,
+                )
+                self.assertEqual(result.assessment.outcome, "REJECT")
+                self.assertIn(reason, result.assessment.reason_codes)
+                self.assertFalse(result.assessment.execution_authorized)
+                engine.assess.assert_called_once()
+
+    def test_risk_state_is_required_fresh_candidate_bound_and_digest_bound(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="TQQQ", target_weight=0.10),)
+        )
+        stale = self._risk_state(as_of="2026-09-02T05:54:59Z")
+        future = self._risk_state(as_of="2026-09-02T06:00:01Z")
+        digest_mismatch = self._risk_state(account_drawdown_fraction=0.04)
+        cases = (
+            ({}, self._mandate(), "invalid_risk_control_state"),
+            (stale, self._mandate(risk_state=stale), "stale_risk_control_state"),
+            (future, self._mandate(risk_state=future), "stale_risk_control_state"),
+            (digest_mismatch, self._mandate(), "risk_control_state_digest_mismatch"),
+            (
+                self._risk_state(candidate_identity_sha256="0" * 64),
+                self._mandate(
+                    risk_state=self._risk_state(candidate_identity_sha256="0" * 64)
+                ),
+                "risk_control_candidate_mismatch",
+            ),
+        )
+        for risk_state, mandate, reason in cases:
+            with self.subTest(reason=reason):
+                result, engine = self._assess(
+                    decision,
+                    mandate=mandate,
+                    risk_state=risk_state,
+                )
+                self.assertEqual(result.assessment.outcome, "REJECT")
+                self.assertIn(reason, result.assessment.reason_codes)
+                self.assertEqual(result.decision.positions, ())
+                engine.assess.assert_called_once()
+
+    def test_assets_caps_effective_exposure_and_loss_budget_fail_closed(self) -> None:
+        cases = (
+            (
+                _decision(positions=(PositionTarget(symbol="QQQ", target_weight=0.10),)),
+                "benchmark_only_asset",
+            ),
+            (
+                _decision(positions=(PositionTarget(symbol="QQQ", target_weight=0.0),)),
+                "benchmark_only_asset",
+            ),
+            (
+                _decision(positions=(PositionTarget(symbol="QQQ", target_value=0.0),)),
+                "benchmark_only_asset",
+            ),
+            (
+                _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.10),)),
+                "asset_not_authorized",
+            ),
+            (
+                _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.0),)),
+                "asset_not_authorized",
+            ),
+            (
+                _decision(positions=(PositionTarget(symbol="SPY", target_value=0.0),)),
+                "asset_not_authorized",
+            ),
+            (
+                _decision(
+                    positions=(
+                        PositionTarget(symbol="TQQQ", target_weight=0.10),
+                        PositionTarget(symbol="TQQQ", target_weight=0.06),
+                    )
+                ),
+                "product_exposure_cap",
+            ),
+            (
+                _decision(
+                    positions=(
+                        PositionTarget(symbol="TQQQ", target_weight=0.15),
+                        PositionTarget(symbol="QQQM", target_weight=0.06),
+                    )
+                ),
+                "effective_exposure_cap",
+            ),
+            (
+                _decision(
+                    positions=(
+                        PositionTarget(symbol="TQQQ", target_weight=0.10),
+                        PositionTarget(symbol="QQQM", target_weight=0.11),
+                    )
+                ),
+                "risk_budget_exposure_cap",
+            ),
+            (
+                StrategyDecision(budgets=(BudgetIntent(name="loss", amount=0.011),)),
+                "unsupported_evidence_budget",
+            ),
+        )
+        for decision, reason in cases:
+            with self.subTest(reason=reason):
+                result, engine = self._assess(decision)
+                self.assertEqual(result.assessment.outcome, "REJECT")
+                self.assertIn(reason, result.assessment.reason_codes)
+                self.assertFalse(result.assessment.execution_authorized)
+                engine.assess.assert_called_once()
+
+    def test_evidence_mandate_rejects_undefined_budget_units(self) -> None:
+        result, engine = self._assess(
+            StrategyDecision(
+                budgets=(
+                    BudgetIntent(
+                        name="unrelated",
+                        amount=0.005,
+                        unit="arbitrary_unit",
+                    ),
+                )
+            )
+        )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn("unsupported_evidence_budget", result.assessment.reason_codes)
+        self.assertEqual(result.decision.budgets, ())
+        engine.assess.assert_called_once()
+
+    def test_drawdown_above_ten_percent_parks_as_account_breaker(self) -> None:
+        risk_state = self._risk_state(
+            account_drawdown_fraction=0.100001,
+            drawdown_scalar=0.0,
+        )
+        result, engine = self._assess(
+            _decision(positions=(PositionTarget(symbol="TQQQ", target_weight=0.10),)),
+            mandate=self._mandate(risk_state=risk_state),
+            risk_state=risk_state,
+        )
+
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn("account_breaker_triggered", result.assessment.reason_codes)
+        self.assertTrue(result.assessment.account_breaker_triggered)
+        self.assertFalse(result.assessment.execution_authorized)
+        engine.assess.assert_called_once()
+
+    def test_drawdown_scalar_boundaries_approve_only_with_exact_loss_budget(self) -> None:
+        cases = (
+            self._risk_state(account_drawdown_fraction=0.05, drawdown_scalar=1.0),
+            self._risk_state(account_drawdown_fraction=0.050001, drawdown_scalar=0.5),
+            self._risk_state(account_drawdown_fraction=0.10, drawdown_scalar=0.5),
+        )
+        for risk_state in cases:
+            with self.subTest(risk_state=risk_state):
+                result, engine = self._assess(
+                    _decision(
+                        positions=(
+                            PositionTarget(symbol="TQQQ", target_weight=0.10),
+                        )
+                    ),
+                    mandate=self._mandate(risk_state=risk_state),
+                    risk_state=risk_state,
+                )
+                self.assertEqual(result.assessment.outcome, "APPROVE")
+                self.assertFalse(result.assessment.execution_authorized)
+                engine.assess.assert_called_once()
+
+    def test_explicit_logical_time_rejects_future_stale_non_utc_and_subsecond(self) -> None:
+        cases = (
+            (
+                self._NOW + timedelta(seconds=1),
+                "future_logical_evaluation_time",
+            ),
+            (
+                self._NOW - timedelta(seconds=301),
+                "stale_logical_evaluation_time",
+            ),
+            (
+                self._NOW.astimezone(timezone(timedelta(hours=8))),
+                "invalid_logical_evaluation_time",
+            ),
+            (
+                self._NOW.replace(microsecond=1),
+                "invalid_logical_evaluation_time",
+            ),
+        )
+        for logical_time, reason in cases:
+            with self.subTest(reason=reason):
+                result, engine = self._assess(
+                    _decision(),
+                    logical_evaluation_time=logical_time,
+                )
+                self.assertEqual(result.assessment.outcome, "REJECT")
+                self.assertEqual(result.assessment.reason_codes, (reason,))
+                self.assertFalse(result.assessment.execution_authorized)
+                engine.assess.assert_called_once()
+
+    def test_same_logical_time_produces_identical_receipt_bytes(self) -> None:
+        decision = _decision(
+            positions=(PositionTarget(symbol="TQQQ", target_weight=0.10),)
+        )
+        first, first_engine = self._assess(decision, wall_time=self._NOW)
+        second, second_engine = self._assess(
+            decision,
+            wall_time=self._NOW + timedelta(seconds=100),
+        )
+
+        first_bytes = json.dumps(
+            first.assessment.__dict__,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        second_bytes = json.dumps(
+            second.assessment.__dict__,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        self.assertEqual(first.assessment.outcome, "APPROVE")
+        self.assertEqual(first_bytes, second_bytes)
+        self.assertEqual(
+            first.assessment.assessment_sha256,
+            second.assessment.assessment_sha256,
+        )
+        first_engine.assess.assert_called_once()
+        second_engine.assess.assert_called_once()
 
 
 class RetiredGlobalEtfRotationMandateTests(unittest.TestCase):
