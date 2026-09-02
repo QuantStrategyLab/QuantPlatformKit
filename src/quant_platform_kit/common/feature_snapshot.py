@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -27,6 +28,11 @@ DEFAULT_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS = 3
 DEFAULT_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR = (
     DEFAULT_ARTIFACT_CACHE_DIR / "last_valid_feature_snapshots"
 )
+_CURRENT_GENERATION_SCHEMA = "current_generation.v1"
+_CURRENT_GENERATION_OBJECT_NAMES = ("snapshot", "manifest", "ranking", "release_summary")
+_CURRENT_GENERATION_POINTER_FILENAME = "current_generation.json"
+_CURRENT_GENERATION_DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
+_CURRENT_GENERATION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _MANIFEST_DIAGNOSTIC_FIELDS = (
     "price_as_of",
     "universe_as_of",
@@ -172,9 +178,253 @@ def _download_remote_object(uri: str, destination: Path) -> None:
     destination.write_bytes(get_object_store().read_bytes(uri))
 
 
+def _is_current_generation_pointer_reference(reference: str) -> bool:
+    raw_reference = str(reference or "").strip()
+    return _is_cloud_uri(raw_reference) and raw_reference.endswith(
+        f"/{_CURRENT_GENERATION_POINTER_FILENAME}"
+    )
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate pointer field")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json_constant(value: str) -> None:
+    raise ValueError(f"invalid pointer JSON constant: {value}")
+
+
+def _is_safe_generation_basename(value: object) -> bool:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return False
+    return (
+        "/" not in value
+        and "\\" not in value
+        and value not in {".", ".."}
+        and Path(value).name == value
+    )
+
+
+def _validate_current_generation_pointer_uri(pointer_uri: str) -> str:
+    bucket, object_name = _parse_cloud_uri(pointer_uri)
+    if (
+        object_name.split("/")[-1] != _CURRENT_GENERATION_POINTER_FILENAME
+        or any(segment in {"", ".", ".."} for segment in object_name.split("/"))
+        or any(character.isspace() or character == "\\" for character in object_name)
+    ):
+        raise ValueError("unsafe current generation pointer URI")
+    parent = object_name.rsplit("/", 1)[0] if "/" in object_name else ""
+    return f"{pointer_uri[:5]}{bucket}/{parent}" if parent else f"{pointer_uri[:5]}{bucket}"
+
+
+def _read_current_generation_pointer(pointer_bytes: bytes) -> dict[str, object]:
+    try:
+        text = pointer_bytes.decode("utf-8")
+        payload = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=_reject_nonfinite_json_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError):
+        raise ValueError("invalid current generation pointer") from None
+
+    if not isinstance(payload, dict):
+        raise ValueError("invalid current generation pointer")
+    if set(payload) != {
+        "schema",
+        "profile",
+        "generation_id",
+        "immutable_prefix",
+        "snapshot_as_of",
+        "objects",
+    }:
+        raise ValueError("invalid current generation pointer fields")
+
+    try:
+        canonical_bytes = json.dumps(
+            payload,
+            ensure_ascii=True,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8") + b"\n"
+    except (TypeError, ValueError):
+        raise ValueError("invalid current generation pointer") from None
+    if pointer_bytes != canonical_bytes:
+        raise ValueError("non-canonical current generation pointer")
+
+    if payload["schema"] != _CURRENT_GENERATION_SCHEMA:
+        raise ValueError("unsupported current generation pointer schema")
+    if (
+        not isinstance(payload["profile"], str)
+        or not payload["profile"]
+        or payload["profile"] != payload["profile"].strip()
+    ):
+        raise ValueError("invalid current generation pointer profile")
+    generation_id = payload["generation_id"]
+    if not isinstance(generation_id, str) or _CURRENT_GENERATION_ID_RE.fullmatch(generation_id) is None:
+        raise ValueError("invalid current generation pointer generation_id")
+    snapshot_as_of = payload["snapshot_as_of"]
+    if (
+        not isinstance(snapshot_as_of, str)
+        or pd.Timestamp(snapshot_as_of).strftime("%Y-%m-%d") != snapshot_as_of
+    ):
+        raise ValueError("invalid current generation pointer snapshot_as_of")
+
+    objects = payload["objects"]
+    if not isinstance(objects, dict) or set(objects) != set(_CURRENT_GENERATION_OBJECT_NAMES):
+        raise ValueError("invalid current generation pointer objects")
+    basenames: set[str] = set()
+    for name in _CURRENT_GENERATION_OBJECT_NAMES:
+        item = objects[name]
+        if not isinstance(item, dict) or set(item) != {"basename", "sha256"}:
+            raise ValueError("invalid current generation pointer object fields")
+        basename = item["basename"]
+        digest = item["sha256"]
+        if not _is_safe_generation_basename(basename) or basename in basenames:
+            raise ValueError("invalid current generation pointer basename")
+        if not isinstance(digest, str) or _CURRENT_GENERATION_DIGEST_RE.fullmatch(digest) is None:
+            raise ValueError("invalid current generation pointer sha256")
+        basenames.add(basename)
+
+    return payload
+
+
+def _load_current_generation_feature_snapshot_guarded(
+    pointer_uri: str,
+    *,
+    run_as_of,
+    required_columns: Iterable[str] | None,
+    snapshot_date_columns: Iterable[str],
+    max_snapshot_month_lag: int,
+    expected_strategy_profile: str | None,
+    expected_config_name: str | None,
+    expected_config_path: str | None,
+    expected_contract_version: str | None,
+) -> FeatureSnapshotGuardResult:
+    pointer_metadata = {
+        "feature_snapshot_pointer_uri": pointer_uri,
+        "feature_snapshot_generation_id": None,
+        "feature_snapshot_immutable_prefix": None,
+        "feature_snapshot_object_digests": None,
+    }
+    try:
+        prefix_root = _validate_current_generation_pointer_uri(pointer_uri)
+        with tempfile.TemporaryDirectory(prefix="feature-snapshot-generation-") as temporary_dir:
+            pointer_path = Path(temporary_dir) / _CURRENT_GENERATION_POINTER_FILENAME
+            _download_gcs_object(pointer_uri, pointer_path)
+            payload = _read_current_generation_pointer(pointer_path.read_bytes())
+            pointer_profile = str(payload["profile"])
+            if expected_strategy_profile and _normalize_strategy_profile_label(
+                pointer_profile
+            ) != _normalize_strategy_profile_label(expected_strategy_profile):
+                raise ValueError("current generation pointer profile mismatch")
+            generation_id = payload["generation_id"]
+            immutable_prefix = payload["immutable_prefix"]
+            expected_prefix = f"{prefix_root}/generations/{generation_id}"
+            if immutable_prefix != expected_prefix:
+                raise ValueError("current generation pointer prefix mismatch")
+
+            objects = payload["objects"]
+            object_digests = {
+                name: objects[name]["sha256"] for name in _CURRENT_GENERATION_OBJECT_NAMES
+            }
+            pointer_metadata.update(
+                {
+                    "feature_snapshot_generation_id": generation_id,
+                    "feature_snapshot_immutable_prefix": immutable_prefix,
+                    "feature_snapshot_object_digests": dict(object_digests),
+                }
+            )
+            local_paths: dict[str, Path] = {}
+            for name in _CURRENT_GENERATION_OBJECT_NAMES:
+                basename = objects[name]["basename"]
+                object_uri = f"{immutable_prefix}/{basename}"
+                local_path = Path(temporary_dir) / f"{name}-{basename}"
+                _download_gcs_object(object_uri, local_path)
+                if _sha256_file(local_path) != object_digests[name]:
+                    return FeatureSnapshotGuardResult(
+                        frame=None,
+                        metadata=_build_guard_metadata(
+                            snapshot_path=pointer_uri,
+                            decision="fail_closed",
+                            snapshot_exists=False,
+                            **pointer_metadata,
+                            fail_reason="feature_snapshot_pointer_object_digest_mismatch",
+                        ),
+                    )
+                local_paths[name] = local_path
+
+            result = _load_feature_snapshot_guarded_without_fallback(
+                str(local_paths["snapshot"]),
+                run_as_of=run_as_of,
+                required_columns=required_columns,
+                snapshot_date_columns=snapshot_date_columns,
+                max_snapshot_month_lag=max_snapshot_month_lag,
+                manifest_path=str(local_paths["manifest"]),
+                require_manifest=True,
+                expected_strategy_profile=expected_strategy_profile or pointer_profile,
+                expected_config_name=expected_config_name,
+                expected_config_path=expected_config_path,
+                expected_contract_version=expected_contract_version,
+            )
+            metadata = dict(result.metadata)
+            metadata.update(pointer_metadata)
+            metadata.update(
+                {
+                    "feature_snapshot_path": pointer_uri,
+                    "snapshot_path": pointer_uri,
+                    "snapshot_source_uri": f"{immutable_prefix}/{objects['snapshot']['basename']}",
+                    "snapshot_manifest_path": f"{immutable_prefix}/{objects['manifest']['basename']}",
+                    "snapshot_manifest_source_uri": f"{immutable_prefix}/{objects['manifest']['basename']}",
+                    "snapshot_local_path": None,
+                    "snapshot_manifest_local_path": None,
+                }
+            )
+            if result.metadata.get("snapshot_guard_decision") != "proceed":
+                metadata = _build_guard_metadata(
+                    snapshot_path=pointer_uri,
+                    decision="fail_closed",
+                    snapshot_exists=False,
+                    **pointer_metadata,
+                    fail_reason="feature_snapshot_pointer_guard_failed",
+                )
+                return FeatureSnapshotGuardResult(frame=None, metadata=metadata)
+            if result.metadata.get("snapshot_guard_decision") == "proceed" and str(
+                result.metadata.get("snapshot_as_of")
+            )[:10] != payload["snapshot_as_of"]:
+                return FeatureSnapshotGuardResult(
+                    frame=None,
+                    metadata={
+                        **metadata,
+                        "snapshot_guard_decision": "fail_closed",
+                        "fail_reason": "feature_snapshot_pointer_snapshot_as_of_mismatch",
+                    },
+                )
+            return FeatureSnapshotGuardResult(frame=result.frame, metadata=metadata)
+    except Exception:
+        return FeatureSnapshotGuardResult(
+            frame=None,
+            metadata=_build_guard_metadata(
+                snapshot_path=pointer_uri,
+                decision="fail_closed",
+                snapshot_exists=False,
+                **pointer_metadata,
+                fail_reason="feature_snapshot_pointer_read_failed",
+            ),
+        )
+
+
 # Backward-compatible aliases
 _parse_gcs_uri = _parse_cloud_uri
-_download_gcs_object = _download_remote_object
+
+
+def _download_gcs_object(uri: str, destination: Path) -> None:
+    _download_remote_object(uri, destination)
 
 
 def _cache_path_for_remote_artifact(reference: str) -> Path:
@@ -264,6 +514,34 @@ def load_feature_snapshot_guarded(
 ) -> FeatureSnapshotGuardResult:
     """Load a guarded snapshot, optionally falling back to the last valid artifact."""
 
+    raw_path = str(path or "").strip()
+    if _is_current_generation_pointer_reference(raw_path):
+        if str(manifest_path or "").strip() not in {"", raw_path}:
+            return FeatureSnapshotGuardResult(
+                frame=None,
+                metadata=_build_guard_metadata(
+                    snapshot_path=raw_path,
+                    decision="fail_closed",
+                    snapshot_exists=False,
+                    feature_snapshot_pointer_uri=raw_path,
+                    feature_snapshot_generation_id=None,
+                    feature_snapshot_immutable_prefix=None,
+                    feature_snapshot_object_digests=None,
+                    fail_reason="feature_snapshot_pointer_manifest_mismatch",
+                ),
+            )
+        return _load_current_generation_feature_snapshot_guarded(
+            raw_path,
+            run_as_of=run_as_of,
+            required_columns=required_columns,
+            snapshot_date_columns=snapshot_date_columns,
+            max_snapshot_month_lag=max_snapshot_month_lag,
+            expected_strategy_profile=expected_strategy_profile,
+            expected_config_name=expected_config_name,
+            expected_config_path=expected_config_path,
+            expected_contract_version=expected_contract_version,
+        )
+
     fallback_context = _feature_snapshot_fallback_context(
         path=path,
         manifest_path=manifest_path,
@@ -337,6 +615,33 @@ def _load_feature_snapshot_guarded_without_fallback(
                 snapshot_exists=False,
                 fail_reason="feature_snapshot_path_missing",
             ),
+        )
+
+    if _is_current_generation_pointer_reference(raw_path):
+        if str(manifest_path or "").strip() not in {"", raw_path}:
+            return FeatureSnapshotGuardResult(
+                frame=None,
+                metadata=_build_guard_metadata(
+                    snapshot_path=raw_path,
+                    decision="fail_closed",
+                    snapshot_exists=False,
+                    feature_snapshot_pointer_uri=raw_path,
+                    feature_snapshot_generation_id=None,
+                    feature_snapshot_immutable_prefix=None,
+                    feature_snapshot_object_digests=None,
+                    fail_reason="feature_snapshot_pointer_manifest_mismatch",
+                ),
+            )
+        return _load_current_generation_feature_snapshot_guarded(
+            raw_path,
+            run_as_of=run_as_of,
+            required_columns=required_columns,
+            snapshot_date_columns=snapshot_date_columns,
+            max_snapshot_month_lag=max_snapshot_month_lag,
+            expected_strategy_profile=expected_strategy_profile,
+            expected_config_name=expected_config_name,
+            expected_config_path=expected_config_path,
+            expected_contract_version=expected_contract_version,
         )
 
     manifest_reference = _resolve_manifest_reference(raw_path, manifest_path)
