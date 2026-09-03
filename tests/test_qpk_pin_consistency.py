@@ -25,6 +25,7 @@ from scripts.open_downstream_qpk_pin_prs import (
     update_qpk_test_pin_contracts,
     update_qpk_revision_contract,
     update_strategy_dependency_pins,
+    update_ci_qpk_pin_contract,
 )
 
 
@@ -264,6 +265,47 @@ override-dependencies = [
                 f'QPK_REVISION = "{TARGET}"\n',
                 contract.read_text(encoding="utf-8"),
             )
+
+    def test_ci_qpk_pin_contract_tracks_staged_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "ci.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                "run: QPK_EXPECTED_PIN="
+                f"{STALE} uv run --no-sync python scripts/check_qpk_pin_consistency.py\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(
+                update_ci_qpk_pin_contract(
+                    root,
+                    qpk_sha=TARGET,
+                    previous_qpk_refs={STALE},
+                )
+            )
+            updated = workflow.read_text(encoding="utf-8")
+
+        self.assertIn(f"QPK_EXPECTED_PIN={TARGET}", updated)
+        self.assertNotIn(STALE, updated)
+
+    def test_ci_qpk_pin_contract_rejects_an_unrecognized_prior_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "ci.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                "run: QPK_EXPECTED_PIN="
+                f"{STALE} uv run --no-sync python scripts/check_qpk_pin_consistency.py\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "unexpected_prior_pin"):
+                update_ci_qpk_pin_contract(
+                    root,
+                    qpk_sha=TARGET,
+                    previous_qpk_refs={"0" * 40},
+                )
 
     def test_drift_workflow_test_contract_tracks_previously_observed_qpk_refs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

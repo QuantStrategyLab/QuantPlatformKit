@@ -32,6 +32,9 @@ QSL_QPK_REQUIRES_MAP_RE = re.compile(
 QPK_REVISION_RE = re.compile(
     r'''(?m)^(?P<prefix>QPK_REVISION\s*=\s*["'])(?P<sha>[a-f0-9]{40})(?P<suffix>["']\s*)$'''
 )
+CI_QPK_EXPECTED_PIN_RE = re.compile(
+    r"(?m)(?P<prefix>QPK_EXPECTED_PIN=)(?P<sha>[a-f0-9]{40})(?P<suffix>\s+uv run --no-sync python scripts/check_qpk_pin_consistency\.py)"
+)
 
 
 @dataclass(frozen=True)
@@ -135,6 +138,33 @@ def update_qpk_revision_contract(repo_dir: Path, qpk_sha: str) -> bool:
         raise RuntimeError(f"qpk_revision_contract_update_failed:matches={count}")
     if updated == original:
         return False
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
+def update_ci_qpk_pin_contract(
+    repo_dir: Path,
+    *,
+    qpk_sha: str,
+    previous_qpk_refs: set[str],
+) -> bool:
+    """Update a consumer CI pin only when it matches the prior dependency pin."""
+
+    path = repo_dir / ".github" / "workflows" / "ci.yml"
+    if not path.is_file():
+        return False
+    original = path.read_text(encoding="utf-8")
+    matches = list(CI_QPK_EXPECTED_PIN_RE.finditer(original))
+    if not matches:
+        return False
+    if len(matches) != 1:
+        raise RuntimeError(f"ci_qpk_pin_contract_update_failed:matches={len(matches)}")
+    previous_sha = matches[0].group("sha")
+    if previous_sha == qpk_sha:
+        return False
+    if previous_sha not in previous_qpk_refs:
+        raise RuntimeError("ci_qpk_pin_contract_update_failed:unexpected_prior_pin")
+    updated = CI_QPK_EXPECTED_PIN_RE.sub(rf"\g<prefix>{qpk_sha}\g<suffix>", original)
     path.write_text(updated, encoding="utf-8")
     return True
 
@@ -359,14 +389,15 @@ def update_repo(
 ) -> bool:
     script = SCRIPT_ROOT / "check_qpk_pin_consistency.py"
     previous_qpk_refs = qpk_refs(repo_dir)
+    qpk_sha = get_qpk_pin_sha(pin_file=qpk_pin)
     run(
         ["python3", str(script), "--root", str(repo_dir), "--pin-file", str(qpk_pin), "--fix"],
         cwd=repo_dir,
     )
-    update_qsl_compat_qpk_pin(repo_dir, get_qpk_pin_sha(pin_file=qpk_pin))
+    update_qsl_compat_qpk_pin(repo_dir, qpk_sha)
     update_qpk_revision_contract(
         repo_dir,
-        get_qpk_pin_sha(pin_file=qpk_pin),
+        qpk_sha,
     )
     update_drift_workflow_test_contract(
         repo_dir,
@@ -374,9 +405,14 @@ def update_repo(
         previous_qpk_refs=previous_qpk_refs,
     )
     if strategy_heads:
+        update_ci_qpk_pin_contract(
+            repo_dir,
+            qpk_sha=qpk_sha,
+            previous_qpk_refs=previous_qpk_refs,
+        )
         update_qpk_test_pin_contracts(
             repo_dir,
-            qpk_sha=get_qpk_pin_sha(pin_file=qpk_pin),
+            qpk_sha=qpk_sha,
             previous_qpk_refs=previous_qpk_refs,
         )
         update_strategy_dependency_pins(repo_dir, strategy_heads)
