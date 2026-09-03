@@ -69,6 +69,38 @@ def test_any_unmatched_broker_surface_fails_closed() -> None:
     )
 
 
+def test_explicit_missing_baseline_does_not_misreport_unknown_surfaces_as_mismatches() -> None:
+    evidence = _evidence(
+        broker_connected=False,
+        account_identity_match=False,
+        positions_match=False,
+        cash_match=False,
+        open_orders_match=False,
+        recent_executions_match=False,
+        local_execution_ledger_match=False,
+    )
+
+    assert evaluate_broker_reconciliation_recovery(
+        evidence,
+        now=datetime(2026, 8, 30, 8, 5, tzinfo=timezone.utc),
+        baseline_reference_available=False,
+    ) == (
+        BrokerReconciliationFinding.BASELINE_UNAVAILABLE,
+        BrokerReconciliationFinding.BROKER_CONNECTION_FAILED,
+        BrokerReconciliationFinding.ACCOUNT_IDENTITY_MISMATCH,
+    )
+
+
+def test_explicit_missing_baseline_is_reported_when_evidence_is_unavailable() -> None:
+    assert evaluate_broker_reconciliation_recovery(
+        None,
+        baseline_reference_available=False,
+    ) == (
+        BrokerReconciliationFinding.BASELINE_UNAVAILABLE,
+        BrokerReconciliationFinding.BROKER_CONNECTION_FAILED,
+    )
+
+
 def test_independent_expected_snapshot_digests_are_checked() -> None:
     evidence = _evidence()
 

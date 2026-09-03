@@ -43,6 +43,7 @@ class BrokerReconciliationFinding(str, Enum):
     """Stable, redacted reasons a frozen live baseline must remain blocked."""
 
     EVIDENCE_STALE = "broker_reconciliation_evidence_stale"
+    BASELINE_UNAVAILABLE = "broker_reconciliation_baseline_unavailable"
     BASELINE_TARGET_MISMATCH = "broker_reconciliation_baseline_target_mismatch"
     BROKER_CONNECTION_FAILED = "broker_reconciliation_broker_connection_failed"
     ACCOUNT_IDENTITY_MISMATCH = "broker_reconciliation_account_identity_mismatch"
@@ -364,6 +365,7 @@ def evaluate_broker_reconciliation_recovery(
     expected_open_orders_sha256: str | None = None,
     expected_recent_executions_sha256: str | None = None,
     expected_local_execution_ledger_sha256: str | None = None,
+    baseline_reference_available: bool = True,
 ) -> tuple[BrokerReconciliationFinding, ...]:
     """Return every blocking finding; an empty tuple is required for recovery.
 
@@ -374,8 +376,13 @@ def evaluate_broker_reconciliation_recovery(
 
     if max_age <= timedelta(0):
         raise ValueError("max_age must be positive")
+    if not isinstance(baseline_reference_available, bool):
+        raise ValueError("baseline_reference_available must be a boolean")
+    baseline_findings = (
+        (BrokerReconciliationFinding.BASELINE_UNAVAILABLE,) if not baseline_reference_available else ()
+    )
     if evidence is None:
-        return (BrokerReconciliationFinding.BROKER_CONNECTION_FAILED,)
+        return (*baseline_findings, BrokerReconciliationFinding.BROKER_CONNECTION_FAILED)
     try:
         normalized = (
             evidence
@@ -383,9 +390,9 @@ def evaluate_broker_reconciliation_recovery(
             else BrokerReconciliationEvidence.from_dict(evidence)
         )
     except (TypeError, ValueError):
-        return (BrokerReconciliationFinding.BROKER_CONNECTION_FAILED,)
+        return (*baseline_findings, BrokerReconciliationFinding.BROKER_CONNECTION_FAILED)
 
-    findings: list[BrokerReconciliationFinding] = []
+    findings = list(baseline_findings)
 
     def append(finding: BrokerReconciliationFinding) -> None:
         if finding not in findings:
@@ -415,62 +422,68 @@ def evaluate_broker_reconciliation_recovery(
         if expected is not None and actual != expected:
             append(BrokerReconciliationFinding.ACCOUNT_IDENTITY_MISMATCH)
 
-    for actual, expected, finding, field_name in (
-        (
-            normalized.positions_sha256,
-            expected_positions_sha256,
-            BrokerReconciliationFinding.POSITIONS_MISMATCH,
-            "expected_positions_sha256",
-        ),
-        (
-            normalized.cash_sha256,
-            expected_cash_sha256,
-            BrokerReconciliationFinding.CASH_MISMATCH,
-            "expected_cash_sha256",
-        ),
-        (
-            normalized.open_orders_sha256,
-            expected_open_orders_sha256,
-            BrokerReconciliationFinding.OPEN_ORDERS_MISMATCH,
-            "expected_open_orders_sha256",
-        ),
-        (
-            normalized.recent_executions_sha256,
-            expected_recent_executions_sha256,
-            BrokerReconciliationFinding.RECENT_EXECUTIONS_MISMATCH,
-            "expected_recent_executions_sha256",
-        ),
-        (
-            normalized.local_execution_ledger_sha256,
-            expected_local_execution_ledger_sha256,
-            BrokerReconciliationFinding.LOCAL_EXECUTION_LEDGER_MISMATCH,
-            "expected_local_execution_ledger_sha256",
-        ),
-    ):
-        if expected is None:
-            continue
-        try:
-            expected_digest = _normalize_sha256(expected, field_name=field_name)
-        except ValueError:
-            append(finding)
-        else:
-            if actual != expected_digest:
+    if baseline_reference_available:
+        for actual, expected, finding, field_name in (
+            (
+                normalized.positions_sha256,
+                expected_positions_sha256,
+                BrokerReconciliationFinding.POSITIONS_MISMATCH,
+                "expected_positions_sha256",
+            ),
+            (
+                normalized.cash_sha256,
+                expected_cash_sha256,
+                BrokerReconciliationFinding.CASH_MISMATCH,
+                "expected_cash_sha256",
+            ),
+            (
+                normalized.open_orders_sha256,
+                expected_open_orders_sha256,
+                BrokerReconciliationFinding.OPEN_ORDERS_MISMATCH,
+                "expected_open_orders_sha256",
+            ),
+            (
+                normalized.recent_executions_sha256,
+                expected_recent_executions_sha256,
+                BrokerReconciliationFinding.RECENT_EXECUTIONS_MISMATCH,
+                "expected_recent_executions_sha256",
+            ),
+            (
+                normalized.local_execution_ledger_sha256,
+                expected_local_execution_ledger_sha256,
+                BrokerReconciliationFinding.LOCAL_EXECUTION_LEDGER_MISMATCH,
+                "expected_local_execution_ledger_sha256",
+            ),
+        ):
+            if expected is None:
+                continue
+            try:
+                expected_digest = _normalize_sha256(expected, field_name=field_name)
+            except ValueError:
                 append(finding)
+            else:
+                if actual != expected_digest:
+                    append(finding)
 
     for matched, finding in (
         (normalized.broker_connected, BrokerReconciliationFinding.BROKER_CONNECTION_FAILED),
         (normalized.account_identity_match, BrokerReconciliationFinding.ACCOUNT_IDENTITY_MISMATCH),
-        (normalized.positions_match, BrokerReconciliationFinding.POSITIONS_MISMATCH),
-        (normalized.cash_match, BrokerReconciliationFinding.CASH_MISMATCH),
-        (normalized.open_orders_match, BrokerReconciliationFinding.OPEN_ORDERS_MISMATCH),
-        (normalized.recent_executions_match, BrokerReconciliationFinding.RECENT_EXECUTIONS_MISMATCH),
-        (
-            normalized.local_execution_ledger_match,
-            BrokerReconciliationFinding.LOCAL_EXECUTION_LEDGER_MISMATCH,
-        ),
     ):
         if not matched:
             append(finding)
+    if baseline_reference_available:
+        for matched, finding in (
+            (normalized.positions_match, BrokerReconciliationFinding.POSITIONS_MISMATCH),
+            (normalized.cash_match, BrokerReconciliationFinding.CASH_MISMATCH),
+            (normalized.open_orders_match, BrokerReconciliationFinding.OPEN_ORDERS_MISMATCH),
+            (normalized.recent_executions_match, BrokerReconciliationFinding.RECENT_EXECUTIONS_MISMATCH),
+            (
+                normalized.local_execution_ledger_match,
+                BrokerReconciliationFinding.LOCAL_EXECUTION_LEDGER_MISMATCH,
+            ),
+        ):
+            if not matched:
+                append(finding)
     return tuple(findings)
 
 
