@@ -37,6 +37,7 @@ def fetch_account_snapshot(
     api_client: Any,
     *,
     strategy_symbols: Iterable[str] = (),
+    expected_account_hash: str | None = None,
 ) -> PortfolioSnapshot:
     from schwab import client
 
@@ -44,7 +45,23 @@ def fetch_account_snapshot(
         _request_with_retries(api_client.get_account_numbers),
         "Account numbers",
     )
-    account_hash = account_numbers[0]["hashValue"]
+    account_hashes = {
+        value.strip()
+        for item in account_numbers
+        if isinstance(item, dict)
+        for value in [item.get("hashValue")]
+        if isinstance(value, str) and value.strip()
+    }
+    if not account_hashes:
+        raise ValueError("Schwab account numbers did not contain an account hash.")
+    if expected_account_hash is None:
+        if len(account_hashes) != 1:
+            raise ValueError("Schwab snapshot requires an explicit account hash for multiple accounts.")
+        account_hash = next(iter(account_hashes))
+    elif expected_account_hash not in account_hashes:
+        raise ValueError("The selected Schwab account hash is unavailable.")
+    else:
+        account_hash = expected_account_hash
 
     account_payload = decode_response_json(
         _request_with_retries(
