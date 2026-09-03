@@ -77,6 +77,32 @@ class SchwabPortfolioTests(unittest.TestCase):
         self.assertEqual(len(snapshot.positions), 1)
         self.assertEqual(snapshot.positions[0].symbol, "TQQQ")
 
+    def test_fetch_account_snapshot_requires_selection_for_multiple_accounts(self) -> None:
+        class MultiAccountClient(FakeClient):
+            def get_account_numbers(self):
+                return FakeResponse([{"hashValue": "abc123"}, {"hashValue": "def456"}])
+
+        with self._install_fake_schwab_module(), self.assertRaisesRegex(
+            ValueError, "explicit account hash"
+        ):
+            fetch_account_snapshot(MultiAccountClient(), strategy_symbols=("TQQQ",))
+
+    def test_fetch_account_snapshot_uses_explicit_account_selection(self) -> None:
+        class MultiAccountClient(FakeClient):
+            def get_account_numbers(self):
+                return FakeResponse([{"hashValue": "abc123"}, {"hashValue": "def456"}])
+
+        api_client = MultiAccountClient()
+        with self._install_fake_schwab_module():
+            snapshot = fetch_account_snapshot(
+                api_client,
+                strategy_symbols=("TQQQ",),
+                expected_account_hash="def456",
+            )
+
+        self.assertEqual(snapshot.metadata["account_hash"], "def456")
+        self.assertEqual(api_client.args[0], "def456")
+
     def test_fetch_account_snapshot_prefers_broker_liquidation_value(self) -> None:
         class LiquidationValueClient(FakeClient):
             def get_account(self, account_hash, fields):
