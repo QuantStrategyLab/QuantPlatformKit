@@ -52,6 +52,14 @@
 摘要及显式状态转换。任一环节失败、超时、审计不可用、审计意见不一致或人工未确认，
 都保持 `RECONCILE_ONLY`。
 
+私有控制面需要把 GitHub artifact/run 与 serving revision 等 canonical source record
+绑定到候选时，必须显式使用
+`broker_reconciliation_baseline_candidate.v2`，并提供已在私有端计算的
+`source_receipts_sha256` 根。该根会被纳入 `candidate_sha256`；共享库只校验并绑定根，
+不接收、计算或保存 source record 明细。`v1` 继续只解析历史候选，字段集合和
+`source_evidence_sha256` 语义保持不变；缺少 provenance root 的候选不得静默升级为
+`v2`，也不影响其他平台继续生成无 provenance 的 `v1` 候选。
+
 ## 通用发布与恢复计划接口
 
 `reconciliation_recovery.py` 把跨平台部分固定为三个**无副作用**契约：

@@ -4,10 +4,17 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from quant_platform_kit.common import (
+    BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION as EXPORTED_V2_SCHEMA_VERSION,
+)
 from quant_platform_kit.common.broker_reconciliation import build_broker_reconciliation_evidence
 from quant_platform_kit.common.broker_reconciliation_enrollment import (
+    BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION,
+    BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION,
     BrokerReconciliationBaselineCandidate,
     BrokerReconciliationEnrollmentFinding,
+    calculate_broker_reconciliation_baseline_candidate_sha256,
+    canonical_broker_reconciliation_baseline_candidate_json,
     evaluate_broker_reconciliation_baseline_enrollment,
 )
 
@@ -118,3 +125,52 @@ def test_candidate_tampering_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="candidate_sha256 mismatch"):
         BrokerReconciliationBaselineCandidate.from_dict(payload)
+
+
+def test_v2_candidate_binds_private_source_receipts_root_without_upgrading_v1() -> None:
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    v1_candidate = evaluate_broker_reconciliation_baseline_enrollment(
+        [_evidence(observed_at=start), _evidence(observed_at=start + timedelta(minutes=2))],
+        now=start + timedelta(minutes=3),
+    ).candidate
+    assert v1_candidate is not None
+    assert EXPORTED_V2_SCHEMA_VERSION == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION
+    assert v1_candidate.schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION
+    assert v1_candidate.source_receipts_sha256 is None
+
+    payload = v1_candidate.to_dict()
+    payload["schema_version"] = BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION
+    payload["source_receipts_sha256"] = _digest("1")
+    payload["candidate_sha256"] = calculate_broker_reconciliation_baseline_candidate_sha256(payload)
+
+    candidate = BrokerReconciliationBaselineCandidate.from_dict(payload)
+
+    assert candidate.source_receipts_sha256 == _digest("1")
+    assert candidate.to_dict() == payload
+    assert '"source_receipts_sha256":"' + _digest("1") + '"' in (
+        canonical_broker_reconciliation_baseline_candidate_json(payload)
+    )
+
+    tampered = candidate.to_dict()
+    tampered["source_receipts_sha256"] = _digest("2")
+    with pytest.raises(ValueError, match="candidate_sha256 mismatch"):
+        BrokerReconciliationBaselineCandidate.from_dict(tampered)
+
+
+def test_candidate_schema_versions_do_not_silently_change_provenance_semantics() -> None:
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    candidate = evaluate_broker_reconciliation_baseline_enrollment(
+        [_evidence(observed_at=start), _evidence(observed_at=start + timedelta(minutes=2))],
+        now=start + timedelta(minutes=3),
+    ).candidate
+    assert candidate is not None
+
+    v1_with_provenance = candidate.to_dict()
+    v1_with_provenance["source_receipts_sha256"] = _digest("1")
+    with pytest.raises(ValueError, match="invalid fields"):
+        BrokerReconciliationBaselineCandidate.from_dict(v1_with_provenance)
+
+    v2_without_provenance = candidate.to_dict()
+    v2_without_provenance["schema_version"] = BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION
+    with pytest.raises(ValueError, match="invalid fields"):
+        BrokerReconciliationBaselineCandidate.from_dict(v2_without_provenance)
