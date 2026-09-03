@@ -29,6 +29,9 @@ from .broker_reconciliation import BrokerReconciliationEvidence
 BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION = (
     "broker_reconciliation_baseline_candidate.v1"
 )
+BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION = (
+    "broker_reconciliation_baseline_candidate.v2"
+)
 DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_AGE = timedelta(minutes=30)
 DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MIN_SEPARATION = timedelta(minutes=1)
 DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_SPAN = timedelta(minutes=15)
@@ -102,10 +105,15 @@ def _candidate_payload(value: Mapping[str, object]) -> dict[str, object]:
         "local_execution_ledger_sha256",
         "candidate_sha256",
     }
-    if set(value) != required:
-        raise ValueError("baseline candidate has invalid fields")
-    if value["schema_version"] != BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION:
+    schema_version = value.get("schema_version")
+    if schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION:
+        required_fields = required
+    elif schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION:
+        required_fields = required | {"source_receipts_sha256"}
+    else:
         raise ValueError("unsupported baseline candidate schema version")
+    if set(value) != required_fields:
+        raise ValueError("baseline candidate has invalid fields")
     source = value["source_evidence_sha256"]
     if not isinstance(source, (tuple, list)) or len(source) < 2:
         raise ValueError("source_evidence_sha256 must contain at least two receipts")
@@ -122,11 +130,15 @@ def _candidate_payload(value: Mapping[str, object]) -> dict[str, object]:
         "baseline_id",
     )
     normalized: dict[str, object] = {
-        "schema_version": BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION,
+        "schema_version": schema_version,
         "source_evidence_sha256": normalized_source,
         "first_observed_at": _iso(first),
         "last_observed_at": _iso(last),
     }
+    if schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION:
+        normalized["source_receipts_sha256"] = _digest(
+            value["source_receipts_sha256"], field_name="source_receipts_sha256"
+        )
     for field_name in required_text:
         text = value[field_name]
         if not isinstance(text, str) or text != text.strip() or not text or len(text) > 128:
@@ -177,6 +189,7 @@ class BrokerReconciliationBaselineCandidate:
     recent_executions_sha256: str
     local_execution_ledger_sha256: str
     candidate_sha256: str
+    source_receipts_sha256: str | None = None
     schema_version: str = BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -193,6 +206,11 @@ class BrokerReconciliationBaselineCandidate:
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
+        if (
+            payload["schema_version"] == BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION
+            and payload["source_receipts_sha256"] is None
+        ):
+            del payload["source_receipts_sha256"]
         payload["first_observed_at"] = _iso(payload["first_observed_at"])
         payload["last_observed_at"] = _iso(payload["last_observed_at"])
         return payload
@@ -331,6 +349,7 @@ def evaluate_broker_reconciliation_baseline_enrollment(
 
 __all__ = [
     "BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION",
+    "BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION",
     "DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_AGE",
     "DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_SPAN",
     "DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MIN_SEPARATION",
