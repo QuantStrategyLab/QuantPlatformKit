@@ -5,7 +5,52 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from quant_platform_kit.strategy_lifecycle.backtest_orchestrator import BacktestOrchestrator
-from quant_platform_kit.strategy_lifecycle.param_optimizer import _auto_register_runner
+from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult
+from quant_platform_kit.strategy_lifecycle.param_optimizer import (
+    _auto_register_runner,
+    _build_optimization_proposal,
+)
+
+
+class ParamOptimizerRecommendationTests(unittest.TestCase):
+    def test_strong_ordinary_optimization_is_only_a_research_candidate(self) -> None:
+        baseline = BacktestResult(
+            strategy_profile="test_strategy",
+            domain="us_equity",
+            param_set_id="baseline",
+            params={"window": 20},
+            sharpe_ratio=0.5,
+            calmar_ratio=0.5,
+            sortino_ratio=0.5,
+            max_drawdown=-0.2,
+            cagr=0.1,
+        )
+        candidate = BacktestResult(
+            strategy_profile="test_strategy",
+            domain="us_equity",
+            param_set_id="candidate",
+            params={"window": 50},
+            sharpe_ratio=1.0,
+            calmar_ratio=1.0,
+            sortino_ratio=1.0,
+            max_drawdown=-0.1,
+            cagr=0.2,
+            walk_forward_stability=0.9,
+        )
+
+        proposal = _build_optimization_proposal(
+            "test_strategy",
+            "us_equity",
+            baseline.params,
+            candidate.params,
+            baseline,
+            candidate,
+            improvement=0.38,
+            search_count=10,
+        )
+
+        self.assertEqual(proposal.recommendation, "research_candidate")
+        self.assertNotEqual(proposal.recommendation, "promote")
 
 
 class ParamOptimizerRunnerRegistrationTests(unittest.TestCase):

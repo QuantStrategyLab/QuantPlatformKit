@@ -491,7 +491,7 @@ class OptimizationProposal:
     confidence: float = 0.0
     winning_dimensions: tuple[str, ...] = ()
     regressing_dimensions: tuple[str, ...] = ()
-    recommendation: str = ""  # "promote", "reject", "needs_review"
+    recommendation: str = ""  # "research_candidate", "promote", "reject", "needs_review"
 
     # Walk-forward validation
     walk_forward_passed: bool = False
