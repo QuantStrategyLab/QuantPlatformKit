@@ -311,7 +311,7 @@ def _run_doctor(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="quant-lifecycle", description="Quant strategy lifecycle CLI.")
-    parser.add_argument("--version", action="version", version="quant-lifecycle 0.10.0")
+    parser.add_argument("--version", action="version", version="quant-lifecycle 1.0.0")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     monitor = subparsers.add_parser("monitor", help="Run the continuous performance monitor for one domain.")

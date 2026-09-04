@@ -127,3 +127,7 @@ rw.update_secret("my-token", "new-token-value")
 ## License
 
 See [LICENSE](LICENSE).
+
+## v1 migration
+
+`quant_platform_kit.strategy_contracts` was removed in v1. Import strategy contracts from `quant_platform_kit.common.strategy_contracts`, execution translation from `quant_platform_kit.common.execution_translation`, and runtime inputs from `quant_platform_kit.common.runtime_inputs`. No compatibility facade is provided.

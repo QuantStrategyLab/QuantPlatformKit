@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quant-platform-kit"
-version = "0.10.0"
+version = "1.0.0"
 description = "QuantStrategyLab shared runtime: broker adapters, domain models, execution ports, cloud provider abstraction, and notification utilities."
 readme = "README.md"
 requires-python = ">=3.10"

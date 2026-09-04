@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from quant_platform_kit.strategy_contracts import (
+from quant_platform_kit.common.strategy_contracts import (
     StrategyManifest,
     StrategyRuntimeAdapter,
 )

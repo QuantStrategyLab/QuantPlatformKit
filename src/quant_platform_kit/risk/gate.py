@@ -28,7 +28,7 @@ from quant_platform_kit.risk.contracts import (
     RiskGateResult,
 )
 from quant_platform_kit.risk.engine import build_risk_engine
-from quant_platform_kit.strategy_contracts import (
+from quant_platform_kit.common.strategy_contracts import (
     BudgetIntent,
     PositionTarget,
     StrategyDecision,
