@@ -29,7 +29,7 @@ from quant_platform_kit.risk.gate import (
     apply_risk_gate,
     enrich_decision_risk_diagnostics,
 )
-from quant_platform_kit.strategy_contracts import BudgetIntent, PositionTarget, StrategyDecision
+from quant_platform_kit.common.strategy_contracts import BudgetIntent, PositionTarget, StrategyDecision
 
 
 class ExplodingMapping(Mapping[str, object]):

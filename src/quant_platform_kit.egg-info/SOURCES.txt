@@ -4,7 +4,6 @@ pyproject.toml
 setup.py
 src/quant_platform_kit/__init__.py
 src/quant_platform_kit/position_sizing.py
-src/quant_platform_kit/strategy_contracts.py
 src/quant_platform_kit.egg-info/PKG-INFO
 src/quant_platform_kit.egg-info/SOURCES.txt
 src/quant_platform_kit.egg-info/dependency_links.txt

@@ -3,14 +3,14 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from quant_platform_kit.strategy_contracts import (
+from quant_platform_kit.common.strategy_contracts import (
     StrategyEntrypoint,
     StrategyRuntimeAdapter,
     build_strategy_context_from_available_inputs,
-    build_strategy_evaluation_inputs,
 )
 from quant_platform_kit.common.runtime_inputs import (
     build_semiconductor_rotation_indicators_from_history,
+    build_strategy_evaluation_inputs,
     required_semiconductor_rotation_history_lookback,
 )
 

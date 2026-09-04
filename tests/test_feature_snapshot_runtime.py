@@ -10,7 +10,7 @@ from quant_platform_kit.common.feature_snapshot_runtime import (
     evaluate_feature_snapshot_strategy,
     extract_feature_snapshot_managed_symbols,
 )
-from quant_platform_kit.strategy_contracts import (
+from quant_platform_kit.common.strategy_contracts import (
     CallableStrategyEntrypoint,
     PositionTarget,
     StrategyContext,

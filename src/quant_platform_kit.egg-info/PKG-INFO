@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: quant-platform-kit
-Version: 0.10.0
+Version: 1.0.0
 Summary: QuantStrategyLab shared runtime: broker adapters, domain models, execution ports, cloud provider abstraction, and notification utilities.
 Author: QuantStrategyLab
 License-Expression: MIT

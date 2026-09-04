@@ -75,3 +75,7 @@ quant-lifecycle dashboard --format all
 | **Azure** | `QSL_CLOUD_PROVIDER=azure` | 使用 Azure Key Vault、Blob Storage、Cosmos DB—— 需要 azure-identity 和 Azure SDK。 |
 | **本地文件系统** | `QSL_CLOUD_PROVIDER=local` | 密钥和数据库存储在 `~/.qsl/` 目录下。无需任何云凭证——适合开发、测试和离线环境。 |
 | **环境变量** | `QSL_CLOUD_PROVIDER=env` | 密钥从环境变量读取；其余操作使用本地文件系统。适合 CI 场景。 |
+
+## v1 迁移
+
+v1 已删除 `quant_platform_kit.strategy_contracts`。策略 contract 请改从 `quant_platform_kit.common.strategy_contracts` 导入；执行转换和 runtime input 分别从其对应的 `common` 模块导入。不会提供兼容 facade。
