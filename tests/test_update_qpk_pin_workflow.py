@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "update-qpk-pin.yml"
@@ -235,15 +237,29 @@ def test_dependency_success_reaches_only_guarded_pr_step(tmp_path: Path) -> None
         "if: steps.update.outputs.changed == 'true' && "
         "steps.verify.outcome == 'success'"
     ) in workflow
-    assert '      - ".github/workflows/update-qpk-pin.yml"' in workflow
-    assert '      - "scripts/open_downstream_qpk_pin_prs.py"' in workflow
-    assert '      - "scripts/merge_verified_strategy_qpk_pin_prs.py"' in workflow
-    assert '      - "scripts/report_consumer_qpk_pin_prs.py"' in workflow
-    assert '      - "tests/test_qpk_pin_consistency.py"' in workflow
-    assert '      - "tests/test_merge_verified_strategy_qpk_pin_prs.py"' in workflow
-    assert '      - "tests/test_report_consumer_qpk_pin_prs.py"' in workflow
-    assert '      - "tests/test_update_qpk_pin_workflow.py"' in workflow
-    assert "workflow_dispatch:" not in workflow
+    assert "\n  workflow_dispatch:\n" in workflow
+
+
+@pytest.mark.parametrize(
+    ("event_name", "ref", "expected"),
+    [
+        ("push", "refs/heads/main", False),
+        ("workflow_dispatch", "refs/heads/main", True),
+        ("workflow_dispatch", "refs/heads/feature", False),
+    ],
+)
+def test_pin_update_requires_explicit_main_dispatch(event_name, ref, expected) -> None:
+    workflow = _workflow()
+    triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
+    assert triggers.strip() == "workflow_dispatch:"
+    guard_line = next(line for line in workflow.splitlines() if line.startswith("    if: "))
+    guard = re.fullmatch(
+        r"    if: github\.event_name == '([^']+)' && github\.ref == '([^']+)'",
+        guard_line,
+    )
+    assert guard is not None
+    allowed_event, allowed_ref = guard.groups()
+    assert (event_name == allowed_event and ref == allowed_ref) is expected
 
 
 def test_downstream_rollout_is_scheduled_and_phase_gated() -> None:

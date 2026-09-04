@@ -59,7 +59,16 @@ def compute_window_metrics(
 ) -> WindowPerformance:
     """Compute all performance metrics for a return series.
 
-    If benchmark_returns is provided, excess/beta/alpha/IR are also computed.
+    Returns are daily decimals; risk_free_rate is annual, converted to daily
+    MAR by dividing by 252. Sortino uses full-sample RMS shortfall from that
+    MAR and the same excess-return numerator as Sharpe; both are annualized.
+    Drawdowns include initial equity of 1 without adding an observation.
+
+    Benchmark comparisons use only common dates, including both CAGR legs.
+    Jensen's alpha remains daily; beta uses matching population covariance
+    and variance and is not identifiable for a constant benchmark (alpha=None).
+    Information ratio is annualized aligned active mean / population std.
+    Zero ratio denominators remain NaN; absent comparisons remain None.
     """
     series = normalize_return_series(returns)
     if window_days and len(series) > window_days:
@@ -75,18 +84,19 @@ def compute_window_metrics(
     total_return = float(equity.iloc[-1] - 1.0)
     cagr = float(equity.iloc[-1] ** (1.0 / years) - 1.0)
 
-    drawdown = equity / equity.cummax() - 1.0
+    drawdown = equity / equity.cummax().clip(lower=1.0) - 1.0
     max_drawdown = float(drawdown.min())
 
-    vol_daily = float(series.std(ddof=0))
+    vol_daily = float(series.std(ddof=0)) if series.nunique() > 1 else 0.0
     volatility = float(vol_daily * np.sqrt(TRADING_DAYS_PER_YEAR))
 
-    excess = series.mean() - risk_free_rate / TRADING_DAYS_PER_YEAR
+    daily_risk_free = risk_free_rate / TRADING_DAYS_PER_YEAR
+    excess = series.mean() - daily_risk_free
     sharpe = float(excess / vol_daily * np.sqrt(TRADING_DAYS_PER_YEAR)) if vol_daily else float("nan")
 
-    downside = series.loc[series < 0.0]
-    downside_std = float(downside.std(ddof=0)) if not downside.empty else 0.0
-    sortino = float(series.mean() / downside_std * np.sqrt(TRADING_DAYS_PER_YEAR)) if downside_std else float("nan")
+    downside = (series - daily_risk_free).clip(upper=0.0)
+    downside_deviation = float(np.sqrt((downside ** 2).mean()))
+    sortino = float(excess / downside_deviation * np.sqrt(TRADING_DAYS_PER_YEAR)) if downside_deviation else float("nan")
 
     calmar = float(cagr / abs(max_drawdown)) if max_drawdown < 0.0 else float("nan")
 
@@ -111,21 +121,25 @@ def compute_window_metrics(
         bench = normalize_return_series(benchmark_returns)
         aligned = pd.concat([series, bench], axis=1, join="inner").dropna()
         if not aligned.empty:
+            strategy_aligned = aligned.iloc[:, 0]
             bench_aligned = aligned.iloc[:, 1]
             bench_equity = (1.0 + bench_aligned).cumprod()
             bench_years = max(len(bench_aligned) / TRADING_DAYS_PER_YEAR, 1.0 / TRADING_DAYS_PER_YEAR)
             benchmark_return = float(bench_equity.iloc[-1] - 1.0)
             benchmark_cagr = float(bench_equity.iloc[-1] ** (1.0 / bench_years) - 1.0)
-            bench_dd = bench_equity / bench_equity.cummax() - 1.0
+            bench_dd = bench_equity / bench_equity.cummax().clip(lower=1.0) - 1.0
             benchmark_max_dd = float(bench_dd.min())
-            excess_cagr = cagr - benchmark_cagr
-            # Jensen's alpha (simplified: excess over risk-free minus beta * market excess)
-            bench_excess = bench_aligned.mean()
-            beta = float(np.cov(aligned.iloc[:, 0], bench_aligned)[0, 1] / np.var(bench_aligned)) if np.var(bench_aligned) else 0.0
-            alpha = float((series.mean() - risk_free_rate / TRADING_DAYS_PER_YEAR) - beta * bench_excess)
+            aligned_cagr = float((1.0 + strategy_aligned).prod() ** (1.0 / bench_years) - 1.0)
+            excess_cagr = aligned_cagr - benchmark_cagr
+            bench_variance = float(bench_aligned.var(ddof=0))
+            # Exact constants can have tiny nonzero variance from roundoff.
+            if bench_aligned.nunique() > 1 and bench_variance > 0.0:
+                beta = float(np.cov(strategy_aligned, bench_aligned, ddof=0)[0, 1] / bench_variance)
+                alpha = float((strategy_aligned.mean() - daily_risk_free) - beta * (bench_aligned.mean() - daily_risk_free))
             # Information ratio
-            tracking_error = float((aligned.iloc[:, 0] - bench_aligned).std(ddof=0))
-            ir = float((series.mean() - bench_aligned.mean()) / tracking_error * np.sqrt(TRADING_DAYS_PER_YEAR)) if tracking_error else float("nan")
+            active_returns = strategy_aligned - bench_aligned
+            tracking_error = float(active_returns.std(ddof=0)) if active_returns.nunique() > 1 else 0.0
+            ir = float(active_returns.mean() / tracking_error * np.sqrt(TRADING_DAYS_PER_YEAR)) if tracking_error else float("nan")
 
     return WindowPerformance(
         window_name=window_label or f"{actual_days}d",

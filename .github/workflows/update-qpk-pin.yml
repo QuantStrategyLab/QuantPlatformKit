@@ -1,25 +1,7 @@
 name: Update QPK Pin
 
 on:
-  push:
-    branches: [ main ]
-    paths-ignore:
-      - "QPK_PIN"
-      - "qsl-pins.txt"
-      - "constraints.txt"
-      - ".github/workflows/open-downstream-qpk-pin-prs.yml"
-      - ".github/workflows/advance-staged-qpk-pin.yml"
-      - ".github/workflows/update-qpk-pin.yml"
-      - "scripts/check_qpk_pin_consistency.py"
-      - "scripts/open_downstream_qpk_pin_prs.py"
-      - "scripts/merge_verified_strategy_qpk_pin_prs.py"
-      - "scripts/report_consumer_qpk_pin_prs.py"
-      - "tests/test_qpk_pin_consistency.py"
-      - "tests/test_merge_verified_strategy_qpk_pin_prs.py"
-      - "tests/test_report_consumer_qpk_pin_prs.py"
-      - "tests/test_update_qpk_pin_workflow.py"
-      - "docs/**"
-      - "**.md"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,7 +11,7 @@ jobs:
   update-pin:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
