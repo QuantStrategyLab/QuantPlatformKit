@@ -254,7 +254,7 @@ def _build_optimization_proposal(
 
     wf_passed = wf_s is not None and wf_s >= 0.5
     if improvement > 0.05 and wf_passed and len(regressing) <= 1:
-        rec = "promote"
+        rec = "research_candidate"
     elif improvement > 0.02 and (wf_s is None or wf_s >= 0.4):
         rec = "needs_review"
     else:
