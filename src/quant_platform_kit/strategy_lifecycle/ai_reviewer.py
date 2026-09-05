@@ -4,7 +4,7 @@ Review chain (SAFETY pattern via AiServiceClient):
   L1: Rule-based (5 dims) — instant, deterministic, always available
   L2: Claude — adversarial statistical analysis
   L3: GPT — second opinion from different provider
-  L4: Codex VPS — actually RUNS the backtest to verify numbers
+  L4: Codex VPS — advisory claims, not independently verified execution
   L5: Consensus — all must agree, or escalate to human
 
 All LLM/Codex calls delegate to AiServiceClient (ai_provider.py).
@@ -16,6 +16,8 @@ The unified provider supports two patterns:
 from __future__ import annotations
 
 import json
+import math
+from numbers import Real
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -71,6 +73,48 @@ _SECONDARY_LLM = "GPT"
 _CODEX_VPS = "Codex VPS"
 
 
+def _finite_number(value: Any) -> bool:
+    try:
+        return isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _invalid_review_inputs(p: OptimizationProposal) -> list[str]:
+    """Validate only inputs consumed by this advisory scorer, not promotion evidence."""
+    errors = []
+    m = p.proposed_metrics
+    if m is None:
+        errors.append("proposed_metrics")
+    else:
+        for name in ("sharpe_ratio", "max_drawdown", "observation_count"):
+            if not _finite_number(getattr(m, name)):
+                errors.append(name)
+        if _finite_number(m.observation_count) and (
+            m.observation_count <= 0 or m.observation_count != int(m.observation_count)
+        ):
+            errors.append("observation_count")
+        # Missing OOS/WF metrics are allowed for learning; supplied values must be finite.
+        for name in ("oos_sharpe", "walk_forward_stability", "calmar_ratio", "volatility"):
+            value = getattr(m, name)
+            if value is not None and not _finite_number(value):
+                errors.append(name)
+    if not _finite_number(p.confidence) or not 0 <= p.confidence <= 1:
+        errors.append("confidence")
+    if p.current_metrics:
+        for name in ("sharpe_ratio", "volatility"):
+            value = getattr(p.current_metrics, name)
+            if value is not None and not _finite_number(value):
+                errors.append("current_" + name)
+    for name, value in p.proposed_params.items():
+        previous = p.current_params.get(name)
+        if (isinstance(previous, (int, float)) and not isinstance(previous, bool)
+                and isinstance(value, (int, float)) and not isinstance(value, bool)):
+            if not _finite_number(previous) or not _finite_number(value):
+                errors.append("parameter " + name)
+    return errors
+
+
 # ── Level 1: Rule-based review ───────────────────────────────────────
 
 def review_proposal(
@@ -80,6 +124,13 @@ def review_proposal(
     min_pass_dimensions: int = 3,
 ) -> AiReviewVerdict:
     """Deterministic 5-dimension review. No API call needed."""
+    invalid = _invalid_review_inputs(proposal)
+    if invalid:
+        return AiReviewVerdict(
+            proposal=proposal, verdict="escalate", overall_score=0.0, dimensions=(),
+            summary="Invalid review inputs: " + ", ".join(invalid) + "; human review required.",
+            requires_human=True, confidence=0.0, recommended_action="escalate",
+        )
     dims = [
         _review_statistical_validity(proposal),
         _review_risk_profile(proposal),
@@ -98,6 +149,9 @@ def review_proposal(
         v, h, s = "escalate", True, f"Only {passed}/{len(dims)} passed. Needs deeper review."
     else:
         v, h, s = "reject", False, f"Failed: {passed}/{len(dims)}."
+
+    if v == "approve" and not dims[1].passed:
+        v, h, s = "escalate", True, "Risk profile failed; human review required."
 
     return AiReviewVerdict(proposal=proposal, verdict=v, overall_score=round(overall, 4),
                            dimensions=tuple(dims), summary=s, requires_human=h)
@@ -123,7 +177,7 @@ def _review_risk_profile(p: OptimizationProposal, *, max_dd: float = 0.40) -> Re
     if p.current_metrics and m.volatility and p.current_metrics.volatility:
         if m.volatility / max(p.current_metrics.volatility, 0.001) > 1.5: issues.append("Vol spike"); s -= 0.3
     if m.calmar_ratio is not None and m.calmar_ratio < 0.3: issues.append("Low Calmar"); s -= 0.2
-    ok = s >= 0.5
+    ok = s >= 0.5 and abs(m.max_drawdown) <= max_dd
     return ReviewDimension("risk_profile", max(s, 0.0), ok, "; ".join(issues) if issues else "OK")
 
 def _review_regime_compatibility(p: OptimizationProposal, drift: DriftResult | None = None) -> ReviewDimension:
@@ -156,7 +210,7 @@ def _review_confidence(p: OptimizationProposal) -> ReviewDimension:
 #
 # All LLM/Codex calls go through AiServiceClient.
 # This is the "双AI审计 + Codex执行回测" pattern:
-#   Claude + GPT independently review → Codex runs backtest → consensus
+#   Claude + GPT independently review → Codex advisory claims → consensus
 
 
 def llm_enhanced_review(
@@ -165,7 +219,8 @@ def llm_enhanced_review(
 ) -> AiReviewVerdict:
     """Multi-AI review using unified AiServiceClient (SAFETY pattern)."""
     base = review_proposal(proposal, drift=drift)
-    if base.verdict != "escalate" or dry_run:
+    if (base.verdict != "escalate" or dry_run or _invalid_review_inputs(proposal)
+            or any(d.name == "risk_profile" and not d.passed for d in base.dimensions)):
         return base
 
     from quant_platform_kit.strategy_lifecycle.ai_provider import AiServiceClient, AiServiceConfig
@@ -179,7 +234,7 @@ def llm_enhanced_review(
     claude = _parse_reviewer_result(proposal, results, _PRIMARY_LLM)
     gpt = _parse_reviewer_result(proposal, results, _SECONDARY_LLM)
 
-    # L4: Codex VPS execution verification
+    # L4: Codex self-reported claims remain advisory, not execution evidence.
     codex = None
     if client.config.verifier is not None:
         vp = _build_codex_verify_prompt(proposal, drift)
@@ -201,18 +256,18 @@ def _resolve_multi_consensus(
     """Confidence-driven consensus resolution.
 
     Decision logic (ordered):
-    Promotion rule: both independent LLM reviewers must complete and approve.
-    Codex is an optional additional execution verifier, never a substitute for
-    either reviewer.  A missing reviewer or any disagreement is fail-closed for
-    candidate readiness.
+    Research candidate readiness requires both independent LLM reviewers.
+    Codex self-reports cannot verify execution or replace either reviewer;
+    advisory disagreement still requires human inspection.
     """
+    advisory = f" [{codex.summary}]" if codex else ""
     verdicts: list[tuple[str, AiReviewVerdict]] = []
-    for l, v in [(_PRIMARY_LLM, claude), (_SECONDARY_LLM, gpt), (_CODEX_VPS, codex)]:
+    for l, v in [(_PRIMARY_LLM, claude), (_SECONDARY_LLM, gpt)]:
         if v: verdicts.append((l, v))
 
     if not verdicts:
         return AiReviewVerdict(proposal=proposal, verdict="escalate", overall_score=base.overall_score,
-            dimensions=base.dimensions, summary="No AI available. " + base.summary,
+            dimensions=base.dimensions, summary="No AI available. " + base.summary + advisory,
             requires_human=True, confidence=0.0)
 
     missing_independent_reviewers = [
@@ -228,21 +283,30 @@ def _resolve_multi_consensus(
             dimensions=base.dimensions,
             summary=(
                 "[DUAL_REVIEW_INCOMPLETE] missing independent reviewer(s): "
-                + ", ".join(missing_independent_reviewers)
+                + ", ".join(missing_independent_reviewers) + advisory
             ),
             requires_human=True,
             confidence=0.0,
             recommended_action="escalate",
         )
 
+    if (_invalid_review_inputs(proposal)
+            or any(d.name == "risk_profile" and not d.passed for d in base.dimensions)):
+        return AiReviewVerdict(
+            proposal=proposal, verdict="escalate", overall_score=base.overall_score,
+            dimensions=base.dimensions, summary=base.summary + " AI opinions cannot override invalid inputs or failed risk review." + advisory,
+            requires_human=True, confidence=0.0, recommended_action="escalate",
+        )
+
+    if codex and codex.recommended_action != "notify":
+        return AiReviewVerdict(
+            proposal=proposal, verdict="escalate", overall_score=base.overall_score,
+            dimensions=base.dimensions, summary="Codex advisory disagreement; human inspection required." + advisory,
+            requires_human=True, confidence=0.0, recommended_action="escalate",
+        )
     apps = [l for l, v in verdicts if v.verdict == "approve"]
     rejs = [l for l, v in verdicts if v.verdict == "reject"]
-    cx_ok = codex and codex.verdict == "approve"
-    cx_bad = codex and codex.verdict == "reject"
-
-    # Average confidence across all LLM verdicts (exclude Codex for confidence calc)
-    llm_verdicts = [v for l, v in verdicts if l != _CODEX_VPS]
-    avg_conf = float(np.mean([v.confidence for v in llm_verdicts])) if llm_verdicts else 0.5
+    avg_conf = float(np.mean([v.confidence for _, v in verdicts]))
     avg_score = float(np.mean([v.overall_score for _, v in verdicts]))
 
     # Unanimous approve
@@ -256,38 +320,21 @@ def _resolve_multi_consensus(
         else:
             note = " [ESCALATE: low confidence unanimous]"
             action = "escalate"
-        cx_note = f" [{_CODEX_VPS} verified]" if cx_ok else ""
         return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=avg_score,
-            dimensions=base.dimensions, summary=f"[Unanimous: {', '.join(apps)}]{cx_note}{note}",
+            dimensions=base.dimensions, summary=f"[Unanimous: {', '.join(apps)}]{note}{advisory}",
             requires_human=True, confidence=avg_conf, recommended_action=action)
 
     # Unanimous reject
     if len(rejs) == len(verdicts):
         return AiReviewVerdict(proposal=proposal, verdict="reject", overall_score=avg_score,
             dimensions=base.dimensions,
-            summary=f"[Unanimous reject: {', '.join(rejs)}] confidence={avg_conf:.0%}",
+            summary=f"[Unanimous reject: {', '.join(rejs)}] confidence={avg_conf:.0%}{advisory}",
             requires_human=False, confidence=avg_conf, recommended_action="escalate")
-
-    # Codex mismatch → reject
-    if cx_bad:
-        llms = ", ".join(f"{l}={v.verdict}" for l, v in verdicts if l != _CODEX_VPS)
-        return AiReviewVerdict(proposal=proposal, verdict="reject", overall_score=codex.overall_score,
-            dimensions=base.dimensions,
-            summary=f"[{_CODEX_VPS} MISMATCH] {codex.summary}. LLMs: {llms}",
-            requires_human=False, confidence=avg_conf, recommended_action="escalate")
-
-    # Codex verified + LLMs approve
-    if cx_ok and apps and not rejs:
-        if avg_conf >= 0.70:
-            return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=avg_score,
-                dimensions=base.dimensions,
-                summary=f"[{_CODEX_VPS} verified] {', '.join(apps)} approve (conf={avg_conf:.0%}).",
-                requires_human=True, confidence=avg_conf, recommended_action="candidate_ready")
 
     # Disagreement → escalate
     detail = "; ".join(f"{l}={v.verdict}(c={v.confidence:.0%})" for l, v in verdicts)
     return AiReviewVerdict(proposal=proposal, verdict="escalate", overall_score=base.overall_score,
-        dimensions=base.dimensions, summary=f"[DISAGREE] {detail}",
+        dimensions=base.dimensions, summary=f"[DISAGREE] {detail}{advisory}",
         requires_human=True, confidence=avg_conf, recommended_action="escalate")
 
 
@@ -296,38 +343,52 @@ def _resolve_multi_consensus(
 def _parse_reviewer_result(
     proposal: OptimizationProposal, results: list[Any], label: str,
 ) -> AiReviewVerdict | None:
+    aliases = {"Claude": ("claude", "anthropic"), "GPT": ("gpt", "openai")}
     for r in results:
-        if getattr(r, "provider", "") == label and getattr(r, "success", False):
+        provider = getattr(r, "provider", "")
+        if isinstance(provider, str) and provider.lower() in aliases.get(label, (label.lower(),)) and getattr(r, "success", False):
             try:
                 m = re.search(r"\{[\s\S]*\}", getattr(r, "output", ""))
                 if m:
                     d = json.loads(m.group(0))
-                    verdict = str(d.get("verdict", "escalate"))
+                    verdict = d.get("verdict", "escalate")
+                    score, confidence = d.get("overall_score", 0.5), d.get("confidence", 0.5)
+                    if verdict not in ("approve", "reject", "escalate"):
+                        continue
+                    if not all(_finite_number(v) and 0 <= v <= 1 for v in (score, confidence)):
+                        continue
                     return AiReviewVerdict(proposal=proposal,
                         verdict=verdict,
-                        overall_score=float(d.get("overall_score", 0.5)), dimensions=(),
+                        overall_score=float(score), dimensions=(),
                         summary=str(d.get("summary", f"{label} done")),
                         requires_human=(verdict == "approve") or bool(d.get("requires_human", True)),
-                        confidence=float(d.get("confidence", 0.5)))
-            except (json.JSONDecodeError, ValueError):
+                        confidence=float(confidence))
+            except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
                 pass
     return None
 
 
 def _parse_codex_result(proposal: OptimizationProposal, result: Any) -> AiReviewVerdict | None:
-    m = re.search(r"\{[\s\S]*\}", getattr(result, "output", ""))
+    output = getattr(result, "output", "")
+    if not isinstance(output, str): return None
+    m = re.search(r"\{[\s\S]*\}", output)
     if not m: return None
     try: d = json.loads(m.group(0))
     except json.JSONDecodeError: return None
-    v = str(d.get("verdict", "error")).strip().lower()
-    if v == "verified":
-        return AiReviewVerdict(proposal=proposal, verdict="approve", overall_score=1.0, dimensions=(),
-            summary=f"Codex VPS verified: Sharpe={d.get('reproduced_sharpe')}, MaxDD={d.get('reproduced_max_dd')}",
-            requires_human=True, recommended_action="candidate_ready")
-    if v == "mismatch":
-        return AiReviewVerdict(proposal=proposal, verdict="reject", overall_score=0.0, dimensions=(),
-            summary=f"Codex VPS MISMATCH: {d.get('summary', 'numbers differ')}", requires_human=False)
-    return None
+    v = d.get("verdict")
+    if v not in ("verified", "mismatch"):
+        return None
+    invalid = any(name in d and not _finite_number(d[name])
+                  for name in ("reproduced_sharpe", "reproduced_max_dd", "reproduced_cagr"))
+    invalid |= any(name in d and not (_finite_number(d[name]) and 0 <= d[name] <= 1)
+                   for name in ("confidence", "overall_score"))
+    note = " Invalid numeric claims require human inspection." if invalid else ""
+    return AiReviewVerdict(
+        proposal=proposal, verdict="escalate", overall_score=0.0, dimensions=(),
+        summary=f"Codex VPS advisory claim: {v}; execution and reproduced metrics are not independently verified." + note,
+        requires_human=True, confidence=0.0,
+        recommended_action="notify" if v == "verified" and not invalid else "escalate",
+    )
 
 
 # ── Prompt builders ──────────────────────────────────────────────────
