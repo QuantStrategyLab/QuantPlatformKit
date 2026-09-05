@@ -34,13 +34,12 @@ def _evidence(*, observed_at: datetime, **overrides: object):
         "observed_at": observed_at,
         "broker_connected": True,
         "account_identity_match": True,
-        # A legacy enrollment has no expected digests yet, so these remain
-        # false even when the independently observed digests agree.
-        "positions_match": False,
-        "cash_match": False,
-        "open_orders_match": False,
-        "recent_executions_match": False,
-        "local_execution_ledger_match": False,
+        # Valid synthetic receipt; unreconciled surfaces are tested explicitly.
+        "positions_match": True,
+        "cash_match": True,
+        "open_orders_match": True,
+        "recent_executions_match": True,
+        "local_execution_ledger_match": True,
         "positions_sha256": _digest("c"),
         "cash_sha256": _digest("d"),
         "open_orders_sha256": _digest("e"),
@@ -49,6 +48,49 @@ def _evidence(*, observed_at: datetime, **overrides: object):
     }
     payload.update(overrides)
     return build_broker_reconciliation_evidence(**payload)
+
+
+@pytest.mark.parametrize(
+    "unmatched_fields",
+    [
+        ("positions_match",),
+        ("cash_match",),
+        ("open_orders_match",),
+        ("recent_executions_match",),
+        ("local_execution_ledger_match",),
+        (
+            "positions_match", "cash_match", "open_orders_match",
+            "recent_executions_match", "local_execution_ledger_match",
+        ),
+    ],
+)
+@pytest.mark.parametrize("unmatched_sample", [0, 1])
+def test_identical_digests_cannot_enroll_unreconciled_observations(
+    unmatched_fields, unmatched_sample,
+) -> None:
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    matches = dict.fromkeys(
+        (
+            "positions_match", "cash_match", "open_orders_match",
+            "recent_executions_match", "local_execution_ledger_match",
+        ),
+        True,
+    )
+    samples = [
+        _evidence(
+            observed_at=start + timedelta(minutes=2 * index),
+            **(matches | (dict.fromkeys(unmatched_fields, False) if index == unmatched_sample else {})),
+        )
+        for index in range(2)
+    ]
+
+    evaluation = evaluate_broker_reconciliation_baseline_enrollment(
+        samples, now=start + timedelta(minutes=3),
+    )
+
+    assert evaluation.candidate is None
+    assert evaluation.ready_for_independent_review is False
+    assert evaluation.findings == (BrokerReconciliationEnrollmentFinding.OBSERVATION_MISMATCH,)
 
 
 def test_two_matching_read_only_samples_create_a_redacted_review_candidate() -> None:

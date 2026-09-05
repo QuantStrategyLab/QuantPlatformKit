@@ -69,6 +69,41 @@ def test_any_unmatched_broker_surface_fails_closed() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("field", "finding"),
+    [
+        ("positions_match", BrokerReconciliationFinding.POSITIONS_MISMATCH),
+        ("cash_match", BrokerReconciliationFinding.CASH_MISMATCH),
+        ("open_orders_match", BrokerReconciliationFinding.OPEN_ORDERS_MISMATCH),
+        ("recent_executions_match", BrokerReconciliationFinding.RECENT_EXECUTIONS_MISMATCH),
+        ("local_execution_ledger_match", BrokerReconciliationFinding.LOCAL_EXECUTION_LEDGER_MISMATCH),
+        ("account_identity_match", BrokerReconciliationFinding.ACCOUNT_IDENTITY_MISMATCH),
+    ],
+)
+def test_matching_digests_never_override_negative_comparisons(field, finding) -> None:
+    evidence = _evidence(**{field: False})
+    expected = {
+        f"expected_{name}_sha256": getattr(evidence, f"{name}_sha256")
+        for name in ("account_scope", "positions", "cash", "open_orders", "recent_executions", "local_execution_ledger")
+    }
+
+    assert evaluate_broker_reconciliation_recovery(
+        evidence, now=evidence.observed_at, **expected,
+    ) == (finding,)
+
+
+def test_equal_state_digests_do_not_prove_the_expected_account() -> None:
+    evidence = _evidence()
+
+    assert evaluate_broker_reconciliation_recovery(
+        evidence,
+        now=evidence.observed_at,
+        expected_account_scope_sha256=_digest("9"),
+        expected_positions_sha256=evidence.positions_sha256,
+        expected_cash_sha256=evidence.cash_sha256,
+    ) == (BrokerReconciliationFinding.ACCOUNT_IDENTITY_MISMATCH,)
+
+
 def test_explicit_missing_baseline_does_not_misreport_unknown_surfaces_as_mismatches() -> None:
     evidence = _evidence(
         broker_connected=False,

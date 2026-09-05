@@ -50,7 +50,7 @@ def _evidence(*, observed_at: datetime, reconciled: bool, **overrides: object):
 
 def _candidate(start: datetime):
     result = evaluate_broker_reconciliation_baseline_enrollment(
-        [_evidence(observed_at=start, reconciled=False), _evidence(observed_at=start + timedelta(minutes=2), reconciled=False)],
+        [_evidence(observed_at=start, reconciled=True), _evidence(observed_at=start + timedelta(minutes=2), reconciled=True)],
         now=start + timedelta(minutes=3),
     )
     assert result.candidate is not None

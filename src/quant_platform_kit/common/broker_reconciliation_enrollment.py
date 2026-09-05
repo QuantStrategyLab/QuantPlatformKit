@@ -7,11 +7,12 @@ review.  A later controller still has to verify the candidate's provenance,
 bind any reviewer receipts to ``candidate_sha256``, and make an explicit
 ``RECONCILE_ONLY -> ACTIVE_LKG`` state change.
 
-The first observation of a legacy deployment cannot safely establish its own
-expected state: doing so could bless a stale or externally changed account.
-Requiring multiple time-separated, identical observations makes that first
-baseline enrolment observable and auditable without exposing positions,
-balances, orders, fills, or account identifiers.
+Repeated identical observations cannot establish their own expected state:
+they can repeat an incomplete read or an unexplained account change.  Every
+receipt must already report all accounting surfaces reconciled by its trusted
+producer.  The digests bind observations; this module cannot recover accounting
+facts, completeness, or explanations for valuation changes from them.  Legacy
+receipts without an independently established reference remain blocked.
 """
 
 from __future__ import annotations
@@ -303,7 +304,9 @@ def evaluate_broker_reconciliation_baseline_enrollment(
 
     This function never writes state or decides an approval.  A candidate is
     emitted only when every sample is fresh, time-separated, readable, bound
-    to the same baseline, and has identical state digests.
+    to the same baseline, reconciled, and has identical state digests.  This
+    does not turn matching digests into proof of correct accounting or grant
+    authority to adopt the current observation as the expected state.
     """
 
     if max_age <= timedelta(0) or min_separation <= timedelta(0) or max_span <= timedelta(0):
@@ -340,6 +343,14 @@ def evaluate_broker_reconciliation_baseline_enrollment(
             add(BrokerReconciliationEnrollmentFinding.ACCOUNT_IDENTITY_MISMATCH)
         if sample.baseline_target_sha256 != sample.runtime_target_sha256:
             add(BrokerReconciliationEnrollmentFinding.BASELINE_TARGET_MISMATCH)
+        if not all((
+            sample.positions_match,
+            sample.cash_match,
+            sample.open_orders_match,
+            sample.recent_executions_match,
+            sample.local_execution_ledger_match,
+        )):
+            add(BrokerReconciliationEnrollmentFinding.OBSERVATION_MISMATCH)
         if not _same_observation(first, sample):
             add(BrokerReconciliationEnrollmentFinding.OBSERVATION_MISMATCH)
     if findings:
