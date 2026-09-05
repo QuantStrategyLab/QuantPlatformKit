@@ -52,6 +52,7 @@ def _candidate(start: datetime):
     result = evaluate_broker_reconciliation_baseline_enrollment(
         [_evidence(observed_at=start, reconciled=True), _evidence(observed_at=start + timedelta(minutes=2), reconciled=True)],
         now=start + timedelta(minutes=3),
+        source_receipts_sha256=_digest("1"),
     )
     assert result.candidate is not None
     return result.candidate
@@ -73,7 +74,7 @@ def _confirmation(*, candidate_sha256: str, confirmed_at: datetime):
     return ReconciliationRecoveryConfirmation.from_dict(payload)
 
 
-def test_redacted_source_record_requires_candidate_timing_and_bound_dual_review() -> None:
+def test_redacted_source_record_preserves_candidate_timing_and_bound_review() -> None:
     start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
     candidate = _candidate(start)
     review = ReconciliationRecoveryDualReview(
@@ -103,7 +104,7 @@ def test_redacted_source_record_requires_candidate_timing_and_bound_dual_review(
     assert "positions_sha256" not in source["recoveries"][0]
 
 
-def test_activation_requires_post_confirmation_evidence_and_independent_dual_recheck() -> None:
+def test_activation_requires_post_confirmation_evidence_not_model_recheck() -> None:
     start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
     candidate = _candidate(start)
     confirmation = _confirmation(candidate_sha256=candidate.candidate_sha256, confirmed_at=start + timedelta(minutes=3))
@@ -141,7 +142,7 @@ def test_activation_requires_post_confirmation_evidence_and_independent_dual_rec
     )
     assert stale_receipt.ready_for_atomic_state_transition is False
     assert ReconciliationRecoveryActivationFinding.EVIDENCE_NOT_REOBSERVED_AFTER_CONFIRMATION.value in stale_receipt.findings
-    assert ReconciliationRecoveryActivationFinding.DUAL_REVIEW_NOT_REVERIFIED.value in stale_receipt.findings
+    assert ReconciliationRecoveryActivationFinding.DUAL_REVIEW_NOT_REVERIFIED.value not in stale_receipt.findings
 
     same_second_receipt = evaluate_reconciliation_recovery_activation(
         recovery_id="ibkr-soxl-live-recovery",
@@ -227,3 +228,125 @@ def test_transition_plan_decoder_rejects_extra_or_executable_fields() -> None:
     payload["execution_authority_granted"] = True
     with pytest.raises(ValueError, match="must remain non-executable and atomic"):
         ReconciliationRecoveryTransitionPlan.from_dict(payload)
+
+
+def _source_bound_candidate(start):
+    from quant_platform_kit.common.broker_reconciliation_enrollment import (
+        BrokerReconciliationBaselineCandidate,
+        calculate_broker_reconciliation_baseline_candidate_sha256,
+    )
+    payload = _candidate(start).to_dict()
+    payload.update(schema_version="broker_reconciliation_baseline_candidate.v2", source_receipts_sha256=_digest("1"))
+    payload["candidate_sha256"] = calculate_broker_reconciliation_baseline_candidate_sha256(payload)
+    return BrokerReconciliationBaselineCandidate.from_dict(payload)
+
+
+@pytest.mark.parametrize("outcome", [None, "unavailable", "rejected", "approved"])
+def test_source_bound_record_keeps_review_advisory_and_honest(outcome):
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    candidate = _source_bound_candidate(start)
+    kwargs = {} if outcome is None else {"dual_review": ReconciliationRecoveryDualReview(
+        outcome=outcome, reviewer_count=0 if outcome == "unavailable" else 1,
+        evidence_binding_sha256=candidate.candidate_sha256,
+    )}
+    record = build_reconciliation_recovery_record(
+        recovery_id="ibkr-soxl-live-recovery", console_platform="ibkr", candidate=candidate,
+        now=start + timedelta(minutes=3), **kwargs,
+    )
+    assert record.readiness == "awaiting_human_confirmation"
+    assert record.dual_review.outcome == (outcome or "unavailable")
+    assert record.dual_review.reviewer_count == (0 if outcome in (None, "unavailable") else 1)
+
+
+def test_unbound_historical_v1_cannot_enter_new_confirmation():
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    candidate = evaluate_broker_reconciliation_baseline_enrollment(
+        [_evidence(observed_at=start, reconciled=True), _evidence(observed_at=start + timedelta(minutes=1), reconciled=True)],
+        now=start + timedelta(minutes=2),
+    ).candidate
+    record = build_reconciliation_recovery_record(
+        recovery_id="ibkr-soxl-live-recovery", console_platform="ibkr", candidate=candidate,
+        dual_review=ReconciliationRecoveryDualReview("approved", 2, candidate.candidate_sha256),
+        now=start + timedelta(minutes=3),
+    )
+    assert record.readiness == "blocked"
+    assert "reconciliation_recovery_source_binding_missing" in record.blocker_codes
+
+
+@pytest.mark.parametrize("reverified", [None, False, True])
+def test_source_bound_activation_does_not_require_model_reverification(reverified):
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    candidate = _source_bound_candidate(start)
+    confirmation = _confirmation(candidate_sha256=candidate.candidate_sha256, confirmed_at=start + timedelta(minutes=3))
+    result = evaluate_reconciliation_recovery_activation(
+        recovery_id="ibkr-soxl-live-recovery", candidate=candidate, confirmation=confirmation,
+        current_evidence=_evidence(observed_at=start + timedelta(minutes=4), reconciled=True),
+        current_live_continuity_state="RECONCILE_ONLY", now=start + timedelta(minutes=5),
+        **({} if reverified is None else {"dual_review_binding_reverified": reverified}),
+    )
+    assert result.ready_for_atomic_state_transition
+    assert result.transition_plan.no_order is True
+    assert result.transition_plan.execution_authority_granted is False
+
+
+@pytest.mark.parametrize("case", ["confirmation_missing", "candidate_mismatch", "source_tampered", "v1", "account_mismatch", "runtime_mismatch"])
+def test_advisory_review_cannot_bypass_source_confirmation_or_identity(case):
+    from quant_platform_kit.common.broker_reconciliation_enrollment import BrokerReconciliationBaselineCandidate
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    candidate = _source_bound_candidate(start)
+    confirmation = _confirmation(candidate_sha256=candidate.candidate_sha256, confirmed_at=start + timedelta(minutes=3))
+    evidence_overrides = {}
+    if case == "confirmation_missing":
+        confirmation = None
+    elif case == "candidate_mismatch":
+        confirmation = _confirmation(candidate_sha256=_digest("9"), confirmed_at=start + timedelta(minutes=3))
+    elif case == "source_tampered":
+        # Simulate tampering across a boundary; activation must revalidate the object.
+        object.__setattr__(candidate, "source_receipts_sha256", _digest("9"))
+    elif case == "v1":
+        candidate = evaluate_broker_reconciliation_baseline_enrollment(
+            [_evidence(observed_at=start, reconciled=True), _evidence(observed_at=start + timedelta(minutes=1), reconciled=True)],
+            now=start + timedelta(minutes=2),
+        ).candidate
+        assert BrokerReconciliationBaselineCandidate.from_dict(candidate.to_dict()) == candidate
+        confirmation = _confirmation(candidate_sha256=candidate.candidate_sha256, confirmed_at=start + timedelta(minutes=3))
+    elif case == "account_mismatch":
+        evidence_overrides["account_scope_sha256"] = _digest("9")
+    elif case == "runtime_mismatch":
+        evidence_overrides["runtime_target_sha256"] = _digest("9")
+    result = evaluate_reconciliation_recovery_activation(
+        recovery_id="ibkr-soxl-live-recovery", candidate=candidate, confirmation=confirmation,
+        current_evidence=_evidence(observed_at=start + timedelta(minutes=4), reconciled=True, **evidence_overrides),
+        current_live_continuity_state="RECONCILE_ONLY", now=start + timedelta(minutes=5),
+    )
+    assert not result.ready_for_atomic_state_transition
+    assert result.transition_plan is None
+
+
+def test_single_source_bound_sample_can_enter_confirmation_without_model_call():
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    candidate = evaluate_broker_reconciliation_baseline_enrollment(
+        [_evidence(observed_at=start, reconciled=True)], now=start, source_receipts_sha256=_digest("1"),
+    ).candidate
+    record = build_reconciliation_recovery_record(
+        recovery_id="ibkr-soxl-live-recovery", console_platform="ibkr", candidate=candidate, now=start,
+    )
+    assert record.readiness == "awaiting_human_confirmation"
+    assert record.to_console_dict()["evidence_sample_count"] == 1
+    assert record.dual_review.outcome == "unavailable"
+    assert record.dual_review.reviewer_count == 0
+
+
+@pytest.mark.parametrize("case", ["review_binding", "candidate_stale"])
+def test_advisory_record_preserves_binding_and_freshness_guards(case):
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    candidate = _source_bound_candidate(start)
+    review = ReconciliationRecoveryDualReview(
+        "rejected", 1, _digest("9") if case == "review_binding" else candidate.candidate_sha256,
+    )
+    record = build_reconciliation_recovery_record(
+        recovery_id="ibkr-soxl-live-recovery", console_platform="ibkr", candidate=candidate,
+        dual_review=review, now=start + timedelta(minutes=40 if case == "candidate_stale" else 3),
+    )
+    assert record.readiness == "blocked"
+    assert record.dual_review == review

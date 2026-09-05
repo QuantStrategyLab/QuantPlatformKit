@@ -140,11 +140,10 @@ def test_any_state_difference_or_identity_failure_remains_blocked() -> None:
 @pytest.mark.parametrize(
     ("second_observed_at", "expected"),
     [
-        (timedelta(seconds=30), BrokerReconciliationEnrollmentFinding.EVIDENCE_NOT_TIME_SEPARATED),
         (timedelta(minutes=16), BrokerReconciliationEnrollmentFinding.EVIDENCE_WINDOW_EXCEEDED),
     ],
 )
-def test_samples_must_be_time_separated_and_bounded(second_observed_at, expected) -> None:
+def test_samples_must_have_bounded_window(second_observed_at, expected) -> None:
     start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
     evaluation = evaluate_broker_reconciliation_baseline_enrollment(
         [_evidence(observed_at=start), _evidence(observed_at=start + second_observed_at)],
@@ -216,3 +215,68 @@ def test_candidate_schema_versions_do_not_silently_change_provenance_semantics()
     v2_without_provenance["schema_version"] = BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION
     with pytest.raises(ValueError, match="invalid fields"):
         BrokerReconciliationBaselineCandidate.from_dict(v2_without_provenance)
+
+
+@pytest.mark.parametrize("separation", [None, timedelta(seconds=1)])
+def test_source_bound_v2_does_not_require_repeated_or_separated_samples(separation):
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    samples = [_evidence(observed_at=start)]
+    if separation is not None:
+        samples.append(_evidence(observed_at=start + separation))
+    result = evaluate_broker_reconciliation_baseline_enrollment(
+        samples, now=start + timedelta(seconds=2), source_receipts_sha256=_digest("1"),
+    )
+    assert result.ready_for_independent_review
+    assert result.candidate.schema_version == "broker_reconciliation_baseline_candidate.v2"
+    assert result.candidate.source_receipts_sha256 == _digest("1")
+    assert len(result.candidate.source_evidence_sha256) == len(samples)
+
+
+@pytest.mark.parametrize("field", [
+    "broker_connected", "account_identity_match", "positions_match", "cash_match",
+    "open_orders_match", "recent_executions_match", "local_execution_ledger_match",
+])
+def test_source_root_never_overrides_unreconciled_single_sample(field):
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    result = evaluate_broker_reconciliation_baseline_enrollment(
+        [_evidence(observed_at=start, **{field: False})], now=start,
+        source_receipts_sha256=_digest("1"),
+    )
+    assert result.candidate is None
+    assert result.findings
+
+
+@pytest.mark.parametrize("root", ["", "not-a-digest", True])
+def test_single_sample_rejects_invalid_source_binding(root):
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    result = evaluate_broker_reconciliation_baseline_enrollment(
+        [_evidence(observed_at=start)], now=start, source_receipts_sha256=root,
+    )
+    assert result.candidate is None
+    assert result.findings == (BrokerReconciliationEnrollmentFinding.EVIDENCE_INVALID,)
+
+
+@pytest.mark.parametrize("offset", [timedelta(minutes=-31), timedelta(seconds=1)])
+def test_source_bound_single_sample_must_be_current(offset):
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    result = evaluate_broker_reconciliation_baseline_enrollment(
+        [_evidence(observed_at=start + offset)], now=start, source_receipts_sha256=_digest("1"),
+    )
+    assert result.candidate is None
+    assert BrokerReconciliationEnrollmentFinding.EVIDENCE_STALE in result.findings
+
+
+def test_single_sample_without_source_root_is_not_silently_upgraded():
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    result = evaluate_broker_reconciliation_baseline_enrollment([_evidence(observed_at=start)], now=start)
+    assert result.candidate is None
+
+
+def test_source_bound_single_sample_rejects_runtime_mismatch():
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    result = evaluate_broker_reconciliation_baseline_enrollment(
+        [_evidence(observed_at=start, runtime_target_sha256=_digest("9"))], now=start,
+        source_receipts_sha256=_digest("1"),
+    )
+    assert result.candidate is None
+    assert BrokerReconciliationEnrollmentFinding.BASELINE_TARGET_MISMATCH in result.findings

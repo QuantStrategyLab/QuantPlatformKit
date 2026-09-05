@@ -1,10 +1,10 @@
 """Fail-closed, broker-independent enrollment of a legacy live baseline.
 
 This is deliberately *not* an execution authorisation mechanism.  It turns
-two or more separated, read-only broker reconciliation receipts into a
-redacted candidate that a private control plane may send for independent
-review.  A later controller still has to verify the candidate's provenance,
-bind any reviewer receipts to ``candidate_sha256``, and make an explicit
+read-only broker reconciliation receipts into a redacted candidate. New
+source-bound candidates may enter human confirmation. A later controller still
+has to verify the candidate's provenance,
+bind any advisory reviewer receipts to ``candidate_sha256``, and make an explicit
 ``RECONCILE_ONLY -> ACTIVE_LKG`` state change.
 
 Repeated identical observations cannot establish their own expected state:
@@ -116,8 +116,9 @@ def _candidate_payload(value: Mapping[str, object]) -> dict[str, object]:
     if set(value) != required_fields:
         raise ValueError("baseline candidate has invalid fields")
     source = value["source_evidence_sha256"]
-    if not isinstance(source, (tuple, list)) or len(source) < 2:
-        raise ValueError("source_evidence_sha256 must contain at least two receipts")
+    minimum = 1 if schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION else 2
+    if not isinstance(source, (tuple, list)) or len(source) < minimum:
+        raise ValueError(f"source_evidence_sha256 must contain at least {minimum} receipts")
     normalized_source = tuple(sorted({_digest(item, field_name="source_evidence_sha256") for item in source}))
     if len(normalized_source) != len(source):
         raise ValueError("source_evidence_sha256 must be unique")
@@ -269,7 +270,7 @@ def _same_observation(left: BrokerReconciliationEvidence, right: BrokerReconcili
     return all(getattr(left, field_name) == getattr(right, field_name) for field_name in fields)
 
 
-def _build_candidate(samples: tuple[BrokerReconciliationEvidence, ...]) -> BrokerReconciliationBaselineCandidate:
+def _build_candidate(samples: tuple[BrokerReconciliationEvidence, ...], *, source_receipts_sha256: str | None = None) -> BrokerReconciliationBaselineCandidate:
     first, last = samples[0], samples[-1]
     draft: dict[str, object] = {
         "schema_version": BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION,
@@ -288,6 +289,9 @@ def _build_candidate(samples: tuple[BrokerReconciliationEvidence, ...]) -> Broke
         "local_execution_ledger_sha256": first.local_execution_ledger_sha256,
         "candidate_sha256": "0" * _SHA256_LENGTH,
     }
+    if source_receipts_sha256 is not None:
+        draft["schema_version"] = BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION
+        draft["source_receipts_sha256"] = source_receipts_sha256
     draft["candidate_sha256"] = calculate_broker_reconciliation_baseline_candidate_sha256(draft)
     return BrokerReconciliationBaselineCandidate.from_dict(draft)
 
@@ -296,20 +300,23 @@ def evaluate_broker_reconciliation_baseline_enrollment(
     evidences: Iterable[BrokerReconciliationEvidence | Mapping[str, object]],
     *,
     now: datetime | None = None,
+    source_receipts_sha256: str | None = None,
     max_age: timedelta = DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_AGE,
     min_separation: timedelta = DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MIN_SEPARATION,
     max_span: timedelta = DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_SPAN,
 ) -> BrokerReconciliationEnrollmentEvaluation:
-    """Evaluate matching samples before a legacy baseline can enter AI review.
+    """Evaluate reconciled observations before a candidate can enter human review.
 
     This function never writes state or decides an approval.  A candidate is
-    emitted only when every sample is fresh, time-separated, readable, bound
+    emitted only when every sample is fresh, readable, bound
     to the same baseline, reconciled, and has identical state digests.  This
     does not turn matching digests into proof of correct accounting or grant
-    authority to adopt the current observation as the expected state.
+    authority to adopt the current observation as the expected state. The source
+    root binds platform-verified receipts; it does not prove their completeness.
+    ``min_separation`` is retained for call compatibility, not as a gate.
     """
 
-    if max_age <= timedelta(0) or min_separation <= timedelta(0) or max_span <= timedelta(0):
+    if max_age <= timedelta(0) or max_span <= timedelta(0):
         raise ValueError("enrollment timing limits must be positive")
     findings: list[BrokerReconciliationEnrollmentFinding] = []
 
@@ -318,12 +325,14 @@ def evaluate_broker_reconciliation_baseline_enrollment(
             findings.append(finding)
 
     try:
+        if source_receipts_sha256 is not None:
+            source_receipts_sha256 = _digest(source_receipts_sha256, field_name="source_receipts_sha256")
         samples = tuple(sorted((_coerce_evidence(item) for item in evidences), key=lambda item: item.observed_at))
     except (TypeError, ValueError):
         return BrokerReconciliationEnrollmentEvaluation(
             findings=(BrokerReconciliationEnrollmentFinding.EVIDENCE_INVALID,), candidate=None
         )
-    if len(samples) < 2:
+    if len(samples) < (1 if source_receipts_sha256 is not None else 2):
         add(BrokerReconciliationEnrollmentFinding.EVIDENCE_COUNT_INSUFFICIENT)
         return BrokerReconciliationEnrollmentEvaluation(findings=tuple(findings), candidate=None)
     if len({item.evidence_sha256 for item in samples}) != len(samples):
@@ -332,11 +341,11 @@ def evaluate_broker_reconciliation_baseline_enrollment(
     first, last = samples[0], samples[-1]
     if last.observed_at > reference_now or reference_now - last.observed_at > max_age:
         add(BrokerReconciliationEnrollmentFinding.EVIDENCE_STALE)
-    if last.observed_at - first.observed_at < min_separation:
-        add(BrokerReconciliationEnrollmentFinding.EVIDENCE_NOT_TIME_SEPARATED)
     if last.observed_at - first.observed_at > max_span:
         add(BrokerReconciliationEnrollmentFinding.EVIDENCE_WINDOW_EXCEEDED)
     for sample in samples:
+        if reference_now - sample.observed_at > max_age:
+            add(BrokerReconciliationEnrollmentFinding.EVIDENCE_STALE)
         if not sample.broker_connected:
             add(BrokerReconciliationEnrollmentFinding.BROKER_CONNECTION_FAILED)
         if not sample.account_identity_match:
@@ -355,7 +364,7 @@ def evaluate_broker_reconciliation_baseline_enrollment(
             add(BrokerReconciliationEnrollmentFinding.OBSERVATION_MISMATCH)
     if findings:
         return BrokerReconciliationEnrollmentEvaluation(findings=tuple(findings), candidate=None)
-    return BrokerReconciliationEnrollmentEvaluation(findings=(), candidate=_build_candidate(samples))
+    return BrokerReconciliationEnrollmentEvaluation(findings=(), candidate=_build_candidate(samples, source_receipts_sha256=source_receipts_sha256))
 
 
 __all__ = [
