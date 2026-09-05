@@ -19,7 +19,10 @@ from enum import Enum
 from typing import Protocol, runtime_checkable
 
 from .broker_reconciliation import BrokerReconciliationEvidence, evaluate_broker_reconciliation_recovery
-from .broker_reconciliation_enrollment import BrokerReconciliationBaselineCandidate
+from .broker_reconciliation_enrollment import (
+    BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION,
+    BrokerReconciliationBaselineCandidate,
+)
 
 
 RECONCILIATION_RECOVERY_SOURCE_SNAPSHOT_SCHEMA_VERSION = "qsl_reconciliation_recovery_source_snapshot.v1"
@@ -82,7 +85,7 @@ def _confirmation_digest(value: Mapping[str, object]) -> str:
 
 @dataclass(frozen=True)
 class ReconciliationRecoveryDualReview:
-    """Redacted dual-review result; a controller must verify it independently."""
+    """Redacted advisory review result; never an execution or recovery authority."""
 
     outcome: str
     reviewer_count: int
@@ -195,28 +198,33 @@ def build_reconciliation_recovery_record(
     recovery_id: str,
     console_platform: str,
     candidate: BrokerReconciliationBaselineCandidate,
-    dual_review: ReconciliationRecoveryDualReview,
+    dual_review: ReconciliationRecoveryDualReview | None = None,
     now: datetime | None = None,
     max_age: timedelta = DEFAULT_RECONCILIATION_RECOVERY_MAX_AGE,
     min_separation: timedelta = DEFAULT_RECONCILIATION_RECOVERY_MIN_SAMPLE_SEPARATION,
     max_sample_window: timedelta = DEFAULT_RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW,
 ) -> ReconciliationRecoveryRecord:
-    """Build a non-authorising console row from an already redacted candidate."""
+    """Build a non-authorising row from a platform-verified source-bound candidate.
 
-    if max_age <= timedelta(0) or min_separation <= timedelta(0) or max_sample_window <= timedelta(0):
+    The source root binds content, not trust or completeness. The platform must
+    verify the underlying receipts before calling. ``min_separation`` remains
+    a compatibility argument; optional model review is advisory only.
+    """
+
+    if max_age <= timedelta(0) or max_sample_window <= timedelta(0):
         raise ValueError("recovery timing limits must be positive")
     candidate = BrokerReconciliationBaselineCandidate.from_dict(candidate.to_dict())
     reference_now = _time(now or datetime.now(timezone.utc), "now")
     window = candidate.last_observed_at - candidate.first_observed_at
     blockers: list[str] = []
-    if len(candidate.source_evidence_sha256) < 2:
-        blockers.append("reconciliation_recovery_evidence_count_insufficient")
-    if window < min_separation or window > max_sample_window:
+    if candidate.schema_version != BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION:
+        blockers.append("reconciliation_recovery_source_binding_missing")
+    if window > max_sample_window:
         blockers.append("reconciliation_recovery_sample_window_invalid")
     if candidate.last_observed_at > reference_now or reference_now - candidate.last_observed_at > max_age:
         blockers.append("reconciliation_recovery_candidate_stale")
-    if dual_review.outcome != "approved" or dual_review.reviewer_count < 2:
-        blockers.append("reconciliation_recovery_dual_review_unapproved")
+    if dual_review is None:
+        dual_review = ReconciliationRecoveryDualReview("unavailable", 0, candidate.candidate_sha256)
     if dual_review.evidence_binding_sha256 != candidate.candidate_sha256:
         blockers.append("reconciliation_recovery_dual_review_binding_mismatch")
     return ReconciliationRecoveryRecord(
@@ -298,6 +306,7 @@ class ReconciliationRecoveryActivationFinding(str, Enum):
     CONFIRMATION_DUAL_REVIEW_MISMATCH = "reconciliation_recovery_confirmation_dual_review_mismatch"
     CONFIRMATION_STALE = "reconciliation_recovery_confirmation_stale"
     EVIDENCE_NOT_REOBSERVED_AFTER_CONFIRMATION = "reconciliation_recovery_evidence_not_reobserved_after_confirmation"
+    SOURCE_BINDING_MISSING = "reconciliation_recovery_source_binding_missing"
     DUAL_REVIEW_NOT_REVERIFIED = "reconciliation_recovery_dual_review_not_reverified"
 
 
@@ -391,11 +400,15 @@ def evaluate_reconciliation_recovery_activation(
     confirmation: ReconciliationRecoveryConfirmation | Mapping[str, object] | None,
     current_evidence: BrokerReconciliationEvidence | Mapping[str, object] | None,
     current_live_continuity_state: str,
-    dual_review_binding_reverified: bool,
+    dual_review_binding_reverified: bool = False,
     now: datetime | None = None,
     max_age: timedelta = DEFAULT_RECONCILIATION_RECOVERY_MAX_AGE,
 ) -> ReconciliationRecoveryActivationEvaluation:
-    """Recheck all read-only proof and return a non-executable transition plan."""
+    """Recheck confirmation/current evidence and return a non-executable plan.
+
+    The platform must independently validate source provenance/completeness.
+    ``dual_review_binding_reverified`` is deprecated and grants no authority.
+    """
 
     if max_age <= timedelta(0):
         raise ValueError("max_age must be positive")
@@ -425,8 +438,8 @@ def evaluate_reconciliation_recovery_activation(
             add(ReconciliationRecoveryActivationFinding.CONFIRMATION_DUAL_REVIEW_MISMATCH.value)
         if normalized_confirmation.confirmed_at > reference_now or reference_now - normalized_confirmation.confirmed_at > max_age:
             add(ReconciliationRecoveryActivationFinding.CONFIRMATION_STALE.value)
-    if dual_review_binding_reverified is not True:
-        add(ReconciliationRecoveryActivationFinding.DUAL_REVIEW_NOT_REVERIFIED.value)
+    if candidate.schema_version != BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION:
+        add(ReconciliationRecoveryActivationFinding.SOURCE_BINDING_MISSING.value)
     try:
         normalized_evidence = current_evidence if isinstance(current_evidence, BrokerReconciliationEvidence) else BrokerReconciliationEvidence.from_dict(current_evidence or {})
     except (TypeError, ValueError):
