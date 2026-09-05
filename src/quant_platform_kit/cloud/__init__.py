@@ -189,6 +189,7 @@ from .ports import (
     SecretStoreReadWrite,
     ObjectStore,
     DocumentStore,
+    DocumentStoreAtomicOwnership,
     ComputeDiscovery,
     DeploymentContext,
 )
@@ -198,6 +199,7 @@ __all__ = [
     "SecretStoreReadWrite",
     "ObjectStore",
     "DocumentStore",
+    "DocumentStoreAtomicOwnership",
     "ComputeDiscovery",
     "DeploymentContext",
     "get_secret_store",

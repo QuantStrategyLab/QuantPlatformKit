@@ -503,3 +503,193 @@ class AzureProviderRegistrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GcpDocumentOwnershipTests(unittest.TestCase):
+    """Deterministic SDK conflict simulations, not real Firestore validation."""
+
+    def setUp(self):
+        import sys
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+        from quant_platform_kit.cloud.gcp_provider import GcpDocumentStore
+
+        self.store = GcpDocumentStore()
+        self.other = GcpDocumentStore()
+        self.client = MagicMock()
+        self.store._client = self.other._client = self.client
+        self.document = self.client.collection.return_value.document.return_value
+        self.data = None
+        self.version = 0
+        self.before_create = None
+        self.before_commit = None
+        self.create_error = None
+        self.commit_error = None
+        self.after_commit_error = None
+        self.Conflict = type("Conflict", (Exception,), {})
+        self.AlreadyExists = type("AlreadyExists", (self.Conflict,), {})
+        self.after_create_error = None
+
+        def create(data, *, retry):
+            self.assertIsNone(retry)
+            if self.before_create:
+                hook, self.before_create = self.before_create, None
+                hook()
+            if self.create_error:
+                raise self.create_error
+            if self.data is not None:
+                raise self.AlreadyExists("already exists")
+            self.data = dict(data)
+            self.version += 1
+            if self.after_create_error:
+                raise self.after_create_error
+
+        def get(*, transaction, retry):
+            self.assertIsNone(retry)
+            transaction.read_version = self.version
+            data = dict(self.data) if self.data is not None else None
+            return SimpleNamespace(exists=data is not None, to_dict=lambda: data)
+
+        def transactional(callback):
+            def run(transaction):
+                result = callback(transaction)
+                if self.before_commit:
+                    self.before_commit()
+                if self.commit_error:
+                    raise self.commit_error
+                if transaction.read_version != self.version:
+                    raise self.Conflict("transaction conflict")
+                if transaction.delete.called:
+                    transaction.delete.assert_called_once_with(self.document)
+                    self.data = None
+                    self.version += 1
+                if self.after_commit_error:
+                    raise self.after_commit_error
+                return result
+            return run
+
+        self.document.create.side_effect = create
+        self.document.get.side_effect = get
+        self.client.transaction.side_effect = lambda **kwargs: MagicMock()
+        firestore = SimpleNamespace(transactional=transactional)
+        modules = {
+            "google": SimpleNamespace(),
+            "google.cloud": SimpleNamespace(firestore=firestore),
+            "google.api_core": SimpleNamespace(),
+            "google.api_core.exceptions": SimpleNamespace(Conflict=self.Conflict, AlreadyExists=self.AlreadyExists),
+        }
+        self.patch = patch.dict(sys.modules, modules)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def test_optional_protocol_leaves_existing_providers_compatible(self):
+        from quant_platform_kit.cloud import DocumentStoreAtomicOwnership
+        from quant_platform_kit.cloud.aws_provider import AwsDocumentStore
+        from quant_platform_kit.cloud.azure_provider import AzureDocumentStore
+
+        self.assertIsInstance(self.store, DocumentStore)
+        self.assertIsInstance(self.store, DocumentStoreAtomicOwnership)
+        for store in (LocalDocumentStore(), AwsDocumentStore(), AzureDocumentStore()):
+            with self.subTest(provider=type(store).__name__):
+                self.assertIsInstance(store, DocumentStore)
+                self.assertNotIsInstance(store, DocumentStoreAtomicOwnership)
+
+    def test_create_does_not_reacquire_even_for_same_owner(self):
+        self.assertTrue(self.store.create_if_absent("locks", "state", {"owner_id": "one"}))
+        self.assertFalse(self.store.create_if_absent("locks", "state", {"owner_id": "one"}))
+        self.assertFalse(self.other.create_if_absent("locks", "state", {"owner_id": "two"}))
+        self.assertEqual(self.data, {"owner_id": "one"})
+        self.document.get.assert_not_called()
+        self.document.set.assert_not_called()
+
+    def test_interleaved_claims_have_one_winner(self):
+        outcomes = []
+        self.before_create = lambda: outcomes.append(
+            self.other.create_if_absent("locks", "state", {"owner_id": "two"})
+        )
+        outcomes.append(self.store.create_if_absent("locks", "state", {"owner_id": "one"}))
+        self.assertEqual(outcomes, [True, False])
+        self.assertEqual(self.data, {"owner_id": "two"})
+
+    def test_delete_requires_current_owner_and_committed_transaction(self):
+        self.assertFalse(self.store.delete_if_owner("locks", "state", "one"))
+        self.store.create_if_absent("locks", "state", {"owner_id": "one"})
+        self.assertFalse(self.store.delete_if_owner("locks", "state", "two"))
+        self.assertTrue(self.store.delete_if_owner("locks", "state", "one"))
+        self.other.create_if_absent("locks", "state", {"owner_id": "two"})
+        self.assertFalse(self.store.delete_if_owner("locks", "state", "one"))
+        self.assertEqual(self.data, {"owner_id": "two"})
+        self.client.transaction.assert_called_with(max_attempts=1)
+        self.document.delete.assert_not_called()
+
+    def test_owner_change_between_read_and_commit_cannot_delete_new_owner(self):
+        self.store.create_if_absent("locks", "state", {"owner_id": "one"})
+        def replace_owner():
+            self.data = {"owner_id": "two"}
+            self.version += 1
+        self.before_commit = replace_owner
+        with self.assertRaises(self.Conflict):
+            self.store.delete_if_owner("locks", "state", "one")
+        self.assertEqual(self.data, {"owner_id": "two"})
+
+    def test_empty_or_invalid_owner_is_rejected_before_io(self):
+        for owner in (None, "", "  ", 1, True):
+            with self.subTest(owner=owner):
+                with self.assertRaises(ValueError):
+                    self.store.create_if_absent("locks", "state", {"owner_id": owner})
+                with self.assertRaises(ValueError):
+                    self.store.delete_if_owner("locks", "state", owner)
+        with self.assertRaises(ValueError):
+            self.store.create_if_absent("locks", "state", {})
+        self.client.collection.assert_not_called()
+
+    def test_create_errors_are_not_competition_results(self):
+        for error in (TimeoutError("unknown outcome"), PermissionError("denied"), self.Conflict("aborted")):
+            with self.subTest(error=type(error).__name__):
+                self.create_error = error
+                with self.assertRaises(type(error)):
+                    self.store.create_if_absent("locks", "state", {"owner_id": "one"})
+
+    def test_transaction_errors_never_return_success(self):
+        self.store.create_if_absent("locks", "state", {"owner_id": "one"})
+        for error in (TimeoutError("unknown outcome"), PermissionError("denied"), self.Conflict("aborted")):
+            with self.subTest(error=type(error).__name__):
+                self.commit_error = error
+                with self.assertRaises(type(error)):
+                    self.store.delete_if_owner("locks", "state", "one")
+                self.assertEqual(self.data, {"owner_id": "one"})
+
+    def test_delete_ack_loss_raises_even_when_server_deleted(self):
+        self.store.create_if_absent("locks", "state", {"owner_id": "one"})
+        self.after_commit_error = TimeoutError("unknown outcome")
+        with self.assertRaises(TimeoutError):
+            self.store.delete_if_owner("locks", "state", "one")
+        self.assertIsNone(self.data)
+
+    def test_create_ack_loss_does_not_authorize_same_owner_retry(self):
+        self.after_create_error = TimeoutError("unknown outcome")
+        with self.assertRaises(TimeoutError):
+            self.store.create_if_absent("locks", "state", {"owner_id": "one"})
+        self.assertEqual(self.data, {"owner_id": "one"})
+        self.after_create_error = None
+        self.assertFalse(self.store.create_if_absent("locks", "state", {"owner_id": "one"}))
+
+    def test_transaction_read_error_propagates_without_delete(self):
+        self.document.get.side_effect = TimeoutError("read unavailable")
+        with self.assertRaises(TimeoutError):
+            self.store.delete_if_owner("locks", "state", "one")
+        self.document.delete.assert_not_called()
+
+    def test_normal_document_operations_keep_original_sdk_calls(self):
+        from types import SimpleNamespace
+        self.document.get.side_effect = None
+        self.document.get.return_value = SimpleNamespace(exists=True, to_dict=lambda: {"value": 1})
+        self.assertEqual(self.store.get("items", "one"), {"value": 1})
+        self.document.get.assert_called_once_with()
+        self.store.set("items", "one", {"value": 2})
+        self.document.set.assert_called_once_with({"value": 2})
+        self.store.update("items", "one", {"value": 3})
+        self.document.update.assert_called_once_with({"value": 3})
+        self.store.delete("items", "one")
+        self.document.delete.assert_called_once_with()
+        self.client.transaction.assert_not_called()
