@@ -1,8 +1,9 @@
-"""Parameter optimizer — grid search with walk-forward validation."""
+"""Parameter optimizer — grid search with seen-development robustness checks."""
 
 from __future__ import annotations
 
 import itertools
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from typing import Any, Mapping
 
@@ -83,10 +84,10 @@ def _score_backtest_result(result: BacktestResult) -> float:
     return score
 
 
-# ── Walk-Forward Validation ──────────────────────────────────────────
+# ── Development Validation ──────────────────────────────────────────
 
 
-def _run_walkforward_validation(
+def _run_development_validation(
     strategy_profile: str,
     *,
     domain: str,
@@ -96,15 +97,16 @@ def _run_walkforward_validation(
     end_date: date | None = None,
     folds: int = 3,
 ) -> tuple[float | None, float | None, float | None, float | None]:
-    """Run walk-forward cross-validation to check parameter stability.
+    """Check fixed-parameter robustness over required seen-development segments.
 
-    Splits the backtest period into `folds` sequential folds.
-    For each fold: trains on earlier periods, tests on the fold.
-    Returns stability metrics across folds.
+    Parameters were selected on the full window; these segments do not train
+    or select independently and are not untouched OOS or promotion evidence.
+    The initial segment is omitted to preserve the existing slicing convention.
 
     Returns:
-        (stability, oos_sharpe, oos_calmar, oos_max_dd)
-        stability: 0-1 score where 1.0 = perfectly stable across folds
+        (stability, mean_sharpe, mean_calmar, worst_max_dd)
+        stability: 0-1 dispersion diagnostic, not a generalization probability.
+        All values are None if any required segment/window/metric is incomplete.
     """
     if start_date is None or end_date is None or folds < 2:
         return None, None, None, None
@@ -113,61 +115,68 @@ def _run_walkforward_validation(
     if total_days < 252:
         return None, None, None, None
 
-    fold_days = total_days // (folds + 1)  # +1 for initial training period
+    fold_days = total_days // (folds + 1)  # +1 for the initial development segment
     if fold_days < 60:
         return None, None, None, None
 
-    oos_sharpes: list[float] = []
-    oos_calmars: list[float] = []
-    oos_max_dds: list[float] = []
+    segment_sharpes: list[float] = []
+    segment_calmars: list[float] = []
+    segment_max_dds: list[float] = []
 
     from datetime import timedelta
 
     for fold in range(1, folds + 1):
-        # Training period: start → start + fold * fold_days
-        # Test period: start + fold * fold_days → start + (fold+1) * fold_days
-        train_start = start_date
-        train_end = start_date + timedelta(days=fold * fold_days)
-        test_start = train_end + timedelta(days=1)
+        segment_boundary = start_date + timedelta(days=fold * fold_days)
+        test_start = segment_boundary + timedelta(days=1)
         test_end = min(test_start + timedelta(days=fold_days), end_date)
 
         if (test_end - test_start).days < 20:
-            continue
+            return None, None, None, None
 
         try:
             fold_result = orchestrator.run(
                 strategy_profile,
                 domain=domain,
                 params=params,
-                param_set_id=f"{strategy_profile}_wf_fold{fold}",
+                param_set_id=f"{strategy_profile}_development_segment{fold}",
                 param_version=1,
                 start_date=test_start,
                 end_date=test_end,
             )
 
-            if fold_result.sharpe_ratio is not None and not np.isnan(fold_result.sharpe_ratio):
-                oos_sharpes.append(fold_result.sharpe_ratio)
-            if fold_result.calmar_ratio is not None and not np.isnan(fold_result.calmar_ratio):
-                oos_calmars.append(fold_result.calmar_ratio)
-            if fold_result.max_drawdown is not None and not np.isnan(fold_result.max_drawdown):
-                oos_max_dds.append(fold_result.max_drawdown)
+            if (
+                isinstance(fold_result.observation_count, bool)
+                or not isinstance(fold_result.observation_count, (int, np.integer))
+                or fold_result.observation_count <= 0
+                or fold_result.start_date is None
+                or fold_result.end_date is None
+                or not test_start <= fold_result.start_date <= fold_result.end_date <= test_end
+            ):
+                return None, None, None, None
+            metrics = (fold_result.sharpe_ratio, fold_result.calmar_ratio, fold_result.max_drawdown)
+            if any(value is None or not np.isfinite(value) for value in metrics):
+                return None, None, None, None
+            segment_sharpes.append(fold_result.sharpe_ratio)
+            segment_calmars.append(fold_result.calmar_ratio)
+            segment_max_dds.append(fold_result.max_drawdown)
         except Exception:
-            continue
+            return None, None, None, None
 
-    if not oos_sharpes:
+    if not segment_sharpes:
         return None, None, None, None
 
-    # Stability: 1 - (CV of OOS sharpes), clamped to [0, 1]
-    mean_sharpe = float(np.mean(oos_sharpes))
-    std_sharpe = float(np.std(oos_sharpes, ddof=0)) if len(oos_sharpes) > 1 else 0.0
+    # Stability: 1 - (CV of development-segment Sharpes), clamped to [0, 1]
+    mean_sharpe = float(np.mean(segment_sharpes))
+    std_sharpe = float(np.std(segment_sharpes, ddof=0)) if len(segment_sharpes) > 1 else 0.0
+    mean_segment_calmar = float(np.mean(segment_calmars))
+    worst_segment_max_dd = float(np.min(segment_max_dds))  # worst across all required folds
+    if not all(np.isfinite(value) for value in (mean_sharpe, std_sharpe, mean_segment_calmar, worst_segment_max_dd)):
+        return None, None, None, None
     cv = std_sharpe / max(abs(mean_sharpe), 0.01)
     stability = max(0.0, min(1.0, 1.0 - cv))
 
-    oos_sharpe = mean_sharpe
-    oos_calmar = float(np.mean(oos_calmars)) if oos_calmars else None
-    oos_max_dd = float(np.min(oos_max_dds)) if oos_max_dds else None  # worst across folds
-
-    return stability, oos_sharpe, oos_calmar, oos_max_dd
+    mean_segment_sharpe = mean_sharpe
+    return stability, mean_segment_sharpe, mean_segment_calmar, worst_segment_max_dd
 
 
 # ── Pipeline helpers ──────────────────────────────────────────────────
@@ -209,53 +218,32 @@ def _run_best_grid(
     return best_result, best_params, len(combos)
 
 
-def _attach_walkforward(
-    strategy_profile: str, domain: str, best_result: BacktestResult,
-    best_params: Mapping[str, Any], orchestrator: BacktestOrchestrator,
-    start_date: date | None, end_date: date | None,
-) -> BacktestResult:
-    """Attach walk-forward validation metrics to the best result."""
-    wf = _run_walkforward_validation(strategy_profile, domain=domain,
-        params=best_params, orchestrator=orchestrator,
-        start_date=start_date or best_result.start_date,
-        end_date=end_date or best_result.end_date, folds=3)
-    stability, oos_sharpe, oos_calmar, oos_max_dd = wf
-    return BacktestResult(
-        strategy_profile=best_result.strategy_profile, domain=best_result.domain,
-        param_set_id=best_result.param_set_id, params=best_result.params,
-        param_version=best_result.param_version,
-        sharpe_ratio=best_result.sharpe_ratio, calmar_ratio=best_result.calmar_ratio,
-        sortino_ratio=best_result.sortino_ratio, max_drawdown=best_result.max_drawdown,
-        cagr=best_result.cagr, volatility=best_result.volatility,
-        win_rate=best_result.win_rate, total_return=best_result.total_return,
-        start_date=best_result.start_date, end_date=best_result.end_date,
-        observation_count=best_result.observation_count,
-        benchmark_symbol=best_result.benchmark_symbol,
-        benchmark_cagr=best_result.benchmark_cagr,
-        benchmark_max_drawdown=best_result.benchmark_max_drawdown,
-        excess_cagr=best_result.excess_cagr,
-        oos_sharpe=oos_sharpe, oos_calmar=oos_calmar, oos_max_dd=oos_max_dd,
-        walk_forward_stability=stability,
-        run_id=best_result.run_id, run_duration_seconds=best_result.run_duration_seconds,
-        source_script=best_result.source_script, computed_at=best_result.computed_at,
-    )
-
-
 def _build_optimization_proposal(
     strategy_profile: str, domain: str,
     current_params: Mapping[str, Any], proposed_params: Mapping[str, Any],
     baseline: BacktestResult, best_result: BacktestResult,
     improvement: float, search_count: int,
+    *, development_stability: float | None = None,
 ) -> OptimizationProposal:
-    """Build final OptimizationProposal with recommendation."""
-    winning, regressing = _compare_dimensions(baseline, best_result)
-    wf_s = best_result.walk_forward_stability
-    confidence = wf_s if wf_s is not None else min(improvement / max(abs(_score_backtest_result(baseline)), 0.01), 1.0)
+    """Build a research proposal; confidence is seen-development stability only.
 
-    wf_passed = wf_s is not None and wf_s >= 0.5
-    if improvement > 0.05 and wf_passed and len(regressing) <= 1:
+    Display copies clear independent-validation labels without mutating any
+    input result or evidence already stored by the orchestrator.
+    """
+    baseline = replace(baseline, oos_sharpe=None, oos_calmar=None,
+                       oos_max_drawdown=None, walk_forward_stability=None)
+    best_result = replace(best_result, oos_sharpe=None, oos_calmar=None,
+                          oos_max_drawdown=None, walk_forward_stability=None)
+    winning, regressing = _compare_dimensions(baseline, best_result)
+    stability = development_stability
+    if stability is not None and (not np.isfinite(stability) or not 0.0 <= stability <= 1.0):
+        stability = None
+    confidence = stability if stability is not None and np.isfinite(improvement) else 0.0
+
+    development_stable = bool(stability is not None and np.isfinite(improvement) and stability >= 0.5)
+    if improvement > 0.05 and development_stable and len(regressing) <= 1:
         rec = "research_candidate"
-    elif improvement > 0.02 and (wf_s is None or wf_s >= 0.4):
+    elif improvement > 0.02 and (stability is None or stability >= 0.4):
         rec = "needs_review"
     else:
         rec = "reject"
@@ -266,8 +254,8 @@ def _build_optimization_proposal(
         current_metrics=baseline, proposed_metrics=best_result,
         improvement_score=round(improvement, 4), confidence=round(confidence, 4),
         winning_dimensions=tuple(winning), regressing_dimensions=tuple(regressing),
-        recommendation=rec, walk_forward_passed=wf_passed,
-        optimization_method="grid_search", search_iterations=search_count,
+        recommendation=rec, walk_forward_passed=False,
+        optimization_method="grid_search_seen_development", search_iterations=search_count,
         computed_at=_now_iso(),
     )
 
@@ -286,9 +274,9 @@ def run_grid_search(
     end_date: date | None = None,
     max_combinations: int = 500,
 ) -> OptimizationProposal:
-    """Run a grid search optimization with walk-forward validation.
+    """Run grid search with seen-development segment diagnostics, not OOS.
 
-    Pipeline: resolve space → run baseline → grid search → walk-forward → propose.
+    Pipeline: resolve space → baseline → grid search → development checks → propose.
     """
     space = search_space or get_search_space(strategy_profile)
     if space is None:
@@ -311,12 +299,17 @@ def run_grid_search(
             baseline, baseline, 0.0, search_count,
         )
 
-    best_result = _attach_walkforward(strategy_profile, domain, best_result, best_params, orchestrator, start_date, end_date)
+    development = _run_development_validation(
+        strategy_profile, domain=domain, params=best_params, orchestrator=orchestrator,
+        start_date=start_date or best_result.start_date,
+        end_date=end_date or best_result.end_date, folds=3,
+    )
     improvement = _score_backtest_result(best_result) - baseline_score
 
     return _build_optimization_proposal(
         strategy_profile, domain, current_params, best_params,
         baseline, best_result, improvement, search_count,
+        development_stability=development[0],
     )
 
 
