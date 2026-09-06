@@ -37,6 +37,14 @@ from quant_platform_kit.risk.research_consumer import (
     consume_research_risk,
     consume_research_risk_batch,
 )
+from quant_platform_kit.risk.promotion_sizing import (
+    DEFAULT_RISK_PROFILE_SCALES,
+    PromotionSizingResult,
+    assess_promotion_sized_target,
+    normalize_plugin_scalar,
+    resolve_risk_profile_scale,
+    size_target_weight,
+)
 
 __all__ = [
     "RegimeContext",
@@ -61,4 +69,10 @@ __all__ = [
     "ResearchRiskObservation",
     "consume_research_risk",
     "consume_research_risk_batch",
+    "DEFAULT_RISK_PROFILE_SCALES",
+    "PromotionSizingResult",
+    "assess_promotion_sized_target",
+    "normalize_plugin_scalar",
+    "resolve_risk_profile_scale",
+    "size_target_weight",
 ]
