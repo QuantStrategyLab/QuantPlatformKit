@@ -69,6 +69,16 @@ from quant_platform_kit.risk.promotion_sizing import (
     resolve_risk_profile_scale,
     size_target_weight,
 )
+from quant_platform_kit.risk.synthetic_combo_evidence import (
+    DEFAULT_CORRELATED_GROUP_CAP,
+    DEFAULT_CORRELATION_THRESHOLD,
+    CorrelatedGroupEvidence,
+    PairwiseCorrelationEstimate,
+    SyntheticComboEvidence,
+    SyntheticComboMember,
+    SyntheticComboMemberEvidence,
+    evaluate_synthetic_combo_evidence,
+)
 
 __all__ = [
     "RegimeContext",
@@ -115,4 +125,12 @@ __all__ = [
     "normalize_plugin_scalar",
     "resolve_risk_profile_scale",
     "size_target_weight",
+    "DEFAULT_CORRELATED_GROUP_CAP",
+    "DEFAULT_CORRELATION_THRESHOLD",
+    "CorrelatedGroupEvidence",
+    "PairwiseCorrelationEstimate",
+    "SyntheticComboEvidence",
+    "SyntheticComboMember",
+    "SyntheticComboMemberEvidence",
+    "evaluate_synthetic_combo_evidence",
 ]
