@@ -14,7 +14,9 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
 from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
     ResearchPromotionBudget,
     ResearchPromotionState,
+    PromotionConfirmation,
     apply_human_promotion_decision,
+    validate_promotion_confirmation,
     load_research_promotion_ticket,
     run_research_promotion_cycle,
     save_research_promotion_ticket,
@@ -101,7 +103,15 @@ def test_human_accept_does_not_grant_live_authority(tmp_path) -> None:
         optimize=lambda drift, budget: _proposal(),
         record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
     )
-    decided = apply_human_promotion_decision(ticket, decision="accept")
+    decided = apply_human_promotion_decision(
+        ticket,
+        decision="accept",
+        confirmation=PromotionConfirmation(
+            target_platform="ibkr",
+            execution_mode="live",
+            risk_profile="CAPITAL_PRESERVATION",
+        ),
+    )
     assert decided.state is ResearchPromotionState.HUMAN_ACCEPTED
     assert decided.live_authority_granted is False
     assert "human_accepted_intent_only_no_live_authority" in decided.notes
@@ -170,3 +180,56 @@ def test_telegram_notifier_soft_skips_without_credentials() -> None:
     )
     assert notify("subject", "body") is False
     assert skipped and "skipped" in skipped[0]
+
+
+def test_accept_requires_confirmation() -> None:
+    ticket = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+    )
+    with pytest.raises(ValueError, match="confirmation"):
+        apply_human_promotion_decision(ticket, decision="accept")
+
+
+def test_accept_records_confirmation_without_live_authority() -> None:
+    ticket = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+    )
+    assert ticket.suggested_risk_profile == "CAPITAL_PRESERVATION"
+    decided = apply_human_promotion_decision(
+        ticket,
+        decision="accept",
+        confirmation={
+            "target_platform": "longbridge",
+            "execution_mode": "live",
+            "risk_profile": "BALANCED_COMPOUNDING",
+        },
+    )
+    assert decided.confirmation_target_platform == "longbridge"
+    assert decided.confirmation_execution_mode == "live"
+    assert decided.confirmation_risk_profile == "BALANCED_COMPOUNDING"
+    assert decided.live_authority_granted is False
+
+
+def test_paper_rejected_without_broker_paper_support() -> None:
+    with pytest.raises(ValueError, match="synthetic"):
+        validate_promotion_confirmation(
+            PromotionConfirmation(
+                target_platform="firstrade",
+                execution_mode="paper",
+                risk_profile="CAPITAL_PRESERVATION",
+            ),
+            paper_supported=False,
+        )
+    ok = validate_promotion_confirmation(
+        PromotionConfirmation(
+            target_platform="ibkr",
+            execution_mode="paper",
+            risk_profile="CAPITAL_PRESERVATION",
+        ),
+        paper_supported=True,
+    )
+    assert ok.execution_mode == "paper"

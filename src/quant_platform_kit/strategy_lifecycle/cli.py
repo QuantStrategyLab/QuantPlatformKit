@@ -287,6 +287,24 @@ def _run_export_performance(args: argparse.Namespace) -> int:
 
 
 def _run_research_promotion_decide(args: argparse.Namespace) -> int:
+    if args.decision == "accept":
+        missing = [
+            name
+            for name, value in (
+                ("--platform", args.platform),
+                ("--execution-mode", args.execution_mode),
+                ("--risk-profile", args.risk_profile),
+            )
+            if not value
+        ]
+        if missing:
+            raise ValueError(
+                "accept requires " + ", ".join(missing)
+            )
+        if args.execution_mode == "paper" and not args.paper_supported:
+            raise ValueError(
+                "paper requires --paper-supported for a real broker paper/sim account"
+            )
     load_ticket = _load_callable(
         "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
         "load_research_promotion_ticket",
@@ -300,7 +318,19 @@ def _run_research_promotion_decide(args: argparse.Namespace) -> int:
         "save_research_promotion_ticket",
     )
     ticket = load_ticket(args.ticket)
-    decided = apply_decision(ticket, decision=args.decision)
+    confirmation = None
+    if args.decision == "accept":
+        confirmation = {
+            "target_platform": args.platform,
+            "execution_mode": args.execution_mode,
+            "risk_profile": args.risk_profile,
+        }
+    decided = apply_decision(
+        ticket,
+        decision=args.decision,
+        confirmation=confirmation,
+        paper_supported=bool(args.paper_supported),
+    )
     output = args.output or args.ticket
     save_ticket(decided, output)
     _print(
@@ -423,6 +453,32 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         choices=("accept", "reject"),
         help="Human decision. accept records intent only and does not grant live authority.",
+    )
+    decide.add_argument(
+        "--platform",
+        default=None,
+        help="Required on accept: target platform id (intent only, not an enablement).",
+    )
+    decide.add_argument(
+        "--execution-mode",
+        default=None,
+        choices=("live", "paper"),
+        help="Required on accept: live or broker paper/sim. No synthetic paper.",
+    )
+    decide.add_argument(
+        "--risk-profile",
+        default=None,
+        choices=(
+            "CAPITAL_PRESERVATION",
+            "BALANCED_COMPOUNDING",
+            "GROWTH_COMPOUNDING",
+        ),
+        help="Required on accept: risk envelope selection (intent only).",
+    )
+    decide.add_argument(
+        "--paper-supported",
+        action="store_true",
+        help="Set only when the target broker truly offers paper/sim.",
     )
     decide.add_argument(
         "--output",

@@ -37,3 +37,10 @@
 - Add: `paired_shadow_adapter.py` (`collect_paired_shadow_for_promotion`, `resolve_promotion_shadow_record`)
 - Codex autopilot prefers `store.collect_paired_shadow_observation` when present; else explicit proxy marker
 - Still no live enablement after accept
+
+### Task 6: Human confirmation contract (platform / mode / risk)
+
+- Accept requires `PromotionConfirmation`: target_platform, execution_mode (`live`|`paper`), risk_profile
+- Default suggested risk profile: `CAPITAL_PRESERVATION`
+- `paper` only when broker truly supports paper/sim; **no synthetic matching**
+- Accept still never sets `live_authority_granted`
