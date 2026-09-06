@@ -23,3 +23,11 @@
 ### Task 3: Autopilot handoff note
 
 - Modify: `codex_integration._process_optimization_decision` to attach a promotion ticket id when human approval is required (still `execution_authorized=False`).
+
+
+### Task 4: Telegram notify + paired-shadow record helper
+
+- Add: `make_telegram_research_promotion_notifier` (soft-skip when unconfigured)
+- Add: `shadow_record_from_paired_evidence` + `require_paired_shadow` budget flag
+- Wire Codex autopilot ticket open to Telegram notify hook
+- Still no live enablement after accept

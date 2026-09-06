@@ -49,6 +49,7 @@ class ResearchPromotionBudget:
     max_search_iterations: int = 25
     max_param_keys: int = 4
     allow_live_enablement: bool = False
+    require_paired_shadow: bool = False
 
     def __post_init__(self) -> None:
         if self.max_search_iterations < 1:
@@ -183,6 +184,126 @@ def build_human_promotion_notification(
     return subject, body
 
 
+
+def _shadow_kind(shadow: Mapping[str, Any]) -> str:
+    return str(
+        shadow.get("evidence_kind")
+        or shadow.get("kind")
+        or shadow.get("evidence_type")
+        or "proxy_shadow"
+    )
+
+
+def _is_paired_shadow_kind(kind: str) -> bool:
+    normalized = str(kind or "").strip().lower()
+    return normalized == "paired_shadow" or normalized.startswith("paired_shadow")
+
+
+def shadow_record_from_paired_evidence(
+    evidence: Mapping[str, Any],
+    *,
+    policy: Any | None = None,
+    forward_observation_receipt: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate paired-shadow evidence into a non-live cycle shadow record."""
+    from quant_platform_kit.strategy_lifecycle.paired_shadow_evidence import (
+        PAIRED_SHADOW_EVIDENCE_KIND,
+        validate_paired_shadow_evidence,
+    )
+
+    validated = validate_paired_shadow_evidence(
+        evidence,
+        policy=policy,
+        forward_observation_receipt=forward_observation_receipt,
+    )
+    if validated.get("live_authority_granted") is True:
+        raise ValueError("paired shadow evidence must not grant live authority")
+    if validated.get("no_order") is not True:
+        raise ValueError("paired shadow evidence must declare no_order=true")
+    digest = str(validated.get("paired_shadow_evidence_sha256") or "")
+    return {
+        "evidence_kind": PAIRED_SHADOW_EVIDENCE_KIND,
+        "passed": True,
+        "paired_shadow_evidence_sha256": digest,
+        "no_order": True,
+        "live_authority_granted": False,
+        "evidence": validated,
+    }
+
+
+def make_telegram_research_promotion_notifier(
+    *,
+    bot_token: str | None = None,
+    chat_ids: str | list[str] | None = None,
+    printer: Any = print,
+) -> Callable[[str, str], bool]:
+    """Build notify(subject, body) using Telegram; soft-skip if unconfigured."""
+    import os
+
+    from quant_platform_kit.notifications.telegram import send_telegram_message
+
+    token = str(
+        bot_token
+        or os.environ.get("TELEGRAM_TOKEN")
+        or os.environ.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN")
+        or ""
+    ).strip()
+    chats: str | list[str] | None = chat_ids
+    if chats is None:
+        chats = (
+            os.environ.get("GLOBAL_TELEGRAM_CHAT_ID")
+            or os.environ.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS")
+            or ""
+        )
+
+    def notify(subject: str, body: str) -> bool:
+        if not token or not str(chats or "").strip():
+            printer(
+                "research promotion telegram notify skipped: token/chat not configured",
+                flush=True,
+            )
+            return False
+        message = subject + "\n\n" + body
+        return bool(
+            send_telegram_message(
+                bot_token=token,
+                chat_ids=chats,
+                text=message,
+                parse_mode=None,
+                printer=printer,
+            )
+        )
+
+    return notify
+
+
+def _attach_shadow_or_park(
+    ticket: ResearchPromotionTicket,
+    shadow: Mapping[str, Any],
+    *,
+    budget: ResearchPromotionBudget,
+    require_passed: bool,
+) -> ResearchPromotionTicket | None:
+    """Fill shadow fields. Return parked ticket when rejected; else None."""
+    kind = _shadow_kind(shadow)
+    ticket.shadow_evidence_kind = kind
+    ticket.shadow_passed = bool(shadow.get("passed", False))
+    digest = str(shadow.get("paired_shadow_evidence_sha256") or "").strip()
+    if digest:
+        ticket.notes = ticket.notes + (f"paired_shadow_evidence_sha256={digest}",)
+    if budget.require_paired_shadow and not _is_paired_shadow_kind(kind):
+        ticket.state = ResearchPromotionState.PARKED
+        ticket.notes = ticket.notes + ("paired_shadow_required", f"got={kind}")
+        ticket.updated_at = _now_iso()
+        return ticket
+    if require_passed and not ticket.shadow_passed:
+        ticket.state = ResearchPromotionState.PARKED
+        ticket.notes = ticket.notes + ("shadow_failed",)
+        ticket.updated_at = _now_iso()
+        return ticket
+    return None
+
+
 def run_research_promotion_cycle(
     drift: DriftResult,
     *,
@@ -208,6 +329,7 @@ def run_research_promotion_cycle(
             "max_search_iterations": budget.max_search_iterations,
             "max_param_keys": budget.max_param_keys,
             "allow_live_enablement": False,
+            "require_paired_shadow": bool(budget.require_paired_shadow),
         },
         live_authority_granted=False,
     )
@@ -235,16 +357,12 @@ def run_research_promotion_cycle(
         return ticket
 
     shadow = dict(record_shadow(proposal))
-    ticket.shadow_evidence_kind = str(
-        shadow.get("evidence_kind") or shadow.get("kind") or "proxy_shadow"
-    )
-    ticket.shadow_passed = bool(shadow.get("passed", False))
     ticket.state = ResearchPromotionState.SHADOW_RECORDED
-    if not ticket.shadow_passed:
-        ticket.state = ResearchPromotionState.PARKED
-        ticket.notes = ("shadow_failed",)
-        ticket.updated_at = _now_iso()
-        return ticket
+    parked = _attach_shadow_or_park(
+        ticket, shadow, budget=budget, require_passed=True
+    )
+    if parked is not None:
+        return parked
 
     ticket.state = ResearchPromotionState.AWAITING_HUMAN
     subject, body = build_human_promotion_notification(ticket)
@@ -282,6 +400,7 @@ def open_awaiting_human_ticket(
             "max_search_iterations": budget.max_search_iterations,
             "max_param_keys": budget.max_param_keys,
             "allow_live_enablement": False,
+            "require_paired_shadow": bool(budget.require_paired_shadow),
         },
         proposed_params=dict(proposal.proposed_params or {}),
         search_iterations=int(proposal.search_iterations),
@@ -290,14 +409,12 @@ def open_awaiting_human_ticket(
     if not ok:
         ticket.notes = ("budget_exceeded", reason)
         return ticket
-    if not bool(shadow.get("passed", False)):
-        ticket.notes = ("shadow_failed",)
-        return ticket
-
-    ticket.shadow_evidence_kind = str(
-        shadow.get("evidence_kind") or shadow.get("kind") or "proxy_shadow"
+    parked = _attach_shadow_or_park(
+        ticket, shadow, budget=budget, require_passed=True
     )
-    ticket.shadow_passed = True
+    if parked is not None:
+        return parked
+
     ticket.state = ResearchPromotionState.AWAITING_HUMAN
     subject, body = build_human_promotion_notification(ticket)
     ticket.notification_subject = subject
@@ -371,7 +488,9 @@ __all__ = [
     "build_human_promotion_notification",
     "enforce_optimization_budget",
     "load_research_promotion_ticket",
+    "make_telegram_research_promotion_notifier",
     "open_awaiting_human_ticket",
     "run_research_promotion_cycle",
     "save_research_promotion_ticket",
+    "shadow_record_from_paired_evidence",
 ]

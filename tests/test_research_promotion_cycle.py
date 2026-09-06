@@ -122,3 +122,51 @@ def test_human_reject_is_terminal() -> None:
     assert decided.state is ResearchPromotionState.HUMAN_REJECTED
     with pytest.raises(ValueError, match="not awaiting human"):
         apply_human_promotion_decision(decided, decision="accept")
+
+
+def test_require_paired_shadow_parks_proxy() -> None:
+    ticket = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+        budget=ResearchPromotionBudget(require_paired_shadow=True),
+    )
+    assert ticket.state is ResearchPromotionState.PARKED
+    assert "paired_shadow_required" in ticket.notes
+    assert ticket.live_authority_granted is False
+
+
+def test_paired_shadow_record_reaches_awaiting_human() -> None:
+    from tests.test_paired_shadow_evidence import _evidence
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        shadow_record_from_paired_evidence,
+    )
+
+    shadow = shadow_record_from_paired_evidence(_evidence())
+    notes: list[tuple[str, str]] = []
+    ticket = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: shadow,
+        notify=lambda subject, body: notes.append((subject, body)),
+        budget=ResearchPromotionBudget(require_paired_shadow=True),
+    )
+    assert ticket.state is ResearchPromotionState.AWAITING_HUMAN
+    assert ticket.shadow_evidence_kind == "paired_shadow"
+    assert ticket.live_authority_granted is False
+    assert notes and "live_authority_granted: false" in notes[0][1]
+
+
+def test_telegram_notifier_soft_skips_without_credentials() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        make_telegram_research_promotion_notifier,
+    )
+
+    skipped: list[str] = []
+    notify = make_telegram_research_promotion_notifier(
+        bot_token="",
+        chat_ids="",
+        printer=lambda *args, **kwargs: skipped.append(" ".join(str(a) for a in args)),
+    )
+    assert notify("subject", "body") is False
+    assert skipped and "skipped" in skipped[0]

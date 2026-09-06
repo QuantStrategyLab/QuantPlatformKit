@@ -538,10 +538,13 @@ def _process_optimization_decision(
             )
             try:
                 from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+                    make_telegram_research_promotion_notifier,
                     open_awaiting_human_ticket,
                     save_research_promotion_ticket,
                 )
 
+                # proxy_shadow remains until a non-live paired adapter supplies
+                # validated paired_shadow evidence; notify never grants live.
                 ticket = open_awaiting_human_ticket(
                     drift=drift,
                     proposal=proposal,
@@ -549,6 +552,7 @@ def _process_optimization_decision(
                         "evidence_kind": "proxy_shadow_pending_paired",
                         "passed": True,
                     },
+                    notify=make_telegram_research_promotion_notifier(),
                 )
                 entry["research_promotion_ticket_id"] = ticket.ticket_id
                 entry["research_promotion_state"] = ticket.state.value
