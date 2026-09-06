@@ -286,6 +286,30 @@ def _run_export_performance(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_research_promotion_decide(args: argparse.Namespace) -> int:
+    load_ticket = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
+        "load_research_promotion_ticket",
+    )
+    apply_decision = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
+        "apply_human_promotion_decision",
+    )
+    save_ticket = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
+        "save_research_promotion_ticket",
+    )
+    ticket = load_ticket(args.ticket)
+    decided = apply_decision(ticket, decision=args.decision)
+    output = args.output or args.ticket
+    save_ticket(decided, output)
+    _print(
+        f"[research-promotion-decide] ticket={decided.ticket_id} "
+        f"state={decided.state.value} live_authority_granted={decided.live_authority_granted}"
+    )
+    return 0
+
+
 def _run_doctor(args: argparse.Namespace) -> int:
     _print(f"[doctor] Checking lifecycle health for domain={args.domain}")
     doctor_lifecycle = _load_callable(
@@ -388,6 +412,24 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--max-freshness-days", type=int, default=None)
     doctor.add_argument("--strategy", default=None)
     doctor.set_defaults(func=_run_doctor)
+
+    decide = subparsers.add_parser(
+        "research-promotion-decide",
+        help="Record human accept/reject for a research promotion ticket (never enables live).",
+    )
+    decide.add_argument("--ticket", required=True, help="Path to research promotion ticket JSON.")
+    decide.add_argument(
+        "--decision",
+        required=True,
+        choices=("accept", "reject"),
+        help="Human decision. accept records intent only and does not grant live authority.",
+    )
+    decide.add_argument(
+        "--output",
+        default=None,
+        help="Optional output path (defaults to overwriting --ticket).",
+    )
+    decide.set_defaults(func=_run_research_promotion_decide)
 
     lifecycle = subparsers.add_parser("lifecycle", help="Run the full lifecycle pipeline.")
     lifecycle.add_argument("--domain", default="us_equity")
