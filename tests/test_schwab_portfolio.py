@@ -254,6 +254,43 @@ class SchwabPortfolioTests(unittest.TestCase):
         self.assertEqual(api_client.account_calls, 2)
         sleep_mock.assert_called_once_with(1.0)
 
+    def test_buying_power_prefers_broker_buying_power(self) -> None:
+        snapshot = self._snapshot_with_balances(
+            {
+                "cashAvailableForTrading": 1000.0,
+                "buyingPower": 2500.0,
+                "availableFunds": 1800.0,
+            }
+        )
+        self.assertEqual(1000.0, snapshot.cash_balance)
+        self.assertEqual(2500.0, snapshot.buying_power)
+        self.assertEqual("broker_buying_power", snapshot.metadata["buying_power_source"])
+
+    def test_buying_power_uses_available_funds_when_buying_power_absent(self) -> None:
+        snapshot = self._snapshot_with_balances(
+            {
+                "cashAvailableForTrading": 1000.0,
+                "availableFunds": 1800.0,
+            }
+        )
+        self.assertEqual(1800.0, snapshot.buying_power)
+        self.assertEqual("broker_available_funds", snapshot.metadata["buying_power_source"])
+
+    def test_buying_power_falls_back_to_cash_without_leverage_invention(self) -> None:
+        snapshot = self._snapshot_with_balances({"cashAvailableForTrading": 1000.0})
+        self.assertEqual(1000.0, snapshot.buying_power)
+        self.assertEqual(
+            "cash_available_for_trading_fallback",
+            snapshot.metadata["buying_power_source"],
+        )
+
+    def test_invalid_optional_buying_power_fields_fail_closed(self) -> None:
+        for field in ("buyingPower", "availableFunds"):
+            with self.subTest(field=field):
+                balances = {"cashAvailableForTrading": 1000.0, field: float("nan")}
+                with self.assertRaises(ValueError) as raised:
+                    self._snapshot_with_balances(balances)
+                self.assertEqual(f"Invalid Schwab balance: {field}", str(raised.exception))
 
 if __name__ == "__main__":
     unittest.main()

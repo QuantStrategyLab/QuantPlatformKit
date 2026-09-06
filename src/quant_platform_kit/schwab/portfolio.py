@@ -36,6 +36,33 @@ def _finite_balance(balances: dict[str, Any], key: str) -> float:
     return value
 
 
+def _optional_finite_balance(balances: dict[str, Any], key: str) -> float | None:
+    """Parse an optional finite balance; absent keys stay unknown."""
+
+    if key not in balances:
+        return None
+    return _finite_balance(balances, key)
+
+
+def _resolve_buying_power(balances: dict[str, Any], *, cash_available_for_trading: float) -> tuple[float, str]:
+    """Map broker buying-power fields without inventing leverage.
+
+    Prefer dedicated broker fields when present. Cash accounts often omit them;
+    only then fall back to cash available for trading. Never synthesize a
+    leveraged multiple from cash. The snapshot buying_power used for sizing is
+    floored at zero; raw broker values remain inspectable via source metadata.
+    """
+
+    for key, source in (
+        ("buyingPower", "broker_buying_power"),
+        ("availableFunds", "broker_available_funds"),
+    ):
+        value = _optional_finite_balance(balances, key)
+        if value is not None:
+            return max(0.0, value), source
+    return max(0.0, cash_available_for_trading), "cash_available_for_trading_fallback"
+
+
 def fetch_account_snapshot(
     api_client: Any,
     *,
@@ -83,7 +110,9 @@ def fetch_account_snapshot(
         if "cashAvailableForWithdrawal" in balances
         else None
     )
-    buying_power = max(0.0, cash_for_equity)
+    buying_power, buying_power_source = _resolve_buying_power(
+        balances, cash_available_for_trading=cash_for_equity
+    )
 
     allowed_symbols = set(strategy_symbols)
     positions = []
@@ -123,6 +152,7 @@ def fetch_account_snapshot(
             "account_hash": account_hash,
             "cash_available_for_trading": cash_for_equity,
             "cash_available_for_withdrawal": raw_withdrawable,
+            "buying_power_source": buying_power_source,
             "total_equity_source": total_equity_source,
             "source_digest_sha256": _payload_digest(account_payload),
         },
