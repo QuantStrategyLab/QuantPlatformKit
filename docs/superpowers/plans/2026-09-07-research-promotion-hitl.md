@@ -44,3 +44,13 @@
 - Default suggested risk profile: `CAPITAL_PRESERVATION`
 - `paper` only when broker truly supports paper/sim; **no synthetic matching**
 - Accept still never sets `live_authority_granted`
+
+### Task 7: Soft-sync awaiting tickets to QuantRuntimeSettings console
+
+- Add: `make_console_research_promotion_sync` (soft-skip when URL/token unset)
+- Wire Codex autopilot `open_awaiting_human_ticket(..., sync_console=...)`
+- Env on research runner:
+  - `RESEARCH_PROMOTION_SYNC_URL=https://<console-host>/api/internal/sync-research-promotion-ticket`
+  - `RESEARCH_PROMOTION_SYNC_TOKEN` must equal QRT Worker secret `RESEARCH_PROMOTION_SYNC_TOKEN`
+- Failures soft-skip; never grant live authority
+- Console accept/reject is an **intent ledger** in QRT KV. Local ticket JSON + `quant-lifecycle research-promotion-decide` remain a separate offline path — do not assume they stay in sync unless an explicit write-back is added later.
