@@ -340,6 +340,40 @@ def _run_research_promotion_decide(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_research_promotion_pull(args: argparse.Namespace) -> int:
+    load_ticket = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
+        "load_research_promotion_ticket",
+    )
+    make_pull = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
+        "make_console_research_promotion_pull",
+    )
+    apply_console = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
+        "apply_console_research_promotion_decision",
+    )
+    save_ticket = _load_callable(
+        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
+        "save_research_promotion_ticket",
+    )
+    ticket = load_ticket(args.ticket)
+    remote = make_pull()(ticket.ticket_id)
+    if remote is None:
+        raise ValueError(
+            "console pull returned no ticket; check RESEARCH_PROMOTION_SYNC_URL/TOKEN "
+            "and that the console ticket exists"
+        )
+    decided = apply_console(ticket, remote)
+    output = args.output or args.ticket
+    save_ticket(decided, output)
+    _print(
+        f"[research-promotion-pull] ticket={decided.ticket_id} "
+        f"state={decided.state.value} live_authority_granted={decided.live_authority_granted}"
+    )
+    return 0
+
+
 def _run_doctor(args: argparse.Namespace) -> int:
     _print(f"[doctor] Checking lifecycle health for domain={args.domain}")
     doctor_lifecycle = _load_callable(
@@ -486,6 +520,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional output path (defaults to overwriting --ticket).",
     )
     decide.set_defaults(func=_run_research_promotion_decide)
+
+    pull = subparsers.add_parser(
+        "research-promotion-pull",
+        help=(
+            "Pull console HITL decision onto a local awaiting ticket "
+            "(intent only; never enables live)."
+        ),
+    )
+    pull.add_argument("--ticket", required=True, help="Path to local research promotion ticket JSON.")
+    pull.add_argument(
+        "--output",
+        default=None,
+        help="Optional output path (defaults to overwriting --ticket).",
+    )
+    pull.set_defaults(func=_run_research_promotion_pull)
 
     lifecycle = subparsers.add_parser("lifecycle", help="Run the full lifecycle pipeline.")
     lifecycle.add_argument("--domain", default="us_equity")

@@ -53,4 +53,7 @@
   - `RESEARCH_PROMOTION_SYNC_URL=https://<console-host>/api/internal/sync-research-promotion-ticket`
   - `RESEARCH_PROMOTION_SYNC_TOKEN` must equal QRT Worker secret `RESEARCH_PROMOTION_SYNC_TOKEN`
 - Failures soft-skip; never grant live authority
-- Console accept/reject is an **intent ledger** in QRT KV. Local ticket JSON + `quant-lifecycle research-promotion-decide` remain a separate offline path — do not assume they stay in sync unless an explicit write-back is added later.
+- Console accept/reject is an **intent ledger** in QRT KV
+- Local follow-up: `quant-lifecycle research-promotion-pull --ticket <path>` reads
+  `GET /api/internal/research-promotion-ticket?ticket_id=...` (same sync token) and
+  applies the console decision onto the local awaiting ticket without granting live
