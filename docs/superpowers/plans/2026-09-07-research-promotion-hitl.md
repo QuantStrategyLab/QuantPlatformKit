@@ -31,3 +31,9 @@
 - Add: `shadow_record_from_paired_evidence` + `require_paired_shadow` budget flag
 - Wire Codex autopilot ticket open to Telegram notify hook
 - Still no live enablement after accept
+
+### Task 5: Non-live paired-shadow adapter feed
+
+- Add: `paired_shadow_adapter.py` (`collect_paired_shadow_for_promotion`, `resolve_promotion_shadow_record`)
+- Codex autopilot prefers `store.collect_paired_shadow_observation` when present; else explicit proxy marker
+- Still no live enablement after accept
