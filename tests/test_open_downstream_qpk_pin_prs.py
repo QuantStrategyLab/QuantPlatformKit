@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from scripts.open_downstream_qpk_pin_prs import (
     classify_pin_relation,
+    collect_qpk_workflow_pins,
     paths_affect_runtime,
     should_open_upgrade_pr,
     update_drift_workflow_file,
@@ -66,5 +67,51 @@ def test_update_drift_workflow_file_rewrites_qpk_pins(tmp_path) -> None:
         previous_qpk_refs={old},
     )
     body = (workflow / "drift-check.yml").read_text(encoding="utf-8")
+    assert old not in body
+    assert body.count(new) == 3
+
+
+def test_collect_qpk_workflow_pins_ignores_checkout_and_snapshot_shas() -> None:
+    old = "aae333fe8b3fe5aeb32e1ff135ab14ea7db32420"
+    checkout = "11bd71901bbe5bc399482e927229509a74240172"
+    snapshot = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    text = (
+        f"    - uses: actions/checkout@{checkout}\n"
+        "      with:\n"
+        f"        snapshot_sha: {snapshot}\n"
+        "repository: QuantStrategyLab/QuantPlatformKit\n"
+        f"          ref: {old}\n"
+        f"    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@{old}\n"
+        f"      quant_platform_kit_ref: {old}\n"
+    )
+    assert collect_qpk_workflow_pins(text) == {old}
+
+
+def test_update_drift_workflow_file_preserves_non_qpk_shas(tmp_path) -> None:
+    workflow = tmp_path / ".github" / "workflows"
+    workflow.mkdir(parents=True)
+    old = "aae333fe8b3fe5aeb32e1ff135ab14ea7db32420"
+    new = "c812ed70f83d61bdf1816fa5ca112b0f6976c6b6"
+    checkout = "11bd71901bbe5bc399482e927229509a74240172"
+    snapshot = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    (workflow / "drift-check.yml").write_text(
+        f"    - uses: actions/checkout@{checkout}\n"
+        "      with:\n"
+        f"        snapshot_sha: {snapshot}\n"
+        "repository: QuantStrategyLab/QuantPlatformKit\n"
+        f"          ref: {old}\n"
+        f"    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@{old}\n"
+        f"      quant_platform_kit_ref: {old}\n",
+        encoding="utf-8",
+    )
+    # Even a polluted previous set must not rewrite checkout/snapshot SHAs.
+    assert update_drift_workflow_file(
+        tmp_path,
+        qpk_sha=new,
+        previous_qpk_refs={old, checkout, snapshot},
+    )
+    body = (workflow / "drift-check.yml").read_text(encoding="utf-8")
+    assert checkout in body
+    assert snapshot in body
     assert old not in body
     assert body.count(new) == 3
