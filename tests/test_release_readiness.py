@@ -129,6 +129,22 @@ def test_missing_evidence_refuses_manifest_and_emits_redacted_finding(tmp_path: 
         readiness.build_manifest()
 
 
+@pytest.mark.parametrize("accepted", [False, True])
+def test_v3_readiness_uses_real_evidence_gate(tmp_path: Path, accepted: bool) -> None:
+    from test_strategy_evidence_package_v2_contract import _canonical, _v3_payload
+
+    kwargs = _readiness_kwargs(tmp_path)
+    payload = _v3_payload(tmp_path, accepted=accepted)
+    Path(kwargs["evidence_path"]).write_bytes(_canonical(payload))
+    kwargs["strategy_profile"] = payload["strategy"]["profile"]
+    readiness = assess_strategy_release_readiness(**kwargs)
+    assert readiness.is_ready is accepted
+    if not accepted:
+        assert readiness.findings == ("evidence_not_promotion_eligible",)
+        with pytest.raises(ValueError, match="evidence_not_promotion_eligible"):
+            readiness.build_manifest()
+
+
 def test_mismatched_evidence_profile_and_revision_cannot_be_published(tmp_path: Path) -> None:
     kwargs = _readiness_kwargs(tmp_path)
     with patch(

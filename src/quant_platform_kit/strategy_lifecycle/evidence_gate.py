@@ -12,9 +12,9 @@ from quant_platform_kit.common.strategy_plugins import (
 )
 
 from .evidence_package_v2 import (
-    STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
+    SUPPORTED_STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSIONS,
     read_evidence_package_v2_json,
-    validate_evidence_package_v2,
+    validate_strategy_evidence_payload,
 )
 
 ALLOWED_EVIDENCE_STAGES = (
@@ -64,7 +64,7 @@ class EvidencePackage:
 
     def to_dict(self) -> dict[str, object]:
         if (
-            self.schema_version == STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION
+            self.schema_version in SUPPORTED_STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSIONS
             and self.canonical_payload
         ):
             return dict(self.canonical_payload)
@@ -105,7 +105,10 @@ class EvidenceGateResult:
             "warnings": list(self.warnings),
             "package": self.package.to_dict(),
         }
-        if self.package.schema_version == STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION:
+        if (
+            self.package.schema_version
+            in SUPPORTED_STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSIONS
+        ):
             payload.update(
                 {
                     "promotion_eligible": self.promotion_eligible,
@@ -138,8 +141,11 @@ def load_evidence_package(path: str | Path) -> dict[str, Any]:
 def validate_evidence_package(
     raw: Mapping[str, Any], *, base_dir: str | Path | None = None
 ) -> EvidenceGateResult:
-    if raw.get("schema_version") == STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION:
-        return _validate_v2_evidence_package(raw, base_dir=base_dir)
+    if (
+        raw.get("schema_version") != "strategy_evidence_package.v1"
+        and str(raw.get("schema_version", "")).startswith("strategy_evidence_package.")
+    ):
+        return _validate_canonical_evidence_package(raw, base_dir=base_dir)
 
     issues: list[str] = []
     warnings: list[str] = []
@@ -235,10 +241,12 @@ def validate_evidence_package_file(path: str | Path) -> EvidenceGateResult:
     )
 
 
-def _validate_v2_evidence_package(
+def _validate_canonical_evidence_package(
     raw: Mapping[str, Any], *, base_dir: str | Path | None
 ) -> EvidenceGateResult:
-    issues = validate_evidence_package_v2(raw, base_dir=base_dir)
+    issues = validate_strategy_evidence_payload(
+        raw, base_dir=Path(base_dir) if base_dir is not None else None
+    )
     strategy = raw.get("strategy")
     claims = raw.get("lifecycle_claims")
     acceptance = raw.get("human_acceptance")
@@ -265,9 +273,9 @@ def _validate_v2_evidence_package(
         if isinstance(raw.get("metrics"), Mapping)
         else {},
         operator_notes=acceptance,
-        evidence_version=STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
+        evidence_version=str(raw.get("schema_version") or ""),
         submitted_at=str(raw.get("generated_at") or ""),
-        schema_version=STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
+        schema_version=str(raw.get("schema_version") or ""),
         promotion_eligible=promotion_eligible,
         live_ready=False,
         size_zero_required=True,
