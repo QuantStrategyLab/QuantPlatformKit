@@ -46,12 +46,20 @@ from quant_platform_kit.risk.account_new_risk_gate import (
     evaluate_new_risk_from_reader,
     validate_injected_snapshot,
 )
+from quant_platform_kit.risk.capital_envelope_w2_probe import (
+    format_probe_report,
+    probe_capital_envelope_w2,
+)
 from quant_platform_kit.risk.capital_risk_envelope import (
     DEFAULT_TARGET_VOL_ANNUAL,
     CapitalRiskEnvelope,
     LeverageProductCap,
     apply_envelope_to_sized_weight,
     evaluate_capital_risk_envelope,
+)
+from quant_platform_kit.risk.reconciliation_snapshot_binding import (
+    ReconciliationEquitySummary,
+    build_injected_snapshot_from_equity_summary,
 )
 from quant_platform_kit.risk.promotion_sizing import (
     DEFAULT_RISK_PROFILE_SCALES,
@@ -97,6 +105,10 @@ __all__ = [
     "LeverageProductCap",
     "apply_envelope_to_sized_weight",
     "evaluate_capital_risk_envelope",
+    "ReconciliationEquitySummary",
+    "build_injected_snapshot_from_equity_summary",
+    "probe_capital_envelope_w2",
+    "format_probe_report",
     "DEFAULT_RISK_PROFILE_SCALES",
     "PromotionSizingResult",
     "assess_promotion_sized_target",
