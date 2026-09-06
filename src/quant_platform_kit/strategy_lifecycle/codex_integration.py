@@ -541,13 +541,14 @@ def _process_optimization_decision(
                     resolve_promotion_shadow_record,
                 )
                 from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+                    make_console_research_promotion_sync,
                     make_telegram_research_promotion_notifier,
                     open_awaiting_human_ticket,
                     save_research_promotion_ticket,
                 )
 
                 # Prefer a store-provided non-live paired collector; otherwise
-                # keep an explicit proxy marker. Notify never grants live.
+                # keep an explicit proxy marker. Notify/sync never grant live.
                 collector = getattr(store, "collect_paired_shadow_observation", None)
                 shadow = resolve_promotion_shadow_record(
                     proposal=proposal,
@@ -560,6 +561,7 @@ def _process_optimization_decision(
                     proposal=proposal,
                     shadow=shadow,
                     notify=make_telegram_research_promotion_notifier(),
+                    sync_console=make_console_research_promotion_sync(),
                 )
                 entry["research_promotion_ticket_id"] = ticket.ticket_id
                 entry["research_promotion_state"] = ticket.state.value

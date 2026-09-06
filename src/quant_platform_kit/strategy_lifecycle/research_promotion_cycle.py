@@ -360,6 +360,121 @@ def make_telegram_research_promotion_notifier(
     return notify
 
 
+def make_console_research_promotion_sync(
+    *,
+    endpoint_url: str | None = None,
+    sync_token: str | None = None,
+    timeout_seconds: float = 5.0,
+    printer: Any = print,
+    post_json: Callable[..., Any] | None = None,
+) -> Callable[[ResearchPromotionTicket], bool]:
+    """POST awaiting-human tickets to the QRT console; soft-skip if unconfigured.
+
+    Env defaults:
+    - RESEARCH_PROMOTION_SYNC_URL
+    - RESEARCH_PROMOTION_SYNC_TOKEN (must match QRT RESEARCH_PROMOTION_SYNC_TOKEN)
+
+    Failures never raise into the research cycle; they only return False.
+    """
+    import os
+    import urllib.error
+    import urllib.request
+
+    url = str(
+        endpoint_url or os.environ.get("RESEARCH_PROMOTION_SYNC_URL") or ""
+    ).strip()
+    token = str(
+        sync_token or os.environ.get("RESEARCH_PROMOTION_SYNC_TOKEN") or ""
+    ).strip()
+
+    def _default_post_json(
+        *,
+        endpoint: str,
+        bearer_token: str,
+        payload: Mapping[str, Any],
+        timeout: float,
+    ) -> int:
+        body = json.dumps(payload, sort_keys=True).encode("utf-8")
+        request = urllib.request.Request(
+            endpoint,
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {bearer_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return int(getattr(response, "status", 200) or 200)
+
+    sender = post_json or _default_post_json
+
+    def sync_console(ticket: ResearchPromotionTicket) -> bool:
+        if not url or not token:
+            printer(
+                "research promotion console sync skipped: url/token not configured",
+                flush=True,
+            )
+            return False
+        if ticket.state != ResearchPromotionState.AWAITING_HUMAN:
+            printer(
+                "research promotion console sync skipped: ticket is not awaiting_human",
+                flush=True,
+            )
+            return False
+        if ticket.live_authority_granted:
+            printer(
+                "research promotion console sync refused: live_authority_granted=true",
+                flush=True,
+            )
+            return False
+        payload = ticket.to_dict()
+        payload["live_authority_granted"] = False
+        try:
+            status = int(
+                sender(
+                    endpoint=url,
+                    bearer_token=token,
+                    payload=payload,
+                    timeout=float(timeout_seconds),
+                )
+            )
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, TypeError) as exc:
+            printer(
+                f"research promotion console sync soft-failed: {type(exc).__name__}",
+                flush=True,
+            )
+            return False
+        if status < 200 or status >= 300:
+            printer(
+                f"research promotion console sync soft-failed: HTTP {status}",
+                flush=True,
+            )
+            return False
+        return True
+
+    return sync_console
+
+
+def _deliver_awaiting_human_ticket(
+    ticket: ResearchPromotionTicket,
+    *,
+    notify: Callable[[str, str], None] | None = None,
+    sync_console: Callable[[ResearchPromotionTicket], bool] | None = None,
+) -> ResearchPromotionTicket:
+    """Finalize awaiting_human delivery: notify humans, then soft-sync console."""
+    subject, body = build_human_promotion_notification(ticket)
+    ticket.notification_subject = subject
+    ticket.notification_body = body
+    ticket.updated_at = _now_iso()
+    if notify is not None:
+        notify(subject, body)
+    if sync_console is not None:
+        sync_console(ticket)
+    return ticket
+
+
 def _attach_shadow_or_park(
     ticket: ResearchPromotionTicket,
     shadow: Mapping[str, Any],
@@ -393,6 +508,7 @@ def run_research_promotion_cycle(
     optimize: Callable[[DriftResult, ResearchPromotionBudget], OptimizationProposal],
     record_shadow: Callable[[OptimizationProposal], Mapping[str, Any]],
     notify: Callable[[str, str], None] | None = None,
+    sync_console: Callable[[ResearchPromotionTicket], bool] | None = None,
     budget: ResearchPromotionBudget | None = None,
     ticket_id: str | None = None,
 ) -> ResearchPromotionTicket:
@@ -448,13 +564,9 @@ def run_research_promotion_cycle(
         return parked
 
     ticket.state = ResearchPromotionState.AWAITING_HUMAN
-    subject, body = build_human_promotion_notification(ticket)
-    ticket.notification_subject = subject
-    ticket.notification_body = body
-    ticket.updated_at = _now_iso()
-    if notify is not None:
-        notify(subject, body)
-    return ticket
+    return _deliver_awaiting_human_ticket(
+        ticket, notify=notify, sync_console=sync_console
+    )
 
 
 def open_awaiting_human_ticket(
@@ -464,6 +576,7 @@ def open_awaiting_human_ticket(
     shadow: Mapping[str, Any],
     budget: ResearchPromotionBudget | None = None,
     notify: Callable[[str, str], None] | None = None,
+    sync_console: Callable[[ResearchPromotionTicket], bool] | None = None,
     ticket_id: str | None = None,
 ) -> ResearchPromotionTicket:
     """Open a human gate from an already-produced proposal + shadow evidence."""
@@ -499,13 +612,9 @@ def open_awaiting_human_ticket(
         return parked
 
     ticket.state = ResearchPromotionState.AWAITING_HUMAN
-    subject, body = build_human_promotion_notification(ticket)
-    ticket.notification_subject = subject
-    ticket.notification_body = body
-    ticket.updated_at = _now_iso()
-    if notify is not None:
-        notify(subject, body)
-    return ticket
+    return _deliver_awaiting_human_ticket(
+        ticket, notify=notify, sync_console=sync_console
+    )
 
 
 def apply_human_promotion_decision(
@@ -595,6 +704,7 @@ __all__ = [
     "build_human_promotion_notification",
     "enforce_optimization_budget",
     "load_research_promotion_ticket",
+    "make_console_research_promotion_sync",
     "make_telegram_research_promotion_notifier",
     "open_awaiting_human_ticket",
     "run_research_promotion_cycle",

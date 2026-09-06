@@ -182,6 +182,106 @@ def test_telegram_notifier_soft_skips_without_credentials() -> None:
     assert skipped and "skipped" in skipped[0]
 
 
+def test_console_sync_soft_skips_without_credentials() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        make_console_research_promotion_sync,
+    )
+
+    skipped: list[str] = []
+    sync = make_console_research_promotion_sync(
+        endpoint_url="",
+        sync_token="",
+        printer=lambda *args, **kwargs: skipped.append(" ".join(str(a) for a in args)),
+    )
+    ticket = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+    )
+    assert sync(ticket) is False
+    assert skipped and "url/token not configured" in skipped[0]
+
+
+def test_console_sync_posts_awaiting_ticket_payload() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        make_console_research_promotion_sync,
+    )
+
+    calls: list[dict] = []
+
+    def _post_json(*, endpoint, bearer_token, payload, timeout):
+        calls.append(
+            {
+                "endpoint": endpoint,
+                "bearer_token": bearer_token,
+                "payload": payload,
+                "timeout": timeout,
+            }
+        )
+        return 200
+
+    sync = make_console_research_promotion_sync(
+        endpoint_url="https://console.example/api/internal/sync-research-promotion-ticket",
+        sync_token="sync-secret",
+        post_json=_post_json,
+    )
+    ticket = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+        ticket_id="rpt_sync001",
+    )
+    assert sync(ticket) is True
+    assert len(calls) == 1
+    assert calls[0]["endpoint"].endswith("/sync-research-promotion-ticket")
+    assert calls[0]["bearer_token"] == "sync-secret"
+    assert calls[0]["payload"]["ticket_id"] == "rpt_sync001"
+    assert calls[0]["payload"]["state"] == "awaiting_human"
+    assert calls[0]["payload"]["live_authority_granted"] is False
+    assert calls[0]["payload"]["suggested_risk_profile"] == "CAPITAL_PRESERVATION"
+
+
+def test_cycle_invokes_console_sync_at_awaiting_human() -> None:
+    synced: list[str] = []
+
+    ticket = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+        sync_console=lambda t: synced.append(t.ticket_id) or True,
+        ticket_id="rpt_sync_cycle",
+    )
+    assert ticket.state is ResearchPromotionState.AWAITING_HUMAN
+    assert synced == ["rpt_sync_cycle"]
+    assert ticket.notification_subject.startswith("[AWAITING_HUMAN]")
+
+
+def test_console_sync_soft_fails_on_transport_error() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        make_console_research_promotion_sync,
+    )
+    import urllib.error
+
+    skipped: list[str] = []
+
+    def _boom(**_kwargs):
+        raise urllib.error.URLError("down")
+
+    sync = make_console_research_promotion_sync(
+        endpoint_url="https://console.example/api/internal/sync-research-promotion-ticket",
+        sync_token="sync-secret",
+        post_json=_boom,
+        printer=lambda *args, **kwargs: skipped.append(" ".join(str(a) for a in args)),
+    )
+    ticket = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+    )
+    assert sync(ticket) is False
+    assert skipped and "soft-failed" in skipped[0]
+
+
 def test_accept_requires_confirmation() -> None:
     ticket = run_research_promotion_cycle(
         _drift(),
