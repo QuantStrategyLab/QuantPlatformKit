@@ -78,4 +78,10 @@ Every strategy package has a `catalog.py` with standardized accessor functions:
 Platform repos implement broker-specific adapters conforming to QPK's `MarketDataPort`, `PortfolioPort`, `ExecutionPort` protocols.
 
 ### Dependency Pinning
-All repos pin QPK via `QPK_PIN`. Run `python scripts/check_qpk_pin_consistency.py` to verify.
+All repos pin QPK via `QPK_PIN`. Run `python scripts/check_qpk_pin_consistency.py
+When bumping a consumer pin, rewrite all tracked refs in one shot:
+```bash
+python /path/to/QuantPlatformKit/scripts/check_qpk_pin_consistency.py \
+  --root . --set-sha <40-char-qpk-sha>
+```
+This aligns `pyproject.toml`, `uv.lock`, and `qsl.toml` before you open the PR.` to verify.
