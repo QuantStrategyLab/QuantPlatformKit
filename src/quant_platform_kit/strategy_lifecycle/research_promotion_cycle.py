@@ -572,6 +572,37 @@ def make_console_research_promotion_pull(
     return pull_console
 
 
+def _require_matching_console_promotion_candidate(
+    ticket: ResearchPromotionTicket,
+    remote_ticket: Mapping[str, Any],
+) -> None:
+    """Refuse console decisions that bind only ticket_id to a different candidate."""
+    remote_id = str(remote_ticket.get("ticket_id") or "").strip()
+    if not remote_id:
+        raise ValueError("console ticket_id is required")
+    if remote_id != ticket.ticket_id:
+        raise ValueError(
+            f"console ticket_id mismatch: local={ticket.ticket_id} remote={remote_id}"
+        )
+    remote_profile = str(remote_ticket.get("strategy_profile") or "").strip()
+    if remote_profile != ticket.strategy_profile:
+        raise ValueError(
+            "console strategy_profile mismatch: "
+            f"local={ticket.strategy_profile} remote={remote_profile}"
+        )
+    remote_domain = str(remote_ticket.get("domain") or "").strip()
+    if remote_domain != ticket.domain:
+        raise ValueError(
+            f"console domain mismatch: local={ticket.domain} remote={remote_domain}"
+        )
+    remote_params = dict(remote_ticket.get("proposed_params") or {})
+    local_params = dict(ticket.proposed_params)
+    if remote_params != local_params:
+        raise ValueError(
+            "console proposed_params mismatch with local ticket candidate"
+        )
+
+
 def apply_console_research_promotion_decision(
     ticket: ResearchPromotionTicket,
     remote_ticket: Mapping[str, Any],
@@ -586,11 +617,7 @@ def apply_console_research_promotion_decision(
     """
     if ticket.live_authority_granted or remote_ticket.get("live_authority_granted") is True:
         raise ValueError("refusing to apply console decision with live_authority_granted=true")
-    remote_id = str(remote_ticket.get("ticket_id") or "").strip()
-    if remote_id and remote_id != ticket.ticket_id:
-        raise ValueError(
-            f"console ticket_id mismatch: local={ticket.ticket_id} remote={remote_id}"
-        )
+    _require_matching_console_promotion_candidate(ticket, remote_ticket)
     state = str(remote_ticket.get("state") or "").strip()
     if state == ResearchPromotionState.AWAITING_HUMAN.value:
         raise ValueError("console ticket is still awaiting_human")

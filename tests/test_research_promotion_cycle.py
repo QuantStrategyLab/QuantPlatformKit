@@ -372,6 +372,9 @@ def test_console_pull_and_apply_accept_decision() -> None:
             "live_authority_granted": False,
             "ticket": {
                 "ticket_id": "rpt_pull001",
+                "strategy_profile": "demo_strategy",
+                "domain": "us_equity",
+                "proposed_params": {"a": 2, "b": 3},
                 "state": "human_accepted",
                 "live_authority_granted": False,
                 "human_decision": "accept",
@@ -422,6 +425,9 @@ def test_console_apply_reject_decision() -> None:
         local,
         {
             "ticket_id": "rpt_pull002",
+            "strategy_profile": "demo_strategy",
+            "domain": "us_equity",
+            "proposed_params": {"a": 2, "b": 3},
             "state": "human_rejected",
             "live_authority_granted": False,
             "human_decision": "reject",
@@ -430,3 +436,92 @@ def test_console_apply_reject_decision() -> None:
     assert decided.state is ResearchPromotionState.HUMAN_REJECTED
     assert decided.live_authority_granted is False
     assert "console_decision_applied" in decided.notes
+
+
+def test_console_apply_rejects_mismatched_proposed_params() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        apply_console_research_promotion_decision,
+    )
+
+    local = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+        ticket_id="rpt_pull003",
+    )
+    with pytest.raises(ValueError, match="proposed_params mismatch"):
+        apply_console_research_promotion_decision(
+            local,
+            {
+                "ticket_id": "rpt_pull003",
+                "strategy_profile": "demo_strategy",
+                "domain": "us_equity",
+                "proposed_params": {"a": 9, "b": 9},
+                "state": "human_accepted",
+                "live_authority_granted": False,
+                "human_decision": "accept",
+                "confirmation_target_platform": "ibkr",
+                "confirmation_execution_mode": "live",
+                "confirmation_risk_profile": "BALANCED_COMPOUNDING",
+            },
+        )
+    assert local.state is ResearchPromotionState.AWAITING_HUMAN
+    assert local.live_authority_granted is False
+
+
+def test_console_apply_accept_requires_matching_candidate_fields() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        apply_console_research_promotion_decision,
+    )
+
+    local = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(params={"lookback": 20}),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+        ticket_id="rpt_pull004",
+    )
+    decided = apply_console_research_promotion_decision(
+        local,
+        {
+            "ticket_id": "rpt_pull004",
+            "strategy_profile": "demo_strategy",
+            "domain": "us_equity",
+            "proposed_params": {"lookback": 20},
+            "state": "human_accepted",
+            "live_authority_granted": False,
+            "human_decision": "accept",
+            "human_decided_at": "2026-09-07T02:00:00Z",
+            "confirmation_target_platform": "ibkr",
+            "confirmation_execution_mode": "live",
+            "confirmation_risk_profile": "CAPITAL_PRESERVATION",
+        },
+    )
+    assert decided.state is ResearchPromotionState.HUMAN_ACCEPTED
+    assert decided.proposed_params == {"lookback": 20}
+    assert decided.live_authority_granted is False
+    assert "console_decision_applied" in decided.notes
+
+
+def test_console_apply_rejects_missing_ticket_id() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        apply_console_research_promotion_decision,
+    )
+
+    local = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+        ticket_id="rpt_pull005",
+    )
+    with pytest.raises(ValueError, match="ticket_id is required"):
+        apply_console_research_promotion_decision(
+            local,
+            {
+                "strategy_profile": "demo_strategy",
+                "domain": "us_equity",
+                "proposed_params": {"a": 2, "b": 3},
+                "state": "human_rejected",
+                "live_authority_granted": False,
+            },
+        )
+    assert local.state is ResearchPromotionState.AWAITING_HUMAN
