@@ -23,14 +23,17 @@ def _payload_digest(payload: Any) -> str:
     return sha256(canonical).hexdigest()
 
 
-def _positive_finite_balance(balances: dict[str, Any], key: str) -> float | None:
-    """Return an explicit broker account-value field only when usable."""
+def _finite_balance(balances: dict[str, Any], key: str) -> float:
+    """Parse a required finite balance without hiding zero, debt, or bad input."""
 
+    raw_value = balances.get(key)
     try:
-        value = float(balances.get(key))
-    except (TypeError, ValueError):
-        return None
-    return value if math.isfinite(value) and value > 0.0 else None
+        value = float(raw_value)
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError(f"Invalid Schwab balance: {key}") from None
+    if isinstance(raw_value, bool) or not math.isfinite(value):
+        raise ValueError(f"Invalid Schwab balance: {key}")
+    return value
 
 
 def fetch_account_snapshot(
@@ -74,8 +77,12 @@ def fetch_account_snapshot(
     )
     account = account_payload["securitiesAccount"]
     balances = account.get("currentBalances", {})
-    cash_for_equity = float(balances.get("cashAvailableForTrading", 0.0))
-    raw_withdrawable = float(balances.get("cashAvailableForWithdrawal", 0.0))
+    cash_for_equity = _finite_balance(balances, "cashAvailableForTrading")
+    raw_withdrawable = (
+        _finite_balance(balances, "cashAvailableForWithdrawal")
+        if "cashAvailableForWithdrawal" in balances
+        else None
+    )
     buying_power = max(0.0, cash_for_equity)
 
     allowed_symbols = set(strategy_symbols)
@@ -95,11 +102,11 @@ def fetch_account_snapshot(
             )
         )
 
-    liquidation_value = _positive_finite_balance(balances, "liquidationValue")
-    if liquidation_value is not None:
-        total_equity = liquidation_value
+    if "liquidationValue" in balances:
+        total_equity = _finite_balance(balances, "liquidationValue")
         total_equity_source = "broker_liquidation_value"
     else:
+        # Preserve the legacy fallback; it does not establish full margin equity.
         # Strategy symbols only control the positions exposed to a strategy;
         # they must not silently change the account-level denominator used by
         # value-target risk controls.
