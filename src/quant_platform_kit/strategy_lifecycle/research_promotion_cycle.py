@@ -457,6 +457,175 @@ def make_console_research_promotion_sync(
     return sync_console
 
 
+def _default_research_promotion_pull_url(sync_url: str) -> str:
+    base = str(sync_url or "").strip().rstrip("/")
+    suffix = "/api/internal/sync-research-promotion-ticket"
+    if base.endswith(suffix):
+        return base[: -len(suffix)] + "/api/internal/research-promotion-ticket"
+    if base.endswith("/sync-research-promotion-ticket"):
+        return base[: -len("/sync-research-promotion-ticket")] + "/research-promotion-ticket"
+    return ""
+
+
+def make_console_research_promotion_pull(
+    *,
+    endpoint_url: str | None = None,
+    sync_token: str | None = None,
+    timeout_seconds: float = 5.0,
+    printer: Any = print,
+    get_json: Callable[..., Any] | None = None,
+) -> Callable[[str], Mapping[str, Any] | None]:
+    """GET a console ticket by id; soft-skip if unconfigured.
+
+    Env defaults:
+    - RESEARCH_PROMOTION_PULL_URL (or derived from RESEARCH_PROMOTION_SYNC_URL)
+    - RESEARCH_PROMOTION_SYNC_TOKEN
+
+    Returns the remote ticket mapping, or None on soft-skip/soft-fail.
+    Never grants live authority.
+    """
+    import os
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    sync_url = str(os.environ.get("RESEARCH_PROMOTION_SYNC_URL") or "").strip()
+    url = str(
+        endpoint_url
+        or os.environ.get("RESEARCH_PROMOTION_PULL_URL")
+        or _default_research_promotion_pull_url(sync_url)
+        or ""
+    ).strip()
+    token = str(
+        sync_token or os.environ.get("RESEARCH_PROMOTION_SYNC_TOKEN") or ""
+    ).strip()
+
+    def _default_get_json(
+        *,
+        endpoint: str,
+        bearer_token: str,
+        ticket_id: str,
+        timeout: float,
+    ) -> Mapping[str, Any]:
+        query = urllib.parse.urlencode({"ticket_id": ticket_id})
+        request = urllib.request.Request(
+            f"{endpoint}?{query}",
+            method="GET",
+            headers={
+                "Authorization": f"Bearer {bearer_token}",
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, Mapping):
+            raise ValueError("console pull response must be a JSON object")
+        return payload
+
+    fetcher = get_json or _default_get_json
+
+    def pull_console(ticket_id: str) -> Mapping[str, Any] | None:
+        tid = str(ticket_id or "").strip()
+        if not tid:
+            printer("research promotion console pull skipped: empty ticket_id", flush=True)
+            return None
+        if not url or not token:
+            printer(
+                "research promotion console pull skipped: url/token not configured",
+                flush=True,
+            )
+            return None
+        try:
+            payload = fetcher(
+                endpoint=url,
+                bearer_token=token,
+                ticket_id=tid,
+                timeout=float(timeout_seconds),
+            )
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, TypeError) as exc:
+            printer(
+                f"research promotion console pull soft-failed: {type(exc).__name__}",
+                flush=True,
+            )
+            return None
+        if payload.get("live_authority_granted") is True:
+            printer(
+                "research promotion console pull refused: live_authority_granted=true",
+                flush=True,
+            )
+            return None
+        ticket = payload.get("ticket")
+        if not isinstance(ticket, Mapping):
+            printer(
+                "research promotion console pull soft-failed: missing ticket payload",
+                flush=True,
+            )
+            return None
+        if ticket.get("live_authority_granted") is True:
+            printer(
+                "research promotion console pull refused: ticket live_authority_granted=true",
+                flush=True,
+            )
+            return None
+        return dict(ticket)
+
+    return pull_console
+
+
+def apply_console_research_promotion_decision(
+    ticket: ResearchPromotionTicket,
+    remote_ticket: Mapping[str, Any],
+    *,
+    decided_at: str | None = None,
+) -> ResearchPromotionTicket:
+    """Apply a console-stored decision onto a local awaiting ticket.
+
+    Console is the intent ledger SoT for HITL accept/reject. Accept still never
+    grants live authority. If the console already validated paper, trust that
+    gate here (paper_supported follows remote execution_mode == paper).
+    """
+    if ticket.live_authority_granted or remote_ticket.get("live_authority_granted") is True:
+        raise ValueError("refusing to apply console decision with live_authority_granted=true")
+    remote_id = str(remote_ticket.get("ticket_id") or "").strip()
+    if remote_id and remote_id != ticket.ticket_id:
+        raise ValueError(
+            f"console ticket_id mismatch: local={ticket.ticket_id} remote={remote_id}"
+        )
+    state = str(remote_ticket.get("state") or "").strip()
+    if state == ResearchPromotionState.AWAITING_HUMAN.value:
+        raise ValueError("console ticket is still awaiting_human")
+    if state == ResearchPromotionState.HUMAN_ACCEPTED.value:
+        decision = "accept"
+        confirmation = {
+            "target_platform": str(remote_ticket.get("confirmation_target_platform") or ""),
+            "execution_mode": str(remote_ticket.get("confirmation_execution_mode") or ""),
+            "risk_profile": str(remote_ticket.get("confirmation_risk_profile") or ""),
+        }
+        paper_supported = confirmation["execution_mode"] == "paper"
+    elif state == ResearchPromotionState.HUMAN_REJECTED.value:
+        decision = "reject"
+        confirmation = None
+        paper_supported = False
+    else:
+        raise ValueError(f"unsupported console ticket state={state}")
+    remote_decided_at = str(
+        decided_at
+        or remote_ticket.get("human_decided_at")
+        or remote_ticket.get("updated_at")
+        or ""
+    ).strip() or None
+    decided = apply_human_promotion_decision(
+        ticket,
+        decision=decision,
+        confirmation=confirmation,
+        paper_supported=paper_supported,
+        decided_at=remote_decided_at,
+    )
+    decided.notes = decided.notes + ("console_decision_applied",)
+    decided.live_authority_granted = False
+    return decided
+
+
 def _deliver_awaiting_human_ticket(
     ticket: ResearchPromotionTicket,
     *,
@@ -700,10 +869,12 @@ __all__ = [
     "ResearchPromotionBudget",
     "ResearchPromotionState",
     "ResearchPromotionTicket",
+    "apply_console_research_promotion_decision",
     "apply_human_promotion_decision",
     "build_human_promotion_notification",
     "enforce_optimization_budget",
     "load_research_promotion_ticket",
+    "make_console_research_promotion_pull",
     "make_console_research_promotion_sync",
     "make_telegram_research_promotion_notifier",
     "open_awaiting_human_ticket",

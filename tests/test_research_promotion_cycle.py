@@ -333,3 +333,100 @@ def test_paper_rejected_without_broker_paper_support() -> None:
         paper_supported=True,
     )
     assert ok.execution_mode == "paper"
+
+
+def test_console_pull_soft_skips_without_credentials() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        make_console_research_promotion_pull,
+    )
+
+    skipped: list[str] = []
+    pull = make_console_research_promotion_pull(
+        endpoint_url="",
+        sync_token="",
+        printer=lambda *args, **kwargs: skipped.append(" ".join(str(a) for a in args)),
+    )
+    assert pull("rpt_x") is None
+    assert skipped and "url/token not configured" in skipped[0]
+
+
+def test_console_pull_and_apply_accept_decision() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        apply_console_research_promotion_decision,
+        make_console_research_promotion_pull,
+    )
+
+    calls: list[dict] = []
+
+    def _get_json(*, endpoint, bearer_token, ticket_id, timeout):
+        calls.append(
+            {
+                "endpoint": endpoint,
+                "bearer_token": bearer_token,
+                "ticket_id": ticket_id,
+                "timeout": timeout,
+            }
+        )
+        return {
+            "ok": True,
+            "live_authority_granted": False,
+            "ticket": {
+                "ticket_id": "rpt_pull001",
+                "state": "human_accepted",
+                "live_authority_granted": False,
+                "human_decision": "accept",
+                "human_decided_at": "2026-09-07T01:00:00Z",
+                "confirmation_target_platform": "ibkr",
+                "confirmation_execution_mode": "live",
+                "confirmation_risk_profile": "BALANCED_COMPOUNDING",
+            },
+        }
+
+    pull = make_console_research_promotion_pull(
+        endpoint_url="https://console.example/api/internal/research-promotion-ticket",
+        sync_token="sync-secret",
+        get_json=_get_json,
+    )
+    remote = pull("rpt_pull001")
+    assert remote is not None
+    assert calls[0]["ticket_id"] == "rpt_pull001"
+    assert calls[0]["bearer_token"] == "sync-secret"
+
+    local = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+        ticket_id="rpt_pull001",
+    )
+    decided = apply_console_research_promotion_decision(local, remote)
+    assert decided.state is ResearchPromotionState.HUMAN_ACCEPTED
+    assert decided.live_authority_granted is False
+    assert decided.confirmation_target_platform == "ibkr"
+    assert decided.confirmation_execution_mode == "live"
+    assert decided.confirmation_risk_profile == "BALANCED_COMPOUNDING"
+    assert "console_decision_applied" in decided.notes
+
+
+def test_console_apply_reject_decision() -> None:
+    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+        apply_console_research_promotion_decision,
+    )
+
+    local = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+        ticket_id="rpt_pull002",
+    )
+    decided = apply_console_research_promotion_decision(
+        local,
+        {
+            "ticket_id": "rpt_pull002",
+            "state": "human_rejected",
+            "live_authority_granted": False,
+            "human_decision": "reject",
+        },
+    )
+    assert decided.state is ResearchPromotionState.HUMAN_REJECTED
+    assert decided.live_authority_granted is False
+    assert "console_decision_applied" in decided.notes
