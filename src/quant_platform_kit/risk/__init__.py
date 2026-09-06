@@ -37,6 +37,15 @@ from quant_platform_kit.risk.research_consumer import (
     consume_research_risk,
     consume_research_risk_batch,
 )
+from quant_platform_kit.risk.account_new_risk_gate import (
+    AccountNewRiskGateError,
+    InjectedReconciliationSnapshot,
+    NewRiskAdmissionResult,
+    NewRiskDisposition,
+    evaluate_new_risk_admission,
+    evaluate_new_risk_from_reader,
+    validate_injected_snapshot,
+)
 from quant_platform_kit.risk.promotion_sizing import (
     DEFAULT_RISK_PROFILE_SCALES,
     PromotionSizingResult,
@@ -69,6 +78,13 @@ __all__ = [
     "ResearchRiskObservation",
     "consume_research_risk",
     "consume_research_risk_batch",
+    "AccountNewRiskGateError",
+    "InjectedReconciliationSnapshot",
+    "NewRiskAdmissionResult",
+    "NewRiskDisposition",
+    "evaluate_new_risk_admission",
+    "evaluate_new_risk_from_reader",
+    "validate_injected_snapshot",
     "DEFAULT_RISK_PROFILE_SCALES",
     "PromotionSizingResult",
     "assess_promotion_sized_target",

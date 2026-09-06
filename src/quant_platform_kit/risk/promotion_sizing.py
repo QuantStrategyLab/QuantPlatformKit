@@ -1,7 +1,14 @@
 """Promotion sizing chain: target × risk-profile scale × plugin scalar → RiskEngine.
 
-Pure helper for the HITL confirmation path. Does not grant live authority.
-Plugin scalars may only shrink exposure (clamped to ≤ 1).
+Pure helper for the **new-promotion / material-change HITL confirmation path** only.
+Do **not** use this module to recompute or rescale an already-live book.
+
+Dual-scale warning (do not conflate):
+- Composer unlevered-benchmark MDD ceilings: 1.00 / 1.25 / 1.50
+- This module's position scales: 0.50 / 0.75 / 1.00 (never above 1.00)
+
+Does not grant live authority. Plugin scalars may only shrink exposure (≤ 1).
+Does not replace or weaken RiskEngine final veto.
 """
 
 from __future__ import annotations
@@ -16,6 +23,7 @@ from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
     RISK_PROFILE_IDS,
 )
 
+# Position scales for promotion HITL only (≠ Composer MDD ceilings 1.00/1.25/1.50).
 DEFAULT_RISK_PROFILE_SCALES: dict[str, float] = {
     "CAPITAL_PRESERVATION": 0.50,
     "BALANCED_COMPOUNDING": 0.75,
@@ -110,7 +118,8 @@ def assess_promotion_sized_target(
 ) -> PromotionSizingResult:
     """Size a target then run RiskEngine.assess; reject forces final_weight to 0.
 
-    Accept/approve never grants live authority.
+    Intended only for new promotion or material-change confirmation.
+    Accept/approve never grants live authority and must not rescale existing live.
     """
     profile = str(risk_profile or "").strip().upper()
     profile_scale = resolve_risk_profile_scale(profile, scale_bps=scale_bps)
