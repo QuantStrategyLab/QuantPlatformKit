@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify dependent repos reference QPK_PIN across dependencies and reusable workflows."""
+"""Verify QPK package pins while preserving independent immutable workflow refs."""
 
 from __future__ import annotations
 
@@ -30,6 +30,10 @@ TRACKED_FILENAMES = (
 )
 PINNED_FILE_GLOBS = ("requirements*.txt", "constraints*.txt", "pyproject.toml")
 WORKFLOW_GLOB = ".github/workflows/*.y*ml"
+QPK_WORKFLOW_USES_RE = re.compile(
+    r'''uses:\s*(["']?)QuantStrategyLab/QuantPlatformKit/\.github/workflows/'''
+    r'''[^/@\s"']+\.ya?ml@[a-f0-9]{40}\1\s*(?:#.*)?'''
+)
 
 
 def get_qpk_pin_sha(*, pin_file: Path | None = None) -> str:
@@ -163,7 +167,10 @@ def check_repo(*, root: Path, target_sha: str, fix_mode: bool) -> tuple[int, int
         if not refs:
             continue
         files_checked += 1
-        for line_num, _raw_line, sha in refs:
+        for line_num, raw_line, sha in refs:
+            # Workflow code and the installed Python package have separate pins.
+            if path.parent == root / ".github" / "workflows" and QPK_WORKFLOW_USES_RE.fullmatch(raw_line):
+                continue
             if sha == target_sha:
                 continue
             mismatches += 1
@@ -176,7 +183,9 @@ def check_repo(*, root: Path, target_sha: str, fix_mode: bool) -> tuple[int, int
             )
             errors.append(msg)
             if fix_mode:
-                path.write_text(path.read_text(encoding="utf-8").replace(sha, target_sha), encoding="utf-8")
+                lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+                lines[line_num - 1] = lines[line_num - 1].replace(sha, target_sha)
+                path.write_text("".join(lines), encoding="utf-8")
 
     if override_sha and override_sha != target_sha:
         mismatches += 1
