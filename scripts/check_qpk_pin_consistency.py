@@ -25,8 +25,12 @@ QSL_REF_RE = re.compile(r"github\.com/QuantStrategyLab/([A-Za-z0-9_.-]+)\.git@([
 TRACKED_FILENAMES = (
     "pyproject.toml",
     "uv.lock",
+    "qsl.toml",
     "requirements.txt",
     "requirements-lock.txt",
+)
+QSL_TOML_QPK_RE = re.compile(
+    r'(?m)^(\s*quant_platform_kit\s*=\s*")([a-f0-9]{40})("\s*)$'
 )
 PINNED_FILE_GLOBS = ("requirements*.txt", "constraints*.txt", "pyproject.toml")
 WORKFLOW_GLOB = ".github/workflows/*.y*ml"
@@ -66,9 +70,14 @@ def get_qpk_pin_sha(*, pin_file: Path | None = None) -> str:
     raise RuntimeError("Cannot resolve QPK pin SHA from QPK_PIN or git remote")
 
 
-def repo_root_from_args(argv: list[str]) -> Path:
-    parser = argparse.ArgumentParser(description="Check QPK git pin consistency.")
-    parser.add_argument("--fix", action="store_true", help="Rewrite mismatched SHAs to QPK_PIN.")
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Check QPK git pin consistency across pyproject.toml / uv.lock / qsl.toml. "
+            "Use --set-sha before opening a consumer pin PR."
+        )
+    )
+    parser.add_argument("--fix", action="store_true", help="Rewrite mismatched SHAs to the target pin.")
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="Consumer repository root.")
     parser.add_argument(
         "--pin-file",
@@ -76,8 +85,23 @@ def repo_root_from_args(argv: list[str]) -> Path:
         default=None,
         help="Optional QPK_PIN path (defaults to QPK repo adjacent to this script).",
     )
-    args = parser.parse_args(argv)
-    return args.root.resolve(), args.pin_file, args.fix
+    parser.add_argument(
+        "--set-sha",
+        metavar="SHA",
+        default=None,
+        help=(
+            "Rewrite all tracked QPK refs to this 40-char SHA (implies --fix). "
+            "Preferred local workflow when bumping a consumer pin."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def repo_root_from_args(argv: list[str]):
+    """Backward-compatible helper used by tests."""
+    args = parse_args(argv)
+    fix_mode = bool(args.fix or args.set_sha)
+    return args.root.resolve(), args.pin_file, fix_mode, args.set_sha
 
 
 def find_dep_files(root: Path) -> list[Path]:
@@ -121,6 +145,9 @@ def _line_refs(line: str) -> list[str]:
     refs.extend(GIT_SHA_AT_RE.findall(line))
     refs.extend(GIT_SHA_REV_RE.findall(line))
     refs.extend(GIT_SHA_HASH_RE.findall(line))
+    # qsl.toml style: quant_platform_kit = "<sha>"
+    for match in re.finditer(r'quant_platform_kit\s*=\s*"([a-f0-9]{40})"', line):
+        refs.append(match.group(1))
     return refs
 
 
@@ -200,6 +227,9 @@ def check_repo(*, root: Path, target_sha: str, fix_mode: bool) -> tuple[int, int
         declared = {sha for _ln, _raw, sha in extract_qpk_shas(pyproject)}
         if override_sha:
             declared.add(override_sha)
+        qsl_toml = root / "qsl.toml"
+        if qsl_toml.is_file():
+            declared.update(sha for _ln, _raw, sha in extract_qpk_shas(qsl_toml))
         if lock_shas and declared and lock_shas != declared:
             mismatches += 1
             errors.append(
@@ -216,9 +246,24 @@ def check_repo(*, root: Path, target_sha: str, fix_mode: bool) -> tuple[int, int
     return files_checked, mismatches, errors
 
 
+def _validate_sha(sha: str) -> str:
+    value = str(sha or "").strip().lower()
+    if len(value) != 40 or any(ch not in "0123456789abcdef" for ch in value):
+        raise ValueError(f"--set-sha requires a 40-char lowercase hex git SHA, got {sha!r}")
+    return value
+
+
 def main(argv: list[str] | None = None) -> int:
-    root, pin_file, fix_mode = repo_root_from_args(argv or sys.argv[1:])
-    target_sha = get_qpk_pin_sha(pin_file=pin_file)
+    root, pin_file, fix_mode, set_sha = repo_root_from_args(argv or sys.argv[1:])
+    if set_sha:
+        try:
+            target_sha = _validate_sha(set_sha)
+        except ValueError as exc:
+            print(f"❌ {exc}")
+            return 2
+        fix_mode = True
+    else:
+        target_sha = get_qpk_pin_sha(pin_file=pin_file)
     target_short = target_sha[:12]
     print(f"Target QPK SHA: {target_short}...")
 
@@ -228,14 +273,23 @@ def main(argv: list[str] | None = None) -> int:
         if fix_mode and "→" not in msg:
             print(f"   → Fixed to {target_short}")
 
+    # Re-check after fixes so --set-sha fails closed if anything remains drifted.
+    if fix_mode and mismatches:
+        files_checked, mismatches, errors = check_repo(root=root, target_sha=target_sha, fix_mode=False)
+        for msg in errors:
+            print(msg)
+
     if mismatches == 0:
         print(f"✅ All {files_checked} dependency files reference QPK@{target_short}")
+        if set_sha:
+            print("Ready to commit the pin bump. If uv resolver metadata must refresh, run `uv lock`.")
         return 0
 
     print(f"\n{mismatches} mismatch(es) in {files_checked} file(s)")
     if fix_mode:
-        print("Fixed. Please commit the changes and run `uv lock` if uv.lock was touched.")
-        return 0
+        print("Unable to fully align pins automatically; inspect remaining mismatches.")
+        return 1
+    print("Run with --set-sha <40-char-sha> (or --fix against QPK_PIN) before opening the PR.")
     return 1
 
 
