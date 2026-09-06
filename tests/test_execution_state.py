@@ -8,8 +8,10 @@ from pathlib import Path
 
 from quant_platform_kit.common.execution_state import (
     ExecutionMarkerStore,
+    build_account_owner_marker_key,
     build_execution_marker_key,
     build_execution_marker_store_from_env,
+    claim_account_owner,
     resolve_execution_dedup_enabled,
 )
 from quant_platform_kit.common.runtime_config import resolve_dry_run_env
@@ -279,6 +281,67 @@ class ExecutionStateTests(unittest.TestCase):
                 account_scope="LIVE",
             )
         )
+
+    def test_build_account_owner_marker_key_excludes_strategy_profile(self) -> None:
+        key = build_account_owner_marker_key(broker="schwab", account_id="acct-hash-1")
+        self.assertEqual(key, "v1/account-owner/schwab/acct-hash-1")
+        self.assertNotIn("strategy", key)
+
+    def test_read_marker_returns_claim_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ExecutionMarkerStore(local_dir=tmpdir, cloud_prefix_uri=None)
+            key = "v1/account-owner/schwab/acct-1"
+            self.assertIsNone(store.read_marker(key))
+            self.assertTrue(store.claim_marker(key, metadata={"owner_id": "profile-a"}))
+            payload = store.read_marker(key)
+            assert payload is not None
+            self.assertEqual(payload["metadata"]["owner_id"], "profile-a")
+            self.assertEqual(payload["state"], "claimed")
+
+    def test_claim_account_owner_allows_same_owner_and_rejects_other(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = ExecutionMarkerStore(local_dir=tmpdir, cloud_prefix_uri=None)
+            first = claim_account_owner(
+                store,
+                broker="schwab",
+                account_id="acct-hash-1",
+                owner_id="global_etf_rotation",
+                metadata={"platform": "schwab"},
+            )
+            self.assertTrue(first.allowed)
+            self.assertFalse(first.contested)
+            self.assertTrue(first.created)
+            self.assertEqual(first.owner_id, "global_etf_rotation")
+
+            same = claim_account_owner(
+                store,
+                broker="schwab",
+                account_id="acct-hash-1",
+                owner_id="global_etf_rotation",
+            )
+            self.assertTrue(same.allowed)
+            self.assertFalse(same.contested)
+            self.assertFalse(same.created)
+
+            other = claim_account_owner(
+                store,
+                broker="schwab",
+                account_id="acct-hash-1",
+                owner_id="other_profile",
+            )
+            self.assertFalse(other.allowed)
+            self.assertTrue(other.contested)
+            self.assertEqual(other.owner_id, "global_etf_rotation")
+
+            # Different physical account remains independent.
+            other_account = claim_account_owner(
+                store,
+                broker="schwab",
+                account_id="acct-hash-2",
+                owner_id="other_profile",
+            )
+            self.assertTrue(other_account.allowed)
+            self.assertTrue(other_account.created)
 
 
 if __name__ == "__main__":
