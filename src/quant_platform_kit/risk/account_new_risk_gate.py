@@ -1,25 +1,38 @@
-"""Account-level NEW_RISK prohibition adapter (skeleton; not live-wired).
+"""Account-level NEW_RISK prohibition adapter (D2 inject; not live-wired).
 
 Module boundary
 ---------------
-- Consumes an **injected**, already-redacted reconciliation snapshot projection.
+- Consumes an **injected**, already-redacted reconciliation snapshot projection
+  that may include a capital summary (``equity_usd`` and optional peak / DD / vol).
 - Decides only whether **new risk is prohibited**.
-- Does **not** read brokers/accounts, deploy, enable/disable accounts, or reset
-  circuit breakers. Callers that receive ``NEW_RISK_PROHIBITED`` must fail closed
-  without auto-recovery.
+- Does **not** read brokers/accounts, deploy, enable/disable accounts, flatten
+  positions, or reset circuit breakers. Callers that receive
+  ``NEW_RISK_PROHIBITED`` must fail closed without auto-recovery.
+
+Capital envelope (D2)
+---------------------
+When a capital summary is present, this adapter calls
+``evaluate_capital_risk_envelope``. Missing / invalid equity or
+``new_risk_allowed=False`` maps to ``NEW_RISK_PROHIBITED`` (fail-closed).
+Optional ``peak_equity_usd`` may derive drawdown when ``drawdown_from_peak``
+is omitted.
 
 Wiring status
 -------------
-Not attached to any real account read-back. Production gateways must inject a
-verified snapshot and treat validation errors as ``NEW_RISK_PROHIBITED``.
-This module does not grant live authority and does not weaken ``RiskEngine``.
+Still **not** attached to any real account read-back or production deploy.
+Production gateways must inject a verified snapshot (including equity) and
+treat validation errors as ``NEW_RISK_PROHIBITED``. This module does not grant
+live authority and does not weaken ``RiskEngine``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 from typing import Protocol
+
+from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
 
 
 class NewRiskDisposition(str, Enum):
@@ -37,13 +50,19 @@ class AccountNewRiskGateError(ValueError):
 class InjectedReconciliationSnapshot:
     """Redacted, caller-injected projection of a reconciliation snapshot.
 
-    Field values are closed enums. This is intentionally not an account DTO:
-    no account ids, credentials, broker endpoints, or order payloads.
+    Field values for health axes are closed enums. Capital fields are optional
+    inject-only numbers (no account ids, credentials, broker endpoints, or
+    order payloads). Missing equity is treated as unknown → prohibit at the
+    gate, not as a silent healthy default.
     """
 
     observation_status: str
     reconciliation_status: str
     circuit_breaker_state: str
+    equity_usd: float | None = None
+    peak_equity_usd: float | None = None
+    drawdown_from_peak: float | None = None
+    realized_vol: float | None = None
 
 
 class ReconciliationSnapshotReader(Protocol):
@@ -60,6 +79,15 @@ _HEALTHY_BREAKER = "CLOSED"
 _ALLOWED_OBSERVATION = frozenset({"COMPLETE", "STALE", "UNAVAILABLE"})
 _ALLOWED_RECONCILIATION = frozenset({"VERIFIED", "UNVERIFIED", "FAILED"})
 _ALLOWED_BREAKER = frozenset({"CLOSED", "OPEN"})
+
+# Envelope reason codes that already imply new-risk prohibition.
+_ENVELOPE_PROHIBIT_REASONS = frozenset(
+    {
+        "INVALID_EQUITY_FAIL_CLOSED",
+        "INVALID_DRAWDOWN_FAIL_CLOSED",
+        "DRAWDOWN_BRAKE_TRIPPED",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -86,13 +114,63 @@ def validate_injected_snapshot(
     return snapshot
 
 
+def _derive_drawdown_from_peak(
+    equity_usd: float,
+    peak_equity_usd: float | None,
+    drawdown_from_peak: float | None,
+) -> float | None:
+    """Prefer explicit DD; else derive from peak when both numbers are finite."""
+    if drawdown_from_peak is not None:
+        return drawdown_from_peak
+    if peak_equity_usd is None:
+        return None
+    if (
+        isinstance(peak_equity_usd, bool)
+        or not isinstance(peak_equity_usd, (int, float))
+        or not math.isfinite(float(peak_equity_usd))
+        or float(peak_equity_usd) <= 0.0
+    ):
+        return float("nan")  # force envelope fail-closed on bad peak
+    peak = float(peak_equity_usd)
+    return max(0.0, 1.0 - float(equity_usd) / peak)
+
+
+def _evaluate_capital_axis(
+    snapshot: InjectedReconciliationSnapshot,
+) -> list[str]:
+    """Return capital-axis prohibit reasons (empty ⇒ capital axis allows)."""
+    if snapshot.equity_usd is None:
+        return ["EQUITY_UNKNOWN_FAIL_CLOSED"]
+
+    drawdown = _derive_drawdown_from_peak(
+        float(snapshot.equity_usd)
+        if isinstance(snapshot.equity_usd, (int, float))
+        and not isinstance(snapshot.equity_usd, bool)
+        else float("nan"),
+        snapshot.peak_equity_usd,
+        snapshot.drawdown_from_peak,
+    )
+    envelope = evaluate_capital_risk_envelope(
+        snapshot.equity_usd,
+        realized_vol=snapshot.realized_vol,
+        drawdown_from_peak=drawdown,
+    )
+    if envelope.new_risk_allowed:
+        return []
+    reasons = [code for code in envelope.reasons if code in _ENVELOPE_PROHIBIT_REASONS]
+    if not reasons:
+        reasons = ["CAPITAL_ENVELOPE_NEW_RISK_PROHIBITED"]
+    return reasons
+
+
 def evaluate_new_risk_admission(
     snapshot: InjectedReconciliationSnapshot,
 ) -> NewRiskAdmissionResult:
-    """Map unhealthy injected snapshots to ``NEW_RISK_PROHIBITED``.
+    """Map unhealthy injected snapshots / capital envelope to ``NEW_RISK_PROHIBITED``.
 
-    Healthy snapshots may return ``ALLOW_NEW_RISK`` for this skeleton's health
-    axis only. That is **not** an order permission and never grants live.
+    Healthy reconciliation axes **and** an allowing capital envelope may return
+    ``ALLOW_NEW_RISK``. That is **not** an order permission, never grants live,
+    never flattens, and never resets breakers. Still not wired to real accounts.
     """
     validated = validate_injected_snapshot(snapshot)
     reasons: list[str] = []
@@ -102,6 +180,7 @@ def evaluate_new_risk_admission(
         reasons.append("RECONCILIATION_NOT_VERIFIED")
     if validated.circuit_breaker_state != _HEALTHY_BREAKER:
         reasons.append("CIRCUIT_BREAKER_OPEN")
+    reasons.extend(_evaluate_capital_axis(validated))
     if reasons:
         return NewRiskAdmissionResult(
             disposition=NewRiskDisposition.NEW_RISK_PROHIBITED,
