@@ -62,6 +62,72 @@ class ResearchPromotionBudget:
             )
 
 
+RISK_PROFILE_IDS = (
+    "CAPITAL_PRESERVATION",
+    "BALANCED_COMPOUNDING",
+    "GROWTH_COMPOUNDING",
+)
+DEFAULT_SUGGESTED_RISK_PROFILE = "CAPITAL_PRESERVATION"
+EXECUTION_MODES = ("live", "paper")
+
+
+@dataclass(frozen=True)
+class PromotionConfirmation:
+    """Human intent for where/how to proceed after shadow — never live authority.
+
+    paper is allowed only when the target platform actually offers a broker
+    paper/sim account. Synthetic matching is intentionally unsupported.
+    """
+
+    target_platform: str
+    execution_mode: str
+    risk_profile: str
+
+    def __post_init__(self) -> None:
+        platform = str(self.target_platform or "").strip()
+        mode = str(self.execution_mode or "").strip().lower()
+        profile = str(self.risk_profile or "").strip().upper()
+        if not platform:
+            raise ValueError("target_platform is required")
+        if mode not in EXECUTION_MODES:
+            raise ValueError("execution_mode must be 'live' or 'paper'")
+        if profile not in RISK_PROFILE_IDS:
+            raise ValueError(
+                "risk_profile must be CAPITAL_PRESERVATION, "
+                "BALANCED_COMPOUNDING, or GROWTH_COMPOUNDING"
+            )
+        object.__setattr__(self, "target_platform", platform)
+        object.__setattr__(self, "execution_mode", mode)
+        object.__setattr__(self, "risk_profile", profile)
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "target_platform": self.target_platform,
+            "execution_mode": self.execution_mode,
+            "risk_profile": self.risk_profile,
+        }
+
+
+def validate_promotion_confirmation(
+    confirmation: PromotionConfirmation | Mapping[str, Any],
+    *,
+    paper_supported: bool,
+) -> PromotionConfirmation:
+    """Validate confirmation and reject paper when the broker has no paper lane."""
+    if not isinstance(confirmation, PromotionConfirmation):
+        confirmation = PromotionConfirmation(
+            target_platform=str(confirmation.get("target_platform") or ""),
+            execution_mode=str(confirmation.get("execution_mode") or ""),
+            risk_profile=str(confirmation.get("risk_profile") or ""),
+        )
+    if confirmation.execution_mode == "paper" and not paper_supported:
+        raise ValueError(
+            "paper is unavailable for this platform; do not invent synthetic "
+            "matching — choose live after human review or keep observing"
+        )
+    return confirmation
+
+
 @dataclass
 class ResearchPromotionTicket:
     """Durable operator work item for one drift-triggered research candidate."""
@@ -84,6 +150,10 @@ class ResearchPromotionTicket:
     human_decision: str = ""
     human_decided_at: str = ""
     live_authority_granted: bool = False
+    suggested_risk_profile: str = DEFAULT_SUGGESTED_RISK_PROFILE
+    confirmation_target_platform: str = ""
+    confirmation_execution_mode: str = ""
+    confirmation_risk_profile: str = ""
     notes: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
@@ -119,6 +189,16 @@ class ResearchPromotionTicket:
             human_decision=str(raw.get("human_decision") or ""),
             human_decided_at=str(raw.get("human_decided_at") or ""),
             live_authority_granted=bool(raw.get("live_authority_granted") or False),
+            suggested_risk_profile=str(
+                raw.get("suggested_risk_profile") or DEFAULT_SUGGESTED_RISK_PROFILE
+            ),
+            confirmation_target_platform=str(
+                raw.get("confirmation_target_platform") or ""
+            ),
+            confirmation_execution_mode=str(
+                raw.get("confirmation_execution_mode") or ""
+            ),
+            confirmation_risk_profile=str(raw.get("confirmation_risk_profile") or ""),
             notes=tuple(str(item) for item in (raw.get("notes") or ())),
         )
 
@@ -177,6 +257,9 @@ def build_human_promotion_notification(
             f"shadow_passed: {ticket.shadow_passed}",
             f"proposed_params: {json.dumps(dict(ticket.proposed_params), sort_keys=True)}",
             "live_authority_granted: false",
+            f"suggested_risk_profile: {ticket.suggested_risk_profile}",
+            "On accept choose: target_platform + execution_mode(live|paper) + risk_profile.",
+            "paper only if the broker provides a real paper/sim account; no synthetic matching.",
             "Action required: accept or reject this ticket.",
             "Accept records operator intent only; it does not enable live trading.",
         ]
@@ -429,9 +512,15 @@ def apply_human_promotion_decision(
     ticket: ResearchPromotionTicket,
     *,
     decision: str,
+    confirmation: PromotionConfirmation | Mapping[str, Any] | None = None,
+    paper_supported: bool = False,
     decided_at: str | None = None,
 ) -> ResearchPromotionTicket:
-    """Record human accept/reject. Accept never grants live authority."""
+    """Record human accept/reject. Accept never grants live authority.
+
+    Accept requires explicit platform, execution mode, and risk profile.
+    paper_supported must be true only for a real broker paper/sim account.
+    """
     if ticket.state != ResearchPromotionState.AWAITING_HUMAN:
         raise ValueError(
             f"ticket {ticket.ticket_id} is not awaiting human "
@@ -446,9 +535,23 @@ def apply_human_promotion_decision(
     ticket.human_decided_at = decided_at or _now_iso()
     ticket.live_authority_granted = False
     if normalized == "accept":
+        if confirmation is None:
+            raise ValueError(
+                "accept requires confirmation "
+                "(target_platform, execution_mode, risk_profile)"
+            )
+        confirmed = validate_promotion_confirmation(
+            confirmation, paper_supported=bool(paper_supported)
+        )
+        ticket.confirmation_target_platform = confirmed.target_platform
+        ticket.confirmation_execution_mode = confirmed.execution_mode
+        ticket.confirmation_risk_profile = confirmed.risk_profile
         ticket.state = ResearchPromotionState.HUMAN_ACCEPTED
         ticket.notes = ticket.notes + (
             "human_accepted_intent_only_no_live_authority",
+            f"confirmation_platform={confirmed.target_platform}",
+            f"confirmation_mode={confirmed.execution_mode}",
+            f"confirmation_risk_profile={confirmed.risk_profile}",
         )
     else:
         ticket.state = ResearchPromotionState.HUMAN_REJECTED
@@ -481,6 +584,10 @@ def load_research_promotion_ticket(path: str | Path) -> ResearchPromotionTicket:
 
 
 __all__ = [
+    "DEFAULT_SUGGESTED_RISK_PROFILE",
+    "EXECUTION_MODES",
+    "PromotionConfirmation",
+    "RISK_PROFILE_IDS",
     "ResearchPromotionBudget",
     "ResearchPromotionState",
     "ResearchPromotionTicket",
@@ -493,4 +600,5 @@ __all__ = [
     "run_research_promotion_cycle",
     "save_research_promotion_ticket",
     "shadow_record_from_paired_evidence",
+    "validate_promotion_confirmation",
 ]
