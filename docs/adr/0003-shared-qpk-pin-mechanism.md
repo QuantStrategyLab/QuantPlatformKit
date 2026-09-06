@@ -33,11 +33,35 @@ Dependent repos add a CI step that curls the QPK_PIN file and runs the check scr
 
 ## Consequences
 
-- **Positive**: Single source of truth prevents SHA drift
-- **Positive**: CI catches mismatches before they reach deployment
+- **Positive**: Single candidate marker reduces unmanaged SHA drift
+- **Positive**: CI can catch incoherent pins before deployment
 - **Positive**: `--fix` mode enables automated dependency updates
 - **Positive**: Execution-platform and P1-pipeline PRs are opened only for a coherent QPK plus strategy commit bundle
 - **Negative**: Requires QPK GitHub Actions to have push permission to main
 - **Negative**: Dependent repos must add the consistency check to their CI
 - **Neutral**: The pin file itself is a simple text file; no new infrastructure required
 - **Neutral**: `qsl-pins.txt` may temporarily describe the previous coherent bundle while `QPK_PIN` stages the next QPK commit
+
+## Amendment 2026-09-06 — Candidate vs enforced cohort
+
+Operational experience showed that treating `QPK_PIN` as a forced org-wide SHA
+cohort creates downgrade risk: consumers that already moved ahead (for a real
+fix) can receive automated PRs that roll them back to an older candidate.
+
+Effective policy:
+
+1. **Install truth** remains each consumer's lock/`pyproject`/`qsl.toml` pins.
+2. **Ledger truth** remains QuantRuntimeSettings `internal_dependency_matrix.json`.
+3. **`QPK_PIN`** is a **staged candidate / recommendation**, not a deployment
+   command and not a requirement that every live consumer share one SHA.
+4. Downstream automation defaults to `upgrade-affected`:
+   - open PRs only for repos that are **behind** the candidate
+   - skip **equal** / **ahead** / **diverged**
+   - never open a PR that would downgrade a consumer
+   - when candidate changes are docs/CI-only, skip runtime consumers
+5. `cohort-all` remains an explicit escape hatch for rare coordinated rollouts;
+   it still refuses downgrades.
+
+This amendment aligns ADR 0003 with `docs/QSL_SYSTEM_ARCHITECTURE.md`: upgrade
+affected consumers with semantic regression; do not force every QPK commit across
+the whole organization.

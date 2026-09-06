@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from scripts.report_consumer_qpk_pin_prs import ci_status, classify_generated_prs, render_row
+from scripts.report_consumer_qpk_pin_prs import (
+    ci_status,
+    classify_generated_prs,
+    hygiene_label_for_pr,
+    render_row,
+)
 from scripts.open_downstream_qpk_pin_prs import RepoSpec
 
 
@@ -41,12 +46,32 @@ def test_render_row_includes_links_without_mutation_instruction() -> None:
         RepoSpec("LongBridgePlatform"),
         [_pr(branch="auto/qpk-pin-sync-8378e939d932-longbridgeplatform", number=10)],
         [_pr(branch="auto/qpk-pin-sync-37c81901160c-longbridgeplatform", number=9)],
+        candidate_sha=TARGET,
     )
 
     assert "LongBridgePlatform" in row
     assert "[#10](https://example.test/pr/10)" in row
     assert "[#9](https://example.test/pr/9)" in row
+    assert "close-as-superseded-or-downgrade" in row
     assert "MISSING" in row
+
+
+def test_hygiene_label_for_pr_marks_older_targets() -> None:
+    assert (
+        hygiene_label_for_pr(
+            branch="auto/qpk-pin-sync-8378e939d932-longbridgeplatform",
+            candidate_sha=TARGET,
+        )
+        == "current-target"
+    )
+    assert (
+        hygiene_label_for_pr(
+            branch="auto/qpk-pin-sync-37c81901160c-longbridgeplatform",
+            candidate_sha=TARGET,
+        )
+        == "close-as-superseded-or-downgrade"
+    )
+    assert hygiene_label_for_pr(branch="codex/manual-update", candidate_sha=TARGET) == "unrecognized"
 
 
 def test_ci_status_distinguishes_green_pending_failed_and_non_green() -> None:

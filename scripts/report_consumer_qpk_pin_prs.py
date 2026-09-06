@@ -5,6 +5,10 @@ Consumer repositories may own deployment or broker workflows, so this command
 is deliberately read-only.  It exposes recognizable older generated PRs in
 the QPK workflow summary without closing, merging, labelling, or changing any
 consumer repository state.
+
+Downgrade safety note: opener defaults to upgrade-only. This reporter flags
+generated PRs whose target SHA is older than the current candidate so humans
+can close leftover downgrade/superseded PRs.
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 from collections.abc import Iterable
 from typing import Any
@@ -25,6 +30,11 @@ try:  # Package import for tests and module execution.
 except ModuleNotFoundError:  # Direct `python scripts/<file>.py` execution in Actions.
     from merge_verified_strategy_qpk_pin_prs import expected_branch, superseded_pr_reason
     from open_downstream_qpk_pin_prs import CONSUMER_REPOS, RepoSpec
+
+_GENERATED_BRANCH_SHA_RE = re.compile(
+    r"^auto/qpk-pin-sync-([a-f0-9]{12})-",
+    re.IGNORECASE,
+)
 
 
 def run(command: list[str], *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -86,11 +96,39 @@ def classify_generated_prs(
     return current, stale
 
 
-def render_row(repo: RepoSpec, current: list[dict[str, Any]], stale: list[dict[str, Any]]) -> str:
+def target_sha_prefix_from_branch(branch: str) -> str | None:
+    match = _GENERATED_BRANCH_SHA_RE.match(branch.strip())
+    return match.group(1).lower() if match else None
+
+
+def hygiene_label_for_pr(*, branch: str, candidate_sha: str) -> str:
+    """Label generated PR targets relative to the candidate SHA prefix."""
+    prefix = target_sha_prefix_from_branch(branch)
+    candidate_prefix = candidate_sha[:12].lower()
+    if prefix is None:
+        return "unrecognized"
+    if prefix == candidate_prefix:
+        return "current-target"
+    return "close-as-superseded-or-downgrade"
+
+
+def render_row(
+    repo: RepoSpec,
+    current: list[dict[str, Any]],
+    stale: list[dict[str, Any]],
+    *,
+    candidate_sha: str,
+) -> str:
     current_refs = ", ".join(
         f"[#{item['number']}]({item['url']}) · {ci_status(item)}" for item in current
     ) or "—"
-    stale_refs = ", ".join(f"[#{item['number']}]({item['url']})" for item in stale) or "—"
+    stale_refs = ", ".join(
+        (
+            f"[#{item['number']}]({item['url']})"
+            f" · {hygiene_label_for_pr(branch=str(item.get('headRefName') or ''), candidate_sha=candidate_sha)}"
+        )
+        for item in stale
+    ) or "—"
     return f"| {repo.name} | {current_refs} | {stale_refs} |"
 
 
@@ -110,6 +148,10 @@ def main() -> int:
     print("## Consumer QPK pin PR hygiene")
     print()
     print("Consumer repositories are report-only: they are never auto-merged or auto-closed.")
+    print(
+        "Opener policy is upgrade-only; stale generated PRs targeting older SHAs should be "
+        "closed as superseded/downgrade leftovers."
+    )
     print()
     print("| Repository | Current generated PR (CI) | Recognizable stale generated PRs |")
     print("| --- | --- | --- |")
@@ -118,7 +160,7 @@ def main() -> int:
             generated_prs(repo, env=env),
             current_branch=expected_branch(repo, qpk_sha),
         )
-        print(render_row(repo, current, stale))
+        print(render_row(repo, current, stale, candidate_sha=qpk_sha))
     return 0
 
 
