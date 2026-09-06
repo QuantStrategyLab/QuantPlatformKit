@@ -4,6 +4,7 @@ from scripts.open_downstream_qpk_pin_prs import (
     classify_pin_relation,
     paths_affect_runtime,
     should_open_upgrade_pr,
+    update_drift_workflow_file,
 )
 
 
@@ -45,3 +46,25 @@ def test_paths_affect_runtime_ignores_docs_only_changes() -> None:
     assert paths_affect_runtime(["docs/x.md", "src/quant_platform_kit/risk.py"]) is True
     assert paths_affect_runtime([".github/workflows/ci.yml"]) is False
     assert paths_affect_runtime(["scripts/open_downstream_qpk_pin_prs.py"]) is True
+
+
+def test_update_drift_workflow_file_rewrites_qpk_pins(tmp_path) -> None:
+    workflow = tmp_path / ".github" / "workflows"
+    workflow.mkdir(parents=True)
+    old = "aae333fe8b3fe5aeb32e1ff135ab14ea7db32420"
+    new = "c812ed70f83d61bdf1816fa5ca112b0f6976c6b6"
+    (workflow / "drift-check.yml").write_text(
+        "repository: QuantStrategyLab/QuantPlatformKit\n"
+        f"          ref: {old}\n"
+        f"    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@{old}\n"
+        f"      quant_platform_kit_ref: {old}\n",
+        encoding="utf-8",
+    )
+    assert update_drift_workflow_file(
+        tmp_path,
+        qpk_sha=new,
+        previous_qpk_refs={old},
+    )
+    body = (workflow / "drift-check.yml").read_text(encoding="utf-8")
+    assert old not in body
+    assert body.count(new) == 3

@@ -297,6 +297,51 @@ def update_ci_qpk_pin_contract(
     return True
 
 
+def update_drift_workflow_file(
+    repo_dir: Path,
+    *,
+    qpk_sha: str,
+    previous_qpk_refs: set[str],
+) -> bool:
+    """Keep strategy drift-check.yml QPK refs aligned with the package pin.
+
+    ``check_qpk_pin_consistency --fix`` intentionally leaves immutable workflow
+    pins alone. Strategy drift workflows are different: their contract tests
+    assert the same SHA the package pin uses. Update only SHAs already present
+    before this sync (plus explicit QuantPlatformKit pins in the workflow) so
+    unrelated hashes stay untouched.
+    """
+    path = repo_dir / ".github" / "workflows" / "drift-check.yml"
+    if not path.is_file():
+        return False
+    original = path.read_text(encoding="utf-8")
+    updated = original
+    previous = {
+        sha
+        for sha in previous_qpk_refs
+        if re.fullmatch(r"[a-f0-9]{40}", sha) and sha != qpk_sha
+    }
+    workflow_pins = set(
+        re.findall(
+            r"QuantStrategyLab/QuantPlatformKit(?:/\.github/workflows/[^\s@]+)?@([a-f0-9]{40})",
+            original,
+        )
+    )
+    workflow_pins.update(
+        re.findall(
+            r"repository:\s*QuantStrategyLab/QuantPlatformKit\n\s*ref:\s*([a-f0-9]{40})",
+            original,
+        )
+    )
+    workflow_pins.update(re.findall(r"quant_platform_kit_ref:\s*([a-f0-9]{40})", original))
+    for prior in sorted(previous | {sha for sha in workflow_pins if sha != qpk_sha}):
+        updated = updated.replace(prior, qpk_sha)
+    if updated == original:
+        return False
+    path.write_text(updated, encoding="utf-8")
+    return True
+
+
 def update_drift_workflow_test_contract(
     repo_dir: Path,
     *,
@@ -526,6 +571,14 @@ def update_repo(
     update_qpk_revision_contract(
         repo_dir,
         qpk_sha,
+    )
+    drift_workflow = repo_dir / ".github" / "workflows" / "drift-check.yml"
+    if drift_workflow.is_file():
+        previous_qpk_refs.update(re.findall(r"[a-f0-9]{40}", drift_workflow.read_text(encoding="utf-8")))
+    update_drift_workflow_file(
+        repo_dir,
+        qpk_sha=qpk_sha,
+        previous_qpk_refs=previous_qpk_refs,
     )
     update_drift_workflow_test_contract(
         repo_dir,
