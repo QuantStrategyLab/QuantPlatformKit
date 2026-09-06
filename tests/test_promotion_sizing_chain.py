@@ -127,5 +127,32 @@ class AssessPromotionSizedTargetTests(unittest.TestCase):
         self.assertEqual(result.final_weight, 0.0)
 
 
+
+class DualScaleAndPromotionScopeTests(unittest.TestCase):
+    def test_default_scales_never_exceed_one(self) -> None:
+        for profile, scale in DEFAULT_RISK_PROFILE_SCALES.items():
+            self.assertLessEqual(scale, 1.0, profile)
+            self.assertGreater(scale, 0.0, profile)
+        self.assertEqual(DEFAULT_RISK_PROFILE_SCALES["CAPITAL_PRESERVATION"], 0.50)
+        self.assertEqual(DEFAULT_RISK_PROFILE_SCALES["BALANCED_COMPOUNDING"], 0.75)
+        self.assertEqual(DEFAULT_RISK_PROFILE_SCALES["GROWTH_COMPOUNDING"], 1.00)
+
+    def test_growth_scale_is_not_composer_mdd_ceiling(self) -> None:
+        # Composer GROWTH_COMPOUNDING MDD ceiling is 1.50; promotion scale stays 1.00.
+        self.assertEqual(resolve_risk_profile_scale("GROWTH_COMPOUNDING"), 1.00)
+        self.assertNotEqual(resolve_risk_profile_scale("GROWTH_COMPOUNDING"), 1.50)
+
+    def test_live_authority_never_granted_on_approve(self) -> None:
+        result = assess_promotion_sized_target(
+            target_weight=0.20,
+            risk_profile="GROWTH_COMPOUNDING",
+            plugin_scalar=1.0,
+            portfolio_snapshot={"total_equity": 100_000.0},
+            engine=RiskEngine(),
+        )
+        self.assertEqual(result.risk_action, "approve")
+        self.assertFalse(result.live_authority_granted)
+
+
 if __name__ == "__main__":
     unittest.main()
