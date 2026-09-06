@@ -9,8 +9,36 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
+
+PinRelation = Literal["equal", "behind", "ahead", "diverged"]
+SyncMode = Literal["upgrade-affected", "cohort-all"]
+
+_NON_RUNTIME_PATH_PREFIXES = (
+    "docs/",
+    "doc/",
+    ".github/",
+    "tests/",
+    "test/",
+    "examples/",
+    "notes/",
+)
+_NON_RUNTIME_EXACT = {
+    "readme.md",
+    "readme.zh-cn.md",
+    "changelog.md",
+    "license",
+    "license.md",
+    "security.md",
+    "contributing.md",
+    "code_of_conduct.md",
+    "qpk_pin",
+    "qsl-pins.txt",
+    "constraints.txt",
+}
 
 SCRIPT_ROOT = Path(__file__).resolve().parent
 if str(SCRIPT_ROOT) not in sys.path:
@@ -123,6 +151,106 @@ def qpk_refs(repo_dir: Path) -> set[str]:
             refs.update(pattern.findall(text))
             refs.update(match.group("sha") for match in QPK_REVISION_RE.finditer(text))
     return refs
+
+
+def classify_pin_relation(
+    current: str,
+    candidate: str,
+    *,
+    is_ancestor: Callable[[str, str], bool],
+) -> PinRelation:
+    """Classify consumer pin relative to a candidate QPK SHA.
+
+    * equal: already on candidate
+    * behind: current is an ancestor of candidate (safe to upgrade)
+    * ahead: candidate is a strict ancestor of current (opening a PR would downgrade)
+    * diverged: neither is ancestor of the other (needs human review)
+    """
+    current_sha = current.strip().lower()
+    candidate_sha = candidate.strip().lower()
+    if not re.fullmatch(r"[a-f0-9]{40}", current_sha):
+        raise ValueError(f"invalid current sha: {current}")
+    if not re.fullmatch(r"[a-f0-9]{40}", candidate_sha):
+        raise ValueError(f"invalid candidate sha: {candidate}")
+    if current_sha == candidate_sha:
+        return "equal"
+    current_is_ancestor = is_ancestor(current_sha, candidate_sha)
+    candidate_is_ancestor = is_ancestor(candidate_sha, current_sha)
+    if current_is_ancestor and not candidate_is_ancestor:
+        return "behind"
+    if candidate_is_ancestor and not current_is_ancestor:
+        return "ahead"
+    return "diverged"
+
+
+def should_open_upgrade_pr(relation: PinRelation, *, mode: SyncMode) -> bool:
+    """Refuse equal/ahead/diverged in every mode; never open a downgrade PR."""
+    del mode  # mode selects repo set / path filter elsewhere; downgrade policy is absolute
+    return relation == "behind"
+
+
+def paths_affect_runtime(paths: list[str]) -> bool:
+    """Return True when changed paths may affect runtime consumers."""
+    for raw in paths:
+        path = raw.strip().replace("\\", "/")
+        while path.startswith("./"):
+            path = path[2:]
+        if not path:
+            continue
+        lower = path.lower()
+        if lower in _NON_RUNTIME_EXACT:
+            continue
+        if any(lower.startswith(prefix) for prefix in _NON_RUNTIME_PATH_PREFIXES):
+            continue
+        return True
+    return False
+
+
+def git_is_ancestor(*, repo_dir: Path, ancestor: str, descendant: str) -> bool:
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=repo_dir,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def changed_paths_between(repo_dir: Path, before_sha: str, after_sha: str) -> list[str]:
+    result = run(
+        ["git", "diff", "--name-only", f"{before_sha}..{after_sha}"],
+        cwd=repo_dir,
+    )
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def resolve_repo_relation(
+    repo_dir: Path,
+    *,
+    candidate_sha: str,
+    qpk_repo_dir: Path,
+) -> tuple[PinRelation | None, str]:
+    """Return relation for a consumer checkout, or None when no pin is present."""
+    refs = sorted(qpk_refs(repo_dir))
+    if not refs:
+        return None, "missing_qpk_pin"
+    if len(refs) > 1:
+        return "diverged", f"multiple_qpk_pins:{','.join(ref[:12] for ref in refs)}"
+
+    current = refs[0]
+
+    def is_ancestor(ancestor: str, descendant: str) -> bool:
+        return git_is_ancestor(
+            repo_dir=qpk_repo_dir,
+            ancestor=ancestor,
+            descendant=descendant,
+        )
+
+    # Ensure both SHAs exist locally before ancestry checks.
+    run(["git", "fetch", "--no-tags", "origin", current, candidate_sha], cwd=qpk_repo_dir)
+    relation = classify_pin_relation(current, candidate_sha, is_ancestor=is_ancestor)
+    return relation, current
 
 
 def update_qpk_revision_contract(repo_dir: Path, qpk_sha: str) -> bool:
@@ -549,6 +677,19 @@ def clone_repo(repo: RepoSpec, root: Path, token: str, *, dry_run: bool) -> Path
     return repo_dir
 
 
+def previous_qpk_pin_sha(repo_dir: Path) -> str | None:
+    """Return the prior QPK_PIN value from git history, if available."""
+    history = run(
+        ["git", "log", "-2", "--pretty=%H", "--", "QPK_PIN"],
+        cwd=repo_dir,
+    )
+    commits = [line.strip() for line in history.stdout.splitlines() if line.strip()]
+    if len(commits) < 2:
+        return None
+    prior = run(["git", "show", f"{commits[1]}:QPK_PIN"], cwd=repo_dir).stdout.strip()
+    return prior if re.fullmatch(r"[a-f0-9]{40}", prior) else None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Open downstream QPK pin sync PRs.")
     parser.add_argument("--token-env", default="QSL_REPO_SYNC_TOKEN")
@@ -558,6 +699,21 @@ def parse_args() -> argparse.Namespace:
         choices=("auto", "strategies", "consumers"),
         default="auto",
         help="Roll out strategy pins before aggregate and execution/P1 pipeline consumer pins.",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("upgrade-affected", "cohort-all"),
+        default="upgrade-affected",
+        help=(
+            "upgrade-affected (default): only behind repos, and only when candidate "
+            "changes runtime paths; never open downgrade PRs. "
+            "cohort-all: still refuse downgrades/equal/diverged, but ignore path filter."
+        ),
+    )
+    parser.add_argument(
+        "--before-sha",
+        default="",
+        help="Optional previous QPK SHA for affected-path filtering (defaults to prior QPK_PIN).",
     )
     parser.add_argument("--repo", action="append", default=[], help="Limit to one or more repo names")
     return parser.parse_args()
@@ -593,6 +749,19 @@ def main() -> int:
     bundle_root = Path(__file__).resolve().parent.parent
     qpk_pin = bundle_root / "QPK_PIN"
     qpk_sha = get_qpk_pin_sha(pin_file=qpk_pin)
+    mode: SyncMode = args.mode
+    before_sha = args.before_sha.strip() or (previous_qpk_pin_sha(bundle_root) or "")
+    if mode == "upgrade-affected" and before_sha and before_sha != qpk_sha:
+        try:
+            changed = changed_paths_between(bundle_root, before_sha, qpk_sha)
+        except subprocess.CalledProcessError:
+            changed = ["src/quant_platform_kit/unknown.py"]  # fail open to behind-only upgrades
+        if not paths_affect_runtime(changed):
+            print(
+                "skip_all:candidate_has_no_runtime_path_impact "
+                f"before={before_sha[:12]} candidate={qpk_sha[:12]}"
+            )
+            return 0
 
     results: list[str] = []
     failures = 0
@@ -633,6 +802,21 @@ def main() -> int:
         for repo in repo_specs:
             repo_dir = clone_repo(repo, target_root, token, dry_run=args.dry_run)
             try:
+                relation, detail = resolve_repo_relation(
+                    repo_dir,
+                    candidate_sha=qpk_sha,
+                    qpk_repo_dir=bundle_root,
+                )
+            except subprocess.CalledProcessError as exc:
+                results.append(
+                    f"{repo.name}: pin_relation_failed:{command_failure_summary(exc)}"
+                )
+                failures += 1
+                continue
+            if relation is not None and not should_open_upgrade_pr(relation, mode=mode):
+                results.append(f"{repo.name}: skip_{relation}:{detail}")
+                continue
+            try:
                 changed = update_repo(
                     repo_dir,
                     qpk_pin,
@@ -658,10 +842,11 @@ def main() -> int:
                     )
                 )
             except subprocess.CalledProcessError as exc:
-                stderr = (exc.stderr or exc.stdout).strip()
+                stderr = (exc.stderr or exc.stdout or "").strip()
                 results.append(f"{repo.name}: failed to open PR: {stderr}")
                 failures += 1
     print(f"phase={phase}")
+    print(f"mode={mode}")
     print("\n".join(results))
     return 1 if failures else 0
 

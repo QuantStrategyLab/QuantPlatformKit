@@ -18,6 +18,14 @@ on:
           - auto
           - strategies
           - consumers
+      mode:
+        description: "Pin sync mode (upgrade-affected refuses downgrades; cohort-all ignores path filter but still refuses downgrades)"
+        required: true
+        default: upgrade-affected
+        type: choice
+        options:
+          - upgrade-affected
+          - cohort-all
 
 permissions:
   contents: read
@@ -44,13 +52,19 @@ jobs:
         env:
           QSL_REPO_SYNC_TOKEN: ${{ secrets.QSL_REPO_SYNC_TOKEN }}
           QSL_PIN_PHASE: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'auto' }}
+          QSL_PIN_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'upgrade-affected' }}
         run: |
           set -euo pipefail
           if [ -z "${QSL_REPO_SYNC_TOKEN:-}" ]; then
             echo "missing_token=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          python3 scripts/open_downstream_qpk_pin_prs.py --phase "$QSL_PIN_PHASE" | tee downstream-prs.txt
+          if [ "${QSL_PIN_MODE}" = "cohort-all" ]; then
+            echo "::warning::cohort-all mode ignores runtime path filtering; downgrade/equal/diverged pins are still refused."
+          fi
+          python3 scripts/open_downstream_qpk_pin_prs.py \
+            --phase "$QSL_PIN_PHASE" \
+            --mode "$QSL_PIN_MODE" | tee downstream-prs.txt
 
       - name: Create coherent aggregate bundle PR
         if: steps.sync.outputs.missing_token != 'true'
