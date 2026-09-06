@@ -572,6 +572,9 @@ def update_repo(
         repo_dir,
         qpk_sha,
     )
+    drift_workflow = repo_dir / ".github" / "workflows" / "drift-check.yml"
+    if drift_workflow.is_file():
+        previous_qpk_refs.update(re.findall(r"[a-f0-9]{40}", drift_workflow.read_text(encoding="utf-8")))
     update_drift_workflow_file(
         repo_dir,
         qpk_sha=qpk_sha,
