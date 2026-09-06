@@ -537,21 +537,28 @@ def _process_optimization_decision(
                 "an expiring human decision before any non-live promotion."
             )
             try:
+                from quant_platform_kit.strategy_lifecycle.paired_shadow_adapter import (
+                    resolve_promotion_shadow_record,
+                )
                 from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
                     make_telegram_research_promotion_notifier,
                     open_awaiting_human_ticket,
                     save_research_promotion_ticket,
                 )
 
-                # proxy_shadow remains until a non-live paired adapter supplies
-                # validated paired_shadow evidence; notify never grants live.
+                # Prefer a store-provided non-live paired collector; otherwise
+                # keep an explicit proxy marker. Notify never grants live.
+                collector = getattr(store, "collect_paired_shadow_observation", None)
+                shadow = resolve_promotion_shadow_record(
+                    proposal=proposal,
+                    drift=drift,
+                    collector=collector if callable(collector) else None,
+                    allow_proxy_fallback=True,
+                )
                 ticket = open_awaiting_human_ticket(
                     drift=drift,
                     proposal=proposal,
-                    shadow={
-                        "evidence_kind": "proxy_shadow_pending_paired",
-                        "passed": True,
-                    },
+                    shadow=shadow,
                     notify=make_telegram_research_promotion_notifier(),
                 )
                 entry["research_promotion_ticket_id"] = ticket.ticket_id
