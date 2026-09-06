@@ -297,6 +297,45 @@ def update_ci_qpk_pin_contract(
     return True
 
 
+def collect_qpk_workflow_pins(text: str) -> set[str]:
+    """Collect SHAs only from explicit QuantPlatformKit workflow pins."""
+    pins: set[str] = set()
+    pins.update(
+        re.findall(
+            r"QuantStrategyLab/QuantPlatformKit(?:/\.github/workflows/[^\s@]+)?@([a-f0-9]{40})",
+            text,
+        )
+    )
+    pins.update(
+        re.findall(
+            r"repository:\s*QuantStrategyLab/QuantPlatformKit\n\s*ref:\s*([a-f0-9]{40})",
+            text,
+        )
+    )
+    pins.update(re.findall(r"quant_platform_kit_ref:\s*([a-f0-9]{40})", text))
+    return pins
+
+
+def rewrite_qpk_workflow_pin_contexts(text: str, *, prior_sha: str, qpk_sha: str) -> str:
+    """Rewrite one prior SHA only inside explicit QPK repository/ref/uses/input contexts."""
+    updated = re.sub(
+        rf"(QuantStrategyLab/QuantPlatformKit(?:/\.github/workflows/[^\s@]+)?@){prior_sha}",
+        rf"\g<1>{qpk_sha}",
+        text,
+    )
+    updated = re.sub(
+        rf"(repository:\s*QuantStrategyLab/QuantPlatformKit\n\s*ref:\s*){prior_sha}",
+        rf"\g<1>{qpk_sha}",
+        updated,
+    )
+    updated = re.sub(
+        rf"(quant_platform_kit_ref:\s*){prior_sha}",
+        rf"\g<1>{qpk_sha}",
+        updated,
+    )
+    return updated
+
+
 def update_drift_workflow_file(
     repo_dir: Path,
     *,
@@ -307,35 +346,30 @@ def update_drift_workflow_file(
 
     ``check_qpk_pin_consistency --fix`` intentionally leaves immutable workflow
     pins alone. Strategy drift workflows are different: their contract tests
-    assert the same SHA the package pin uses. Update only SHAs already present
-    before this sync (plus explicit QuantPlatformKit pins in the workflow) so
+    assert the same SHA the package pin uses. Update only explicit QuantPlatformKit
+    repository/ref/uses/input pins so checkout pins, snapshot SHAs, and other
     unrelated hashes stay untouched.
     """
     path = repo_dir / ".github" / "workflows" / "drift-check.yml"
     if not path.is_file():
         return False
     original = path.read_text(encoding="utf-8")
-    updated = original
+    workflow_pins = collect_qpk_workflow_pins(original)
+    # previous_qpk_refs may include package pins; never treat non-QPK workflow
+    # hashes as rewrite targets even if a caller accidentally collected them.
     previous = {
         sha
         for sha in previous_qpk_refs
         if re.fullmatch(r"[a-f0-9]{40}", sha) and sha != qpk_sha
     }
-    workflow_pins = set(
-        re.findall(
-            r"QuantStrategyLab/QuantPlatformKit(?:/\.github/workflows/[^\s@]+)?@([a-f0-9]{40})",
-            original,
+    priors = {sha for sha in (previous | workflow_pins) if sha in workflow_pins and sha != qpk_sha}
+    updated = original
+    for prior in sorted(priors):
+        updated = rewrite_qpk_workflow_pin_contexts(
+            updated,
+            prior_sha=prior,
+            qpk_sha=qpk_sha,
         )
-    )
-    workflow_pins.update(
-        re.findall(
-            r"repository:\s*QuantStrategyLab/QuantPlatformKit\n\s*ref:\s*([a-f0-9]{40})",
-            original,
-        )
-    )
-    workflow_pins.update(re.findall(r"quant_platform_kit_ref:\s*([a-f0-9]{40})", original))
-    for prior in sorted(previous | {sha for sha in workflow_pins if sha != qpk_sha}):
-        updated = updated.replace(prior, qpk_sha)
     if updated == original:
         return False
     path.write_text(updated, encoding="utf-8")
@@ -574,7 +608,9 @@ def update_repo(
     )
     drift_workflow = repo_dir / ".github" / "workflows" / "drift-check.yml"
     if drift_workflow.is_file():
-        previous_qpk_refs.update(re.findall(r"[a-f0-9]{40}", drift_workflow.read_text(encoding="utf-8")))
+        previous_qpk_refs.update(
+            collect_qpk_workflow_pins(drift_workflow.read_text(encoding="utf-8"))
+        )
     update_drift_workflow_file(
         repo_dir,
         qpk_sha=qpk_sha,
