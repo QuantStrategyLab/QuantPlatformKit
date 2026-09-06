@@ -299,6 +299,109 @@ def _module():
     )
 
 
+def _v3_payload(tmp_path: Path, *, accepted: bool = False) -> dict[str, Any]:
+    payload = _payload(tmp_path, accepted=accepted)
+    payload["schema_version"] = "strategy_evidence_package.v3"
+    payload["metrics"]["information_coefficient"] = {
+        "status": "not_applicable",
+        "reason_code": "no_prediction_target",
+        "reason": "This fixed synthetic producer defines allocation, not a prediction target.",
+    }
+    _refresh_digests(payload)
+    return payload
+
+
+def _v3_schema_validator():
+    from referencing import Registry, Resource
+
+    root = resources.files("quant_platform_kit.schemas")
+    schemas = [json.loads(root.joinpath(f"strategy-evidence-package.v{version}.schema.json")
+                          .read_text(encoding="utf-8")) for version in (2, 3)]
+    # Package-local resources only: unresolved references must never fetch a URL.
+    registry = Registry().with_resources(
+        (schema["$id"], Resource.from_contents(schema)) for schema in schemas
+    )
+    return Draft202012Validator(schemas[1], registry=registry, format_checker=FormatChecker())
+
+
+@pytest.mark.parametrize("computed", [None, -1.0, -0.8, 0.0, 1.0])
+def test_v3_ic_applicability_round_trip_and_strict_v2(tmp_path: Path, computed) -> None:
+    payload = _v3_payload(tmp_path)
+    if computed is not None:
+        payload["metrics"]["information_coefficient"] = {"status": "computed", "value": computed}
+        _refresh_digests(payload)
+    assert _module().validate_strategy_evidence_payload(payload, base_dir=tmp_path) == []
+    assert list(_v3_schema_validator().iter_errors(payload)) == []
+    assert _module().validate_evidence_package_v2(payload, base_dir=tmp_path)
+    path = tmp_path / "evidence.v3.json"
+    path.write_bytes(_canonical(payload))
+    assert _module().validate_strategy_evidence_file(path) == []
+
+
+@pytest.mark.parametrize("metric", [
+    None, True, 0.2, {},
+    {"status": "computed", "value": True},
+    {"status": "computed", "value": 1.01},
+    {"status": "computed", "value": -1.01},
+    {"status": "computed"},
+    {"status": "computed", "value": 0.2, "reason": "fallback"},
+    {"status": "not_applicable", "reason_code": "no_prediction_target", "reason": " "},
+    {"status": "not_applicable", "reason_code": "no_prediction_target", "reason": "fixed", "value": None},
+    *[{"status": "not_applicable", "reason_code": reason, "reason": "failed"}
+      for reason in ("insufficient_samples", "constant_predictions", "missing_labels", "calculation_failed")],
+])
+def test_v3_ic_rejects_ambiguous_or_failed_measurement(tmp_path: Path, metric) -> None:
+    payload = _v3_payload(tmp_path)
+    payload["metrics"]["information_coefficient"] = metric
+    _refresh_digests(payload)
+    assert _module().validate_strategy_evidence_payload(payload, base_dir=tmp_path)
+    assert list(_v3_schema_validator().iter_errors(payload))
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
+def test_v3_computed_ic_must_be_finite(tmp_path: Path, value: float) -> None:
+    payload = _v3_payload(tmp_path)
+    payload["metrics"]["information_coefficient"] = {"status": "computed", "value": value}
+    issues = _module().validate_strategy_evidence_payload(payload, base_dir=tmp_path)
+    assert any("metrics.information_coefficient.value" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("mutation", ["missing", "bytes", "digest", "acceptance", "version"])
+def test_v3_keeps_artifact_core_and_acceptance_binding(tmp_path: Path, mutation: str) -> None:
+    payload = _v3_payload(tmp_path, accepted=True)
+    artifact = payload["artifacts"]["information_coefficient"]
+    if mutation == "missing":
+        del payload["artifacts"]["information_coefficient"]
+    elif mutation == "bytes":
+        (tmp_path / artifact["path"]).write_bytes(b"changed")
+    elif mutation == "digest":
+        payload["digests"]["information_coefficient_sha256"] = "b" * 64
+    elif mutation == "acceptance":
+        payload["metrics"]["information_coefficient"]["reason"] = "Changed declaration"
+        _refresh_digests(payload, bind_acceptance=False)
+    else:
+        payload["schema_version"] = "strategy_evidence_package.v999"
+    assert _module().validate_strategy_evidence_payload(payload, base_dir=tmp_path)
+
+
+def test_v3_cannot_inherit_v2_acceptance(tmp_path: Path) -> None:
+    payload = _payload(tmp_path)
+    payload["schema_version"] = "strategy_evidence_package.v3"
+    payload["metrics"]["information_coefficient"] = {"status": "computed", "value": -0.8}
+    _refresh_digests(payload, bind_acceptance=False)
+    issues = _module().validate_strategy_evidence_payload(payload, base_dir=tmp_path)
+    assert any("human_acceptance.evidence_core_sha256" in issue for issue in issues)
+
+
+@pytest.mark.parametrize("value", [None, True, {"status": "computed", "value": 0.1}])
+def test_v2_metric_semantics_are_not_relaxed(tmp_path: Path, value) -> None:
+    payload = _payload(tmp_path)
+    payload["metrics"]["information_coefficient"] = value
+    _refresh_digests(payload)
+    assert _module().validate_strategy_evidence_payload(payload, base_dir=tmp_path)
+    assert _module().validate_evidence_package_v2(payload, base_dir=tmp_path)
+
+
 def _issues(
     payload: dict[str, Any], *, base_dir: Path | None = None
 ) -> tuple[str, ...]:
