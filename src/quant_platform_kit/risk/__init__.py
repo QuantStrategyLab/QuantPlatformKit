@@ -51,6 +51,11 @@ from quant_platform_kit.risk.account_new_risk_gate import (
     evaluate_new_risk_from_reader,
     validate_injected_snapshot,
 )
+from quant_platform_kit.risk.production_drift_new_risk import (
+    normalize_production_drift_status,
+    production_drift_new_risk_reasons,
+    production_drift_status_from_result,
+)
 from quant_platform_kit.risk.capital_envelope_w2_probe import (
     format_probe_report,
     probe_capital_envelope_w2,
@@ -115,6 +120,9 @@ __all__ = [
     "evaluate_new_risk_admission",
     "evaluate_new_risk_from_reader",
     "validate_injected_snapshot",
+    "normalize_production_drift_status",
+    "production_drift_new_risk_reasons",
+    "production_drift_status_from_result",
     "CycleNewRiskHealthEvidence",
     "apply_cycle_new_risk_health_axes",
     "project_cycle_new_risk_health_axes",

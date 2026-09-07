@@ -33,6 +33,9 @@ import math
 from typing import Protocol
 
 from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
+from quant_platform_kit.risk.production_drift_new_risk import (
+    production_drift_new_risk_reasons,
+)
 
 
 class NewRiskDisposition(str, Enum):
@@ -54,6 +57,12 @@ class InjectedReconciliationSnapshot:
     inject-only numbers (no account ids, credentials, broker endpoints, or
     order payloads). Missing equity is treated as unknown → prohibit at the
     gate, not as a silent healthy default.
+
+    Optional ``production_drift_status`` is an inject-only closed enum
+    (``healthy`` / ``watch`` / ``review`` / ``critical``). Absent means the
+    drift axis was not injected (do not invent a status). ``review`` /
+    ``critical`` map to ``NEW_RISK_PROHIBITED`` only — never to optimize or
+    live enablement.
     """
 
     observation_status: str
@@ -63,6 +72,7 @@ class InjectedReconciliationSnapshot:
     peak_equity_usd: float | None = None
     drawdown_from_peak: float | None = None
     realized_vol: float | None = None
+    production_drift_status: str | None = None
 
 
 class ReconciliationSnapshotReader(Protocol):
@@ -167,11 +177,14 @@ def _evaluate_capital_axis(
 def evaluate_new_risk_admission(
     snapshot: InjectedReconciliationSnapshot,
 ) -> NewRiskAdmissionResult:
-    """Map unhealthy injected snapshots / capital envelope to ``NEW_RISK_PROHIBITED``.
+    """Map unhealthy injected snapshots / capital envelope / actionable
+    production drift to ``NEW_RISK_PROHIBITED``.
 
-    Healthy reconciliation axes **and** an allowing capital envelope may return
+    Healthy reconciliation axes, an allowing capital envelope, and a
+    non-actionable (or absent) production-drift axis may return
     ``ALLOW_NEW_RISK``. That is **not** an order permission, never grants live,
-    never flattens, and never resets breakers. Still not wired to real accounts.
+    never flattens, never resets breakers, and never starts optimization.
+    Still not wired to real accounts.
     """
     validated = validate_injected_snapshot(snapshot)
     reasons: list[str] = []
@@ -183,6 +196,7 @@ def evaluate_new_risk_admission(
         reasons.append("CIRCUIT_BREAKER_OPEN")
     capital_reasons, combined_scale = _evaluate_capital_axis(validated)
     reasons.extend(capital_reasons)
+    reasons.extend(production_drift_new_risk_reasons(validated.production_drift_status))
     if reasons:
         return NewRiskAdmissionResult(
             disposition=NewRiskDisposition.NEW_RISK_PROHIBITED,

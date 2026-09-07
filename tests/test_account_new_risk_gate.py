@@ -126,6 +126,47 @@ class EvaluateNewRiskAdmissionTests(unittest.TestCase):
         with self.assertRaises(AccountNewRiskGateError):
             evaluate_new_risk_admission(snap)
 
+    def test_absent_production_drift_does_not_invent_prohibit(self) -> None:
+        result = evaluate_new_risk_admission(_healthy())
+        self.assertEqual(result.disposition, NewRiskDisposition.ALLOW_NEW_RISK)
+        self.assertEqual(result.reason_codes, ())
+
+    def test_healthy_or_watch_production_drift_allows_when_other_axes_ok(self) -> None:
+        for status in ("healthy", "watch", "HEALTHY", "WATCH"):
+            with self.subTest(status=status):
+                result = evaluate_new_risk_admission(
+                    _healthy(production_drift_status=status)
+                )
+                self.assertEqual(result.disposition, NewRiskDisposition.ALLOW_NEW_RISK)
+                self.assertEqual(result.reason_codes, ())
+
+    def test_review_production_drift_prohibits_without_side_effects(self) -> None:
+        result = evaluate_new_risk_admission(
+            _healthy(production_drift_status="review")
+        )
+        self.assertEqual(result.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+        self.assertIn("PRODUCTION_DRIFT_REVIEW", result.reason_codes)
+        self.assertFalse(result.live_authority_granted)
+        self.assertFalse(result.circuit_breaker_reset)
+        self.assertFalse(result.account_enablement_changed)
+
+    def test_critical_production_drift_prohibits_without_side_effects(self) -> None:
+        result = evaluate_new_risk_admission(
+            _healthy(production_drift_status="critical")
+        )
+        self.assertEqual(result.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+        self.assertIn("PRODUCTION_DRIFT_CRITICAL", result.reason_codes)
+        self.assertFalse(result.live_authority_granted)
+        self.assertFalse(result.circuit_breaker_reset)
+        self.assertFalse(result.account_enablement_changed)
+
+    def test_invalid_production_drift_status_fails_closed(self) -> None:
+        result = evaluate_new_risk_admission(
+            _healthy(production_drift_status="maybe")
+        )
+        self.assertEqual(result.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+        self.assertIn("PRODUCTION_DRIFT_STATUS_INVALID_FAIL_CLOSED", result.reason_codes)
+
 
 class ReaderInjectionTests(unittest.TestCase):
     def test_reader_unhealthy_snapshot_prohibits(self) -> None:

@@ -48,6 +48,19 @@
 可选：`peak_equity_usd` / `drawdown_from_peak` / `realized_vol`。缺权益 →
 `EQUITY_UNKNOWN_FAIL_CLOSED` 禁止。`ALLOW_NEW_RISK` **不是**下单许可，也不是实盘授权。
 
+### 生产 drift 轴（Policy A：禁新风险，零优化）
+
+可选注入 `production_drift_status`（`healthy` / `watch` / `review` / `critical`）：
+
+| 注入 | 门控效果 |
+| --- | --- |
+| 缺省 / 空白 | 不发明状态；本轴不加禁止理由 |
+| `healthy` / `watch` | 本轴允许 |
+| `review` / `critical` | `NEW_RISK_PROHIBITED`（`PRODUCTION_DRIFT_REVIEW` / `PRODUCTION_DRIFT_CRITICAL`） |
+| 非法值 | `PRODUCTION_DRIFT_STATUS_INVALID_FAIL_CLOSED` |
+
+本轴**只**禁止新增风险；不启动 reopt、不写研究 ticket、不授 live。研究侧有界 reopt 仍须人工/独立 ticket 触发。助手：`production_drift_new_risk_reasons` / `production_drift_status_from_result`。
+
 ### W2 只读 probe 用法
 
 ```bash
