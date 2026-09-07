@@ -87,6 +87,14 @@
 该校验不晋级、不启用、也不自动修复目标。已退役或不一致的目标必须保持隔离，重新
 收集证据并走完生命周期后才能恢复；健康的 protected-live 目标则可在既有授权范围内继续运行。
 
+## 生产 drift 监测门槛
+
+`evaluate_production_drift_health` 只把只读 health/metrics 和版本化阈值转换为 `DriftResult`。
+低于 `REVIEW` 的结果不可触发优化；`REVIEW` 或 `CRITICAL` 也只允许调用方进入受控研究流程。
+定时任务（cron）只能采集只读指标并调用该评估函数，不得直接 reopt、写运行时配置或调用券商。
+缺失、非有限或越界的 drift score 会失败关闭，不产生可供后续优化消费的结果。
+阈值调整必须使用新的 `threshold_version`，并由部署配置明确选择。
+
 ## 推荐晋级策略
 
 - 监控阈值可以相对低一些，让候选策略尽早可见。

@@ -137,6 +137,10 @@ from quant_platform_kit.strategy_lifecycle.release_readiness import (
     StrategyReleaseReadiness,
     assess_strategy_release_readiness,
 )
+from quant_platform_kit.strategy_lifecycle.production_drift_evaluator import (
+    ProductionDriftThresholds,
+    evaluate_production_drift_health,
+)
 from quant_platform_kit.strategy_lifecycle.lifecycle_status import (
     CANONICAL_LIFECYCLE_STATES,
     LEGACY_CATALOG_STATUS_MAP,
@@ -192,6 +196,7 @@ __all__ = [
     "PROMOTION_DECISION_SCHEMA_VERSION",
     "StrategyHealthScore",
     "StrategyReleaseReadiness",
+    "ProductionDriftThresholds",
     "STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION",
     "StrategyPerformanceSnapshot",
     "UpdateLogEntry",
@@ -238,6 +243,7 @@ __all__ = [
     "build_strategy_benchmark_catalog",
     "build_strategy_context_coverage_catalog",
     "assess_strategy_release_readiness",
+    "evaluate_production_drift_health",
     "build_forward_risk_terminal_artifact",
     "build_forward_observation_receipt",
     "build_paired_shadow_evidence",
