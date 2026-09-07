@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Any
+from typing import Any, Iterable, Mapping
 
 from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
     RISK_PROFILE_IDS,
@@ -89,6 +89,29 @@ class CapitalRiskEnvelope:
     reasons: tuple[str, ...]
     dd_brake: float
     risk_preference: str | None = None
+    live_authority_granted: bool = False
+
+
+@dataclass(frozen=True)
+class AccountCapitalEnvelopeSummary:
+    """Read-only envelope projection for one injected account."""
+
+    account_id: str
+    equity_usd: float | None
+    envelope: CapitalRiskEnvelope
+    live_authority_granted: bool = False
+
+
+@dataclass(frozen=True)
+class MultiAccountCapitalEnvelopeView:
+    """D3 aggregate view; it cannot allocate or submit across accounts."""
+
+    total_equity_usd: float | None
+    aggregate_envelope: CapitalRiskEnvelope
+    accounts: tuple[AccountCapitalEnvelopeSummary, ...]
+    any_account_new_risk_prohibited: bool
+    new_risk_allowed: bool
+    reasons: tuple[str, ...]
     live_authority_granted: bool = False
 
 
@@ -246,6 +269,100 @@ def evaluate_capital_risk_envelope(
     )
 
 
+def _valid_equity(value: object) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and float(value) >= 0.0
+    )
+
+
+def _account_drawdown(account: Mapping[str, Any], equity_usd: object) -> object:
+    explicit = account.get("drawdown_from_peak")
+    if explicit is not None:
+        return explicit
+    peak = account.get("peak_equity_usd")
+    if peak is None:
+        return None
+    if (
+        not _valid_equity(equity_usd)
+        or isinstance(peak, bool)
+        or not isinstance(peak, (int, float))
+        or not math.isfinite(float(peak))
+        or float(peak) <= 0.0
+    ):
+        return -1.0
+    return max(0.0, 1.0 - float(equity_usd) / float(peak))
+
+
+def evaluate_multi_account_envelope_view(
+    accounts: Iterable[Mapping[str, Any]],
+    *,
+    risk_preference: str | None = None,
+    target_vol: float = DEFAULT_TARGET_VOL_ANNUAL,
+) -> MultiAccountCapitalEnvelopeView:
+    """Project per-account and aggregate envelopes without execution authority."""
+    summaries: list[AccountCapitalEnvelopeSummary] = []
+    reasons: list[str] = []
+    total_equity = 0.0
+    aggregate_equity_valid = True
+
+    for account in accounts:
+        account_id = str(account.get("account_id") or "").strip()
+        raw_equity = account.get("equity_usd")
+        equity = float(raw_equity) if _valid_equity(raw_equity) else None
+        if equity is None:
+            aggregate_equity_valid = False
+            reasons.append("ACCOUNT_EQUITY_UNKNOWN_FAIL_CLOSED")
+        else:
+            total_equity += equity
+        if not account_id:
+            reasons.append("ACCOUNT_ID_MISSING_FAIL_CLOSED")
+        envelope = evaluate_capital_risk_envelope(
+            raw_equity if equity is not None else float("nan"),
+            realized_vol=account.get("realized_vol"),
+            drawdown_from_peak=_account_drawdown(account, raw_equity),
+            risk_preference=risk_preference,
+            target_vol=target_vol,
+        )
+        summaries.append(
+            AccountCapitalEnvelopeSummary(
+                account_id=account_id,
+                equity_usd=equity,
+                envelope=envelope,
+            )
+        )
+
+    if not summaries:
+        aggregate_equity_valid = False
+        reasons.append("ACCOUNTS_EMPTY_FAIL_CLOSED")
+    aggregate_envelope = evaluate_capital_risk_envelope(
+        total_equity if aggregate_equity_valid else float("nan"),
+        risk_preference=risk_preference,
+        target_vol=target_vol,
+    )
+    any_prohibited = any(
+        not summary.envelope.new_risk_allowed or not summary.account_id
+        for summary in summaries
+    )
+    if any_prohibited:
+        reasons.append("ACCOUNT_NEW_RISK_PROHIBITED")
+    new_risk_allowed = (
+        aggregate_envelope.new_risk_allowed
+        and not any_prohibited
+        and aggregate_equity_valid
+    )
+    return MultiAccountCapitalEnvelopeView(
+        total_equity_usd=total_equity if aggregate_equity_valid else None,
+        aggregate_envelope=aggregate_envelope,
+        accounts=tuple(summaries),
+        any_account_new_risk_prohibited=any_prohibited,
+        new_risk_allowed=new_risk_allowed,
+        reasons=tuple(dict.fromkeys(reasons)),
+    )
+
+
 def apply_envelope_to_sized_weight(
     sized_weight: float,
     envelope: CapitalRiskEnvelope | Any,
@@ -274,8 +391,11 @@ def apply_envelope_to_sized_weight(
 
 __all__ = [
     "DEFAULT_TARGET_VOL_ANNUAL",
+    "AccountCapitalEnvelopeSummary",
     "CapitalRiskEnvelope",
     "LeverageProductCap",
+    "MultiAccountCapitalEnvelopeView",
     "apply_envelope_to_sized_weight",
     "evaluate_capital_risk_envelope",
+    "evaluate_multi_account_envelope_view",
 ]
