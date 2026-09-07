@@ -47,6 +47,21 @@ on:
         required: false
         type: string
         default: ""
+      gcp_workload_identity_provider:
+        description: "Optional WIF provider for writing LIFECYCLE_PERFORMANCE_BUCKET."
+        required: false
+        type: string
+        default: ""
+      gcp_service_account:
+        description: "Optional GCP service account email for lifecycle bucket writes."
+        required: false
+        type: string
+        default: ""
+      gcp_project_id:
+        description: "Optional GCP project id for gcloud setup."
+        required: false
+        type: string
+        default: ""
     secrets:
       codex_audit_service_url:
         required: false
@@ -159,6 +174,31 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e . pandas
           python -m pip install --no-deps -e external/QuantPlatformKit
+
+      - name: Gate cloud lifecycle writes without GCP auth
+        env:
+          WIF_PROVIDER: ${{ inputs.gcp_workload_identity_provider }}
+          WIF_SA: ${{ inputs.gcp_service_account }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${LIFECYCLE_PERFORMANCE_BUCKET:-}" ] && { [ -z "${WIF_PROVIDER}" ] || [ -z "${WIF_SA}" ]; }; then
+            echo "::warning::LIFECYCLE_PERFORMANCE_BUCKET is set without GCP WIF inputs; keeping local-only lifecycle store for this run"
+            echo "LIFECYCLE_PERFORMANCE_BUCKET=" >> "$GITHUB_ENV"
+          fi
+
+      - name: Authenticate to Google Cloud
+        if: ${{ inputs.gcp_workload_identity_provider != '' && inputs.gcp_service_account != '' }}
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ inputs.gcp_workload_identity_provider }}
+          service_account: ${{ inputs.gcp_service_account }}
+
+      - name: Set up gcloud
+        if: ${{ inputs.gcp_workload_identity_provider != '' && inputs.gcp_service_account != '' && inputs.gcp_project_id != '' }}
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ inputs.gcp_project_id }}
 
       - name: Download lifecycle preflight artifact
         if: inputs.lifecycle_preflight_artifact != ''
