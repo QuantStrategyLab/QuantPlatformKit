@@ -143,7 +143,7 @@ class AiServiceClient:
                 for r in result.results
             ]
 
-        # Fallback: local implementation (no gateway client available)
+        # A Codex execution job cannot replace independent API reviewers.
         return self._review_local(prompt, timeout)
 
     def verify(self, prompt: str, *, timeout: float = 600.0) -> "AiCallResult | None":
@@ -180,20 +180,17 @@ class AiServiceClient:
         return self._call_local(provider, prompt, timeout)
 
     def _review_local(self, prompt: str, timeout: float) -> list["AiCallResult"]:
-        """Local fallback when gateway client is not installed."""
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(self.config.reviewers), 3)) as pool:
-            futures = {pool.submit(self._call_local, c, prompt, timeout): c for c in self.config.reviewers}
-            results = []
-            for f in concurrent.futures.as_completed(futures):
-                try:
-                    results.append(f.result())
-                except Exception as exc:
-                    results.append(AiCallResult.unavailable(futures[f].label, str(exc)))
-        return results
+        """Report unavailable reviewers when the gateway client is not installed."""
+        return [
+            AiCallResult.unavailable(c.label, "ai_gateway_client required for review")
+            for c in self.config.reviewers
+        ]
 
     def _call_local(self, provider: AiProviderConfig, prompt: str, timeout: float) -> "AiCallResult":
-        """Direct HTTP call to AiGateway — used when client library not installed."""
+        """Direct Codex execution only when the gateway client is not installed."""
+        if provider.provider != AiProviderId.CODEX_VPS or provider.task != "execute":
+            return AiCallResult.unavailable(provider.label, "ai_gateway_client required for this provider/task")
+
         import json as _json
         import urllib.error as _urllib_err
         import urllib.request as _urllib_req
@@ -245,10 +242,10 @@ class AiServiceClient:
                     continue
                 status = job.get("status")
                 if status == "succeeded":
-                    return AiCallResult(provider=provider.label, success=True,
+                    return AiCallResult(provider="Codex VPS", success=True,
                                         output=str(job.get("output", "")), raw=job)
                 if status == "failed":
-                    return AiCallResult(provider=provider.label, success=False,
+                    return AiCallResult(provider="Codex VPS", success=False,
                                         output=job.get("error", "unknown"), raw=job)
             return AiCallResult.unavailable(provider.label, "Timeout")
         except Exception as exc:
