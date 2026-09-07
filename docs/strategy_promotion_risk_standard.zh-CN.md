@@ -91,6 +91,20 @@ AI 自动优化必须遵守以下规则：
    - 如需新参数，只能走新的 trial / 新证据包。
 4. AI 优化结论不能直接跳过 live_ready 门槛。
 
+### Drift reopt 到 shadow 的绑定
+
+`run_research_promotion_cycle` 在预算检查通过后、记录 shadow 前，必须调用
+`enforce_promotion_backtest_gates`。调用方注入以下任一结果：
+
+- `BacktestOrchestrator.run_promotion` 返回的 `PromotionBacktestRun`；或
+- 显式摘要：`status=PASS`，并复用 evidence package `backtest` 字段的
+  `BacktestOrchestrator`、`purged_walk_forward.v1`、≥3 个有序 folds、
+  正数 purge/embargo，以及锁定、独立且未用于选参的 ≥12 日历月 OOS。
+
+缺少回调、缺字段、状态非 `PASS`、身份不匹配或回调异常均 fail-closed：
+ticket 进入 `PARKED`，且不会调用 shadow。该门只确认严格回测证据，不授予
+paper/shadow/live 权限。
+
 ## 插件自动化门槛
 
 当插件声明 `position_control_allowed=true` 时，必须同时满足：

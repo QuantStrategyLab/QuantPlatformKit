@@ -7,11 +7,12 @@ deployment authority.
 
 from __future__ import annotations
 
+import calendar
 import json
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     DriftResult,
     DriftStatus,
     OptimizationProposal,
+    PromotionBacktestRun,
 )
 
 
@@ -234,6 +236,117 @@ def enforce_optimization_budget(
             ),
         )
     return True, "within_budget"
+
+
+def _add_calendar_months(value: date, months: int) -> date:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _promotion_backtest_evidence_mapping(
+    evidence: PromotionBacktestRun | Mapping[str, Any],
+) -> Mapping[str, Any]:
+    if isinstance(evidence, PromotionBacktestRun):
+        return {
+            "status": "PASS",
+            "orchestrator": "BacktestOrchestrator",
+            "protocol": "purged_walk_forward.v1",
+            "locked_independent_oos": {
+                "locked": True,
+                "independent": True,
+                "reused_for_selection": False,
+            },
+            "promotion_run": evidence.to_dict(),
+        }
+    return evidence
+
+
+def enforce_promotion_backtest_gates(
+    proposal: OptimizationProposal,
+    evidence: PromotionBacktestRun | Mapping[str, Any] | None,
+) -> tuple[bool, str]:
+    """Validate the strict orchestrator/WFA/OOS summary before shadow.
+
+    Callers may return the existing ``PromotionBacktestRun`` contract directly
+    or an evidence-package-compatible backtest summary. Missing or malformed
+    evidence always parks the candidate.
+    """
+    if evidence is None:
+        return False, "missing_promotion_backtest_evidence"
+    if not isinstance(evidence, (PromotionBacktestRun, Mapping)):
+        return False, "invalid_promotion_backtest_evidence_type"
+
+    summary = _promotion_backtest_evidence_mapping(evidence)
+    if summary.get("status") != "PASS":
+        return False, "promotion_backtest_status_not_pass"
+    if summary.get("orchestrator") != "BacktestOrchestrator":
+        return False, "promotion_backtest_orchestrator_required"
+    if summary.get("protocol") != "purged_walk_forward.v1":
+        return False, "purged_walk_forward_protocol_required"
+
+    locked = summary.get("locked_independent_oos")
+    if not isinstance(locked, Mapping):
+        return False, "locked_independent_oos_required"
+    if (
+        locked.get("locked") is not True
+        or locked.get("independent") is not True
+        or locked.get("reused_for_selection") is not False
+    ):
+        return False, "locked_independent_oos_failed"
+
+    run = summary.get("promotion_run")
+    if not isinstance(run, Mapping):
+        return False, "promotion_run_required"
+    if run.get("strategy_profile") != proposal.strategy_profile:
+        return False, "promotion_run_strategy_profile_mismatch"
+    if run.get("domain") != proposal.domain:
+        return False, "promotion_run_domain_mismatch"
+    folds = run.get("folds")
+    if not isinstance(folds, (list, tuple)) or len(folds) < 3:
+        return False, "promotion_run_requires_three_folds"
+    for field_name in ("purge_days", "embargo_days"):
+        value = run.get(field_name)
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            return False, f"promotion_run_{field_name}_must_be_positive"
+    purge_days = int(run["purge_days"])
+    embargo_days = int(run["embargo_days"])
+    previous_test_end: date | None = None
+    for index, fold in enumerate(folds):
+        if not isinstance(fold, Mapping):
+            return False, f"promotion_run_fold_{index}_invalid"
+        try:
+            train_start = date.fromisoformat(str(fold.get("train_start") or ""))
+            train_end = date.fromisoformat(str(fold.get("train_end") or ""))
+            test_start = date.fromisoformat(str(fold.get("test_start") or ""))
+            test_end = date.fromisoformat(str(fold.get("test_end") or ""))
+        except ValueError:
+            return False, f"promotion_run_fold_{index}_dates_invalid"
+        if train_start > train_end or test_start > test_end:
+            return False, f"promotion_run_fold_{index}_dates_reversed"
+        if train_end + timedelta(days=purge_days) >= test_start:
+            return False, f"promotion_run_fold_{index}_purge_failed"
+        if (
+            previous_test_end is not None
+            and previous_test_end + timedelta(days=embargo_days) >= train_start
+        ):
+            return False, f"promotion_run_fold_{index}_embargo_failed"
+        previous_test_end = test_end
+    try:
+        oos_start = date.fromisoformat(str(run.get("locked_oos_start") or ""))
+        oos_end = date.fromisoformat(str(run.get("locked_oos_end") or ""))
+    except ValueError:
+        return False, "promotion_run_locked_oos_dates_invalid"
+    if (
+        previous_test_end is None
+        or previous_test_end + timedelta(days=embargo_days) >= oos_start
+    ):
+        return False, "promotion_run_locked_oos_embargo_failed"
+    if oos_end < _add_calendar_months(oos_start, 12):
+        return False, "promotion_run_locked_oos_under_12_months"
+    return True, "promotion_backtest_gates_passed"
 
 
 def build_human_promotion_notification(
@@ -703,6 +816,13 @@ def run_research_promotion_cycle(
     *,
     optimize: Callable[[DriftResult, ResearchPromotionBudget], OptimizationProposal],
     record_shadow: Callable[[OptimizationProposal], Mapping[str, Any]],
+    enforce_backtest_gates: (
+        Callable[
+            [OptimizationProposal],
+            PromotionBacktestRun | Mapping[str, Any] | None,
+        ]
+        | None
+    ) = None,
     notify: Callable[[str, str], None] | None = None,
     sync_console: Callable[[ResearchPromotionTicket], bool] | None = None,
     budget: ResearchPromotionBudget | None = None,
@@ -750,6 +870,30 @@ def run_research_promotion_cycle(
         ticket.notes = (f"recommendation={proposal.recommendation}",)
         ticket.updated_at = _now_iso()
         return ticket
+
+    try:
+        backtest_evidence = (
+            enforce_backtest_gates(proposal)
+            if enforce_backtest_gates is not None
+            else None
+        )
+    except Exception as exc:
+        ticket.state = ResearchPromotionState.PARKED
+        ticket.notes = (
+            "promotion_backtest_gate_failed",
+            f"promotion_backtest_gate_error={type(exc).__name__}",
+        )
+        ticket.updated_at = _now_iso()
+        return ticket
+    gates_ok, gate_reason = enforce_promotion_backtest_gates(
+        proposal, backtest_evidence
+    )
+    if not gates_ok:
+        ticket.state = ResearchPromotionState.PARKED
+        ticket.notes = ("promotion_backtest_gate_failed", gate_reason)
+        ticket.updated_at = _now_iso()
+        return ticket
+    ticket.notes = ticket.notes + (gate_reason,)
 
     shadow = dict(record_shadow(proposal))
     ticket.state = ResearchPromotionState.SHADOW_RECORDED
@@ -900,6 +1044,7 @@ __all__ = [
     "apply_human_promotion_decision",
     "build_human_promotion_notification",
     "enforce_optimization_budget",
+    "enforce_promotion_backtest_gates",
     "load_research_promotion_ticket",
     "make_console_research_promotion_pull",
     "make_console_research_promotion_sync",

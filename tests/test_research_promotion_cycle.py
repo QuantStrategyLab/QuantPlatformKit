@@ -18,7 +18,7 @@ from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
     apply_human_promotion_decision,
     validate_promotion_confirmation,
     load_research_promotion_ticket,
-    run_research_promotion_cycle,
+    run_research_promotion_cycle as _run_research_promotion_cycle,
     save_research_promotion_ticket,
 )
 
@@ -47,6 +47,55 @@ def _proposal(
         recommendation=recommendation,
         search_iterations=search_iterations,
     )
+
+
+def _promotion_backtest_evidence() -> dict:
+    return {
+        "status": "PASS",
+        "orchestrator": "BacktestOrchestrator",
+        "protocol": "purged_walk_forward.v1",
+        "locked_independent_oos": {
+            "locked": True,
+            "independent": True,
+            "reused_for_selection": False,
+        },
+        "promotion_run": {
+            "strategy_profile": "demo_strategy",
+            "domain": "us_equity",
+            "folds": [
+                {
+                    "train_start": "2019-01-01",
+                    "train_end": "2019-12-31",
+                    "test_start": "2020-01-02",
+                    "test_end": "2020-06-30",
+                },
+                {
+                    "train_start": "2020-07-02",
+                    "train_end": "2021-06-30",
+                    "test_start": "2021-07-02",
+                    "test_end": "2021-12-31",
+                },
+                {
+                    "train_start": "2022-01-02",
+                    "train_end": "2022-12-31",
+                    "test_start": "2023-01-02",
+                    "test_end": "2023-06-30",
+                },
+            ],
+            "locked_oos_start": "2023-07-02",
+            "locked_oos_end": "2024-07-02",
+            "purge_days": 1,
+            "embargo_days": 1,
+        },
+    }
+
+
+def run_research_promotion_cycle(*args, **kwargs):
+    kwargs.setdefault(
+        "enforce_backtest_gates",
+        lambda proposal: _promotion_backtest_evidence(),
+    )
+    return _run_research_promotion_cycle(*args, **kwargs)
 
 
 def test_budget_rejects_live_enablement_flag() -> None:
@@ -84,6 +133,60 @@ def test_cycle_stops_at_awaiting_human_and_notifies() -> None:
     assert ticket.shadow_passed is True
     assert ticket.notification_subject.startswith("[AWAITING_HUMAN]")
     assert notes and "live_authority_granted: false" in notes[0][1]
+
+
+def test_cycle_parks_before_shadow_without_promotion_backtest_evidence() -> None:
+    shadow_calls: list[str] = []
+
+    ticket = _run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: shadow_calls.append("called") or {"passed": True},
+    )
+
+    assert ticket.state is ResearchPromotionState.PARKED
+    assert ticket.notes[0] == "promotion_backtest_gate_failed"
+    assert "missing_promotion_backtest_evidence" in ticket.notes
+    assert shadow_calls == []
+
+
+def test_cycle_passes_hard_backtest_evidence_before_shadow() -> None:
+    events: list[str] = []
+
+    ticket = _run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        enforce_backtest_gates=lambda proposal: (
+            events.append("backtest_gate") or _promotion_backtest_evidence()
+        ),
+        record_shadow=lambda proposal: (
+            events.append("shadow")
+            or {"evidence_kind": "proxy_shadow", "passed": True}
+        ),
+    )
+
+    assert ticket.state is ResearchPromotionState.AWAITING_HUMAN
+    assert events == ["backtest_gate", "shadow"]
+
+
+def test_cycle_parks_when_promotion_backtest_gate_fails() -> None:
+    evidence = _promotion_backtest_evidence()
+    evidence["status"] = "FAIL"
+
+    ticket = _run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        enforce_backtest_gates=lambda proposal: evidence,
+        record_shadow=lambda proposal: (_ for _ in ()).throw(
+            AssertionError("failed hard gate must not record shadow")
+        ),
+    )
+
+    assert ticket.state is ResearchPromotionState.PARKED
+    assert ticket.notes == (
+        "promotion_backtest_gate_failed",
+        "promotion_backtest_status_not_pass",
+    )
 
 
 def test_cycle_parks_when_budget_exceeded() -> None:
