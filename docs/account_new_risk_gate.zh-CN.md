@@ -59,7 +59,7 @@
 | `review` / `critical` | `NEW_RISK_PROHIBITED`（`PRODUCTION_DRIFT_REVIEW` / `PRODUCTION_DRIFT_CRITICAL`） |
 | 非法值 | `PRODUCTION_DRIFT_STATUS_INVALID_FAIL_CLOSED` |
 
-本轴**只**禁止新增风险；不启动 reopt、不写研究 ticket、不授 live。研究侧有界 reopt 仍须人工/独立 ticket 触发。助手：`production_drift_new_risk_reasons` / `production_drift_status_from_result`。
+本轴**只**禁止新增风险；不启动 reopt、不写研究 ticket、不授 live。研究侧有界 reopt 仍须人工/独立 ticket 触发。助手：`production_drift_new_risk_reasons` / `production_drift_status_from_result`。平台可调用 `resolve_production_drift_status_from_store` 从 PerformanceStore 只读 probe 注入状态；无 store / parked / 探针失败时省略本轴（不发明 CRITICAL）。
 
 ### W2 只读 probe 用法
 

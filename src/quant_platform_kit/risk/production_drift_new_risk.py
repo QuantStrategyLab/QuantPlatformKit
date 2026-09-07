@@ -12,6 +12,8 @@ axis reasons. Invalid status fails closed.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+from datetime import date
 from typing import Any
 
 _ALLOWED_STATUSES = frozenset({"healthy", "watch", "review", "critical"})
@@ -62,8 +64,65 @@ def production_drift_status_from_result(drift: Any) -> str | None:
     return normalize_production_drift_status(status)
 
 
+def production_drift_status_from_probe_summary(
+    summary: Mapping[str, Any] | None,
+) -> str | None:
+    """Map probe summary → inject status; parked/unavailable/missing → None."""
+    if summary is None:
+        return None
+    raw = summary.get("status")
+    try:
+        normalized = normalize_production_drift_status(raw)
+    except TypeError:
+        return None
+    if normalized is None:
+        return None
+    if normalized in {"parked", "unavailable"}:
+        return None
+    if normalized in _ALLOWED_STATUSES:
+        return normalized
+    return None
+
+
+def resolve_production_drift_status_from_store(
+    *,
+    strategy_profile: str,
+    domain: str,
+    as_of: date | str | None = None,
+    store: Any | None = None,
+    probe: Callable[..., Mapping[str, Any]] | None = None,
+) -> str | None:
+    """Read-only store probe → status | None. Any exception → None (fail-soft).
+
+    Does not optimize, grant live, or reset breakers.
+    """
+    profile = (strategy_profile or "").strip()
+    domain_key = (domain or "").strip()
+    if not profile or not domain_key:
+        return None
+    active_probe = probe
+    if active_probe is None:
+        from quant_platform_kit.strategy_lifecycle.production_drift_health_probe import (
+            probe_production_drift_health_from_store,
+        )
+
+        active_probe = probe_production_drift_health_from_store
+    try:
+        summary = active_probe(
+            strategy_profile=profile,
+            domain=domain_key,
+            as_of=as_of,
+            store=store,
+        )
+    except Exception:
+        return None
+    return production_drift_status_from_probe_summary(summary)
+
+
 __all__ = [
     "normalize_production_drift_status",
     "production_drift_new_risk_reasons",
+    "production_drift_status_from_probe_summary",
     "production_drift_status_from_result",
+    "resolve_production_drift_status_from_store",
 ]
