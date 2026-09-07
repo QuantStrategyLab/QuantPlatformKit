@@ -28,9 +28,15 @@ class EvaluateNewRiskAdmissionTests(unittest.TestCase):
         result = evaluate_new_risk_admission(_healthy())
         self.assertEqual(result.disposition, NewRiskDisposition.ALLOW_NEW_RISK)
         self.assertEqual(result.reason_codes, ())
+        self.assertEqual(result.combined_scale, 1.0)
         self.assertFalse(result.live_authority_granted)
         self.assertFalse(result.circuit_breaker_reset)
         self.assertFalse(result.account_enablement_changed)
+
+    def test_allowing_capital_envelope_exposes_combined_scale(self) -> None:
+        result = evaluate_new_risk_admission(_healthy(equity_usd=100_000.0))
+        self.assertEqual(result.disposition, NewRiskDisposition.ALLOW_NEW_RISK)
+        self.assertEqual(result.combined_scale, 0.85)
 
     def test_equity_unknown_prohibits_fail_closed(self) -> None:
         result = evaluate_new_risk_admission(_healthy(equity_usd=None))
