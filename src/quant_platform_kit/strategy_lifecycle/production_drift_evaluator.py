@@ -9,7 +9,11 @@ from datetime import date
 from numbers import Real
 from typing import Any
 
-from quant_platform_kit.strategy_lifecycle.contracts import DriftResult, DriftStatus
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    DriftResult,
+    DriftStatus,
+    StrategyPerformanceSnapshot,
+)
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,34 @@ class ProductionDriftThresholds:
             raise ValueError("review_score must be lower than critical_score")
 
 
+def sanitize_unit_drift_score(value: object) -> float:
+    """Fail-closed cast of a unit-interval drift score."""
+
+    if not _is_unit_score(value):
+        raise ValueError("drift_score must be finite and between 0 and 1")
+    return float(value)
+
+
+def resolve_injected_drift_score(
+    *,
+    drift: DriftResult | None = None,
+    snapshot: StrategyPerformanceSnapshot | None = None,
+) -> float | None:
+    """Prefer latest DriftResult score, else snapshot.drift_score; never invent 0.0."""
+
+    if drift is not None:
+        try:
+            return sanitize_unit_drift_score(drift.drift_score)
+        except ValueError:
+            return None
+    if snapshot is not None and snapshot.drift_score is not None:
+        try:
+            return sanitize_unit_drift_score(snapshot.drift_score)
+        except ValueError:
+            return None
+    return None
+
+
 def evaluate_production_drift_health(
     *,
     strategy_profile: str,
@@ -50,9 +82,7 @@ def evaluate_production_drift_health(
     if not isinstance(metrics, Mapping):
         raise ValueError("metrics must be a mapping")
 
-    score = metrics.get("drift_score")
-    if not _is_unit_score(score):
-        raise ValueError("metrics.drift_score must be finite and between 0 and 1")
+    score = sanitize_unit_drift_score(metrics.get("drift_score"))
 
     policy = thresholds or ProductionDriftThresholds()
     status = (
@@ -66,7 +96,7 @@ def evaluate_production_drift_health(
         strategy_profile=strategy_profile,
         domain=domain,
         as_of=as_of,
-        drift_score=float(score),
+        drift_score=score,
         status=status,
     )
 
