@@ -95,6 +95,13 @@
 缺失、非有限或越界的 drift score 会失败关闭，不产生可供后续优化消费的结果。
 阈值调整必须使用新的 `threshold_version`，并由部署配置明确选择。
 
+显式研究晋级入口为
+`python -m quant_platform_kit.strategy_lifecycle.promotion_actionable_runner`。
+它只在 probe 返回 `REVIEW` 或 `CRITICAL` 时调用既有 `run_research_promotion_cycle`；
+其余结果打印 `parked` JSON 并以 0 退出，不执行优化。该入口不得接入日历 cron，
+且预算固定禁止 live enablement。缺少调用方提供的 promotion-grade 回测证据时，
+既有 cycle 硬门仍会将 ticket 置为 `PARKED`。
+
 ## 推荐晋级策略
 
 - 监控阈值可以相对低一些，让候选策略尽早可见。

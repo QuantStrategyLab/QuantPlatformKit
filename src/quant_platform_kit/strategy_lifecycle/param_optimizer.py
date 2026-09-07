@@ -319,6 +319,7 @@ def run_optimization(
     method: str = "grid_search",
     domain: str = "",
     store: PerformanceStore | None = None,
+    max_combinations: int = 500,
 ) -> OptimizationProposal:
     """Entry point for running parameter optimization from the CLI/service layer."""
     store = store or PerformanceStore.from_env()
@@ -338,6 +339,7 @@ def run_optimization(
             domain=resolved_domain,
             orchestrator=orchestrator,
             search_space=space,
+            max_combinations=max_combinations,
         )
     else:
         raise ValueError(f"Unknown optimization method: {method!r}")
