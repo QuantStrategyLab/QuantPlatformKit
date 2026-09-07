@@ -183,6 +183,38 @@ class GcpDocumentStore:
     def delete(self, collection: str, document_id: str) -> None:
         self.client.collection(collection).document(document_id).delete()
 
+    def create_if_absent(self, collection: str, document_id: str, data: dict) -> bool:
+        """Use Firestore's create precondition, never a read-then-set claim."""
+        from google.api_core.exceptions import AlreadyExists
+
+        owner_id = data.get("owner_id")
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise ValueError("owner_id must be a non-empty string")
+        try:
+            self.client.collection(collection).document(document_id).create(data, retry=None)
+        except AlreadyExists:
+            return False
+        return True
+
+    def delete_if_owner(self, collection: str, document_id: str, owner_id: str) -> bool:
+        """Commit the owner check and delete together; propagate uncertain outcomes."""
+        from google.cloud import firestore
+
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise ValueError("owner_id must be a non-empty string")
+        document = self.client.collection(collection).document(document_id)
+
+        @firestore.transactional
+        def delete_owned(transaction):
+            snapshot = document.get(transaction=transaction, retry=None)
+            if not snapshot.exists or snapshot.to_dict().get("owner_id") != owner_id:
+                return False
+            transaction.delete(document)
+            return True
+
+        # No callback retries or business operations inside this short transaction.
+        return delete_owned(self.client.transaction(max_attempts=1))
+
 
 # ══════════════════════════════════════════════════════════════════════
 #  Compute Discovery — GCE Instance

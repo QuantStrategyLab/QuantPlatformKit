@@ -125,6 +125,24 @@ class DocumentStore(Protocol):
         ...
 
 
+@runtime_checkable
+class DocumentStoreAtomicOwnership(DocumentStore, Protocol):
+    """Optional atomic ownership operations, without leases or automatic takeover.
+
+    Owners must be non-empty strings. False means a definite existing document,
+    missing document or owner mismatch; uncertain outcomes and backend errors
+    raise. Callers must stop on uncertainty, not infer whether a lock remains.
+    """
+
+    def create_if_absent(self, collection: str, document_id: str, data: dict) -> bool:
+        """Create data containing owner_id only if absent; same-owner retry is False."""
+        ...
+
+    def delete_if_owner(self, collection: str, document_id: str, owner_id: str) -> bool:
+        """Atomically delete only the current owner's document; no business I/O."""
+        ...
+
+
 # ──────────────────────────────────────────────────────────────────────
 #  Compute Discovery — 计算资源发现（GCE / EC2 / Azure VM）
 # ──────────────────────────────────────────────────────────────────────
