@@ -8,6 +8,7 @@ from quant_platform_kit.risk.capital_risk_envelope import (
     DEFAULT_TARGET_VOL_ANNUAL,
     CapitalRiskEnvelope,
     apply_envelope_to_sized_weight,
+    evaluate_multi_account_envelope_view,
     evaluate_capital_risk_envelope,
 )
 from quant_platform_kit.risk.promotion_sizing import size_target_weight
@@ -124,6 +125,57 @@ class CombinedProductTests(unittest.TestCase):
         self.assertEqual(env.combined_scale, 0.0)
         self.assertFalse(env.new_risk_allowed)
         self.assertIn("INVALID_EQUITY_FAIL_CLOSED", env.reasons)
+
+
+class MultiAccountEnvelopeViewTests(unittest.TestCase):
+    def test_aggregate_equity_uses_same_envelope_bands(self) -> None:
+        view = evaluate_multi_account_envelope_view(
+            [
+                {"account_id": "account-a", "equity_usd": 30_000.0},
+                {"account_id": "account-b", "equity_usd": 40_000.0},
+            ]
+        )
+
+        self.assertEqual(view.total_equity_usd, 70_000.0)
+        self.assertEqual(view.aggregate_envelope.band_id, "from_50k_to_250k")
+        self.assertEqual([item.account_id for item in view.accounts], ["account-a", "account-b"])
+        self.assertTrue(view.new_risk_allowed)
+        self.assertFalse(view.any_account_new_risk_prohibited)
+        self.assertFalse(view.live_authority_granted)
+
+    def test_missing_account_equity_fails_closed(self) -> None:
+        view = evaluate_multi_account_envelope_view(
+            [
+                {"account_id": "account-a", "equity_usd": 30_000.0},
+                {"account_id": "account-b"},
+            ]
+        )
+
+        self.assertIsNone(view.total_equity_usd)
+        self.assertEqual(view.aggregate_envelope.band_id, "invalid")
+        self.assertFalse(view.new_risk_allowed)
+        self.assertTrue(view.any_account_new_risk_prohibited)
+        self.assertIn("ACCOUNT_EQUITY_UNKNOWN_FAIL_CLOSED", view.reasons)
+
+    def test_one_blocked_account_does_not_raise_other_account_authority(self) -> None:
+        view = evaluate_multi_account_envelope_view(
+            [
+                {
+                    "account_id": "blocked",
+                    "equity_usd": 40_000.0,
+                    "drawdown_from_peak": 0.15,
+                },
+                {"account_id": "healthy", "equity_usd": 40_000.0},
+            ]
+        )
+
+        by_id = {item.account_id: item for item in view.accounts}
+        self.assertFalse(by_id["blocked"].envelope.new_risk_allowed)
+        self.assertTrue(by_id["healthy"].envelope.new_risk_allowed)
+        self.assertTrue(view.aggregate_envelope.new_risk_allowed)
+        self.assertTrue(view.any_account_new_risk_prohibited)
+        self.assertFalse(view.new_risk_allowed)
+        self.assertFalse(view.live_authority_granted)
 
 
 class ApplyEnvelopeToSizedWeightTests(unittest.TestCase):

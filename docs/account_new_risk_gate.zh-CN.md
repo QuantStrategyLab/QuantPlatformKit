@@ -1,6 +1,6 @@
-# 账户新增风险门（D2 已合；W2 只读 probe；未授权 live）
+# 账户新增风险门（D2/D3 已合；W2 只读 probe；未授权 live）
 
-> 状态：`D2_MERGED_W2_PROBE_NOT_LIVE_WIRED`
+> 状态：`D2_D3_MERGED_W2_PROBE_NOT_LIVE_WIRED`
 
 `quant_platform_kit.risk.account_new_risk_gate` 提供账户级「是否禁止新增风险」的
 **注入式只读 adapter**。它与订单级 `RiskEngine` / `risk.gate` 互补，不替代它们。
@@ -9,8 +9,9 @@
 | --- | --- | --- |
 | D1 | `evaluate_capital_risk_envelope` 纯函数信封 | 已合 (#576) |
 | D2 | 账户门注入权益摘要并消费信封 | 已合 (#577) |
+| D3 | 多账户汇总权益 + 每账户信封只读视图 | 已实现；不含 allocator/下单 |
 | W1 | 平台仓接线：真账户读回 → 注入快照 | 独立后续工作 |
-| W2 | 只读 probe：手工 equity/peak/vol → 信封 + gate disposition | 本 PR；**不读券商** |
+| W2 | 只读 probe：手工 equity/peak/vol → 信封 + gate disposition | 已合；**不读券商** |
 
 **仍未授权 live、未自动 enable 账户、未接生产部署。**
 
@@ -45,6 +46,18 @@ python -m quant_platform_kit.risk.capital_envelope_w2_probe --equity 100000 --dr
 程序内：`probe_capital_envelope_w2(equity_usd, peak_equity_usd=..., realized_vol=...)`。
 
 权益摘要绑定：`build_injected_snapshot_from_equity_summary({"equity_usd": 40000.0})`。
+
+### D3 多账户汇总视图
+
+`evaluate_multi_account_envelope_view(accounts)` 接受调用方注入的
+`account_id`、`equity_usd` 及可选 `peak_equity_usd` /
+`drawdown_from_peak` / `realized_vol`：
+
+- 汇总权益复用 D1 的同一资金分档表；
+- 每账户保留独立信封，不从汇总档位抬高任何账户执行权；
+- 任一账户 `new_risk_allowed=false` 时，聚合信号也为 false；
+- 任一权益缺失或非法时 fail-closed，汇总权益记为未知；
+- 输出仅供控制台/诊断解释，不分配仓位、不跨账户下单、不授予 live。
 
 ## 与 QRT 确定性内核的关系
 

@@ -57,6 +57,41 @@ def _observation() -> PairedShadowObservation:
     )
 
 
+def _promotion_backtest_evidence() -> dict:
+    fold_dates = (
+        ("2019-01-01", "2019-12-31", "2020-01-02", "2020-06-30"),
+        ("2020-07-02", "2021-06-30", "2021-07-02", "2021-12-31"),
+        ("2022-01-02", "2022-12-31", "2023-01-02", "2023-06-30"),
+    )
+    return {
+        "status": "PASS",
+        "orchestrator": "BacktestOrchestrator",
+        "protocol": "purged_walk_forward.v1",
+        "locked_independent_oos": {
+            "locked": True,
+            "independent": True,
+            "reused_for_selection": False,
+        },
+        "promotion_run": {
+            "strategy_profile": "demo_strategy",
+            "domain": "us_equity",
+            "folds": [
+                dict(
+                    zip(
+                        ("train_start", "train_end", "test_start", "test_end"),
+                        boundaries,
+                    )
+                )
+                for boundaries in fold_dates
+            ],
+            "locked_oos_start": "2023-07-02",
+            "locked_oos_end": "2024-07-02",
+            "purge_days": 1,
+            "embargo_days": 1,
+        },
+    }
+
+
 def test_collect_paired_shadow_builds_promotion_record() -> None:
     record = collect_paired_shadow_for_promotion(_observation())
     assert record["evidence_kind"] == "paired_shadow"
@@ -102,6 +137,7 @@ def test_cycle_accepts_adapter_paired_record() -> None:
             collector=collector,
             allow_proxy_fallback=False,
         ),
+        enforce_backtest_gates=lambda proposal: _promotion_backtest_evidence(),
         budget=ResearchPromotionBudget(require_paired_shadow=True),
     )
     assert ticket.state is ResearchPromotionState.AWAITING_HUMAN
