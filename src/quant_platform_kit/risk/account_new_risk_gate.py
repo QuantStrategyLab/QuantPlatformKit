@@ -94,6 +94,7 @@ _ENVELOPE_PROHIBIT_REASONS = frozenset(
 class NewRiskAdmissionResult:
     disposition: NewRiskDisposition
     reason_codes: tuple[str, ...]
+    combined_scale: float | None = None
     live_authority_granted: bool = False
     circuit_breaker_reset: bool = False
     account_enablement_changed: bool = False
@@ -137,10 +138,10 @@ def _derive_drawdown_from_peak(
 
 def _evaluate_capital_axis(
     snapshot: InjectedReconciliationSnapshot,
-) -> list[str]:
-    """Return capital-axis prohibit reasons (empty ⇒ capital axis allows)."""
+) -> tuple[list[str], float | None]:
+    """Return capital-axis prohibit reasons and the evaluated combined scale."""
     if snapshot.equity_usd is None:
-        return ["EQUITY_UNKNOWN_FAIL_CLOSED"]
+        return ["EQUITY_UNKNOWN_FAIL_CLOSED"], None
 
     drawdown = _derive_drawdown_from_peak(
         float(snapshot.equity_usd)
@@ -156,11 +157,11 @@ def _evaluate_capital_axis(
         drawdown_from_peak=drawdown,
     )
     if envelope.new_risk_allowed:
-        return []
+        return [], envelope.combined_scale
     reasons = [code for code in envelope.reasons if code in _ENVELOPE_PROHIBIT_REASONS]
     if not reasons:
         reasons = ["CAPITAL_ENVELOPE_NEW_RISK_PROHIBITED"]
-    return reasons
+    return reasons, envelope.combined_scale
 
 
 def evaluate_new_risk_admission(
@@ -180,15 +181,18 @@ def evaluate_new_risk_admission(
         reasons.append("RECONCILIATION_NOT_VERIFIED")
     if validated.circuit_breaker_state != _HEALTHY_BREAKER:
         reasons.append("CIRCUIT_BREAKER_OPEN")
-    reasons.extend(_evaluate_capital_axis(validated))
+    capital_reasons, combined_scale = _evaluate_capital_axis(validated)
+    reasons.extend(capital_reasons)
     if reasons:
         return NewRiskAdmissionResult(
             disposition=NewRiskDisposition.NEW_RISK_PROHIBITED,
             reason_codes=tuple(reasons),
+            combined_scale=combined_scale,
         )
     return NewRiskAdmissionResult(
         disposition=NewRiskDisposition.ALLOW_NEW_RISK,
         reason_codes=(),
+        combined_scale=combined_scale,
     )
 
 
