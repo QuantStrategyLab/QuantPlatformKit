@@ -48,9 +48,15 @@ def resolve_injected_drift_score(
     drift: DriftResult | None = None,
     snapshot: StrategyPerformanceSnapshot | None = None,
 ) -> float | None:
-    """Prefer latest DriftResult score, else snapshot.drift_score; never invent 0.0."""
+    """Prefer latest DriftResult score, else snapshot.drift_score; never invent 0.0.
+
+    DriftResult with ``baseline_available=False`` is treated as unavailable even
+    when ``drift_score`` is 0.0 (no-baseline detect_drift must not look healthy).
+    """
 
     if drift is not None:
+        if getattr(drift, "baseline_available", True) is False:
+            return None
         try:
             return sanitize_unit_drift_score(drift.drift_score)
         except ValueError:

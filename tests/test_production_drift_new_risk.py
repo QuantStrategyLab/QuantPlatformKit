@@ -56,6 +56,18 @@ def test_status_from_drift_result() -> None:
     assert production_drift_status_from_result(None) is None
 
 
+def test_status_from_result_omits_when_baseline_unavailable() -> None:
+    drift = DriftResult(
+        strategy_profile="demo",
+        domain="us_equity",
+        as_of=date(2026, 9, 7),
+        drift_score=0.0,
+        status=DriftStatus.HEALTHY,
+        baseline_available=False,
+    )
+    assert production_drift_status_from_result(drift) is None
+
+
 
 def test_probe_summary_parked_omits_status() -> None:
     assert production_drift_status_from_probe_summary(None) is None

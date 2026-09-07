@@ -76,3 +76,23 @@ def test_resolve_returns_none_when_missing_or_invalid() -> None:
         drift_score=1.5,
     )
     assert resolve_injected_drift_score(snapshot=bad) is None
+
+
+def test_resolve_omits_score_when_baseline_unavailable() -> None:
+    drift = DriftResult(
+        strategy_profile="demo",
+        domain="us_equity",
+        as_of=date(2026, 9, 7),
+        drift_score=0.0,
+        status=DriftStatus.HEALTHY,
+        baseline_available=False,
+    )
+    snapshot = StrategyPerformanceSnapshot(
+        strategy_profile="demo",
+        domain="us_equity",
+        platform="test",
+        as_of=date(2026, 9, 6),
+        drift_score=0.2,
+    )
+    # Must not fall through to snapshot when drift exists but baseline is missing.
+    assert resolve_injected_drift_score(drift=drift, snapshot=snapshot) is None

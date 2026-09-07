@@ -57,8 +57,14 @@ def production_drift_new_risk_reasons(status: object) -> tuple[str, ...]:
 
 
 def production_drift_status_from_result(drift: Any) -> str | None:
-    """Extract status string from a ``DriftResult``-like object (inject helper)."""
+    """Extract status string from a ``DriftResult``-like object (inject helper).
+
+    Missing baseline (``baseline_available=False``) omits status so NEW_RISK
+    does not treat no-baseline 0.0 scores as healthy.
+    """
     if drift is None:
+        return None
+    if getattr(drift, "baseline_available", True) is False:
         return None
     status = getattr(drift, "status", drift)
     return normalize_production_drift_status(status)
