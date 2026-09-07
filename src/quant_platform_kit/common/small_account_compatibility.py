@@ -7,6 +7,10 @@ from dataclasses import dataclass
 
 
 __all__ = [
+    "DEFAULT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS",
+    "DEFAULT_WHOLE_SHARE_BOOTSTRAP_MIN_TARGET_SHARE_RATIO_BY_SYMBOL",
+    "DEFAULT_WHOLE_SHARE_RETENTION_MIN_TARGET_SHARE_RATIO_BY_SYMBOL",
+    "SMALL_ACCOUNT_SAFE_HAVEN_CASH_SUBSTITUTE_LIMIT_USD",
     "SmallAccountCashCompatibilityResult",
     "apply_small_account_cash_compatibility",
     "build_small_account_allocation_drift_notes",
@@ -14,6 +18,20 @@ __all__ = [
     "format_small_account_cash_substitution_notes",
     "project_unbuyable_value_targets_to_cash",
 ]
+
+# Shared whole-share retention set for small accounts (includes QQQM used by
+# TQQQ dual-drive / DCA sleeves). Platforms must import these instead of
+# maintaining local frozensets that drift across brokers.
+DEFAULT_EXISTING_WHOLE_SHARE_RETENTION_SYMBOLS = frozenset({"TQQQ", "SOXL", "QQQM"})
+DEFAULT_WHOLE_SHARE_RETENTION_MIN_TARGET_SHARE_RATIO_BY_SYMBOL = {
+    "QQQM": 0.85,
+}
+DEFAULT_WHOLE_SHARE_BOOTSTRAP_MIN_TARGET_SHARE_RATIO_BY_SYMBOL = {
+    "TQQQ": 0.90,
+    "SOXL": 0.90,
+    "QQQM": 0.85,
+}
+SMALL_ACCOUNT_SAFE_HAVEN_CASH_SUBSTITUTE_LIMIT_USD = 2000.0
 
 
 @dataclass(frozen=True)

@@ -32,6 +32,19 @@
 - `circuit_breaker_state == CLOSED`
 - 注入 `equity_usd` 合法，且资本信封 `new_risk_allowed=True`
 
+### 交易周期健康语义（cycle-health，异于 RECONCILE_ONLY 恢复）
+
+平台执行周期应通过 `cycle_new_risk_health.project_cycle_new_risk_health_axes` /
+`apply_cycle_new_risk_health_axes` 投影三轴：
+
+| 轴 | 周期健康口径 |
+| --- | --- |
+| `COMPLETE` | 本周期只读权益/持仓面成功（不冒充实全量 GTC/成交账本） |
+| `VERIFIED` | 无 UNKNOWN 未决；未配置 expected digests 时走周期健康；已配置则须全匹配 |
+| `CLOSED` | 无 durable OPEN，且本周期未因 UNKNOWN/trip 打开；**绝不**自动清除 OPEN |
+
+旁路 `/reconcile`（`RECONCILE_ONLY` + digests）仍只服务冻结基线恢复，不得与 cycle-health 混称。
+
 可选：`peak_equity_usd` / `drawdown_from_peak` / `realized_vol`。缺权益 →
 `EQUITY_UNKNOWN_FAIL_CLOSED` 禁止。`ALLOW_NEW_RISK` **不是**下单许可，也不是实盘授权。
 

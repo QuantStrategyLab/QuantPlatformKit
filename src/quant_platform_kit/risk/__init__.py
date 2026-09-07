@@ -37,6 +37,11 @@ from quant_platform_kit.risk.research_consumer import (
     consume_research_risk,
     consume_research_risk_batch,
 )
+from quant_platform_kit.risk.cycle_new_risk_health import (
+    CycleNewRiskHealthEvidence,
+    apply_cycle_new_risk_health_axes,
+    project_cycle_new_risk_health_axes,
+)
 from quant_platform_kit.risk.account_new_risk_gate import (
     AccountNewRiskGateError,
     InjectedReconciliationSnapshot,
@@ -110,6 +115,9 @@ __all__ = [
     "evaluate_new_risk_admission",
     "evaluate_new_risk_from_reader",
     "validate_injected_snapshot",
+    "CycleNewRiskHealthEvidence",
+    "apply_cycle_new_risk_health_axes",
+    "project_cycle_new_risk_health_axes",
     "DEFAULT_TARGET_VOL_ANNUAL",
     "CapitalRiskEnvelope",
     "LeverageProductCap",
