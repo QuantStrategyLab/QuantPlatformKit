@@ -121,6 +121,33 @@ def build_execution_marker_key(
     )
 
 
+def build_account_owner_marker_key(*, broker: str, account_id: str) -> str:
+    """Build a durable account-owner fence key (strategy profile intentionally omitted)."""
+    broker_part = _first_non_empty(broker)
+    account_part = _first_non_empty(account_id)
+    if not broker_part or not account_part:
+        raise ValueError("account owner marker requires broker and account_id")
+    return "/".join(
+        (
+            "v1",
+            "account-owner",
+            _clean_key_part(broker_part, fallback="broker"),
+            _clean_key_part(account_part, fallback="account"),
+        )
+    )
+
+
+@dataclass(frozen=True)
+class AccountOwnerClaimResult:
+    """Result of attempting to claim exclusive ownership of one physical account."""
+
+    allowed: bool
+    contested: bool
+    created: bool
+    owner_id: str
+    marker_key: str
+
+
 @dataclass(frozen=True)
 class ExecutionMarkerStore:
     local_dir: str | Path | None = DEFAULT_EXECUTION_STATE_DIR
@@ -248,6 +275,43 @@ class ExecutionMarkerStore:
                 os.fsync(handle.fileno())
             return True
         raise RuntimeError("execution state store has no durable claim backend")
+
+    def read_marker(self, marker_key: str) -> dict[str, Any] | None:
+        """Read one durable claim/marker payload, or ``None`` when absent."""
+        if not str(marker_key or "").strip():
+            return None
+        raw = ""
+        if self.cloud_prefix_uri:
+            store = self._object_store()
+            uri = self._cloud_uri(marker_key)
+            exists = getattr(store, "exists", None)
+            if callable(exists) and not bool(exists(uri)):
+                return None
+            read_text = getattr(store, "read_text", None)
+            if not callable(read_text):
+                raise RuntimeError("cloud execution store lacks read_text support")
+            try:
+                raw = str(read_text(uri) or "")
+            except FileNotFoundError:
+                return None
+            except Exception as exc:
+                # Some providers raise provider-specific not-found errors.
+                if "NotFound" in type(exc).__name__ or "404" in str(exc):
+                    return None
+                raise
+        elif self.local_dir:
+            path = self._local_path(marker_key)
+            if not path.exists():
+                return None
+            raw = path.read_text(encoding="utf-8")
+        else:
+            raise RuntimeError("execution state store has no durable claim backend")
+        if not raw.strip():
+            return None
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"execution marker payload is not an object: {marker_key}")
+        return payload
 
     def has_prior_execution_report(
         self,
@@ -448,6 +512,61 @@ class ExecutionMarkerStore:
     def _gcs_client(self):
         """Deprecated: use _object_store() instead."""
         return self._object_store()
+
+
+
+def claim_account_owner(
+    store: ExecutionMarkerStore,
+    *,
+    broker: str,
+    account_id: str,
+    owner_id: str,
+    metadata: Mapping[str, Any] | None = None,
+) -> AccountOwnerClaimResult:
+    """Claim exclusive ownership of one physical broker account.
+
+    Semantics:
+    - create-only success => this caller becomes owner (allowed/created)
+    - existing claim with the same owner_id => allow without rewrite
+    - existing claim with a different owner_id => contested/denied
+    - claim lost the race but payload is unreadable => fail closed
+    """
+    owner = _first_non_empty(owner_id)
+    if not owner:
+        raise ValueError("account owner claim requires owner_id")
+    marker_key = build_account_owner_marker_key(broker=broker, account_id=account_id)
+    claim_metadata = dict(metadata or {})
+    claim_metadata["owner_id"] = owner
+    if store.claim_marker(marker_key, metadata=claim_metadata):
+        return AccountOwnerClaimResult(
+            allowed=True,
+            contested=False,
+            created=True,
+            owner_id=owner,
+            marker_key=marker_key,
+        )
+    existing = store.read_marker(marker_key)
+    if existing is None:
+        raise RuntimeError(
+            f"account owner claim lost the create race but marker is unreadable: {marker_key}"
+        )
+    existing_metadata = existing.get("metadata") if isinstance(existing.get("metadata"), Mapping) else {}
+    existing_owner = _first_non_empty(existing_metadata.get("owner_id"))
+    if existing_owner == owner:
+        return AccountOwnerClaimResult(
+            allowed=True,
+            contested=False,
+            created=False,
+            owner_id=owner,
+            marker_key=marker_key,
+        )
+    return AccountOwnerClaimResult(
+        allowed=False,
+        contested=True,
+        created=False,
+        owner_id=existing_owner or "unknown",
+        marker_key=marker_key,
+    )
 
 
 def build_execution_marker_store_from_env(

@@ -37,6 +37,48 @@ from quant_platform_kit.risk.research_consumer import (
     consume_research_risk,
     consume_research_risk_batch,
 )
+from quant_platform_kit.risk.account_new_risk_gate import (
+    AccountNewRiskGateError,
+    InjectedReconciliationSnapshot,
+    NewRiskAdmissionResult,
+    NewRiskDisposition,
+    evaluate_new_risk_admission,
+    evaluate_new_risk_from_reader,
+    validate_injected_snapshot,
+)
+from quant_platform_kit.risk.capital_envelope_w2_probe import (
+    format_probe_report,
+    probe_capital_envelope_w2,
+)
+from quant_platform_kit.risk.capital_risk_envelope import (
+    DEFAULT_TARGET_VOL_ANNUAL,
+    CapitalRiskEnvelope,
+    LeverageProductCap,
+    apply_envelope_to_sized_weight,
+    evaluate_capital_risk_envelope,
+)
+from quant_platform_kit.risk.reconciliation_snapshot_binding import (
+    ReconciliationEquitySummary,
+    build_injected_snapshot_from_equity_summary,
+)
+from quant_platform_kit.risk.promotion_sizing import (
+    DEFAULT_RISK_PROFILE_SCALES,
+    PromotionSizingResult,
+    assess_promotion_sized_target,
+    normalize_plugin_scalar,
+    resolve_risk_profile_scale,
+    size_target_weight,
+)
+from quant_platform_kit.risk.synthetic_combo_evidence import (
+    DEFAULT_CORRELATED_GROUP_CAP,
+    DEFAULT_CORRELATION_THRESHOLD,
+    CorrelatedGroupEvidence,
+    PairwiseCorrelationEstimate,
+    SyntheticComboEvidence,
+    SyntheticComboMember,
+    SyntheticComboMemberEvidence,
+    evaluate_synthetic_combo_evidence,
+)
 
 __all__ = [
     "RegimeContext",
@@ -61,4 +103,34 @@ __all__ = [
     "ResearchRiskObservation",
     "consume_research_risk",
     "consume_research_risk_batch",
+    "AccountNewRiskGateError",
+    "InjectedReconciliationSnapshot",
+    "NewRiskAdmissionResult",
+    "NewRiskDisposition",
+    "evaluate_new_risk_admission",
+    "evaluate_new_risk_from_reader",
+    "validate_injected_snapshot",
+    "DEFAULT_TARGET_VOL_ANNUAL",
+    "CapitalRiskEnvelope",
+    "LeverageProductCap",
+    "apply_envelope_to_sized_weight",
+    "evaluate_capital_risk_envelope",
+    "ReconciliationEquitySummary",
+    "build_injected_snapshot_from_equity_summary",
+    "probe_capital_envelope_w2",
+    "format_probe_report",
+    "DEFAULT_RISK_PROFILE_SCALES",
+    "PromotionSizingResult",
+    "assess_promotion_sized_target",
+    "normalize_plugin_scalar",
+    "resolve_risk_profile_scale",
+    "size_target_weight",
+    "DEFAULT_CORRELATED_GROUP_CAP",
+    "DEFAULT_CORRELATION_THRESHOLD",
+    "CorrelatedGroupEvidence",
+    "PairwiseCorrelationEstimate",
+    "SyntheticComboEvidence",
+    "SyntheticComboMember",
+    "SyntheticComboMemberEvidence",
+    "evaluate_synthetic_combo_evidence",
 ]

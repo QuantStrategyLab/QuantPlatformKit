@@ -21,6 +21,7 @@ import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from quant_platform_kit.strategy_lifecycle.contracts import (
@@ -535,6 +536,43 @@ def _process_optimization_decision(
                 "Automated review passed; create a bound candidate and obtain "
                 "an expiring human decision before any non-live promotion."
             )
+            try:
+                from quant_platform_kit.strategy_lifecycle.paired_shadow_adapter import (
+                    resolve_promotion_shadow_record,
+                )
+                from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+                    make_console_research_promotion_sync,
+                    make_telegram_research_promotion_notifier,
+                    open_awaiting_human_ticket,
+                    save_research_promotion_ticket,
+                )
+
+                # Prefer a store-provided non-live paired collector; otherwise
+                # keep an explicit proxy marker. Notify/sync never grant live.
+                collector = getattr(store, "collect_paired_shadow_observation", None)
+                shadow = resolve_promotion_shadow_record(
+                    proposal=proposal,
+                    drift=drift,
+                    collector=collector if callable(collector) else None,
+                    allow_proxy_fallback=True,
+                )
+                ticket = open_awaiting_human_ticket(
+                    drift=drift,
+                    proposal=proposal,
+                    shadow=shadow,
+                    notify=make_telegram_research_promotion_notifier(),
+                    sync_console=make_console_research_promotion_sync(),
+                )
+                entry["research_promotion_ticket_id"] = ticket.ticket_id
+                entry["research_promotion_state"] = ticket.state.value
+                entry["live_authority_granted"] = False
+                ticket_dir = getattr(store, "local_root", None)
+                if ticket_dir is not None:
+                    path = Path(ticket_dir) / "research_promotion_tickets" / f"{ticket.ticket_id}.json"
+                    save_research_promotion_ticket(ticket, path)
+                    entry["research_promotion_ticket_path"] = str(path)
+            except Exception as ticket_exc:  # noqa: BLE001
+                entry["research_promotion_ticket_error"] = str(ticket_exc)
         elif verdict.verdict == "escalate":
             llm_v = llm_enhanced_review(proposal, drift=drift, dry_run=dry_run)
             entry["llm_review"] = llm_v.to_dict()

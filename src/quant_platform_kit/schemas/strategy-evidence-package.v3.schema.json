@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "evidence_package_id",
+    "generated_at",
+    "requested_stage",
+    "strategy",
+    "input_provenance",
+    "backtest",
+    "artifacts",
+    "metrics",
+    "cost_stress",
+    "risk_assessment",
+    "digests",
+    "human_acceptance",
+    "lifecycle_claims"
+  ],
+  "$id": "https://quantstrategylab.dev/schemas/strategy-evidence-package.v3.schema.json",
+  "title": "strategy_evidence_package.v3",
+  "description": "IC applicability revision; all other constraints are shared with v2. Resolve the sibling v2 schema from the installed package, never the network.",
+  "properties": {
+    "schema_version": {
+      "const": "strategy_evidence_package.v3"
+    },
+    "evidence_package_id": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/evidence_package_id"
+    },
+    "generated_at": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/generated_at"
+    },
+    "requested_stage": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/requested_stage"
+    },
+    "strategy": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/strategy"
+    },
+    "input_provenance": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/input_provenance"
+    },
+    "backtest": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/backtest"
+    },
+    "artifacts": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/artifacts"
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sharpe_ratio",
+        "sortino_ratio",
+        "max_drawdown",
+        "annualized_return",
+        "annualized_volatility",
+        "calmar_ratio",
+        "information_ratio",
+        "information_coefficient",
+        "var_95",
+        "cvar_95",
+        "turnover",
+        "trade_count",
+        "win_rate",
+        "profit_factor"
+      ],
+      "properties": {
+        "sharpe_ratio": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/sharpe_ratio"
+        },
+        "sortino_ratio": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/sortino_ratio"
+        },
+        "max_drawdown": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/max_drawdown"
+        },
+        "annualized_return": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/annualized_return"
+        },
+        "annualized_volatility": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/annualized_volatility"
+        },
+        "calmar_ratio": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/calmar_ratio"
+        },
+        "information_ratio": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/information_ratio"
+        },
+        "information_coefficient": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "value"
+              ],
+              "properties": {
+                "status": {
+                  "const": "computed"
+                },
+                "value": {
+                  "type": "number",
+                  "minimum": -1,
+                  "maximum": 1
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "reason_code",
+                "reason"
+              ],
+              "properties": {
+                "status": {
+                  "const": "not_applicable"
+                },
+                "reason_code": {
+                  "const": "no_prediction_target"
+                },
+                "reason": {
+                  "$ref": "strategy-evidence-package.v2.schema.json#/$defs/nonEmptyString"
+                }
+              }
+            }
+          ]
+        },
+        "var_95": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/var_95"
+        },
+        "cvar_95": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/cvar_95"
+        },
+        "turnover": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/turnover"
+        },
+        "trade_count": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/trade_count"
+        },
+        "win_rate": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/win_rate"
+        },
+        "profit_factor": {
+          "$ref": "strategy-evidence-package.v2.schema.json#/properties/metrics/properties/profit_factor"
+        }
+      }
+    },
+    "cost_stress": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/cost_stress"
+    },
+    "risk_assessment": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/risk_assessment"
+    },
+    "digests": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/digests"
+    },
+    "human_acceptance": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/human_acceptance"
+    },
+    "lifecycle_claims": {
+      "$ref": "strategy-evidence-package.v2.schema.json#/properties/lifecycle_claims"
+    }
+  }
+}

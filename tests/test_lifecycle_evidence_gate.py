@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from quant_platform_kit.strategy_lifecycle.cli import main
 from quant_platform_kit.strategy_lifecycle.evidence_gate import (
     load_evidence_package,
@@ -25,6 +27,53 @@ def test_research_package_valid() -> None:
 
     assert result.valid
     assert result.package.strategy_profile == "cn_equity_combo"
+
+
+@pytest.mark.parametrize("accepted", [False, True])
+def test_v3_gate_preserves_canonical_payload_and_non_live_truth(tmp_path: Path, accepted: bool) -> None:
+    from test_strategy_evidence_package_v2_contract import _v3_payload
+
+    payload = _v3_payload(tmp_path, accepted=accepted)
+    result = validate_evidence_package(payload, base_dir=tmp_path)
+    assert result.valid
+    assert result.package.to_dict() == payload
+    assert result.package.evidence_version == payload["schema_version"]
+    assert result.to_dict()["promotion_status"] == (
+        "PROMOTION_ELIGIBLE" if accepted else "HUMAN_REQUIRED"
+    )
+    assert result.promotion_eligible is accepted
+    assert result.live_ready is False
+    assert result.size_zero_required is True
+    assert result.no_order is True
+
+
+def test_unknown_canonical_revision_cannot_fall_back_to_legacy() -> None:
+    result = validate_evidence_package({
+        "schema_version": "strategy_evidence_package.v999",
+        "profile": "legacy_profile", "market": "us_equity",
+        "requested_stage": "research_backtest_only",
+        "backtest_summary": {"observation_count": 252},
+    })
+    assert not result.valid
+
+
+@pytest.mark.parametrize("stage", ["live_candidate", "live_enabled", "runtime_enabled"])
+def test_v3_live_requests_still_build_only_a_hold(tmp_path: Path, stage: str) -> None:
+    from test_strategy_evidence_package_v2_contract import _refresh_digests, _v3_payload
+    from quant_platform_kit.strategy_lifecycle.live_candidate_notifications import (
+        build_live_candidate_notification,
+    )
+
+    payload = _v3_payload(tmp_path, accepted=True)
+    payload["requested_stage"] = stage
+    _refresh_digests(payload)
+    result = validate_evidence_package(payload, base_dir=tmp_path)
+    assert result.valid
+    assert result.no_order and result.size_zero_required and not result.live_ready
+    event = build_live_candidate_notification(result)
+    assert event is not None
+    assert event.approval_action == "hold"
+    assert "HOLD" in event.subject
 
 
 def test_canonical_research_active_package_is_supported() -> None:

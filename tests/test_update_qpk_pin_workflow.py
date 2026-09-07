@@ -270,7 +270,10 @@ def test_downstream_rollout_is_scheduled_and_phase_gated() -> None:
     assert "- auto" in workflow
     assert "- strategies" in workflow
     assert "- consumers" in workflow
-    assert 'open_downstream_qpk_pin_prs.py --phase "$QSL_PIN_PHASE"' in workflow
+    assert "open_downstream_qpk_pin_prs.py" in workflow
+    assert '--phase "$QSL_PIN_PHASE"' in workflow
+    assert '--mode "$QSL_PIN_MODE"' in workflow
+    assert "upgrade-affected" in workflow
     assert "Create coherent aggregate bundle PR" in workflow
     assert "peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676" in workflow
     assert "peter-evans/create-pull-request@v7" not in workflow

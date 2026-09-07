@@ -1,4 +1,4 @@
-"""Canonical, dependency-free strategy evidence package v2 validation."""
+"""Canonical, dependency-free strategy evidence package validation."""
 
 from __future__ import annotations
 
@@ -15,6 +15,10 @@ from typing import Any
 
 
 STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION = "strategy_evidence_package.v2"
+SUPPORTED_STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSIONS = (
+    STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION,
+    "strategy_evidence_package.v3",
+)
 
 _SOURCE_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -198,13 +202,21 @@ def validate_evidence_package_v2(
 ) -> tuple[str, ...]:
     """Validate the closed v2 contract without optional runtime dependencies."""
 
+    return _validate_canonical_evidence_package(
+        payload, schema_version=STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION, base_dir=base_dir
+    )
+
+
+def _validate_canonical_evidence_package(
+    payload: Mapping[str, Any], *, schema_version: str, base_dir: str | Path | None
+) -> tuple[str, ...]:
     issues: list[str] = []
     if not isinstance(payload, Mapping):
         return ("top-level evidence package must be an object",)
     _closed_object(payload, "top-level", _TOP_LEVEL_FIELDS, _TOP_LEVEL_FIELDS, issues)
 
-    if payload.get("schema_version") != STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION:
-        issues.append("schema_version must equal strategy_evidence_package.v2")
+    if payload.get("schema_version") != schema_version:
+        issues.append(f"schema_version must equal {schema_version}")
     _non_empty_string(payload.get("evidence_package_id"), "evidence_package_id", issues)
     generated_at = _timezone_datetime(
         payload.get("generated_at"), "generated_at", issues
@@ -286,7 +298,12 @@ def validate_evidence_package_v2(
             metrics, "metrics", set(_METRIC_FIELDS), set(_METRIC_FIELDS), issues
         )
         for field in _METRIC_FIELDS:
-            if field == "trade_count":
+            if (
+                field == "information_coefficient"
+                and schema_version == "strategy_evidence_package.v3"
+            ):
+                _validate_information_coefficient(metrics.get(field), issues)
+            elif field == "trade_count":
                 _finite_integer(
                     metrics.get(field), f"metrics.{field}", issues, minimum=0
                 )
@@ -376,13 +393,24 @@ def validate_evidence_package_v2(
 def validate_strategy_evidence_payload(
     payload: Any, *, base_dir: Path | None = None
 ) -> list[str]:
-    """Compatibility dispatcher; v2 and legacy lanes share one implementation."""
+    """Dispatch explicit canonical revisions without relaxing the legacy v2 API."""
 
     if (
         isinstance(payload, Mapping)
-        and payload.get("schema_version") == STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSION
+        and payload.get("schema_version")
+        in SUPPORTED_STRATEGY_EVIDENCE_PACKAGE_SCHEMA_VERSIONS
     ):
-        return list(validate_evidence_package_v2(payload, base_dir=base_dir))
+        return list(
+            _validate_canonical_evidence_package(
+                payload, schema_version=payload["schema_version"], base_dir=base_dir
+            )
+        )
+    if (
+        isinstance(payload, Mapping)
+        and payload.get("schema_version") != "strategy_evidence_package.v1"
+        and str(payload.get("schema_version", "")).startswith("strategy_evidence_package.")
+    ):
+        return ["schema_version is unsupported"]
     return _validate_legacy_payload(payload, base_dir=base_dir)
 
 
@@ -393,6 +421,28 @@ def validate_strategy_evidence_file(path: str | Path) -> list[str]:
     except ValueError as exc:
         return [str(exc)]
     return validate_strategy_evidence_payload(payload, base_dir=evidence_path.parent)
+
+
+def _validate_information_coefficient(value: Any, issues: list[str]) -> None:
+    label = "metrics.information_coefficient"
+    metric = _object(value, label, issues)
+    if metric is None:
+        return
+    if metric.get("status") == "computed":
+        fields = {"status", "value"}
+        _closed_object(metric, label, fields, fields, issues)
+        number = metric.get("value")
+        _finite_number(number, f"{label}.value", issues)
+        if _is_finite_number(number) and not -1 <= number <= 1:
+            issues.append(f"{label}.value must be between -1 and 1")
+    elif metric.get("status") == "not_applicable":
+        fields = {"status", "reason_code", "reason"}
+        _closed_object(metric, label, fields, fields, issues)
+        if metric.get("reason_code") != "no_prediction_target":
+            issues.append(f"{label}.reason_code must equal no_prediction_target")
+        _non_empty_string(metric.get("reason"), f"{label}.reason", issues)
+    else:
+        issues.append(f"{label}.status must equal computed or not_applicable")
 
 
 def _validate_artifacts(

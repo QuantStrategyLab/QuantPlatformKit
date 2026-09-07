@@ -9,6 +9,7 @@ from scripts.check_qpk_pin_consistency import (
     check_repo,
     extract_qpk_shas,
     extract_override_qpk_sha,
+    main,
 )
 from scripts.open_downstream_qpk_pin_prs import (
     CONSUMER_REPOS,
@@ -115,22 +116,66 @@ class QpkPinConsistencyTests(unittest.TestCase):
             self.assertGreater(mismatches, 0)
             self.assertTrue(any("uv.lock" in err for err in errors))
 
-    def test_detect_reusable_workflow_qpk_pin_drift(self) -> None:
+    def test_reusable_workflow_sha_is_independent_of_package_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "drift-check.yml"
+            workflow.parent.mkdir(parents=True)
+            root.joinpath("requirements.txt").write_text(
+                f"quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@{TARGET}\n",
+                encoding="utf-8",
+            )
+            for quote in ("", "'", '"'):
+                with self.subTest(quote=quote):
+                    workflow.write_text(
+                        "jobs:\n"
+                        "  drift:\n"
+                        f"    uses: {quote}QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@{STALE}{quote}\n",
+                        encoding="utf-8",
+                    )
+                    # Extraction remains available to the existing rollout updater.
+                    self.assertEqual([STALE], [sha for _ln, _raw, sha in extract_qpk_shas(workflow)])
+                    _files, mismatches, errors = check_repo(root=root, target_sha=TARGET, fix_mode=False)
+                    self.assertEqual((0, []), (mismatches, errors))
+
+    def test_fix_package_pin_does_not_replace_same_sha_in_workflow_uses(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "drift-check.yml"
+            workflow.parent.mkdir(parents=True)
+            uses = f"    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@{STALE}\n"
+            install = f"      - run: pip install git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@{STALE}\n"
+            before = "jobs:\n  drift:\n" + uses + "  test:\n    steps:\n" + install
+            workflow.write_text(before, encoding="utf-8")
+            pin_file = root / "QPK_PIN"
+            pin_file.write_text(TARGET, encoding="utf-8")
+
+            _files, mismatches, errors = check_repo(root=root, target_sha=TARGET, fix_mode=False)
+            with self.subTest(mode="check"):
+                self.assertEqual(1, mismatches)
+                self.assertTrue(any("drift-check.yml:6" in error for error in errors))
+            self.assertEqual(0, main(["--root", str(root), "--pin-file", str(pin_file), "--fix"]))
+            self.assertEqual(before.replace(install, install.replace(STALE, TARGET)), workflow.read_text(encoding="utf-8"))
+            self.assertEqual(0, main(["--root", str(root), "--pin-file", str(pin_file)]))
+
+    def test_independent_workflow_does_not_hide_package_or_override_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             workflow = root / ".github" / "workflows" / "drift-check.yml"
             workflow.parent.mkdir(parents=True)
             workflow.write_text(
-                "jobs:\n"
-                "  drift:\n"
-                f"    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@{STALE}\n",
+                f"jobs:\n  drift:\n    uses: QuantStrategyLab/QuantPlatformKit/.github/workflows/reusable-drift-check.yml@{TARGET}\n",
                 encoding="utf-8",
             )
-
-            _files, mismatches, errors = check_repo(root=root, target_sha=TARGET, fix_mode=False)
-
-        self.assertGreater(mismatches, 0)
-        self.assertTrue(any(".github/workflows/drift-check.yml" in err for err in errors))
+            for section, key in (("project", "dependencies"), ("tool.uv", "override-dependencies")):
+                with self.subTest(section=section):
+                    root.joinpath("pyproject.toml").write_text(
+                        f'[{section}]\n{key} = ["quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@{STALE}"]\n',
+                        encoding="utf-8",
+                    )
+                    _files, mismatches, errors = check_repo(root=root, target_sha=TARGET, fix_mode=False)
+                    self.assertGreater(mismatches, 0)
+                    self.assertTrue(any("pyproject.toml" in error for error in errors))
 
     def test_update_qpk_test_pin_contracts_only_touches_explicit_contracts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -436,6 +481,48 @@ override-dependencies = [
         for sha in strategy_heads.values():
             self.assertIn(sha, pins)
         self.assertNotIn(STALE, pins)
+
+
+    def test_set_sha_rewrites_pyproject_uv_lock_and_qsl_toml(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            root.joinpath("pyproject.toml").write_text(
+                "dependencies = [\n"
+                f'  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@{STALE}",\n'
+                "]\n",
+                encoding="utf-8",
+            )
+            root.joinpath("uv.lock").write_text(
+                "[[package]]\n"
+                'name = "quant-platform-kit"\n'
+                f'source = {{ git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev={STALE}#{STALE}" }}\n',
+                encoding="utf-8",
+            )
+            root.joinpath("qsl.toml").write_text(
+                f'quant_platform_kit = "{STALE}"\n',
+                encoding="utf-8",
+            )
+
+            self.assertEqual(0, main(["--root", str(root), "--set-sha", TARGET]))
+            pyproject = root.joinpath("pyproject.toml").read_text(encoding="utf-8")
+            lock = root.joinpath("uv.lock").read_text(encoding="utf-8")
+            qsl = root.joinpath("qsl.toml").read_text(encoding="utf-8")
+            self.assertIn(TARGET, pyproject)
+            self.assertNotIn(STALE, pyproject)
+            self.assertIn(TARGET, lock)
+            self.assertNotIn(STALE, lock)
+            self.assertEqual(f'quant_platform_kit = "{TARGET}"\n', qsl)
+
+    def test_qsl_toml_mismatch_is_detected_without_set_sha(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pin_file = root / "QPK_PIN"
+            pin_file.write_text(TARGET + "\n", encoding="utf-8")
+            root.joinpath("qsl.toml").write_text(
+                f'quant_platform_kit = "{STALE}"\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(1, main(["--root", str(root), "--pin-file", str(pin_file)]))
 
 
 if __name__ == "__main__":
