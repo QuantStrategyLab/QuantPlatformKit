@@ -480,17 +480,20 @@ def make_console_research_promotion_sync(
     timeout_seconds: float = 5.0,
     printer: Any = print,
     post_json: Callable[..., Any] | None = None,
+    pull_console: Callable[[str], Mapping[str, Any] | None] | None = None,
 ) -> Callable[[ResearchPromotionTicket], bool]:
-    """POST awaiting-human tickets to the QRT console; soft-skip if unconfigured.
+    """Confirm an awaiting ticket by reading it back from the QRT console.
 
     Env defaults:
     - RESEARCH_PROMOTION_SYNC_URL
     - RESEARCH_PROMOTION_SYNC_TOKEN (must match QRT RESEARCH_PROMOTION_SYNC_TOKEN)
 
-    Failures never raise into the research cycle; they only return False.
+    Read before writing; only a confirmed absence permits one POST. A POST with
+    an unknown outcome is followed by GET, never another POST. An injected pull
+    must return None only for a confirmed 404 and raise for unavailable reads.
+    Failures return False; HTTP success alone is not delivery confirmation.
     """
     import os
-    import urllib.error
     import urllib.request
 
     url = str(
@@ -522,6 +525,19 @@ def make_console_research_promotion_sync(
             return int(getattr(response, "status", 200) or 200)
 
     sender = post_json or _default_post_json
+    reader = pull_console or make_console_research_promotion_pull(
+        endpoint_url=_default_research_promotion_pull_url(url),
+        sync_token=token, timeout_seconds=timeout_seconds, printer=printer,
+        raise_on_unavailable=True,
+    )
+    attempted_ticket_ids: set[str] = set()
+
+    def confirmed(ticket: ResearchPromotionTicket, remote: Mapping[str, Any]) -> bool:
+        _require_matching_console_promotion_candidate(ticket, remote)
+        return all(
+            key in remote and _canonical_ticket_value(remote[key]) == _canonical_ticket_value(value)
+            for key, value in ticket.to_dict().items()
+        )
 
     def sync_console(ticket: ResearchPromotionTicket) -> bool:
         if not url or not token:
@@ -542,30 +558,38 @@ def make_console_research_promotion_sync(
                 flush=True,
             )
             return False
+        try:
+            existing = reader(ticket.ticket_id)
+            if existing is not None:
+                return confirmed(ticket, existing)
+        except Exception:
+            printer("research promotion console sync soft-failed: readback_unavailable", flush=True)
+            return False
+        if ticket.ticket_id in attempted_ticket_ids:
+            printer("research promotion console sync soft-failed: readback_unconfirmed", flush=True)
+            return False
         payload = ticket.to_dict()
         payload["live_authority_granted"] = False
+        attempted_ticket_ids.add(ticket.ticket_id)
         try:
-            status = int(
-                sender(
-                    endpoint=url,
-                    bearer_token=token,
-                    payload=payload,
-                    timeout=float(timeout_seconds),
-                )
+            sender(
+                endpoint=url,
+                bearer_token=token,
+                payload=payload,
+                timeout=float(timeout_seconds),
             )
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, TypeError) as exc:
-            printer(
-                f"research promotion console sync soft-failed: {type(exc).__name__}",
-                flush=True,
-            )
-            return False
-        if status < 200 or status >= 300:
-            printer(
-                f"research promotion console sync soft-failed: HTTP {status}",
-                flush=True,
-            )
-            return False
-        return True
+        except Exception:
+            # A transport failure can occur after the server persisted the ticket.
+            # Reconcile by reading, without automatically repeating this write.
+            pass
+        try:
+            remote = reader(ticket.ticket_id)
+            if remote is not None and confirmed(ticket, remote):
+                return True
+        except Exception:
+            pass
+        printer("research promotion console sync soft-failed: readback_unconfirmed", flush=True)
+        return False
 
     return sync_console
 
@@ -587,6 +611,7 @@ def make_console_research_promotion_pull(
     timeout_seconds: float = 5.0,
     printer: Any = print,
     get_json: Callable[..., Any] | None = None,
+    raise_on_unavailable: bool = False,
 ) -> Callable[[str], Mapping[str, Any] | None]:
     """GET a console ticket by id; soft-skip if unconfigured.
 
@@ -594,7 +619,9 @@ def make_console_research_promotion_pull(
     - RESEARCH_PROMOTION_PULL_URL (or derived from RESEARCH_PROMOTION_SYNC_URL)
     - RESEARCH_PROMOTION_SYNC_TOKEN
 
-    Returns the remote ticket mapping, or None on soft-skip/soft-fail.
+    Returns the remote ticket mapping, or None on soft-skip/soft-fail. With
+    raise_on_unavailable, None means a confirmed 404; all other failures raise
+    a sanitized ValueError so callers cannot mistake uncertainty for absence.
     Never grants live authority.
     """
     import os
@@ -637,17 +664,18 @@ def make_console_research_promotion_pull(
 
     fetcher = get_json or _default_get_json
 
+    def unavailable(reason: str) -> None:
+        if raise_on_unavailable:
+            raise ValueError(reason) from None
+        printer(f"research promotion console pull soft-failed: {reason}", flush=True)
+        return None
+
     def pull_console(ticket_id: str) -> Mapping[str, Any] | None:
         tid = str(ticket_id or "").strip()
         if not tid:
-            printer("research promotion console pull skipped: empty ticket_id", flush=True)
-            return None
+            return unavailable("empty_ticket_id")
         if not url or not token:
-            printer(
-                "research promotion console pull skipped: url/token not configured",
-                flush=True,
-            )
-            return None
+            return unavailable("url/token not configured")
         try:
             payload = fetcher(
                 endpoint=url,
@@ -655,41 +683,45 @@ def make_console_research_promotion_pull(
                 ticket_id=tid,
                 timeout=float(timeout_seconds),
             )
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError, TypeError) as exc:
-            printer(
-                f"research promotion console pull soft-failed: {type(exc).__name__}",
-                flush=True,
-            )
-            return None
-        if payload.get("live_authority_granted") is True:
-            printer(
-                "research promotion console pull refused: live_authority_granted=true",
-                flush=True,
-            )
-            return None
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return None
+            return unavailable("console_read_unavailable")
+        except Exception:
+            return unavailable("console_read_unavailable")
+        if (not isinstance(payload, Mapping) or payload.get("ok") is not True
+                or payload.get("live_authority_granted") is not False):
+            return unavailable("console_response_invalid")
         ticket = payload.get("ticket")
-        if not isinstance(ticket, Mapping):
-            printer(
-                "research promotion console pull soft-failed: missing ticket payload",
-                flush=True,
-            )
-            return None
-        if ticket.get("live_authority_granted") is True:
-            printer(
-                "research promotion console pull refused: ticket live_authority_granted=true",
-                flush=True,
-            )
-            return None
+        if (not isinstance(ticket, Mapping) or ticket.get("ticket_id") != tid
+                or ticket.get("live_authority_granted") is not False):
+            return unavailable("console_ticket_invalid")
         return dict(ticket)
 
     return pull_console
+
+
+def _canonical_ticket_value(value: Any) -> str:
+    """Compare JSON material across Python/JS, with booleans distinct from numbers."""
+    def normalize(item: Any) -> Any:
+        if isinstance(item, float) and item.is_integer():
+            return int(item)
+        if isinstance(item, Mapping):
+            return {key: normalize(child) for key, child in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [normalize(child) for child in item]
+        return item
+
+    return json.dumps(normalize(value), sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def _require_matching_console_promotion_candidate(
     ticket: ResearchPromotionTicket,
     remote_ticket: Mapping[str, Any],
 ) -> None:
-    """Refuse console decisions that bind only ticket_id to a different candidate."""
+    """Match all fixed ticket material, including budget and shadow evidence."""
+    if not isinstance(remote_ticket, Mapping) or remote_ticket.get("live_authority_granted") is not False:
+        raise ValueError("console ticket must retain live_authority_granted=false")
     remote_id = str(remote_ticket.get("ticket_id") or "").strip()
     if not remote_id:
         raise ValueError("console ticket_id is required")
@@ -710,10 +742,23 @@ def _require_matching_console_promotion_candidate(
         )
     remote_params = dict(remote_ticket.get("proposed_params") or {})
     local_params = dict(ticket.proposed_params)
-    if remote_params != local_params:
+    if _canonical_ticket_value(remote_params) != _canonical_ticket_value(local_params):
         raise ValueError(
             "console proposed_params mismatch with local ticket candidate"
         )
+    decision_fields = {
+        "state", "updated_at", "human_decision", "human_decided_at", "notes",
+        "confirmation_target_platform", "confirmation_execution_mode", "confirmation_risk_profile",
+    }
+    for key, value in ticket.to_dict().items():
+        if key not in decision_fields and (
+            key not in remote_ticket
+            or _canonical_ticket_value(remote_ticket[key]) != _canonical_ticket_value(value)
+        ):
+            raise ValueError(f"console candidate material mismatch: {key}")
+    notes = remote_ticket.get("notes")
+    if not isinstance(notes, (list, tuple)) or list(notes[:len(ticket.notes)]) != list(ticket.notes):
+        raise ValueError("console candidate evidence notes mismatch")
 
 
 def apply_console_research_promotion_decision(
@@ -728,7 +773,7 @@ def apply_console_research_promotion_decision(
     grants live authority. If the console already validated paper, trust that
     gate here (paper_supported follows remote execution_mode == paper).
     """
-    if ticket.live_authority_granted or remote_ticket.get("live_authority_granted") is True:
+    if ticket.live_authority_granted or remote_ticket.get("live_authority_granted") is not False:
         raise ValueError("refusing to apply console decision with live_authority_granted=true")
     _require_matching_console_promotion_candidate(ticket, remote_ticket)
     state = str(remote_ticket.get("state") or "").strip()
@@ -748,22 +793,77 @@ def apply_console_research_promotion_decision(
         paper_supported = False
     else:
         raise ValueError(f"unsupported console ticket state={state}")
-    remote_decided_at = str(
-        decided_at
-        or remote_ticket.get("human_decided_at")
-        or remote_ticket.get("updated_at")
-        or ""
-    ).strip() or None
+    if remote_ticket.get("human_decision") != decision:
+        raise ValueError("console decision/state mismatch")
+    remote_decided_at = str(remote_ticket.get("human_decided_at") or "").strip()
+    if not remote_decided_at:
+        raise ValueError("console decision time unavailable")
+    if datetime.fromisoformat(remote_decided_at.replace("Z", "+00:00")).tzinfo is None:
+        raise ValueError("console decision time requires timezone")
     decided = apply_human_promotion_decision(
-        ticket,
+        ResearchPromotionTicket.from_dict(ticket.to_dict()),
         decision=decision,
         confirmation=confirmation,
         paper_supported=paper_supported,
-        decided_at=remote_decided_at,
+        decided_at=decided_at or remote_decided_at,
     )
+    if list(remote_ticket["notes"]) != list(decided.notes):
+        raise ValueError("console decision evidence notes mismatch")
     decided.notes = decided.notes + ("console_decision_applied",)
     decided.live_authority_granted = False
     return decided
+
+
+def reconcile_saved_research_promotion_ticket(
+    ticket_path: str | Path,
+    *,
+    pull_console: Callable[[str], Mapping[str, Any] | None] | None = None,
+    output_path: str | Path | None = None,
+    domain: str | None = None,
+) -> dict[str, Any]:
+    """Recover one saved human decision without starting research or applying it.
+
+    Terminal local tickets are idempotent no-ops. Callers retain each returned
+    status and serialize work for the same ticket. No POST, model or platform
+    action is performed; failures leave the original ticket unchanged.
+    """
+    result: dict[str, Any] = {"ticket_id": None, "strategy_profile": None,
+        "status": "rejected", "state": None, "reason": "local_ticket_invalid",
+        "live_authority_granted": False}
+    try:
+        ticket = load_research_promotion_ticket(ticket_path)
+    except (OSError, ValueError, TypeError, KeyError, OverflowError):
+        return result
+    result.update(ticket_id=ticket.ticket_id, strategy_profile=ticket.strategy_profile, state=ticket.state.value)
+    if domain is not None and ticket.domain != domain:
+        return {**result, "status": "skipped", "reason": "ticket_domain_mismatch"}
+    if ticket.live_authority_granted:
+        return {**result, "reason": "local_live_authority_rejected"}
+    if ticket.state in _TERMINAL:
+        return {**result, "status": "already_terminal", "reason": "local_ticket_terminal"}
+    if ticket.state is not ResearchPromotionState.AWAITING_HUMAN:
+        return {**result, "status": "skipped", "reason": "ticket_not_awaiting_human"}
+    try:
+        remote = (pull_console or make_console_research_promotion_pull())(ticket.ticket_id)
+    except Exception:
+        return {**result, "status": "unavailable", "reason": "console_read_unavailable"}
+    if remote is None:
+        return {**result, "status": "unavailable", "reason": "console_ticket_unavailable"}
+    try:
+        _require_matching_console_promotion_candidate(ticket, remote)
+        if remote.get("state") == ResearchPromotionState.AWAITING_HUMAN.value:
+            if any(key not in remote or _canonical_ticket_value(remote[key]) != _canonical_ticket_value(value)
+                   for key, value in ticket.to_dict().items()):
+                raise ValueError("awaiting ticket mismatch")
+            return {**result, "status": "awaiting_human", "reason": "human_decision_pending"}
+        decided = apply_console_research_promotion_decision(ticket, remote)
+    except (ValueError, TypeError, KeyError):
+        return {**result, "reason": "console_candidate_or_decision_mismatch"}
+    try:
+        save_research_promotion_ticket(decided, output_path or ticket_path)
+    except (OSError, ValueError, TypeError):
+        return {**result, "status": "unavailable", "reason": "local_ticket_save_failed"}
+    return {**result, "status": "updated", "state": decided.state.value, "reason": "human_intent_reconciled"}
 
 
 def _deliver_awaiting_human_ticket(
@@ -1013,12 +1113,27 @@ def save_research_promotion_ticket(
     ticket: ResearchPromotionTicket,
     path: str | Path,
 ) -> Path:
+    """Replace a complete ticket atomically; failed writes retain the old file."""
+    import os
+    import tempfile
+
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(
-        json.dumps(ticket.to_dict(), indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    payload = json.dumps(ticket.to_dict(), indent=2, sort_keys=True, allow_nan=False) + "\n"
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=target.parent,
+            prefix=f".{target.name}.", suffix=".tmp", delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     return target
 
 
@@ -1050,6 +1165,7 @@ __all__ = [
     "make_console_research_promotion_sync",
     "make_telegram_research_promotion_notifier",
     "open_awaiting_human_ticket",
+    "reconcile_saved_research_promotion_ticket",
     "run_research_promotion_cycle",
     "save_research_promotion_ticket",
     "shadow_record_from_paired_evidence",

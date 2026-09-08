@@ -97,6 +97,8 @@ def detect_drift(
 
     Thresholds are dynamically relaxed during ELEVATED/STRESS regimes.
     """
+    if snapshot.as_of is None:
+        raise ValueError("observation_date_unavailable")
     policy = policy or DriftPolicy.load_default()
 
     # Resolve thresholds with regime adjustment
@@ -107,6 +109,7 @@ def detect_drift(
     if ref_window is None:
         return DriftResult(strategy_profile=snapshot.strategy_profile,
                            domain=snapshot.domain, as_of=snapshot.as_of,
+                           source_revision=snapshot.source_revision,
                            drift_score=0.0, status=DriftStatus.HEALTHY)
 
     # Compute each dimension via registry
@@ -130,6 +133,7 @@ def detect_drift(
     return DriftResult(
         strategy_profile=snapshot.strategy_profile, domain=snapshot.domain,
         as_of=snapshot.as_of, drift_score=round(drift_score, 4),
+        source_revision=snapshot.source_revision,
         status=status, dimensions=dimensions,
         previous_status=previous_status,
         baseline_param_set_id=backtest.param_set_id if backtest else None,
@@ -186,7 +190,7 @@ def run_drift_detection(
     missing_snapshots = 0
     for profile in profiles:
         snapshot = store.load_latest_snapshot(domain, profile)
-        if snapshot is None:
+        if snapshot is None or snapshot.as_of is None:
             missing_snapshots += 1
             continue
         backtest = baseline_store.load_latest_backtest(domain, profile)
@@ -236,6 +240,7 @@ def run_drift_detection(
                     strategy_profile=snapshot.strategy_profile,
                     domain=snapshot.domain,
                     as_of=snapshot.as_of,
+                    source_revision=snapshot.source_revision,
                     drift_score=0.0,
                     status=continuity_result.status,
                     previous_status=continuity_result.status,
@@ -250,6 +255,7 @@ def run_drift_detection(
                     strategy_profile=snapshot.strategy_profile,
                     domain=snapshot.domain,
                     as_of=snapshot.as_of,
+                    source_revision=snapshot.source_revision,
                     drift_score=0.0,
                     status=DriftStatus.REVIEW,
                     alert_suppressed=True,

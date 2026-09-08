@@ -55,7 +55,7 @@ def build_drift_alert(
     """
     policy = policy or DriftPolicy.load_default()
 
-    if drift.status == DriftStatus.HEALTHY:
+    if drift.as_of is None or drift.status == DriftStatus.HEALTHY:
         return None
 
     if drift.alert_suppressed:

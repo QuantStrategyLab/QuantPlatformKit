@@ -341,37 +341,17 @@ def _run_research_promotion_decide(args: argparse.Namespace) -> int:
 
 
 def _run_research_promotion_pull(args: argparse.Namespace) -> int:
-    load_ticket = _load_callable(
+    reconcile = _load_callable(
         "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
-        "load_research_promotion_ticket",
+        "reconcile_saved_research_promotion_ticket",
     )
-    make_pull = _load_callable(
-        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
-        "make_console_research_promotion_pull",
-    )
-    apply_console = _load_callable(
-        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
-        "apply_console_research_promotion_decision",
-    )
-    save_ticket = _load_callable(
-        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
-        "save_research_promotion_ticket",
-    )
-    ticket = load_ticket(args.ticket)
-    remote = make_pull()(ticket.ticket_id)
-    if remote is None:
-        raise ValueError(
-            "console pull returned no ticket; check RESEARCH_PROMOTION_SYNC_URL/TOKEN "
-            "and that the console ticket exists"
-        )
-    decided = apply_console(ticket, remote)
-    output = args.output or args.ticket
-    save_ticket(decided, output)
+    result = reconcile(args.ticket, output_path=args.output)
     _print(
-        f"[research-promotion-pull] ticket={decided.ticket_id} "
-        f"state={decided.state.value} live_authority_granted={decided.live_authority_granted}"
+        f"[research-promotion-pull] ticket={result['ticket_id']} "
+        f"status={result['status']} state={result['state']} "
+        f"reason={result['reason']} live_authority_granted=false"
     )
-    return 0
+    return 0 if result["status"] in {"updated", "already_terminal", "awaiting_human"} else 1
 
 
 def _run_doctor(args: argparse.Namespace) -> int:

@@ -50,6 +50,13 @@ def compute_health_score(
     Returns:
         StrategyHealthScore with breakdown.
     """
+    if snapshot.as_of is None:
+        return StrategyHealthScore(
+            strategy_profile=snapshot.strategy_profile, domain=snapshot.domain,
+            as_of=None, overall_score=None, performance_score=None, risk_score=None,
+            decay_score=None, stability_score=None, operational_score=None,
+            status="unavailable",
+        )
     weights = weights or DEFAULT_WEIGHTS
     thresholds = thresholds or DEFAULT_THRESHOLDS
 

@@ -81,7 +81,7 @@ class StrategyPerformanceSnapshot:
     strategy_profile: str
     domain: str
     platform: str
-    as_of: date
+    as_of: date | None
 
     # Rolling windows (keyed by window_days: 63, 126, 252, 756)
     windows: Mapping[int, WindowPerformance] = field(default_factory=dict)
@@ -108,7 +108,7 @@ class StrategyPerformanceSnapshot:
             "strategy_profile": self.strategy_profile,
             "domain": self.domain,
             "platform": self.platform,
-            "as_of": self.as_of.isoformat(),
+            "as_of": self.as_of.isoformat() if self.as_of is not None else None,
             "windows": {str(k): v.to_dict() for k, v in self.windows.items()},
             "latest_return": self.latest_return,
             "benchmark_symbol": self.benchmark_symbol,
@@ -184,7 +184,7 @@ class DriftResult:
 
     strategy_profile: str
     domain: str
-    as_of: date
+    as_of: date | None
     drift_score: float
     status: DriftStatus
     dimensions: Mapping[str, DriftDimension] = field(default_factory=dict)
@@ -196,12 +196,14 @@ class DriftResult:
     baseline_available: bool = True
     baseline_param_version: int | None = None
     baseline_artifact_id: str | None = None
+    source_revision: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
             "strategy_profile": self.strategy_profile,
             "domain": self.domain,
-            "as_of": self.as_of.isoformat(),
+            "as_of": self.as_of.isoformat() if self.as_of is not None else None,
+            "source_revision": self.source_revision,
             "drift_score": self.drift_score,
             "status": self.status.value,
             "dimensions": {k: v.to_dict() for k, v in self.dimensions.items()},
@@ -596,15 +598,15 @@ class StrategyHealthScore:
 
     strategy_profile: str
     domain: str
-    as_of: date
-    overall_score: float
+    as_of: date | None
+    overall_score: float | None
 
     # Sub-scores
-    performance_score: float  # 35%
-    risk_score: float  # 25%
-    decay_score: float  # 20%
-    stability_score: float  # 10%
-    operational_score: float  # 10%
+    performance_score: float | None  # 35%
+    risk_score: float | None  # 25%
+    decay_score: float | None  # 20%
+    stability_score: float | None  # 10%
+    operational_score: float | None  # 10%
 
     # Status
     status: str = ""  # healthy, watch, review, critical
@@ -613,7 +615,7 @@ class StrategyHealthScore:
         return {
             "strategy_profile": self.strategy_profile,
             "domain": self.domain,
-            "as_of": self.as_of.isoformat(),
+            "as_of": self.as_of.isoformat() if self.as_of is not None else None,
             "overall_score": self.overall_score,
             "performance_score": self.performance_score,
             "risk_score": self.risk_score,
