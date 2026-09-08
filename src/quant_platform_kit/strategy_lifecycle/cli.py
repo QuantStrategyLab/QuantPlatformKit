@@ -305,19 +305,10 @@ def _run_research_promotion_decide(args: argparse.Namespace) -> int:
             raise ValueError(
                 "paper requires --paper-supported for a real broker paper/sim account"
             )
-    load_ticket = _load_callable(
-        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
-        "load_research_promotion_ticket",
-    )
     apply_decision = _load_callable(
         "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
-        "apply_human_promotion_decision",
+        "decide_saved_research_promotion_ticket",
     )
-    save_ticket = _load_callable(
-        "quant_platform_kit.strategy_lifecycle.research_promotion_cycle",
-        "save_research_promotion_ticket",
-    )
-    ticket = load_ticket(args.ticket)
     confirmation = None
     if args.decision == "accept":
         confirmation = {
@@ -326,13 +317,12 @@ def _run_research_promotion_decide(args: argparse.Namespace) -> int:
             "risk_profile": args.risk_profile,
         }
     decided = apply_decision(
-        ticket,
+        args.ticket,
         decision=args.decision,
         confirmation=confirmation,
         paper_supported=bool(args.paper_supported),
+        output_path=args.output,
     )
-    output = args.output or args.ticket
-    save_ticket(decided, output)
     _print(
         f"[research-promotion-decide] ticket={decided.ticket_id} "
         f"state={decided.state.value} live_authority_granted={decided.live_authority_granted}"

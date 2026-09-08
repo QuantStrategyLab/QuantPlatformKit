@@ -21,6 +21,7 @@ from quant_platform_kit.strategy_lifecycle.codex_integration import (
     create_github_issue,
 )
 from quant_platform_kit.strategy_lifecycle.contracts import DriftResult, DriftStatus, StrategyPerformanceSnapshot
+from tests.test_research_promotion_resume import IDENTITY
 
 
 def test_drift_phase_excludes_suppressed_results_from_automation() -> None:
@@ -141,7 +142,7 @@ def test_autopilot_runs_bounded_strict_research_to_human_queue(tmp_path, gate_pa
           patch(prefix + "call_ai_optimization_decision", side_effect=decision)):
         result = run_auto_pilot_cycle("us_equity", store=store, create_issues=False,
             optimize=optimize, enforce_backtest_gates=gates,
-            record_shadow=shadow, sync_console=sync)
+            record_shadow=shadow, sync_console=sync, research_identity=IDENTITY)
     action = result["actions"][0]
     assert events == (["codex", "optimize", "gates", "shadow", "console"] if gate_passes and risk_passes
                       else ["codex", "optimize", "gates"] if risk_passes else ["codex", "optimize"])
@@ -195,19 +196,21 @@ def test_optimization_decision_is_codex_only_with_no_paid_fallback(success, outp
     assert result["optimization_needed"] is needed
 
 
-def test_codex_deferral_is_pending_instead_of_a_negative_research_recommendation():
+def test_codex_deferral_is_pending_instead_of_a_negative_research_recommendation(tmp_path):
+    from datetime import datetime, timezone
     from quant_platform_kit.strategy_lifecycle.codex_integration import _process_optimization_decision
-    store = Mock()
+    retry_at = datetime.now(timezone.utc).timestamp() + 3600
+    store = Mock(local_root=tmp_path)
     store.load_latest_snapshot.return_value = StrategyPerformanceSnapshot(
         strategy_profile="demo_strategy", domain="us_equity", platform="test", as_of=date(2026, 9, 7), source_revision="source-v1")
     optimize = Mock()
     with patch("quant_platform_kit.strategy_lifecycle.ai_provider.AiServiceClient") as factory:
         factory.return_value.execute.return_value = SimpleNamespace(success=False, provider="codex", output="",
-            raw={"status": "deferred", "retry_at": 9000})
+            raw={"status": "deferred", "retry_at": retry_at})
         result = _process_optimization_decision(_critical(), store, False,
-            optimize=optimize, enforce_backtest_gates=Mock(), record_shadow=Mock())
+            optimize=optimize, enforce_backtest_gates=Mock(), record_shadow=Mock(), research_identity=IDENTITY)
     assert result["research_promotion_state"] == "deferred"
-    assert result["retry_at"] == 9000
+    assert result["retry_at"] == retry_at
     optimize.assert_not_called()
 
 

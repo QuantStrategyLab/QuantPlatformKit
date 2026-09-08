@@ -225,7 +225,7 @@ def test_reconciliation_save_failure_keeps_original_and_can_recover(tmp_path):
     assert result["status"] == "unavailable"
     assert result["reason"] == "local_ticket_save_failed"
     assert path.read_bytes() == before
-    assert list(tmp_path.iterdir()) == [path]
+    assert set(tmp_path.iterdir()) == {path, tmp_path / ".research.lock"}
     assert cycle.reconcile_saved_research_promotion_ticket(path, pull_console=pull)["status"] == "updated"
 
 
