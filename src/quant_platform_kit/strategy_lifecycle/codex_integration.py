@@ -582,10 +582,12 @@ def run_auto_pilot_cycle(
     enforce_backtest_gates: Callable | None = None,
     record_shadow: Callable | None = None,
     sync_console: Callable | None = None,
+    pull_console: Callable | None = None,
 ) -> dict[str, Any]:
     """Run one drift-triggered cycle with candidate-bound research callbacks.
 
-    Delegates to 4 pipeline phases:
+    First recover saved human decisions (read-only console access, intent only),
+    then delegate to 4 pipeline phases:
       1. _run_monitor_phase  — run performance monitoring
       2. _run_drift_phase    — run drift detection
       3. _run_issue_phase    — create GitHub issues (optional)
@@ -594,8 +596,32 @@ def run_auto_pilot_cycle(
     store = store or PerformanceStore.from_env()
     summary: dict[str, Any] = {
         "domain": domain, "cycle_start": _now_iso(),
-        "dry_run": dry_run, "actions": [],
+        "dry_run": dry_run, "actions": [], "research_decisions": [],
     }
+
+    # Recovery does not re-run optimizers, POST tickets or apply human intent.
+    # Historical terminal tickets do not block a future independent observation.
+    pending_profiles: set[str] = set()
+    ticket_root = getattr(store, "local_root", None)
+    if not dry_run and isinstance(ticket_root, (str, Path)):
+        from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
+            reconcile_saved_research_promotion_ticket,
+        )
+
+        try:
+            ticket_paths = sorted((Path(ticket_root) / "research_promotion_tickets").glob("*.json"))
+        except OSError:
+            ticket_paths = []
+            summary["research_decision_scan"] = "unavailable"
+        for ticket_path in ticket_paths:
+            result = reconcile_saved_research_promotion_ticket(
+                ticket_path, pull_console=pull_console, domain=domain,
+            )
+            summary["research_decisions"].append(result)
+            if result["status"] != "skipped" and (
+                result["state"] == "awaiting_human" or result["status"] == "updated"
+            ) and result["strategy_profile"]:
+                pending_profiles.add(result["strategy_profile"])
 
     # Phase 1
     snapshots = _run_monitor_phase(domain, store)
@@ -614,6 +640,13 @@ def run_auto_pilot_cycle(
     if trigger_optimization:
         for drift in alert_drifts:
             if drift.status not in (DriftStatus.REVIEW, DriftStatus.CRITICAL):
+                continue
+            if drift.strategy_profile in pending_profiles:
+                summary["actions"].append({
+                    "strategy_profile": drift.strategy_profile,
+                    "action": "skipped", "reason": "saved_research_ticket_pending",
+                    "live_authority_granted": False,
+                })
                 continue
             summary["actions"].append(
                 _process_optimization_decision(

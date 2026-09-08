@@ -369,6 +369,7 @@ def test_runner_adapter_to_console_then_accept_remains_intent_only() -> None:
         sync_console=make_console_research_promotion_sync(
             endpoint_url="https://console.invalid/api/internal/sync-research-promotion-ticket",
             sync_token="synthetic-test-only", post_json=post,
+            pull_console=lambda _: post.call_args.kwargs["payload"] if post.called else None,
         ),
     )
     assert summary["console_synced"] is True

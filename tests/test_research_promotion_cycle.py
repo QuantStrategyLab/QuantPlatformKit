@@ -327,6 +327,7 @@ def test_console_sync_posts_awaiting_ticket_payload() -> None:
         endpoint_url="https://console.example/api/internal/sync-research-promotion-ticket",
         sync_token="sync-secret",
         post_json=_post_json,
+        pull_console=lambda _: calls[-1]["payload"] if calls else None,
     )
     ticket = run_research_promotion_cycle(
         _drift(),
@@ -374,6 +375,7 @@ def test_console_sync_soft_fails_on_transport_error() -> None:
         endpoint_url="https://console.example/api/internal/sync-research-promotion-ticket",
         sync_token="sync-secret",
         post_json=_boom,
+        pull_console=lambda _: None,
         printer=lambda *args, **kwargs: skipped.append(" ".join(str(a) for a in args)),
     )
     ticket = run_research_promotion_cycle(
@@ -459,6 +461,12 @@ def test_console_pull_and_apply_accept_decision() -> None:
         make_console_research_promotion_pull,
     )
 
+    local = run_research_promotion_cycle(
+        _drift(),
+        optimize=lambda drift, budget: _proposal(),
+        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
+        ticket_id="rpt_pull001",
+    )
     calls: list[dict] = []
 
     def _get_json(*, endpoint, bearer_token, ticket_id, timeout):
@@ -474,6 +482,7 @@ def test_console_pull_and_apply_accept_decision() -> None:
             "ok": True,
             "live_authority_granted": False,
             "ticket": {
+                **local.to_dict(),
                 "ticket_id": "rpt_pull001",
                 "strategy_profile": "demo_strategy",
                 "domain": "us_equity",
@@ -485,6 +494,9 @@ def test_console_pull_and_apply_accept_decision() -> None:
                 "confirmation_target_platform": "ibkr",
                 "confirmation_execution_mode": "live",
                 "confirmation_risk_profile": "BALANCED_COMPOUNDING",
+                "notes": [*local.notes, "human_accepted_intent_only_no_live_authority",
+                          "confirmation_platform=ibkr", "confirmation_mode=live",
+                          "confirmation_risk_profile=BALANCED_COMPOUNDING"],
             },
         }
 
@@ -498,12 +510,6 @@ def test_console_pull_and_apply_accept_decision() -> None:
     assert calls[0]["ticket_id"] == "rpt_pull001"
     assert calls[0]["bearer_token"] == "sync-secret"
 
-    local = run_research_promotion_cycle(
-        _drift(),
-        optimize=lambda drift, budget: _proposal(),
-        record_shadow=lambda proposal: {"evidence_kind": "proxy_shadow", "passed": True},
-        ticket_id="rpt_pull001",
-    )
     decided = apply_console_research_promotion_decision(local, remote)
     assert decided.state is ResearchPromotionState.HUMAN_ACCEPTED
     assert decided.live_authority_granted is False
@@ -527,6 +533,7 @@ def test_console_apply_reject_decision() -> None:
     decided = apply_console_research_promotion_decision(
         local,
         {
+            **local.to_dict(),
             "ticket_id": "rpt_pull002",
             "strategy_profile": "demo_strategy",
             "domain": "us_equity",
@@ -534,6 +541,8 @@ def test_console_apply_reject_decision() -> None:
             "state": "human_rejected",
             "live_authority_granted": False,
             "human_decision": "reject",
+            "human_decided_at": "2026-09-07T02:00:00Z",
+            "notes": [*local.notes, "human_rejected"],
         },
     )
     assert decided.state is ResearchPromotionState.HUMAN_REJECTED
@@ -586,6 +595,7 @@ def test_console_apply_accept_requires_matching_candidate_fields() -> None:
     decided = apply_console_research_promotion_decision(
         local,
         {
+            **local.to_dict(),
             "ticket_id": "rpt_pull004",
             "strategy_profile": "demo_strategy",
             "domain": "us_equity",
@@ -597,6 +607,9 @@ def test_console_apply_accept_requires_matching_candidate_fields() -> None:
             "confirmation_target_platform": "ibkr",
             "confirmation_execution_mode": "live",
             "confirmation_risk_profile": "CAPITAL_PRESERVATION",
+            "notes": [*local.notes, "human_accepted_intent_only_no_live_authority",
+                      "confirmation_platform=ibkr", "confirmation_mode=live",
+                      "confirmation_risk_profile=CAPITAL_PRESERVATION"],
         },
     )
     assert decided.state is ResearchPromotionState.HUMAN_ACCEPTED
