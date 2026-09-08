@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 from datetime import date
+from hashlib import sha256
 import json
 
 import pytest
@@ -242,3 +243,83 @@ def test_report_artifacts_embed_the_validated_evidence_without_runtime_changes()
         json.loads(serialized["artifacts"]["paired_shadow_evidence_json"])
         == evidence
     )
+
+
+def _three_session_chain():
+    chain = []
+    for index, session in enumerate(("2026-08-26", "2026-08-27", "2026-08-28"), 1):
+        previous, previous_receipt = chain[-1] if chain else (None, None)
+        receipt = _forward_receipt(previous=previous_receipt, index=index, session=session)
+        evidence = _evidence(
+            forward_observation_receipt=receipt,
+            observed_at=session + "T20:00:00-04:00",
+            previous_evidence=previous,
+            previous_forward_observation_receipt=previous_receipt,
+        )
+        chain.append((evidence, receipt))
+    return chain
+
+
+def test_three_sessions_validate_serialize_and_preserve_no_order_guards() -> None:
+    chain = _three_session_chain()
+    for index, (evidence, receipt) in enumerate(chain):
+        previous, previous_receipt = chain[index - 1] if index else (None, None)
+        assert validate_paired_shadow_evidence(
+            evidence, policy=_policy(), forward_observation_receipt=receipt,
+            previous_evidence=previous, previous_forward_observation_receipt=previous_receipt,
+        ) == evidence
+        assert json.loads(canonical_paired_shadow_evidence_bytes(evidence)) == evidence
+        assert paired_shadow_evidence_sha256(evidence) == evidence["paired_shadow_evidence_sha256"]
+        artifacts = build_paired_shadow_evidence_report_artifacts(
+            evidence, policy=_policy(), forward_observation_receipt=receipt,
+            previous_evidence=previous, previous_forward_observation_receipt=previous_receipt,
+        )
+        assert json.loads(artifacts["paired_shadow_evidence_json"]) == evidence
+        assert artifacts["paired_shadow_evidence_no_order"] is True
+        assert artifacts["paired_shadow_evidence_live_authority_granted"] is False
+        assert evidence["observation_index"] < _policy().required_trading_sessions
+
+
+@pytest.mark.parametrize("failure", ["missing", "tampered", "wrong_receipt", "wrong_candidate"])
+def test_three_session_chain_rejects_missing_or_invalid_predecessor(failure) -> None:
+    chain = _three_session_chain()
+    current, receipt = chain[-1]
+    previous, previous_receipt = copy.deepcopy(chain[-2])
+    if failure == "missing":
+        previous = previous_receipt = None
+    elif failure == "tampered":
+        previous["candidate"]["cost"]["source"] = "changed"
+    elif failure == "wrong_receipt":
+        previous_receipt = chain[0][1]
+    else:
+        previous["candidate_id"] = "another-candidate"
+        previous["paired_shadow_evidence_sha256"] = sha256(json.dumps(
+            {k: v for k, v in previous.items() if k != "paired_shadow_evidence_sha256"},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+        ).encode()).hexdigest()
+    with pytest.raises(ValueError):
+        validate_paired_shadow_evidence(
+            current, policy=_policy(), forward_observation_receipt=receipt,
+            previous_evidence=previous, previous_forward_observation_receipt=previous_receipt,
+        )
+
+
+def test_full_chain_walk_rejects_changed_ancestor() -> None:
+    chain = _three_session_chain()
+    changed = copy.deepcopy(chain)
+    first = changed[0][0]
+    first["baseline_id"] = "changed-historical-baseline"
+    first["paired_shadow_evidence_sha256"] = sha256(json.dumps(
+        {k: v for k, v in first.items() if k != "paired_shadow_evidence_sha256"},
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+    ).encode()).hexdigest()
+    # The full-window consumer walks from the first actual record, so a later
+    # internally valid pair cannot hide a changed ancestor.
+    previous = previous_receipt = None
+    with pytest.raises(ValueError, match="predecessor|identity changed"):
+        for evidence, receipt in changed:
+            previous = validate_paired_shadow_evidence(
+                evidence, policy=_policy(), forward_observation_receipt=receipt,
+                previous_evidence=previous, previous_forward_observation_receipt=previous_receipt,
+            )
+            previous_receipt = receipt

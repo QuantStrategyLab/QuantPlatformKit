@@ -231,22 +231,14 @@ def build_paired_shadow_evidence(
     )
 
 
-def validate_paired_shadow_evidence(
+def _validate_paired_shadow_content(
     value: Mapping[str, object],
     *,
     policy: ForwardObservationPolicy | None = None,
     forward_observation_receipt: Mapping[str, object] | None = None,
-    previous_evidence: Mapping[str, object] | None = None,
     previous_forward_observation_receipt: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
-    """Validate integrity and, when supplied, bind the evidence to P4 receipts.
-
-    A standalone validation establishes only the artifact's closed schema and
-    digest.  A trusting consumer must provide its frozen policy and matching
-    forward-observation receipt; a continuous consumer also provides both
-    predecessors.  This prevents a recent production performance snapshot
-    from being re-labelled as paired shadow evidence.
-    """
+    """Check one artifact's content and optional receipt binding, not ancestry."""
 
     if not isinstance(value, Mapping) or set(value) != _TOP_LEVEL_FIELDS:
         _invalid("evidence must be a closed paired-shadow object")
@@ -305,38 +297,6 @@ def validate_paired_shadow_evidence(
     elif previous_forward_observation_receipt is not None:
         _invalid("previous forward-observation receipt requires current receipt")
 
-    if previous_evidence is not None:
-        if forward_observation_receipt is None or previous_forward_observation_receipt is None:
-            _invalid("continuous evidence validation requires both forward-observation receipts")
-        previous = validate_paired_shadow_evidence(
-            previous_evidence,
-            policy=policy,
-            forward_observation_receipt=previous_forward_observation_receipt,
-        )
-        if previous_digest != previous["paired_shadow_evidence_sha256"]:
-            _invalid("previous_paired_shadow_evidence_sha256 does not match predecessor")
-        if index != int(previous["observation_index"]) + 1:
-            _invalid("observation_index does not increment from the predecessor")
-        if session <= str(previous["observation_session"]):
-            _invalid("observation_session does not advance from the predecessor")
-        if timestamp <= str(previous["observed_at"]):
-            _invalid("observed_at does not advance from the predecessor")
-        if candidate_id != previous["candidate_id"] or baseline_id != previous["baseline_id"]:
-            _invalid("candidate or baseline identity changed within the evidence chain")
-        previous_forward_digest = previous["forward_observation_receipt_sha256"]
-        forward_previous_digest = previous_forward_observation_receipt.get(
-            "receipt_sha256"
-        )
-        if previous_forward_digest != forward_previous_digest:
-            _invalid("previous evidence is not bound to its forward-observation receipt")
-        current_forward_previous_digest = forward_observation_receipt.get(
-            "previous_receipt_sha256"
-        )
-        if current_forward_previous_digest != previous_forward_digest:
-            _invalid("forward-observation receipt chain does not match evidence chain")
-    elif previous_digest is not None:
-        _invalid("previous paired-shadow digest requires predecessor evidence")
-
     return {
         "schema_version": PAIRED_SHADOW_EVIDENCE_SCHEMA_VERSION,
         "evidence_kind": PAIRED_SHADOW_EVIDENCE_KIND,
@@ -356,17 +316,71 @@ def validate_paired_shadow_evidence(
     }
 
 
-def canonical_paired_shadow_evidence_bytes(value: Mapping[str, object]) -> bytes:
-    """Return canonical bytes for a schema-valid paired-shadow artifact."""
+def validate_paired_shadow_evidence(
+    value: Mapping[str, object],
+    *,
+    policy: ForwardObservationPolicy | None = None,
+    forward_observation_receipt: Mapping[str, object] | None = None,
+    previous_evidence: Mapping[str, object] | None = None,
+    previous_forward_observation_receipt: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Validate one artifact and its actual adjacent evidence/receipt pair.
 
-    return _canonical_bytes(validate_paired_shadow_evidence(value))
+    Every non-first artifact requires both actual predecessors. A full-window
+    consumer must walk from the first record; validating a later adjacent pair
+    alone does not establish the earlier history or window completion.
+    """
+    current = _validate_paired_shadow_content(
+        value, policy=policy, forward_observation_receipt=forward_observation_receipt,
+        previous_forward_observation_receipt=previous_forward_observation_receipt,
+    )
+    previous_digest = current["previous_paired_shadow_evidence_sha256"]
+    if previous_evidence is not None:
+        if forward_observation_receipt is None or previous_forward_observation_receipt is None:
+            _invalid("continuous evidence validation requires both forward-observation receipts")
+        previous = _validate_paired_shadow_content(
+            previous_evidence,
+            policy=policy,
+            forward_observation_receipt=previous_forward_observation_receipt,
+        )
+        if previous_digest != previous["paired_shadow_evidence_sha256"]:
+            _invalid("previous_paired_shadow_evidence_sha256 does not match predecessor")
+        if current["observation_index"] != int(previous["observation_index"]) + 1:
+            _invalid("observation_index does not increment from the predecessor")
+        if current["observation_session"] <= str(previous["observation_session"]):
+            _invalid("observation_session does not advance from the predecessor")
+        if current["observed_at"] <= str(previous["observed_at"]):
+            _invalid("observed_at does not advance from the predecessor")
+        if current["candidate_id"] != previous["candidate_id"] or current["baseline_id"] != previous["baseline_id"]:
+            _invalid("candidate or baseline identity changed within the evidence chain")
+        previous_forward_digest = previous["forward_observation_receipt_sha256"]
+        forward_previous_digest = previous_forward_observation_receipt.get(
+            "receipt_sha256"
+        )
+        if previous_forward_digest != forward_previous_digest:
+            _invalid("previous evidence is not bound to its forward-observation receipt")
+        current_forward_previous_digest = forward_observation_receipt.get(
+            "previous_receipt_sha256"
+        )
+        if current_forward_previous_digest != previous_forward_digest:
+            _invalid("forward-observation receipt chain does not match evidence chain")
+    elif previous_digest is not None:
+        _invalid("previous paired-shadow digest requires predecessor evidence")
+
+    return current
+
+
+def canonical_paired_shadow_evidence_bytes(value: Mapping[str, object]) -> bytes:
+    """Serialize valid content; this proves neither ancestry nor window completion."""
+
+    return _canonical_bytes(_validate_paired_shadow_content(value))
 
 
 def paired_shadow_evidence_sha256(value: Mapping[str, object]) -> str:
-    """Return the deterministic SHA-256 identity of a valid artifact."""
+    """Return a content identity, not evidence of ancestry or window completion."""
 
     return str(
-        validate_paired_shadow_evidence(value)["paired_shadow_evidence_sha256"]
+        _validate_paired_shadow_content(value)["paired_shadow_evidence_sha256"]
     )
 
 
