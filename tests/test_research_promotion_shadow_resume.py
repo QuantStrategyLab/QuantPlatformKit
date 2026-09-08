@@ -1,5 +1,6 @@
 """Synthetic local observations; no model, broker, real shadow or console."""
 
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from unittest.mock import Mock
 
@@ -77,6 +78,55 @@ def test_actual_runner_resumes_only_local_shadow_after_original_drift_expires(tm
     assert second["ticket"]["live_authority_granted"] is False
     assert [args[key].call_count for key in ("diagnose", "optimize", "enforce_backtest_gates",
                                             "record_shadow", "read_pending_shadow", "sync_console")] == [1] * 6
+
+
+@pytest.mark.parametrize("recommendation", ["promote", "needs_review", "research_candidate"])
+@pytest.mark.parametrize("decision", ["accept", "reject"])
+def test_saved_candidate_recommendations_resume_through_the_same_human_gate(tmp_path, recommendation, decision):
+    from tests.test_research_promotion_reconciliation import remote_decision
+
+    args = job(tmp_path, optimize=Mock(return_value=replace(_proposal(), recommendation=recommendation)),
+               sync_console=Mock(return_value=False))
+    first = run_actionable_research_promotion(**args)
+    assert first["status"] == "deferred"
+    local = cycle.load_research_promotion_ticket(first["ticket_path"])
+    assert local.research_progress["stages"]["optimize"]["result"]["recommendation"] == recommendation
+    args["sync_console"].assert_not_called()
+
+    Clock.current = datetime(2026, 9, 21, tzinfo=timezone.utc)
+    ready = run_actionable_research_promotion(**{**args, "evaluation_date": "2026-09-21"})
+    assert ready["status"] == "awaiting_human"
+    assert ready["research_key"] == first["research_key"]
+    assert ready["ticket"]["ticket_id"] == first["ticket"]["ticket_id"]
+    local = cycle.load_research_promotion_ticket(ready["ticket_path"])
+    args["pull_console"].return_value = remote_decision(local, decision)
+    Clock.current = datetime(2026, 11, 21, tzinfo=timezone.utc)
+    for _ in range(2):
+        result = run_actionable_research_promotion(**{**args, "evaluation_date": "2026-11-21"})
+        assert result["status"] == ("human_accepted" if decision == "accept" else "human_rejected")
+        assert result["ticket"]["live_authority_granted"] is False
+    assert [args[key].call_count for key in ("diagnose", "optimize", "enforce_backtest_gates",
+                                            "record_shadow", "read_pending_shadow", "sync_console", "pull_console")] == [1] * 7
+
+
+@pytest.mark.parametrize("mutation", ["recommendation", "backtest"])
+def test_candidate_recommendation_does_not_bypass_saved_strict_gates(tmp_path, mutation):
+    args = job(tmp_path, optimize=Mock(return_value=replace(_proposal(), recommendation="research_candidate")))
+    first = run_actionable_research_promotion(**args)
+    assert first["status"] == "deferred"
+    local = cycle.load_research_promotion_ticket(first["ticket_path"])
+    stages = local.research_progress["stages"]
+    if mutation == "recommendation":
+        stages["optimize"]["result"]["recommendation"] = "reject"
+    else:
+        stages["backtest"]["result"]["status"] = "FAIL"
+    cycle.save_research_promotion_ticket(local, first["ticket_path"])
+    Clock.current = datetime(2026, 9, 21, tzinfo=timezone.utc)
+    result = run_actionable_research_promotion(**{**args, "evaluation_date": "2026-09-21"})
+    assert result["status"] == "parked" and result["reason"] == "research_checkpoint_invalid"
+    assert [args[key].call_count for key in ("diagnose", "optimize", "enforce_backtest_gates", "record_shadow")] == [1] * 4
+    args["read_pending_shadow"].assert_not_called()
+    args["sync_console"].assert_not_called()
 
 
 @pytest.mark.parametrize("retry", [None, True, float("nan"), float("inf"), 0])

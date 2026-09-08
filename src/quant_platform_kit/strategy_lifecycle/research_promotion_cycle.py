@@ -40,6 +40,7 @@ class ResearchPromotionState(str, Enum):
 
 
 _ACTIVE_DRIFT = {DriftStatus.REVIEW, DriftStatus.CRITICAL}
+_RESEARCH_CANDIDATE_RECOMMENDATIONS = frozenset({"promote", "needs_review", "research_candidate"})
 _TERMINAL = {
     ResearchPromotionState.PARKED,
     ResearchPromotionState.HUMAN_ACCEPTED,
@@ -1012,7 +1013,7 @@ def run_research_promotion_cycle(
         ticket.updated_at = _now_iso()
         return ticket
 
-    if proposal.recommendation not in {"promote", "needs_review", "research_candidate"}:
+    if proposal.recommendation not in _RESEARCH_CANDIDATE_RECOMMENDATIONS:
         ticket.state = ResearchPromotionState.PARKED
         ticket.notes = (f"recommendation={proposal.recommendation}",)
         ticket.updated_at = _now_iso()
@@ -1429,7 +1430,7 @@ def run_saved_research_promotion_cycle(
                         return output("research_checkpoint_invalid", status="parked")
                 gates_ok, _ = enforce_promotion_backtest_gates(proposal, stages["backtest"]["result"])
                 budget_ok, _ = enforce_optimization_budget(proposal, budget)
-                if (not gates_ok or not budget_ok or proposal.recommendation != "promote"
+                if (not gates_ok or not budget_ok or proposal.recommendation not in _RESEARCH_CANDIDATE_RECOMMENDATIONS
                         or proposal.strategy_profile != drift.strategy_profile or proposal.domain != drift.domain
                         or (progress.get("diagnosis_required")
                             and stages["diagnose"]["result"].get("optimization_needed") is not True)):

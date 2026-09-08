@@ -157,3 +157,19 @@ def test_collect_rejects_live_authority_on_built_evidence(monkeypatch: pytest.Mo
     monkeypatch.setattr(adapter, "build_paired_shadow_evidence", _fake_build)
     with pytest.raises(ValueError, match="live_authority_granted"):
         collect_paired_shadow_for_promotion(_observation())
+
+
+def test_collect_advances_three_actual_receipt_pairs() -> None:
+    previous = previous_receipt = None
+    for index, session in enumerate(("2026-08-26", "2026-08-27", "2026-08-28"), 1):
+        receipt = _forward_receipt(previous=previous_receipt, index=index, session=session)
+        record = collect_paired_shadow_for_promotion(PairedShadowObservation(
+            policy=_policy(), forward_observation_receipt=receipt,
+            baseline_id="soxl-v6-live-baseline", observed_at=session + "T20:00:00-04:00",
+            input_snapshot_sha256="a" * 64, candidate=_leg("candidate"), baseline=_leg("baseline"),
+            previous_evidence=previous, previous_forward_observation_receipt=previous_receipt,
+        ))
+        assert record["passed"] is True
+        assert record["no_order"] is True and record["live_authority_granted"] is False
+        assert record["evidence"]["observation_index"] == index
+        previous, previous_receipt = record["evidence"], receipt
