@@ -10,6 +10,7 @@ import argparse
 import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from quant_platform_kit.strategy_lifecycle.contracts import DriftResult, DriftStatus
@@ -23,6 +24,7 @@ from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
     ResearchPromotionTicket,
     make_console_research_promotion_sync,
     run_research_promotion_cycle,
+    run_saved_research_promotion_cycle,
 )
 
 
@@ -69,6 +71,13 @@ def run_actionable_research_promotion(
     record_shadow: Callable[[Any], Mapping[str, Any]] | None = None,
     enforce_backtest_gates: Callable[[Any], Any] | None = None,
     sync_console: Callable[[ResearchPromotionTicket], bool] | None = None,
+    pull_console: Callable | None = None,
+    research_identity: Mapping[str, str] | None = None,
+    ticket_dir: str | Path | None = None,
+    diagnose: Callable | None = None,
+    resume_delivery_only: bool = False,
+    admit_new_research: Callable[[Path, str], bool] | None = None,
+    read_pending_shadow: Callable | None = None,
     cycle: Callable[..., ResearchPromotionTicket] | None = None,
 ) -> dict[str, Any]:
     """Run promotion once for REVIEW/CRITICAL drift and require paired shadow.
@@ -114,7 +123,12 @@ def run_actionable_research_promotion(
 
     if not from_store:
         health["source_revision"] = source_revision
-    if not health["actionable"]:
+    # Stale observations may identify an already-computed pending ticket. The
+    # saved entry alone decides whether its read-only tail can continue.
+    stale_checkpoint = (health.get("reason") == "observation_stale"
+                        and ticket_dir is not None and research_identity is not None
+                        and health.get("risk_status") in {"review", "critical"})
+    if not health["actionable"] and not stale_checkpoint:
         return {
             **health,
             "drift_status": health["status"],
@@ -146,7 +160,7 @@ def run_actionable_research_promotion(
         domain=domain,
         as_of=resolved_as_of,
         drift_score=float(health["score"]),
-        status=DriftStatus(str(health["status"])),
+        status=DriftStatus(str(health["risk_status"] if stale_checkpoint else health["status"])),
         source_revision=health.get("source_revision") or "",
         baseline_artifact_id=health.get("baseline_artifact_id"),
         baseline_param_set_id=health.get("baseline_param_set_id"),
@@ -170,6 +184,23 @@ def run_actionable_research_promotion(
             # An uncertain write must not be retried or expose provider details.
             console_synced = False
         return console_synced
+
+    if (ticket_dir is not None or research_identity is not None or diagnose is not None
+            or resume_delivery_only or admit_new_research is not None or read_pending_shadow is not None):
+        if ticket_dir is None or research_identity is None or cycle is not None:
+            return {**health, "status": "parked", "reason": "research_identity_unavailable",
+                    "console_synced": None}
+        saved = run_saved_research_promotion_cycle(
+            drift, research_identity=research_identity, ticket_dir=ticket_dir,
+            optimize=optimize or _bounded_optimize, enforce_backtest_gates=enforce_backtest_gates,
+            record_shadow=record_shadow, diagnose=diagnose, budget=budget,
+            sync_console=deliver_to_console, pull_console=pull_console,
+            evaluation_date=evaluation_date, max_age_days=max_age_days,
+            resume_delivery_only=resume_delivery_only,
+            admit_new_research=admit_new_research,
+            read_pending_shadow=read_pending_shadow,
+        )
+        return {**health, **saved}
 
     ticket = (cycle or run_research_promotion_cycle)(
         drift,

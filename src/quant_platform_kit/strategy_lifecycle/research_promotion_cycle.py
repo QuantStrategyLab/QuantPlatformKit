@@ -8,10 +8,13 @@ deployment authority.
 from __future__ import annotations
 
 import calendar
+import hashlib
 import json
+import math
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, field
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
@@ -157,9 +160,13 @@ class ResearchPromotionTicket:
     confirmation_execution_mode: str = ""
     confirmation_risk_profile: str = ""
     notes: tuple[str, ...] = ()
+    # Local checkpoint only. QRT's candidate contract must not carry job state.
+    research_progress: Mapping[str, Any] = field(default_factory=dict, repr=False)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_progress: bool = False) -> dict[str, Any]:
         payload = asdict(self)
+        if not include_progress:
+            payload.pop("research_progress")
         payload["state"] = self.state.value
         payload["notes"] = list(self.notes)
         payload["proposed_params"] = dict(self.proposed_params)
@@ -202,6 +209,7 @@ class ResearchPromotionTicket:
             ),
             confirmation_risk_profile=str(raw.get("confirmation_risk_profile") or ""),
             notes=tuple(str(item) for item in (raw.get("notes") or ())),
+            research_progress=dict(raw.get("research_progress") or {}),
         )
 
 
@@ -400,6 +408,8 @@ def shadow_record_from_paired_evidence(
     *,
     policy: Any | None = None,
     forward_observation_receipt: Mapping[str, Any] | None = None,
+    previous_evidence: Mapping[str, Any] | None = None,
+    previous_forward_observation_receipt: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate paired-shadow evidence into a non-live cycle shadow record."""
     from quant_platform_kit.strategy_lifecycle.paired_shadow_evidence import (
@@ -411,6 +421,8 @@ def shadow_record_from_paired_evidence(
         evidence,
         policy=policy,
         forward_observation_receipt=forward_observation_receipt,
+        previous_evidence=previous_evidence,
+        previous_forward_observation_receipt=previous_forward_observation_receipt,
     )
     if validated.get("live_authority_granted") is True:
         raise ValueError("paired shadow evidence must not grant live authority")
@@ -801,7 +813,7 @@ def apply_console_research_promotion_decision(
     if datetime.fromisoformat(remote_decided_at.replace("Z", "+00:00")).tzinfo is None:
         raise ValueError("console decision time requires timezone")
     decided = apply_human_promotion_decision(
-        ResearchPromotionTicket.from_dict(ticket.to_dict()),
+        ResearchPromotionTicket.from_dict(ticket.to_dict(include_progress=True)),
         decision=decision,
         confirmation=confirmation,
         paper_supported=paper_supported,
@@ -815,6 +827,28 @@ def apply_console_research_promotion_decision(
 
 
 def reconcile_saved_research_promotion_ticket(
+    ticket_path: str | Path,
+    *,
+    pull_console: Callable[[str], Mapping[str, Any] | None] | None = None,
+    output_path: str | Path | None = None,
+    domain: str | None = None,
+) -> dict[str, Any]:
+    """Serialize decision recovery with research and manual decisions."""
+    result = {"ticket_id": None, "strategy_profile": None, "state": None,
+              "status": "unavailable", "reason": "local_ticket_unavailable",
+              "live_authority_granted": False}
+    try:
+        with _research_directory_lock(Path(ticket_path).parent) as acquired:
+            if not acquired:
+                return {**result, "status": "deferred", "reason": "research_in_progress"}
+            return _reconcile_saved_research_promotion_ticket(
+                ticket_path, pull_console=pull_console, output_path=output_path, domain=domain,
+            )
+    except (OSError, TypeError, ValueError):
+        return result
+
+
+def _reconcile_saved_research_promotion_ticket(
     ticket_path: str | Path,
     *,
     pull_console: Callable[[str], Mapping[str, Any] | None] | None = None,
@@ -843,6 +877,10 @@ def reconcile_saved_research_promotion_ticket(
         return {**result, "status": "already_terminal", "reason": "local_ticket_terminal"}
     if ticket.state is not ResearchPromotionState.AWAITING_HUMAN:
         return {**result, "status": "skipped", "reason": "ticket_not_awaiting_human"}
+    result["delivery_unstarted"] = (
+        isinstance(ticket.research_progress.get("identity"), Mapping)
+        and "console_delivery" not in ticket.research_progress
+    )
     try:
         remote = (pull_console or make_console_research_promotion_pull())(ticket.ticket_id)
     except Exception:
@@ -895,6 +933,11 @@ def _attach_shadow_or_park(
     kind = _shadow_kind(shadow)
     ticket.shadow_evidence_kind = kind
     ticket.shadow_passed = bool(shadow.get("passed", False))
+    if (shadow.get("status") == "pending" and shadow.get("passed") is False
+            and shadow.get("no_order") is True and shadow.get("live_authority_granted") is False):
+        ticket.state = ResearchPromotionState.SHADOW_RECORDED
+        ticket.notes = ticket.notes + ("paired_shadow_observation_pending",)
+        return ticket
     digest = str(shadow.get("paired_shadow_evidence_sha256") or "").strip()
     if digest:
         ticket.notes = ticket.notes + (f"paired_shadow_evidence_sha256={digest}",)
@@ -956,6 +999,10 @@ def run_research_promotion_cycle(
 
     ticket.state = ResearchPromotionState.BOUNDED_REOPT
     proposal = optimize(drift, budget)
+    if (proposal.strategy_profile != drift.strategy_profile or proposal.domain != drift.domain):
+        ticket.state = ResearchPromotionState.PARKED
+        ticket.notes = ("proposal_target_mismatch",)
+        return ticket
     ok, reason = enforce_optimization_budget(proposal, budget)
     ticket.search_iterations = int(proposal.search_iterations)
     ticket.proposed_params = dict(proposal.proposed_params or {})
@@ -1119,7 +1166,7 @@ def save_research_promotion_ticket(
 
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    payload = json.dumps(ticket.to_dict(), indent=2, sort_keys=True, allow_nan=False) + "\n"
+    payload = json.dumps(ticket.to_dict(include_progress=True), indent=2, sort_keys=True, allow_nan=False) + "\n"
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -1147,6 +1194,417 @@ def load_research_promotion_ticket(path: str | Path) -> ResearchPromotionTicket:
     return ticket
 
 
+@contextmanager
+def _research_directory_lock(directory: Path):
+    """One process at a time for this shared directory, never a global queue."""
+    import os
+
+    directory.mkdir(parents=True, exist_ok=True)
+    with (directory / ".research.lock").open("a+b") as stream:
+        if os.name == "nt":
+            import msvcrt
+
+            if stream.tell() == 0:
+                stream.write(b"0")
+                stream.flush()
+            stream.seek(0)
+            try:
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            try:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield False
+                return
+            try:
+                yield True
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+
+def _saved_proposal(raw: Mapping[str, Any]) -> OptimizationProposal:
+    from quant_platform_kit.strategy_lifecycle.contracts import BacktestValidationIdentity
+    from quant_platform_kit.strategy_lifecycle.performance_store import _backtest_from_dict
+
+    values = dict(raw)
+    for key in ("current_metrics", "proposed_metrics"):
+        if values.get(key) is not None:
+            stored = values[key]
+            validation = stored.get("validation_identity")
+            if validation is not None:
+                validation = dict(validation)
+                for date_key in ("train_start", "train_end", "test_start", "test_end",
+                                 "locked_oos_start", "locked_oos_end"):
+                    validation[date_key] = date.fromisoformat(validation[date_key]) if validation[date_key] else None
+                validation = BacktestValidationIdentity(**validation)
+            values[key] = replace(_backtest_from_dict(stored), validation_identity=validation,
+                                  cost_inputs=dict(stored.get("cost_inputs") or {}))
+    for key in ("winning_dimensions", "regressing_dimensions"):
+        values[key] = tuple(values.get(key) or ())
+    proposal = OptimizationProposal(**values)
+    if _canonical_ticket_value(proposal.to_dict()) != _canonical_ticket_value(raw):
+        raise ValueError("saved_proposal_invalid")
+    return proposal
+
+
+def run_saved_research_promotion_cycle(
+    drift: DriftResult,
+    *,
+    research_identity: Mapping[str, str],
+    ticket_dir: str | Path,
+    optimize: Callable,
+    enforce_backtest_gates: Callable,
+    record_shadow: Callable,
+    diagnose: Callable | None = None,
+    sync_console: Callable | None = None,
+    pull_console: Callable | None = None,
+    budget: ResearchPromotionBudget | None = None,
+    evaluation_date: date | str | None = None,
+    max_age_days: int = 7,
+    resume_delivery_only: bool = False,
+    admit_new_research: Callable[[Path, str], bool] | None = None,
+    read_pending_shadow: Callable[[OptimizationProposal], Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Resume a bound experiment using the existing ticket's local progress.
+
+    Revisions refer to the caller's validated, frozen input, code, parameter
+    space (including baseline/fixed parameters), cost model and validator. They
+    are not evidence validation themselves. Only processes sharing ticket_dir
+    share the nonblocking lock; the dispatcher owns cross-host admission.
+
+    Each side-effecting stage is saved as running BEFORE invocation. Completed
+    results are reused; running/unknown outcomes never get automatically called
+    again. A definite diagnosis deferral may run again only after retry_at.
+    Console writes are attempted once and thereafter recovered only by GET.
+    Optional admission runs under this lock only for a new ticket; its directory
+    and UTC created_at match the eventual ticket. It must not acquire this lock
+    again or maintain a second counter. Only literal True permits creation.
+    Explicit pending shadow may use read_pending_shadow after its deadline.
+    A stale original observation only permits this already-computed, identity-
+    matched tail; it never permits new AI, optimization or backtest calls.
+    """
+    from quant_platform_kit.strategy_lifecycle.production_drift_health_probe import (
+        probe_production_drift_health,
+    )
+
+    base = {"status": "parked", "reason": "research_input_invalid", "resumed": False,
+            "console_synced": None, "live_authority_granted": False}
+    if not all(callable(fn) for fn in (optimize, enforce_backtest_gates, record_shadow)):
+        return {**base, "reason": "research_bindings_unavailable"}
+    fields = {"code_revision", "input_revision", "param_space_revision",
+              "cost_model_revision", "validator_revision"}
+    if (not isinstance(research_identity, Mapping) or set(research_identity) != fields
+            or any(not isinstance(v, str) or not v.strip() for v in research_identity.values())
+            or not isinstance(drift.source_revision, str) or not drift.source_revision.strip()):
+        return {**base, "reason": "research_identity_unavailable"}
+    budget = budget or ResearchPromotionBudget(require_paired_shadow=True)
+    if (type(budget.max_search_iterations) is not int or not 1 <= budget.max_search_iterations <= 25
+            or type(budget.max_param_keys) is not int or not 1 <= budget.max_param_keys <= 4
+            or budget.require_paired_shadow is not True or budget.allow_live_enablement):
+        return {**base, "reason": "research_budget_invalid"}
+    try:
+        health = probe_production_drift_health(
+            strategy_profile=drift.strategy_profile, domain=drift.domain,
+            as_of=drift.as_of, drift_score=drift.drift_score,
+            evaluation_date=evaluation_date, max_age_days=max_age_days,
+        )
+    except (ValueError, TypeError, OverflowError):
+        return base
+    stale = health.get("reason") == "observation_stale"
+    if ((not health["actionable"] and not stale)
+            or drift.status not in _ACTIVE_DRIFT or drift.alert_suppressed):
+        return {**base, "reason": health.get("reason", "drift_not_actionable")}
+    observation = drift.to_dict()
+    identity = {"revisions": dict(research_identity),
+                "drift": {key: observation[key] for key in (
+                    "strategy_profile", "domain", "as_of", "source_revision", "drift_score",
+                    "baseline_param_set_id", "baseline_param_version", "baseline_artifact_id")},
+                "budget": asdict(budget)}
+    try:
+        canonical = _canonical_ticket_value(identity)
+        research_key = hashlib.sha256(canonical.encode()).hexdigest()
+        directory = Path(ticket_dir)
+    except (ValueError, TypeError):
+        return base
+    ticket_id = f"rpt_{research_key}"
+    path = directory / f"{ticket_id}.json"
+    base.update(research_key=research_key, ticket_path=str(path))
+
+    try:
+        with _research_directory_lock(directory) as acquired:
+            if not acquired:
+                return {**base, "status": "deferred", "reason": "research_in_progress"}
+            if path.exists():
+                ticket = load_research_promotion_ticket(path)
+                progress = dict(ticket.research_progress)
+                if (ticket.ticket_id != ticket_id or ticket.strategy_profile != drift.strategy_profile
+                        or ticket.domain != drift.domain
+                        or _canonical_ticket_value(progress.get("identity")) != canonical):
+                    return {**base, "reason": "research_checkpoint_mismatch"}
+                base["resumed"] = True
+            else:
+                if stale:
+                    return {**base, "reason": "observation_stale"}
+                if resume_delivery_only:
+                    return {**base, "reason": "saved_research_ticket_pending"}
+                now = _now_iso()
+                if admit_new_research is not None:
+                    try:
+                        admitted = admit_new_research(directory, now)
+                    except Exception:
+                        return {**base, "reason": "research_admission_unavailable"}
+                    if admitted is not True:
+                        return {**base, "status": "deferred", "reason": "new_research_not_admitted"}
+                progress = {"identity": identity, "stages": {}, "diagnosis_required": diagnose is not None}
+                ticket = ResearchPromotionTicket(
+                    ticket_id=ticket_id, strategy_profile=drift.strategy_profile,
+                    domain=drift.domain, state=ResearchPromotionState.BOUNDED_REOPT,
+                    drift_status=drift.status.value, drift_score=drift.drift_score,
+                    created_at=now, updated_at=now, budget=asdict(budget),
+                    research_progress=progress,
+                )
+                save_research_promotion_ticket(ticket, path)
+
+            def output(reason: str, *, status: str | None = None) -> dict[str, Any]:
+                return {**base, "status": status or ticket.state.value, "reason": reason,
+                        "ticket": ticket.to_dict()}
+
+            def deliver_saved_ticket() -> None:
+                if (ticket.state != ResearchPromotionState.AWAITING_HUMAN or sync_console is None
+                        or progress.get("console_delivery") is not None):
+                    return
+                progress["console_delivery"] = "running"
+                save_research_promotion_ticket(ticket, path)
+                try:
+                    candidate = ResearchPromotionTicket.from_dict(ticket.to_dict())
+                    confirmed = sync_console(candidate) is True
+                    base["console_synced"] = (
+                        confirmed and _canonical_ticket_value(candidate.to_dict())
+                        == _canonical_ticket_value(ticket.to_dict())
+                    )
+                except Exception:
+                    base["console_synced"] = False
+                progress["console_delivery"] = "confirmed" if base["console_synced"] else "unconfirmed"
+                save_research_promotion_ticket(ticket, path)
+
+            if resume_delivery_only and ticket.state != ResearchPromotionState.AWAITING_HUMAN:
+                return output("saved_research_ticket_pending", status="parked")
+            stages = progress["stages"]
+            if not isinstance(stages, dict):
+                return output("research_checkpoint_invalid")
+            if any(value.get("status") in {"running", "unknown"} for value in stages.values()):
+                return output("research_outcome_unknown", status="parked")
+            if ticket.state in _TERMINAL:
+                return output("saved_research_ticket_terminal")
+            shadow_pending = stages.get("shadow", {}).get("status") == "pending"
+            shadow_completed = (ticket.state == ResearchPromotionState.SHADOW_RECORDED
+                                and stages.get("shadow", {}).get("status") == "completed"
+                                and stages["shadow"].get("result", {}).get("status") == "complete")
+            awaiting_recovery = stale and ticket.state == ResearchPromotionState.AWAITING_HUMAN
+            if shadow_pending or shadow_completed or awaiting_recovery:
+                # A pending observation never permits incomplete earlier work
+                # to restart, even while the original drift is still fresh.
+                required = ("optimize", "backtest") + (("diagnose",) if progress.get("diagnosis_required") else ())
+                if (ticket.state not in {ResearchPromotionState.SHADOW_RECORDED, ResearchPromotionState.AWAITING_HUMAN}
+                        or any(stages.get(name, {}).get("status") != "completed" for name in required)):
+                    return output("research_checkpoint_invalid", status="parked")
+                proposal = _saved_proposal(stages["optimize"]["result"])
+                if awaiting_recovery:
+                    recorded = stages.get("shadow", {})
+                    shadow = recorded.get("result", {})
+                    if (recorded.get("status") != "completed" or shadow.get("passed") is not True
+                            or not _is_paired_shadow_kind(_shadow_kind(shadow))
+                            or shadow.get("live_authority_granted") is True or ticket.shadow_passed is not True
+                            or _canonical_ticket_value(ticket.proposed_params) != _canonical_ticket_value(proposal.proposed_params)):
+                        return output("research_checkpoint_invalid", status="parked")
+                gates_ok, _ = enforce_promotion_backtest_gates(proposal, stages["backtest"]["result"])
+                budget_ok, _ = enforce_optimization_budget(proposal, budget)
+                if (not gates_ok or not budget_ok or proposal.recommendation != "promote"
+                        or proposal.strategy_profile != drift.strategy_profile or proposal.domain != drift.domain
+                        or (progress.get("diagnosis_required")
+                            and stages["diagnose"]["result"].get("optimization_needed") is not True)):
+                    return output("research_checkpoint_invalid", status="parked")
+            if shadow_pending:
+                pending_result = stages["shadow"].get("result", {})
+                if (pending_result.get("status") != "pending" or pending_result.get("passed") is not False
+                        or pending_result.get("no_order") is not True or pending_result.get("live_authority_granted") is not False):
+                    return output("research_checkpoint_invalid", status="parked")
+                retry = pending_result.get("retry_at")
+                if (type(retry) not in (int, float) or not math.isfinite(retry)
+                        or retry > datetime.now(timezone.utc).timestamp()):
+                    return {**output("paired_shadow_observation_pending", status="deferred"), "retry_at": retry}
+                if not callable(read_pending_shadow):
+                    return output("shadow_reader_unavailable", status="deferred")
+            elif stale and not (shadow_completed or awaiting_recovery):
+                return output("observation_stale", status="parked")
+            if ticket.state == ResearchPromotionState.AWAITING_HUMAN:
+                reconciliation = _reconcile_saved_research_promotion_ticket(path, pull_console=pull_console)
+                ticket = load_research_promotion_ticket(path)
+                progress = ticket.research_progress
+                if not stale:
+                    deliver_saved_ticket()
+                return {**output("saved_research_ticket_reused"), "reconciliation": reconciliation}
+
+            def stage(name: str, callback: Callable, encode: Callable = lambda value: value):
+                existing = stages.get(name)
+                if existing is not None:
+                    if existing.get("status") == "completed":
+                        return existing["result"]
+                    if not (name == "shadow" and shadow_pending and existing.get("status") == "pending"):
+                        raise ValueError("research_checkpoint_invalid")
+                stages[name] = {"status": "running"}
+                save_research_promotion_ticket(ticket, path)
+                try:
+                    result = json.loads(_canonical_ticket_value(encode(callback())))
+                except Exception:
+                    stages[name] = {"status": "unknown"}
+                    save_research_promotion_ticket(ticket, path)
+                    raise ValueError("research_outcome_unknown") from None
+                status = "pending" if name == "shadow" and result.get("status") == "pending" else "completed"
+                stages[name] = {"status": status, "result": result}
+                if name == "shadow" and result.get("status") in {"pending", "complete"}:
+                    # Save the resumable state with the result, not in a later
+                    # write after the caller may already have stopped.
+                    ticket.state = ResearchPromotionState.SHADOW_RECORDED
+                save_research_promotion_ticket(ticket, path)
+                return result
+
+            if progress.get("diagnosis_required") is True:
+                if diagnose is None:
+                    return output("research_bindings_unavailable", status="parked")
+                old = stages.get("diagnose", {})
+                if old.get("status") == "deferred":
+                    retry = old.get("retry_at")
+                    if type(retry) not in (int, float) or retry > datetime.now(timezone.utc).timestamp():
+                        return {**output("codex_research_deferred", status="deferred"), "retry_at": retry}
+                    del stages["diagnose"]
+                def checked_diagnosis():
+                    value = dict(diagnose(drift, budget))
+                    if value.get("reason") == "codex_research_deferred":
+                        retry = value.get("retry_at")
+                        # A reset already in the past is not a usable admission
+                        # deadline. Preserve deferral without polling every run.
+                        if type(retry) not in (int, float) or retry <= datetime.now(timezone.utc).timestamp():
+                            value["retry_at"] = None
+                    return value
+
+                decision = stage("diagnose", checked_diagnosis)
+                if not isinstance(decision, Mapping):
+                    raise ValueError("research_checkpoint_invalid")
+                if decision.get("reason") == "codex_research_deferred":
+                    retry = decision.get("retry_at")
+                    stages["diagnose"] = {"status": "deferred", "retry_at": retry}
+                    save_research_promotion_ticket(ticket, path)
+                    return {**output("codex_research_deferred", status="deferred"), "retry_at": retry}
+                if decision.get("optimization_needed") is not True:
+                    ticket.state = ResearchPromotionState.PARKED
+                    ticket.notes = ("codex_did_not_recommend_research",)
+                    save_research_promotion_ticket(ticket, path)
+                    return output("codex_did_not_recommend_research")
+
+            def cached_optimize(*_):
+                raw = stage("optimize", lambda: optimize(drift, budget), lambda value: value.to_dict())
+                return _saved_proposal(raw)
+
+            def shadow_result(proposal):
+                # The first callback may create an external observation. Only
+                # the dedicated, caller-owned read-only callback can be polled.
+                callback = read_pending_shadow if shadow_pending else record_shadow
+
+                def encode(value):
+                    value = dict(value)
+                    if value.get("live_authority_granted") is True:
+                        raise ValueError("shadow_live_authority_refused")
+                    if value.get("status") == "pending":
+                        if (value.get("passed") is not False or value.get("no_order") is not True
+                                or value.get("live_authority_granted") is not False):
+                            raise ValueError("invalid_shadow_pending")
+                        retry = value.get("retry_at")
+                        if (type(retry) not in (int, float) or not math.isfinite(retry)
+                                or retry <= datetime.now(timezone.utc).timestamp()):
+                            retry = None
+                        return {"status": "pending", "retry_at": retry, "evidence_kind": "paired_shadow_pending",
+                                "passed": False, "no_order": True, "live_authority_granted": False}
+                    if value.get("status") == "complete":
+                        from quant_platform_kit.strategy_lifecycle.paired_shadow_adapter import (
+                            PairedShadowObservation, collect_paired_shadow_for_promotion,
+                        )
+                        observation = value["observation"]
+                        policy = observation.policy if isinstance(observation, PairedShadowObservation) else observation["policy"]
+                        receipt = (observation.forward_observation_receipt if isinstance(observation, PairedShadowObservation)
+                                   else observation["forward_observation_receipt"])
+                        if (policy.strategy_profile != proposal.strategy_profile or policy.domain != proposal.domain
+                                or receipt["observation_index"] < policy.required_trading_sessions):
+                            raise ValueError("shadow_window_not_complete")
+                        # The owner also validates the frozen candidate/params/
+                        # source and full window. A bare passed flag is not proof.
+                        return {**collect_paired_shadow_for_promotion(observation), "status": "complete"}
+                    if shadow_pending and value.get("passed") is not False:
+                        raise ValueError("shadow_completion_evidence_required")
+                    return value
+
+                return stage("shadow", lambda: callback(proposal), encode)
+
+            result = run_research_promotion_cycle(
+                drift, budget=budget, ticket_id=ticket_id, optimize=cached_optimize,
+                enforce_backtest_gates=lambda proposal: stage("backtest", lambda: enforce_backtest_gates(proposal),
+                    lambda value: _promotion_backtest_evidence_mapping(value) if value is not None else None),
+                record_shadow=shadow_result,
+            )
+            if any(value.get("status") in {"running", "unknown"} for value in stages.values()):
+                return output("research_outcome_unknown", status="parked")
+            result.created_at = ticket.created_at
+            result.research_progress = progress
+            ticket = result
+            save_research_promotion_ticket(ticket, path)
+            deliver_saved_ticket()
+            if stages.get("shadow", {}).get("status") == "pending":
+                return {**output("paired_shadow_observation_pending", status="deferred"),
+                        "retry_at": stages["shadow"]["result"]["retry_at"]}
+            return output("promotion_cycle_completed")
+    except Exception:
+        # Persisted running stage is deliberately left as unknown. Never include
+        # exceptions, input rows, credentials or a provider's response text.
+        try:
+            saved = load_research_promotion_ticket(path)
+            if any(value.get("status") in {"running", "unknown"}
+                   for value in saved.research_progress.get("stages", {}).values()):
+                return {**base, "reason": "research_outcome_unknown"}
+        except Exception:
+            pass
+        return {**base, "reason": "research_checkpoint_unavailable"}
+
+
+def decide_saved_research_promotion_ticket(
+    ticket_path: str | Path,
+    *,
+    decision: str,
+    confirmation: PromotionConfirmation | Mapping[str, Any] | None = None,
+    paper_supported: bool = False,
+    output_path: str | Path | None = None,
+) -> ResearchPromotionTicket:
+    """Record explicit local human intent under the same research-directory lock."""
+    with _research_directory_lock(Path(ticket_path).parent) as acquired:
+        if not acquired:
+            raise ValueError("research_in_progress")
+        ticket = load_research_promotion_ticket(ticket_path)
+        decided = apply_human_promotion_decision(
+            ticket, decision=decision, confirmation=confirmation, paper_supported=paper_supported,
+        )
+        save_research_promotion_ticket(decided, output_path or ticket_path)
+        return decided
+
+
 __all__ = [
     "DEFAULT_SUGGESTED_RISK_PROFILE",
     "EXECUTION_MODES",
@@ -1158,6 +1616,7 @@ __all__ = [
     "apply_console_research_promotion_decision",
     "apply_human_promotion_decision",
     "build_human_promotion_notification",
+    "decide_saved_research_promotion_ticket",
     "enforce_optimization_budget",
     "enforce_promotion_backtest_gates",
     "load_research_promotion_ticket",
@@ -1167,6 +1626,7 @@ __all__ = [
     "open_awaiting_human_ticket",
     "reconcile_saved_research_promotion_ticket",
     "run_research_promotion_cycle",
+    "run_saved_research_promotion_cycle",
     "save_research_promotion_ticket",
     "shadow_record_from_paired_evidence",
     "validate_promotion_confirmation",

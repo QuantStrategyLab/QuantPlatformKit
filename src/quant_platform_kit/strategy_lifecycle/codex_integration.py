@@ -489,21 +489,22 @@ def _process_optimization_decision(
     enforce_backtest_gates: Callable | None = None,
     record_shadow: Callable | None = None,
     sync_console: Callable | None = None,
+    pull_console: Callable | None = None,
+    research_identity: Mapping[str, str] | None = None,
+    resume_delivery_only: bool = False,
+    admit_new_research: Callable[[Path, str], bool] | None = None,
+    read_pending_shadow: Callable | None = None,
 ) -> dict[str, object]:
     """Codex diagnosis → bounded Python research → strict gates → human queue."""
     from quant_platform_kit.strategy_lifecycle.promotion_actionable_runner import (
         run_actionable_research_promotion,
     )
-    from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
-        ResearchPromotionTicket, save_research_promotion_ticket,
-    )
-
     entry: dict[str, object] = {
         "strategy": drift.strategy_profile, "drift_status": drift.status.value,
         "execution_authorized": False, "live_authority_granted": False,
     }
     freshness_reason = _drift_freshness_reason(drift)
-    if freshness_reason:
+    if freshness_reason and not (freshness_reason == "observation_stale" and callable(read_pending_shadow) and not dry_run):
         return {**entry, "reason": freshness_reason, "research_promotion_state": "parked"}
     if drift.status not in (DriftStatus.REVIEW, DriftStatus.CRITICAL) or drift.alert_suppressed:
         return {**entry, "reason": "drift_not_actionable"}
@@ -519,14 +520,17 @@ def _process_optimization_decision(
         return {**entry, "reason": "observation_source_unavailable", "research_promotion_state": "parked"}
     context = AiOptimizationContext(strategy_profile=drift.strategy_profile,
         domain=drift.domain, drift=drift, snapshot=snapshot)
-    decision = call_ai_optimization_decision(context, dry_run=dry_run)
-    entry["ai_decision"] = decision
     if dry_run:
-        return {**entry, "note": "Dry run: no AI call or research execution"}
-    if decision.get("reason") == "codex_research_deferred":
-        return {**entry, "reason": "codex_research_deferred", "research_promotion_state": "deferred", "retry_at": decision.get("retry_at")}
-    if decision.get("optimization_needed") is not True:
-        return {**entry, "reason": "codex_did_not_recommend_research", "research_promotion_state": "parked"}
+        return {**entry, "ai_decision": call_ai_optimization_decision(context, dry_run=True),
+                "note": "Dry run: no AI call or research execution"}
+    ticket_dir = getattr(store, "local_root", None)
+    if not isinstance(ticket_dir, (str, Path)) or research_identity is None:
+        return {**entry, "reason": "research_identity_unavailable", "research_promotion_state": "parked"}
+
+    def diagnose(*_):
+        decision = call_ai_optimization_decision(context, dry_run=False)
+        entry["ai_decision"] = decision
+        return decision
 
     def bounded_optimize(active_drift, budget):
         from quant_platform_kit.strategy_lifecycle.param_optimizer import run_optimization
@@ -540,7 +544,7 @@ def _process_optimization_decision(
         if verdict.verdict != "approve":
             # Retain existing deterministic risk/parameter checks. No LLM
             # escalation may replace them or spend an API fallback budget.
-            raise ValueError("deterministic_proposal_review_failed")
+            return {"status": "FAIL", "reason": "deterministic_proposal_review_failed"}
         return enforce_backtest_gates(proposal)
 
     try:
@@ -551,20 +555,25 @@ def _process_optimization_decision(
             optimize=optimize if optimize is not None else bounded_optimize,
             enforce_backtest_gates=reviewed_backtest_gates,
             record_shadow=record_shadow, sync_console=sync_console,
+            research_identity=research_identity, ticket_dir=Path(ticket_dir) / "research_promotion_tickets",
+            diagnose=diagnose, pull_console=pull_console,
+            resume_delivery_only=resume_delivery_only,
+            admit_new_research=admit_new_research,
+            read_pending_shadow=read_pending_shadow,
         )
         entry["research_promotion_state"] = summary["status"]
         entry["console_synced"] = summary.get("console_synced")
+        entry["reason"] = summary["reason"]
+        for key in ("research_key", "resumed", "retry_at"):
+            if key in summary:
+                entry[key] = summary[key]
         if "ticket" not in summary:
             return {**entry, "reason": summary["reason"]}
-        ticket = ResearchPromotionTicket.from_dict(summary["ticket"])
-        entry["research_promotion_ticket_id"] = ticket.ticket_id
-        entry["requires_human_approval"] = ticket.state.value == "awaiting_human"
-        entry["research_promotion_notes"] = list(ticket.notes)
-        ticket_dir = getattr(store, "local_root", None)
-        if ticket_dir is not None:
-            path = Path(ticket_dir) / "research_promotion_tickets" / f"{ticket.ticket_id}.json"
-            save_research_promotion_ticket(ticket, path)
-            entry["research_promotion_ticket_path"] = str(path)
+        ticket = summary["ticket"]
+        entry["research_promotion_ticket_id"] = ticket["ticket_id"]
+        entry["requires_human_approval"] = ticket["state"] == "awaiting_human"
+        entry["research_promotion_notes"] = ticket["notes"]
+        entry["research_promotion_ticket_path"] = summary["ticket_path"]
     except Exception:
         # No provider details or automatic retries, including uncertain writes.
         entry["research_error"] = "research_cycle_failed"
@@ -583,6 +592,9 @@ def run_auto_pilot_cycle(
     record_shadow: Callable | None = None,
     sync_console: Callable | None = None,
     pull_console: Callable | None = None,
+    research_identity: Mapping[str, str] | None = None,
+    admit_new_research: Callable[[Path, str], bool] | None = None,
+    read_pending_shadow: Callable | None = None,
 ) -> dict[str, Any]:
     """Run one drift-triggered cycle with candidate-bound research callbacks.
 
@@ -602,6 +614,7 @@ def run_auto_pilot_cycle(
     # Recovery does not re-run optimizers, POST tickets or apply human intent.
     # Historical terminal tickets do not block a future independent observation.
     pending_profiles: set[str] = set()
+    undelivered_profiles: set[str] = set()
     ticket_root = getattr(store, "local_root", None)
     if not dry_run and isinstance(ticket_root, (str, Path)):
         from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
@@ -622,6 +635,8 @@ def run_auto_pilot_cycle(
                 result["state"] == "awaiting_human" or result["status"] == "updated"
             ) and result["strategy_profile"]:
                 pending_profiles.add(result["strategy_profile"])
+                if result["state"] == "awaiting_human" and result.get("delivery_unstarted") is True:
+                    undelivered_profiles.add(result["strategy_profile"])
 
     # Phase 1
     snapshots = _run_monitor_phase(domain, store)
@@ -641,7 +656,8 @@ def run_auto_pilot_cycle(
         for drift in alert_drifts:
             if drift.status not in (DriftStatus.REVIEW, DriftStatus.CRITICAL):
                 continue
-            if drift.strategy_profile in pending_profiles:
+            resume_delivery_only = drift.strategy_profile in pending_profiles
+            if resume_delivery_only and drift.strategy_profile not in undelivered_profiles:
                 summary["actions"].append({
                     "strategy_profile": drift.strategy_profile,
                     "action": "skipped", "reason": "saved_research_ticket_pending",
@@ -653,6 +669,10 @@ def run_auto_pilot_cycle(
                     drift, store, dry_run, optimize=optimize,
                     enforce_backtest_gates=enforce_backtest_gates,
                     record_shadow=record_shadow, sync_console=sync_console,
+                    pull_console=pull_console, research_identity=research_identity,
+                    resume_delivery_only=resume_delivery_only,
+                    admit_new_research=admit_new_research,
+                    read_pending_shadow=read_pending_shadow,
                 )
             )
 
