@@ -19,6 +19,7 @@ This module is a backward-compatible wrapper. New code should use
 from __future__ import annotations
 
 import enum
+import math
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -162,8 +163,14 @@ class AiServiceClient:
             primary = self.config.primary
             if primary is None or primary.provider != AiProviderId.CODEX_VPS or primary.task != "execute":
                 return AiCallResult.unavailable("codex", "research_requires_codex")
-            # A research request never consumes the reliability API fallback.
-            return self._call_single(primary, prompt, timeout, research_stage=research_stage)
+            configured = os.environ.get("AI_GATEWAY_RESEARCH_PROVIDERS", "").strip()
+            providers = tuple(value.strip() for value in configured.split(",")) if configured else ("codex",)
+            if providers not in (("codex",), ("cursor",), ("codex", "cursor")):
+                return AiCallResult.unavailable("", "invalid_execution_providers")
+            # Admission owns any subscription fallback; never retry a submitted
+            # research job through this wrapper's reliability/API fallback.
+            return self._call_single(primary, prompt, timeout, research_stage=research_stage,
+                                     allowed_providers=providers)
         if self.config.primary is not None:
             r = self._call_single(self.config.primary, prompt, timeout)
             if r.success:
@@ -175,16 +182,39 @@ class AiServiceClient:
                                     note="Fallback after primary failed")
         return AiCallResult.unavailable("all", "All providers exhausted")
 
-    def _call_single(self, provider: AiProviderConfig, prompt: str, timeout: float, *, research_stage: str = "") -> "AiCallResult":
+    def _call_single(self, provider: AiProviderConfig, prompt: str, timeout: float, *, research_stage: str = "",
+                     allowed_providers: tuple[str, ...] = ("codex",)) -> "AiCallResult":
         if _HAS_GATEWAY_CLIENT and self._gw_config:
             client = AiGatewayClient(self._gw_config)
             if provider.task == "analyze":
                 r = client.analyze(prompt, model=provider.model, timeout=timeout)
             else:
-                r = client.execute(prompt, mode="review_only", timeout=timeout,
-                    **({"research_stage": research_stage, "model": provider.model or None} if research_stage else {}))
+                try:
+                    r = client.execute(prompt, mode="review_only", timeout=timeout,
+                        **({"research_stage": research_stage, "model": provider.model or None} if research_stage else {}),
+                        **({"allowed_providers": list(allowed_providers)} if "cursor" in allowed_providers else {}))
+                except TypeError:
+                    if research_stage:
+                        return AiCallResult.unavailable("", "research_gateway_client_incompatible")
+                    raise
+                if research_stage and r.success and r.provider not in allowed_providers:
+                    return AiCallResult.unavailable("", "research_provider_mismatch")
+                if research_stage and not r.success:
+                    actual_provider = r.provider if r.provider in allowed_providers else ""
+                    raw = getattr(r, "raw", None)
+                    if isinstance(raw, dict) and raw.get("status") == "deferred":
+                        retry = raw.get("retry_at")
+                        try:
+                            valid_retry = type(retry) in (int, float) and math.isfinite(retry) and retry > 0
+                        except OverflowError:
+                            valid_retry = False
+                        return AiCallResult(provider=actual_provider, success=False,
+                            note="subscription_research_deferred" if "cursor" in allowed_providers else "codex_research_deferred",
+                            raw={"status": "deferred", "retry_at": retry if valid_retry else None})
+                    return AiCallResult.unavailable(actual_provider, "research_execution_failed")
             return AiCallResult(provider=r.provider, success=r.success, output=r.output, note=r.error, raw=getattr(r, "raw", None))
-        return self._call_local(provider, prompt, timeout, **({"research_stage": research_stage} if research_stage else {}))
+        return self._call_local(provider, prompt, timeout,
+            **({"research_stage": research_stage, "allowed_providers": allowed_providers} if research_stage else {}))
 
     def _review_local(self, prompt: str, timeout: float) -> list["AiCallResult"]:
         """Report unavailable reviewers when the gateway client is not installed."""
@@ -193,7 +223,8 @@ class AiServiceClient:
             for c in self.config.reviewers
         ]
 
-    def _call_local(self, provider: AiProviderConfig, prompt: str, timeout: float, *, research_stage: str = "") -> "AiCallResult":
+    def _call_local(self, provider: AiProviderConfig, prompt: str, timeout: float, *, research_stage: str = "",
+                    allowed_providers: tuple[str, ...] = ("codex",)) -> "AiCallResult":
         """Direct Codex execution only when the gateway client is not installed."""
         if provider.provider != AiProviderId.CODEX_VPS or provider.task != "execute":
             return AiCallResult.unavailable(provider.label, "ai_gateway_client required for this provider/task")
@@ -207,6 +238,8 @@ class AiServiceClient:
         service_url = os.environ.get("CODEX_AUDIT_SERVICE_URL", "").strip()
         if not service_url:
             return AiCallResult.unavailable(provider.label, "CODEX_AUDIT_SERVICE_URL not configured")
+        subscription_route = bool(research_stage and "cursor" in allowed_providers)
+        selected_provider = allowed_providers[0] if len(allowed_providers) == 1 else ""
 
         try:
             token = _fetch_oidc_token()
@@ -215,8 +248,9 @@ class AiServiceClient:
                 health = _urllib_req.Request(f"{base_url}/healthz", headers={"Authorization": f"Bearer {token}"})
                 with _urllib_req.urlopen(health, timeout=10) as response:
                     capabilities = _json.loads(response.read().decode("utf-8"))
-                if not isinstance(capabilities, dict) or capabilities.get("codex_research_routing") != "v1":
-                    return AiCallResult.unavailable("codex", "codex_research_routing_unavailable")
+                capability = "subscription_research_routing" if subscription_route else "codex_research_routing"
+                if not isinstance(capabilities, dict) or capabilities.get(capability) != "v1":
+                    return AiCallResult.unavailable(selected_provider, f"{capability}_unavailable")
 
             payload = _json.dumps({
                 "task": provider.task,
@@ -227,6 +261,7 @@ class AiServiceClient:
                 "source_ref": "main",
                 "mode": "review_only",
                 **({"research_stage": research_stage} if research_stage else {}),
+                **({"allowed_providers": list(allowed_providers)} if subscription_route else {}),
             }).encode("utf-8")
 
             req = _urllib_req.Request(
@@ -241,6 +276,14 @@ class AiServiceClient:
             job_id = result.get("job_id")
             if not isinstance(job_id, str) or not job_id:
                 return AiCallResult.unavailable(provider.label, "No job_id from gateway")
+            admitted_route = {key: result.get(key) for key in ("provider", "research_stage", "model", "reasoning_effort")}
+            if subscription_route:
+                if (admitted_route["provider"] not in allowed_providers
+                    or admitted_route["research_stage"] != research_stage
+                    or not isinstance(admitted_route["model"], str) or not admitted_route["model"].strip()
+                    or admitted_route["reasoning_effort"] not in {"low", "medium", "high", "xhigh"}):
+                    return AiCallResult.unavailable("", "subscription_research_route_mismatch")
+                selected_provider = admitted_route["provider"]
 
             deadline = _time.time() + timeout + 60
             while _time.time() < deadline:
@@ -255,18 +298,24 @@ class AiServiceClient:
                         job = _json.loads(resp2.read().decode("utf-8"))
                 except _urllib_err.HTTPError:
                     continue
+                if subscription_route and job.get("job_id") != job_id:
+                    return AiCallResult.unavailable(selected_provider, "subscription_research_job_mismatch")
                 status = job.get("status")
                 if status == "succeeded":
                     if research_stage and (
-                        job.get("research_stage") != research_stage
+                        job.get("provider", "codex") not in allowed_providers
+                        or (subscription_route and any(job.get(key) != value for key, value in admitted_route.items()))
+                        or job.get("research_stage") != research_stage
                         or not isinstance(job.get("model"), str) or not job["model"].strip()
                         or job.get("reasoning_effort") not in {"low", "medium", "high", "xhigh"}
                         or (provider.model not in ("", "auto") and job["model"] != provider.model)
                     ):
-                        return AiCallResult.unavailable("codex", "codex_research_route_mismatch")
-                    return AiCallResult(provider="Codex VPS", success=True,
+                        return AiCallResult.unavailable(selected_provider, "research_route_mismatch")
+                    return AiCallResult(provider=selected_provider if research_stage else "Codex VPS", success=True,
                                         output=str(job.get("output", "")), raw=job)
                 if status == "failed":
+                    if research_stage:
+                        return AiCallResult.unavailable(selected_provider, "research_execution_failed")
                     return AiCallResult(provider="Codex VPS", success=False,
                                         output=job.get("error", "unknown"), raw=job)
             return AiCallResult.unavailable(provider.label, "Timeout")
@@ -280,10 +329,13 @@ class AiServiceClient:
                     retry = data.get("retry_at")
                     if type(retry) not in (int, float) or not _math.isfinite(retry) or retry <= 0:
                         retry = None
-                    return AiCallResult(provider="codex", success=False, note="codex_research_deferred",
+                    return AiCallResult(provider=selected_provider, success=False,
+                        note="subscription_research_deferred" if subscription_route else "codex_research_deferred",
                         raw={"status": "deferred", "retry_at": retry})
             return AiCallResult.unavailable(provider.label, "codex_unavailable")
         except Exception as exc:
+            if research_stage:
+                return AiCallResult.unavailable(selected_provider, "research_unavailable")
             return AiCallResult.unavailable(provider.label, str(exc))
 
     @staticmethod
