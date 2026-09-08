@@ -119,6 +119,8 @@ def export_strategy_performance(
         snapshot = lifecycle_store.load_latest_snapshot(domain, profile)
         if snapshot is None:
             raise ValueError(f"Missing latest lifecycle snapshot for domain={domain!r}, profile={profile!r}")
+        if snapshot.as_of is None:
+            raise ValueError("observation_date_unavailable")
         backtest = lifecycle_store.load_latest_backtest(domain, profile)
         if backtest is None:
             raise ValueError(f"Missing latest lifecycle backtest for domain={domain!r}, profile={profile!r}")

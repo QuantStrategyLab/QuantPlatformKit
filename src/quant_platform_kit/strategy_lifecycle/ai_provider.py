@@ -157,7 +157,13 @@ class AiServiceClient:
 
         return self._call_local(self.config.verifier, prompt, timeout)
 
-    def execute(self, prompt: str, *, timeout: float = 600.0) -> "AiCallResult":
+    def execute(self, prompt: str, *, timeout: float = 600.0, research_stage: str = "") -> "AiCallResult":
+        if research_stage:
+            primary = self.config.primary
+            if primary is None or primary.provider != AiProviderId.CODEX_VPS or primary.task != "execute":
+                return AiCallResult.unavailable("codex", "research_requires_codex")
+            # A research request never consumes the reliability API fallback.
+            return self._call_single(primary, prompt, timeout, research_stage=research_stage)
         if self.config.primary is not None:
             r = self._call_single(self.config.primary, prompt, timeout)
             if r.success:
@@ -169,15 +175,16 @@ class AiServiceClient:
                                     note="Fallback after primary failed")
         return AiCallResult.unavailable("all", "All providers exhausted")
 
-    def _call_single(self, provider: AiProviderConfig, prompt: str, timeout: float) -> "AiCallResult":
+    def _call_single(self, provider: AiProviderConfig, prompt: str, timeout: float, *, research_stage: str = "") -> "AiCallResult":
         if _HAS_GATEWAY_CLIENT and self._gw_config:
             client = AiGatewayClient(self._gw_config)
             if provider.task == "analyze":
                 r = client.analyze(prompt, model=provider.model, timeout=timeout)
             else:
-                r = client.execute(prompt, mode="review_only", timeout=timeout)
-            return AiCallResult(provider=r.provider, success=r.success, output=r.output, note=r.error)
-        return self._call_local(provider, prompt, timeout)
+                r = client.execute(prompt, mode="review_only", timeout=timeout,
+                    **({"research_stage": research_stage, "model": provider.model or None} if research_stage else {}))
+            return AiCallResult(provider=r.provider, success=r.success, output=r.output, note=r.error, raw=getattr(r, "raw", None))
+        return self._call_local(provider, prompt, timeout, **({"research_stage": research_stage} if research_stage else {}))
 
     def _review_local(self, prompt: str, timeout: float) -> list["AiCallResult"]:
         """Report unavailable reviewers when the gateway client is not installed."""
@@ -186,7 +193,7 @@ class AiServiceClient:
             for c in self.config.reviewers
         ]
 
-    def _call_local(self, provider: AiProviderConfig, prompt: str, timeout: float) -> "AiCallResult":
+    def _call_local(self, provider: AiProviderConfig, prompt: str, timeout: float, *, research_stage: str = "") -> "AiCallResult":
         """Direct Codex execution only when the gateway client is not installed."""
         if provider.provider != AiProviderId.CODEX_VPS or provider.task != "execute":
             return AiCallResult.unavailable(provider.label, "ai_gateway_client required for this provider/task")
@@ -195,6 +202,7 @@ class AiServiceClient:
         import urllib.error as _urllib_err
         import urllib.request as _urllib_req
         import time as _time
+        import math as _math
 
         service_url = os.environ.get("CODEX_AUDIT_SERVICE_URL", "").strip()
         if not service_url:
@@ -203,6 +211,12 @@ class AiServiceClient:
         try:
             token = _fetch_oidc_token()
             base_url = service_url.rstrip("/")
+            if research_stage:
+                health = _urllib_req.Request(f"{base_url}/healthz", headers={"Authorization": f"Bearer {token}"})
+                with _urllib_req.urlopen(health, timeout=10) as response:
+                    capabilities = _json.loads(response.read().decode("utf-8"))
+                if not isinstance(capabilities, dict) or capabilities.get("codex_research_routing") != "v1":
+                    return AiCallResult.unavailable("codex", "codex_research_routing_unavailable")
 
             payload = _json.dumps({
                 "task": provider.task,
@@ -212,6 +226,7 @@ class AiServiceClient:
                 "source_repository": os.environ.get("AI_GATEWAY_SOURCE_REPO", "QuantStrategyLab/QuantPlatformKit"),
                 "source_ref": "main",
                 "mode": "review_only",
+                **({"research_stage": research_stage} if research_stage else {}),
             }).encode("utf-8")
 
             req = _urllib_req.Request(
@@ -242,12 +257,32 @@ class AiServiceClient:
                     continue
                 status = job.get("status")
                 if status == "succeeded":
+                    if research_stage and (
+                        job.get("research_stage") != research_stage
+                        or not isinstance(job.get("model"), str) or not job["model"].strip()
+                        or job.get("reasoning_effort") not in {"low", "medium", "high", "xhigh"}
+                        or (provider.model not in ("", "auto") and job["model"] != provider.model)
+                    ):
+                        return AiCallResult.unavailable("codex", "codex_research_route_mismatch")
                     return AiCallResult(provider="Codex VPS", success=True,
                                         output=str(job.get("output", "")), raw=job)
                 if status == "failed":
                     return AiCallResult(provider="Codex VPS", success=False,
                                         output=job.get("error", "unknown"), raw=job)
             return AiCallResult.unavailable(provider.label, "Timeout")
+        except _urllib_err.HTTPError as exc:
+            if research_stage and exc.code == 429:
+                try:
+                    data = _json.loads(exc.read(4096))
+                except (ValueError, OSError):
+                    data = None
+                if isinstance(data, dict) and data.get("status") == "deferred":
+                    retry = data.get("retry_at")
+                    if type(retry) not in (int, float) or not _math.isfinite(retry) or retry <= 0:
+                        retry = None
+                    return AiCallResult(provider="codex", success=False, note="codex_research_deferred",
+                        raw={"status": "deferred", "retry_at": retry})
+            return AiCallResult.unavailable(provider.label, "codex_unavailable")
         except Exception as exc:
             return AiCallResult.unavailable(provider.label, str(exc))
 

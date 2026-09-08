@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import io
+import urllib.error
 import unittest
 from dataclasses import replace
 from types import SimpleNamespace
@@ -26,6 +28,58 @@ class _FakeResponse:
 
 
 class AiProviderGatewayFallbackTests(unittest.TestCase):
+    def test_research_stage_preserves_sdk_deferral_without_paid_fallback(self):
+        gateway = Mock()
+        gateway.execute.return_value = SimpleNamespace(provider="codex", success=False, output="", error="deferred",
+            raw={"status": "deferred", "retry_at": 9000})
+        config = ai_provider.AiServiceConfig.reliability(primary=ai_provider.AiProviderConfig.codex_vps(),
+            fallback=[ai_provider.AiProviderConfig.gpt()])
+        with patch.object(ai_provider, "_HAS_GATEWAY_CLIENT", True), patch.object(ai_provider, "GatewayConfig", create=True), patch.object(
+            ai_provider, "AiGatewayClient", return_value=gateway, create=True
+        ):
+            result = ai_provider.AiServiceClient(config).execute("synthetic", research_stage="optimization")
+        self.assertEqual(result.raw["status"], "deferred")
+        self.assertEqual(gateway.execute.call_args.kwargs["research_stage"], "optimization")
+        gateway.execute.assert_called_once()
+        gateway.analyze.assert_not_called()
+
+    def test_research_stage_direct_http_defers_without_poll_or_fallback(self):
+        error = urllib.error.HTTPError("https://gateway.invalid", 429, "deferred", {}, io.BytesIO(json.dumps({
+            "status": "deferred", "retry_at": 9000, "private": "must-not-propagate",
+        }).encode()))
+        with patch.object(ai_provider, "_HAS_GATEWAY_CLIENT", False), patch.dict(
+            ai_provider.os.environ, {"CODEX_AUDIT_SERVICE_URL": "https://gateway.invalid"}, clear=True
+        ), patch.object(ai_provider, "_fetch_oidc_token", return_value="synthetic"), patch("urllib.request.urlopen", side_effect=[
+            _FakeResponse({"codex_research_routing": "v1"}), error
+        ]) as http:
+            result = ai_provider.AiServiceClient(ai_provider.AiServiceConfig.reliability(
+                primary=ai_provider.AiProviderConfig.codex_vps()
+            )).execute("synthetic", research_stage="optimization")
+        self.assertEqual(result.raw, {"status": "deferred", "retry_at": 9000})
+        self.assertNotIn("must-not-propagate", repr(result))
+        self.assertEqual(http.call_count, 2)
+        self.assertEqual(json.loads(http.call_args.args[0].data)["research_stage"], "optimization")
+
+    def test_research_direct_http_rejects_old_service_and_missing_route(self):
+        for replies in (
+            [_FakeResponse({"status": "ok"})],
+            [_FakeResponse({"codex_research_routing": "v1"}), _FakeResponse({"job_id": "synthetic"}),
+             _FakeResponse({"status": "succeeded", "output": "unverified route"})],
+        ):
+            with self.subTest(replies=len(replies)), patch.object(ai_provider, "_HAS_GATEWAY_CLIENT", False), patch.dict(
+                ai_provider.os.environ, {"CODEX_AUDIT_SERVICE_URL": "https://gateway.invalid"}, clear=True
+            ), patch.object(ai_provider, "_fetch_oidc_token", return_value="synthetic"), patch(
+                "urllib.request.urlopen", side_effect=replies
+            ) as http, patch("time.sleep"):
+                result = ai_provider.AiServiceClient(ai_provider.AiServiceConfig.reliability(
+                    primary=ai_provider.AiProviderConfig.codex_vps()
+                )).execute("synthetic", research_stage="optimization")
+            self.assertFalse(result.success)
+            self.assertEqual(result.output, "")
+            self.assertEqual(http.call_count, len(replies))
+            if len(replies) == 1:
+                self.assertEqual(http.call_args.args[0].get_method(), "GET")
+
 
     def test_review_without_sdk_is_unavailable_without_execute_fallback(self) -> None:
         reviewers = [ai_provider.AiProviderConfig.claude(), ai_provider.AiProviderConfig.gpt()]

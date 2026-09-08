@@ -52,7 +52,7 @@ def build_dashboard(
             continue
 
     # Sort by score (worst first)
-    all_scores.sort(key=lambda s: s.overall_score)
+    all_scores.sort(key=lambda s: s.overall_score if s.overall_score is not None else -1)
 
     # 2. Persist
     store.save_dashboard(all_scores)
@@ -101,7 +101,11 @@ def _build_summary(scores: list[StrategyHealthScore]) -> dict[str, int]:
     watch = sum(1 for s in scores if s.status == "watch")
     review = sum(1 for s in scores if s.status == "review")
     critical = sum(1 for s in scores if s.status == "critical")
-    return {"healthy": healthy, "watch": watch, "review": review, "critical": critical}
+    summary = {"healthy": healthy, "watch": watch, "review": review, "critical": critical}
+    unavailable = sum(1 for s in scores if s.status == "unavailable")
+    if unavailable:
+        summary["unavailable"] = unavailable
+    return summary
 
 
 # ── Renderers ───────────────────────────────────────────────────────
@@ -119,8 +123,8 @@ def _render_markdown(scores: list[StrategyHealthScore]) -> str:
         "| --- | ---: |",
     ]
     summary = _build_summary(scores)
-    for status, emoji in [("healthy", "✅"), ("watch", "⚠️"), ("review", "🔴"), ("critical", "🚨")]:
-        if summary[status]:
+    for status, emoji in [("healthy", "✅"), ("watch", "⚠️"), ("review", "🔴"), ("critical", "🚨"), ("unavailable", "❓")]:
+        if summary.get(status):
             lines.append(f"| {emoji} {status.title()} | {summary[status]} |")
 
     # Group by domain
@@ -141,8 +145,8 @@ def _render_markdown(scores: list[StrategyHealthScore]) -> str:
         for s in domain_scores:
             status_emoji = _status_emoji(s.status)
             lines.append(
-                f"| {s.strategy_profile} | {s.overall_score:.0f} | {s.performance_score:.0f} | {s.risk_score:.0f} | "
-                f"{s.decay_score:.0f} | {s.stability_score:.0f} | {s.operational_score:.0f} | {status_emoji} {s.status} |"
+                f"| {s.strategy_profile} | {_score_text(s.overall_score)} | {_score_text(s.performance_score)} | {_score_text(s.risk_score)} | "
+                f"{_score_text(s.decay_score)} | {_score_text(s.stability_score)} | {_score_text(s.operational_score)} | {status_emoji} {s.status} |"
             )
         lines.append("")
 
@@ -166,11 +170,15 @@ def _render_telegram(scores: list[StrategyHealthScore]) -> str:
         lines.append("⚠️ Alerts:")
         for s in alerts[:10]:  # Telegram message length limit
             emoji = _status_emoji(s.status)
-            lines.append(f"  {emoji} [{s.domain}] {s.strategy_profile}: score={s.overall_score:.0f}")
+            lines.append(f"  {emoji} [{s.domain}] {s.strategy_profile}: score={_score_text(s.overall_score)}")
     else:
         lines.append("✅ All strategies healthy")
 
     return "\n".join(lines)
+
+
+def _score_text(score: float | None) -> str:
+    return f"{score:.0f}" if score is not None else "unavailable"
 
 
 def _status_emoji(status: str) -> str:

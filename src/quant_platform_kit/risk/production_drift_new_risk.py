@@ -73,7 +73,12 @@ def production_drift_status_from_result(drift: Any) -> str | None:
 def production_drift_status_from_probe_summary(
     summary: Mapping[str, Any] | None,
 ) -> str | None:
-    """Map probe summary → inject status; parked/unavailable/missing → None."""
+    """Map probe summary to risk status, retaining only known restrictive bans.
+
+    Unavailable research evidence never becomes healthy/watch. A validated probe
+    may retain REVIEW/CRITICAL through ``risk_status``; missing evidence omits the
+    optional axis as before.
+    """
     if summary is None:
         return None
     raw = summary.get("status")
@@ -84,7 +89,11 @@ def production_drift_status_from_probe_summary(
     if normalized is None:
         return None
     if normalized in {"parked", "unavailable"}:
-        return None
+        # Expired observation is ineligible for research, but cannot revoke a
+        # known risk prohibition. Only the stricter closed enum is accepted;
+        # this field can never turn unavailable evidence into healthy/watch.
+        retained = summary.get("risk_status")
+        return retained if isinstance(retained, str) and retained in _ACTIONABLE_STATUSES else None
     if normalized in _ALLOWED_STATUSES:
         return normalized
     return None

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from unittest.mock import patch
 
 import pytest
@@ -32,9 +33,13 @@ def test_probe_reports_only_actionable_review_or_critical(
         domain="us_equity",
         as_of="2026-09-07",
         drift_score=score,
+        evaluation_date="2026-09-08",
     )
 
     assert summary == {
+        "strategy_profile": "demo", "domain": "us_equity", "as_of": "2026-09-07",
+        "evaluated_as_of": "2026-09-08", "valid_until": "2026-09-14", "max_age_days": 7,
+        "input_source": "caller_injected",
         "status": status,
         "score": score,
         "threshold_version": "production_drift.v1",
@@ -73,6 +78,8 @@ def test_cli_emits_json_without_triggering_optimization(
                 "2026-09-07",
                 "--drift-score",
                 "0.60",
+                "--evaluation-date",
+                "2026-09-08",
                 "--threshold-version",
                 "production_drift.v2",
                 "--review",
@@ -84,6 +91,9 @@ def test_cli_emits_json_without_triggering_optimization(
 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out) == {
+        "strategy_profile": "demo", "domain": "us_equity", "as_of": "2026-09-07",
+        "evaluated_as_of": "2026-09-08", "valid_until": "2026-09-14", "max_age_days": 7,
+        "input_source": "caller_injected",
         "actionable": True,
         "score": 0.6,
         "status": "review",
@@ -105,8 +115,13 @@ def test_from_store_parks_when_score_unavailable() -> None:
         strategy_profile="demo",
         domain="us_equity",
         store=_EmptyStore(),  # type: ignore[arg-type]
+        evaluation_date="2026-09-08",
     )
     assert summary == {
+        "strategy_profile": "demo", "domain": "us_equity", "as_of": None,
+        "evaluated_as_of": "2026-09-08", "max_age_days": 7, "input_source": "missing",
+        "source_revision": None, "baseline_artifact_id": None,
+        "baseline_param_set_id": None, "baseline_param_version": None,
         "status": "parked",
         "score": None,
         "threshold_version": "production_drift.v1",
@@ -116,9 +131,7 @@ def test_from_store_parks_when_score_unavailable() -> None:
 
 
 def test_from_store_injects_drift_result_without_optimize() -> None:
-    from datetime import date
-
-    from quant_platform_kit.strategy_lifecycle.contracts import DriftResult, DriftStatus
+    from quant_platform_kit.strategy_lifecycle.contracts import DriftResult, DriftStatus, StrategyPerformanceSnapshot
 
     class _Store:
         def load_latest_drift(self, domain: str, strategy_profile: str):
@@ -131,7 +144,10 @@ def test_from_store_injects_drift_result_without_optimize() -> None:
             )
 
         def load_latest_snapshot(self, domain: str, strategy_profile: str):
-            return None
+            return StrategyPerformanceSnapshot(
+                strategy_profile=strategy_profile, domain=domain, platform="test",
+                as_of=date(2026, 9, 7), source_revision="source-v1",
+            )
 
     with patch(
         "quant_platform_kit.strategy_lifecycle.research_promotion_cycle."
@@ -141,9 +157,14 @@ def test_from_store_injects_drift_result_without_optimize() -> None:
             strategy_profile="demo",
             domain="us_equity",
             store=_Store(),  # type: ignore[arg-type]
+            evaluation_date="2026-09-08",
         )
 
     assert summary == {
+        "strategy_profile": "demo", "domain": "us_equity", "as_of": "2026-09-07",
+        "evaluated_as_of": "2026-09-08", "valid_until": "2026-09-14", "max_age_days": 7,
+        "input_source": "drift_result", "source_revision": "source-v1",
+        "baseline_artifact_id": None, "baseline_param_set_id": None, "baseline_param_version": None,
         "status": "review",
         "score": 0.55,
         "threshold_version": "production_drift.v1",

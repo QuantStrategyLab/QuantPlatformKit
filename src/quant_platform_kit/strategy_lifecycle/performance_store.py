@@ -192,6 +192,8 @@ class PerformanceStore:
     # ── snapshots ────────────────────────────────────────────────
 
     def _snapshot_key(self, snapshot: StrategyPerformanceSnapshot) -> str:
+        if snapshot.as_of is None:
+            raise ValueError("observation_date_unavailable")
         return f"daily/{_clean_key(snapshot.domain)}/{_clean_key(snapshot.strategy_profile)}/{snapshot.as_of.isoformat()}.json"
 
     def save_snapshot(self, snapshot: StrategyPerformanceSnapshot) -> None:
@@ -235,6 +237,8 @@ class PerformanceStore:
         return f"drift/{_clean_key(domain)}/{_clean_key(strategy_profile)}/drift_{as_of.isoformat()}.json"
 
     def save_drift_result(self, result: DriftResult) -> None:
+        if result.as_of is None:
+            raise ValueError("observation_date_unavailable")
         self._write(
             self._drift_key(result.domain, result.strategy_profile, result.as_of),
             {**result.to_dict(), "schema_version": SCHEMA_VERSION},
@@ -486,6 +490,14 @@ class PerformanceStore:
 # ── Deserialization helpers ──────────────────────────────────────────
 
 
+def _observation_date(data: Mapping[str, Any]) -> date | None:
+    # Retain otherwise valid risk evidence without inventing a current date.
+    try:
+        return date.fromisoformat(str(data["as_of"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
 def _snapshot_from_dict(data: Mapping[str, Any]) -> StrategyPerformanceSnapshot | None:
     try:
         from quant_platform_kit.strategy_lifecycle.contracts import WindowPerformance
@@ -522,7 +534,7 @@ def _snapshot_from_dict(data: Mapping[str, Any]) -> StrategyPerformanceSnapshot 
             strategy_profile=str(data.get("strategy_profile", "")),
             domain=str(data.get("domain", "")),
             platform=str(data.get("platform", "")),
-            as_of=date.fromisoformat(str(data["as_of"])) if data.get("as_of") else date.today(),
+            as_of=_observation_date(data),
             windows=windows,
             latest_return=float(data["latest_return"]) if data.get("latest_return") is not None else None,
             benchmark_symbol=str(data.get("benchmark_symbol", "")),
@@ -559,7 +571,8 @@ def _drift_from_dict(data: Mapping[str, Any]) -> DriftResult | None:
         return DriftResult(
             strategy_profile=str(data.get("strategy_profile", "")),
             domain=str(data.get("domain", "")),
-            as_of=date.fromisoformat(str(data["as_of"])) if data.get("as_of") else date.today(),
+            as_of=_observation_date(data),
+            source_revision=data.get("source_revision") if isinstance(data.get("source_revision"), str) else "",
             drift_score=float(data.get("drift_score", 0)),
             status=DriftStatus(str(data.get("status", "healthy"))),
             dimensions=dimensions,
