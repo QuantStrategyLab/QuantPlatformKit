@@ -55,6 +55,18 @@ QPK 管单次实验的本地进度、严格门与人工决定。AAB 管 AI job�
 | awaiting ticket 已有人工决定 | 原身份/参数/证据/权限校验后记录意图 |
 | 本地 terminal ticket | 同一身份不重新诊断、优化或提交；新冻结证据可以产生新实验 |
 
+### 长周期 paired shadow 的只读续收
+
+新增可选 `read_pending_shadow(proposal) -> Mapping`，通过正常周期和 actionable runner 传到 saved 入口。首次 `record_shadow` 仍只执行一次；后续只使用这个专用读取回调，不能重复首次可能创建外部观察的操作。AAB 的实际回调读取受控本地 observation，并校验冻结 policy、候选/参数/source、完整 forward 窗口及当期材料有效性。
+
+首次记录或后续读取可以返回 `status=pending`、`passed=false`、`no_order=true`、`live_authority_granted=false` 及未来的有限 Unix `retry_at`。票据保持已有非终态 `shadow_recorded`，本地 shadow 阶段为 pending，对外返回 deferred。到期前零读取；缺失、非有限或回调返回时已过期的 retry_at 保存为 null，不自动轮询。回调明确失败则 PARKED，异常或进程在调用中停止则 unknown，不再次调用。后续仍 pending 时，只更新明确的新期限；不会重跑诊断、优化、严格回测或首次记录。
+
+完成返回 `{"status": "complete", "observation": ...}`。observation 使用既有 `PairedShadowObservation` 或 `collect_paired_shadow_for_promotion` 输入 mapping，包括 policy、当前/前一 receipt 和 paired evidence。QPK 校验 policy 的 profile/domain 和观察数量，并调用原 paired validator 验证本次及前序关联；修复 adapter 二次校验漏传 previous 材料的问题，缺少前序仍拒绝。裸 `passed=true` 不能替代这些材料。完整窗口的真实性、当前可用性以及具体候选参数/source 绑定仍由 AAB 的真实 policy reader 验证，单条合法 receipt 不能证明窗口完成。
+
+新实验仍须通过 7 日 drift 有效期。过期观察只可定位同身份的已有票据：此前要求的诊断、优化、严格回测必须已完成，原 proposal 预算与严格门重新校验通过，且 shadow 为明确 pending，才能续收。刚保存了完整 shadow 结果但尚未来得及组装人工候选的中断，也只复用这个已验证结果。以上两类恢复均不会重调 AI、优化、backtest 或首次 `record_shadow`。身份改变、阶段缺失、unknown、新票据、未来/缺失日期仍拒绝；不通过刷新原 as_of 创建替代实验。正常 auto-pilot、actionable runner 与 saved 入口均保留此限制。
+
+已经到达 awaiting 的同身份票据，也能在原 drift 过期后只读回收控制台决定：要求上述阶段和 shadow 全部完成、原严格门有效、票据候选参数匹配保存的 proposal。此路径只 GET，不再次 POST，不读取 shadow 或运行前置研究。未知提交先读取原票据；接受/拒绝后返回已有终态，不因时间过去而变成新实验。
+
 `research_in_progress` 表示同一目录已被另一进程持有，本次返回 `deferred`；不会等待或发起模型请求。研究、自动决定回收及本地 `research-promotion-decide` CLI 使用同一目录锁。损坏的独立票据不会阻断其他身份；损坏的当前身份不会被覆盖成新研究。
 
 输出沿用 `status/reason/ticket/console_synced`，增加 `research_key`（本地去重键）、`ticket_path`、`resumed`，额度延期时有 `retry_at`。`console_synced=true` 只来自本次同步回调明确确认；恢复 GET 的结果单列 `reconciliation`。任何接受仍只有 intent，`live_authority_granted=false`。
@@ -70,3 +82,7 @@ QPK 管单次实验的本地进度、严格门与人工决定。AAB 管 AI job�
 本次还将唯一 reusable drift workflow 的 AAB checkout 固定到 `60bd64a2ae059a082614181eeb845b46df395523`，采用已发布的研究主审 Codex-only、OIDC 和 `promotion_review` 边界。该版本主审显式传 `allowed_providers=["codex"]`，无需额外 provider 环境覆盖。精确引用断言先 RED 后 GREEN，工作流测试 1 项及 actionlint 通过；排班、采集和 validator 未修改。此处仅记录源码采用，实际发布和业务周期由部署方核实。
 
 组合测试显式使用 `TZ=UTC`：既有 freshness 测试的一例采用本地 `date.today()`，生产观察时钟采用 UTC；本机跨日时，不指定 TZ 会先触发 future 拒绝，而非该测试预期的缺 source 拒绝。本轮保留生产 UTC 语义，没有修改该旧测试。
+
+长周期观察增量在已发布分支 `f1e190a` 上新增 27 项离线测试：17 项先 RED，补正常 auto-pilot 和两处保存中断时再复现 3 项 RED；独立审查发现直接策略入口的过期 awaiting 回收被阻断，再用接受/拒绝 2 项 RED 修复，并保留缺阶段/候选错配拒绝。两条真实结构的合成 receipt 验证了多日材料传递，缺少前序、篡改 receipt、裸 passed、未满窗口、live 声明均不通过；没有真实观察数据。新 API 在 actual actionable runner 与正常 auto-pilot 上均验证，CN 的透传采用和 AAB 真实文件 reader 另由对应仓验证。
+
+最终在相同隔离环境、阻断 socket 后，12 个相关测试文件为 298 tests + 37 subtests 通过；Ruff 和 `git diff --check` 通过。没有运行模型、真实 shadow、控制台生产写入或交易。

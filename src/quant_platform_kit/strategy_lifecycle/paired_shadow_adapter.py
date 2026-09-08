@@ -83,6 +83,8 @@ def collect_paired_shadow_for_promotion(
         evidence,
         policy=payload["policy"],
         forward_observation_receipt=payload["forward_observation_receipt"],
+        previous_evidence=payload.get("previous_evidence"),
+        previous_forward_observation_receipt=payload.get("previous_forward_observation_receipt"),
     )
     record["adapter"] = "paired_shadow_adapter.v1"
     record["live_authority_granted"] = False

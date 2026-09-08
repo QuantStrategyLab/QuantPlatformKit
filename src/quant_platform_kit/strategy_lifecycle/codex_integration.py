@@ -493,6 +493,7 @@ def _process_optimization_decision(
     research_identity: Mapping[str, str] | None = None,
     resume_delivery_only: bool = False,
     admit_new_research: Callable[[Path, str], bool] | None = None,
+    read_pending_shadow: Callable | None = None,
 ) -> dict[str, object]:
     """Codex diagnosis → bounded Python research → strict gates → human queue."""
     from quant_platform_kit.strategy_lifecycle.promotion_actionable_runner import (
@@ -503,7 +504,7 @@ def _process_optimization_decision(
         "execution_authorized": False, "live_authority_granted": False,
     }
     freshness_reason = _drift_freshness_reason(drift)
-    if freshness_reason:
+    if freshness_reason and not (freshness_reason == "observation_stale" and callable(read_pending_shadow) and not dry_run):
         return {**entry, "reason": freshness_reason, "research_promotion_state": "parked"}
     if drift.status not in (DriftStatus.REVIEW, DriftStatus.CRITICAL) or drift.alert_suppressed:
         return {**entry, "reason": "drift_not_actionable"}
@@ -558,6 +559,7 @@ def _process_optimization_decision(
             diagnose=diagnose, pull_console=pull_console,
             resume_delivery_only=resume_delivery_only,
             admit_new_research=admit_new_research,
+            read_pending_shadow=read_pending_shadow,
         )
         entry["research_promotion_state"] = summary["status"]
         entry["console_synced"] = summary.get("console_synced")
@@ -592,6 +594,7 @@ def run_auto_pilot_cycle(
     pull_console: Callable | None = None,
     research_identity: Mapping[str, str] | None = None,
     admit_new_research: Callable[[Path, str], bool] | None = None,
+    read_pending_shadow: Callable | None = None,
 ) -> dict[str, Any]:
     """Run one drift-triggered cycle with candidate-bound research callbacks.
 
@@ -669,6 +672,7 @@ def run_auto_pilot_cycle(
                     pull_console=pull_console, research_identity=research_identity,
                     resume_delivery_only=resume_delivery_only,
                     admit_new_research=admit_new_research,
+                    read_pending_shadow=read_pending_shadow,
                 )
             )
 

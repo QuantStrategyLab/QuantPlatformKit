@@ -77,6 +77,7 @@ def run_actionable_research_promotion(
     diagnose: Callable | None = None,
     resume_delivery_only: bool = False,
     admit_new_research: Callable[[Path, str], bool] | None = None,
+    read_pending_shadow: Callable | None = None,
     cycle: Callable[..., ResearchPromotionTicket] | None = None,
 ) -> dict[str, Any]:
     """Run promotion once for REVIEW/CRITICAL drift and require paired shadow.
@@ -122,7 +123,12 @@ def run_actionable_research_promotion(
 
     if not from_store:
         health["source_revision"] = source_revision
-    if not health["actionable"]:
+    # Stale observations may identify an already-computed pending ticket. The
+    # saved entry alone decides whether its read-only tail can continue.
+    stale_checkpoint = (health.get("reason") == "observation_stale"
+                        and ticket_dir is not None and research_identity is not None
+                        and health.get("risk_status") in {"review", "critical"})
+    if not health["actionable"] and not stale_checkpoint:
         return {
             **health,
             "drift_status": health["status"],
@@ -154,7 +160,7 @@ def run_actionable_research_promotion(
         domain=domain,
         as_of=resolved_as_of,
         drift_score=float(health["score"]),
-        status=DriftStatus(str(health["status"])),
+        status=DriftStatus(str(health["risk_status"] if stale_checkpoint else health["status"])),
         source_revision=health.get("source_revision") or "",
         baseline_artifact_id=health.get("baseline_artifact_id"),
         baseline_param_set_id=health.get("baseline_param_set_id"),
@@ -180,7 +186,7 @@ def run_actionable_research_promotion(
         return console_synced
 
     if (ticket_dir is not None or research_identity is not None or diagnose is not None
-            or resume_delivery_only or admit_new_research is not None):
+            or resume_delivery_only or admit_new_research is not None or read_pending_shadow is not None):
         if ticket_dir is None or research_identity is None or cycle is not None:
             return {**health, "status": "parked", "reason": "research_identity_unavailable",
                     "console_synced": None}
@@ -192,6 +198,7 @@ def run_actionable_research_promotion(
             evaluation_date=evaluation_date, max_age_days=max_age_days,
             resume_delivery_only=resume_delivery_only,
             admit_new_research=admit_new_research,
+            read_pending_shadow=read_pending_shadow,
         )
         return {**health, **saved}
 
