@@ -1756,11 +1756,8 @@ def _assess_with_evidence_static(
                 reason_codes.add("invalid_risk_metadata")
                 continue
             target_weights[symbol] = combined_weight
-        policy_positions = (
-            list(target_weights.items())
-            if is_tqqq_evidence_mandate
-            else active_positions
-        )
+        # Product caps apply to the combined holding, regardless of row/role.
+        policy_positions = list(target_weights.items())
         weighted_exposure = 0.0
         if mandate_provenance is None and len(active_positions) > 1:
             reason_codes.add("fallback_position_count")

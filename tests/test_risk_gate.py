@@ -738,6 +738,96 @@ class AssessWithEvidenceTests(unittest.TestCase):
         self.assertEqual(first.assessment.assessment_sha256, redacted_equivalent.assessment.assessment_sha256)
         self.assertEqual(len(first.decision.positions), 1)
 
+    def test_generic_product_caps_apply_to_combined_symbol_targets(self) -> None:
+        candidate = self._candidate(strategy_profile="soxl_soxx_trend_income")
+        for cap_field, cap in (
+            ("product_caps", 0.10),
+            ("nominal_caps", 0.10),
+            ("product_effective_caps", 0.30),
+        ):
+            mandate = self._mandate(
+                candidate,
+                product_leverage_factors={"SOXL": 3},
+                allowed_nonzero_assets=["SOXL"],
+                **{cap_field: {"SOXL": cap}},
+            )
+            for mode in ("weight", "value", "mixed"):
+                positions = (
+                    PositionTarget(symbol="SOXL", target_weight=0.08, role="core")
+                    if mode != "value" else
+                    PositionTarget(symbol="SOXL", target_value=8_000.0, role="core"),
+                    PositionTarget(symbol="SOXL", target_weight=0.08, role="income")
+                    if mode == "weight" else
+                    PositionTarget(symbol="SOXL", target_value=8_000.0, role="income"),
+                )
+                with self.subTest(cap_field=cap_field, mode=mode), patch(
+                    "quant_platform_kit.risk.gate._utc_now", return_value=self._NOW,
+                ):
+                    result = assess_with_evidence(
+                        _decision(positions=positions), self._snapshot(), scope="ACCOUNT",
+                        mandate_provenance=mandate, candidate_identity=candidate, market_data={},
+                        capital_base=_capital_base(as_of=self._NOW), capital_base_binding=_capital_base_binding(),
+                    )
+                    self.assertEqual(result.assessment.outcome, "REJECT")
+                    reason = "product_effective_exposure_cap" if cap_field == "product_effective_caps" else "product_exposure_cap"
+                    self.assertIn(reason, result.assessment.reason_codes)
+                    self.assertAlmostEqual(result.assessment.proposed_effective_exposure, 0.48)
+                    self.assertFalse(result.assessment.execution_authorized)
+                    self.assertEqual(result.decision.positions, ())
+
+    def test_generic_split_targets_at_cap_preserve_decision_identity(self) -> None:
+        candidate = self._candidate(strategy_profile="soxl_soxx_trend_income")
+        mandate = self._mandate(
+            candidate, product_leverage_factors={"SOXL": 3}, allowed_nonzero_assets=["SOXL"],
+            product_caps={"SOXL": 0.10}, nominal_caps={"SOXL": 0.10},
+            product_effective_caps={"SOXL": 0.30},
+        )
+        positions = (
+            PositionTarget(symbol="SOXL", target_weight=0.04, role="core"),
+            PositionTarget(symbol="SOXL", target_value=6_000.0, role="income"),
+            PositionTarget(symbol="SOXL", target_weight=0.0, role="inactive"),
+        )
+        with patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW):
+            split = assess_with_evidence(
+                _decision(positions=positions), self._snapshot(), scope="ACCOUNT",
+                mandate_provenance=mandate, candidate_identity=candidate, market_data={},
+                capital_base=_capital_base(as_of=self._NOW), capital_base_binding=_capital_base_binding(),
+            )
+            single = assess_with_evidence(
+                _decision(positions=(PositionTarget(symbol="SOXL", target_weight=0.10),)),
+                self._snapshot(), scope="ACCOUNT", mandate_provenance=mandate,
+                candidate_identity=candidate, market_data={},
+                capital_base=_capital_base(as_of=self._NOW), capital_base_binding=_capital_base_binding(),
+            )
+        for result in (split, single):
+            self.assertEqual(result.assessment.outcome, "APPROVE")
+            self.assertAlmostEqual(result.assessment.proposed_effective_exposure, 0.30)
+            self.assertFalse(result.assessment.execution_authorized)
+        self.assertEqual(split.decision.positions, positions)
+        self.assertNotEqual(split.assessment.decision_digest_sha256, single.assessment.decision_digest_sha256)
+
+    def test_generic_split_targets_still_obey_account_exposure_cap(self) -> None:
+        candidate = self._candidate(strategy_profile="soxl_soxx_trend_income")
+        mandate = self._mandate(
+            candidate, product_leverage_factors={"SOXL": 3, "SOXX": 1},
+            allowed_nonzero_assets=["SOXL", "SOXX"],
+        )
+        decision = _decision(positions=(
+            PositionTarget(symbol="SOXL", target_weight=0.08, role="core"),
+            PositionTarget(symbol="SOXL", target_value=8_000.0, role="income"),
+            PositionTarget(symbol="SOXX", target_weight=0.03),
+        ))
+        with patch("quant_platform_kit.risk.gate._utc_now", return_value=self._NOW):
+            result = assess_with_evidence(
+                decision, self._snapshot(), scope="ACCOUNT", mandate_provenance=mandate,
+                candidate_identity=candidate, market_data={},
+                capital_base=_capital_base(as_of=self._NOW), capital_base_binding=_capital_base_binding(),
+            )
+        self.assertEqual(result.assessment.outcome, "REJECT")
+        self.assertIn("effective_exposure_cap", result.assessment.reason_codes)
+        self.assertAlmostEqual(result.assessment.proposed_effective_exposure, 0.51)
+        self.assertFalse(result.assessment.execution_authorized)
+
     def test_mandate_requires_typed_candidate_and_still_assesses_once(self) -> None:
         decision = _decision(
             positions=(PositionTarget(symbol="BTCUSDT", target_weight=0.10),),

@@ -10,6 +10,7 @@ import pandas as pd
 from quant_platform_kit.strategy_lifecycle.performance_metrics import (
     compute_window_metrics,
     compute_windows,
+    normalize_return_matrix,
     normalize_return_series,
     DEFAULT_WINDOWS,
 )
@@ -26,6 +27,30 @@ class PerformanceMetricsTest(unittest.TestCase):
         self.assertGreater(len(s), 0)
         # Index should be datetime
         self.assertTrue(pd.api.types.is_datetime64_any_dtype(s.index))
+
+    def test_daily_return_normalization_rejects_duplicate_dates(self) -> None:
+        for dates in (
+            ["2026-09-08", "2026-09-08"],
+            ["2026-09-08T09:00:00", "2026-09-08T16:00:00"],
+            ["2026-09-08T09:00:00+08:00", "2026-09-08T16:00:00+08:00"],
+        ):
+            for values in ([0.01, 0.01], [0.01, -0.02]):
+                series = pd.Series(values, index=pd.to_datetime(dates))
+                with self.subTest(dates=dates, values=values):
+                    for operation in (
+                        lambda: normalize_return_series(series),
+                        lambda: normalize_return_matrix(series.to_frame("strategy")),
+                        lambda: normalize_return_matrix(pd.DataFrame({"as_of": dates, "strategy": values})),
+                        lambda: compute_window_metrics(series, window_days=1),
+                    ):
+                        with self.assertRaisesRegex(ValueError, "^daily return dates must be unique$"):
+                            operation()
+
+    def test_duplicate_benchmark_dates_are_rejected_before_comparison(self) -> None:
+        returns = pd.Series([0.01, -0.02], index=self.dates[:2])
+        benchmark = pd.Series([0.01, 0.01], index=[self.dates[0], self.dates[0]])
+        with self.assertRaisesRegex(ValueError, "^daily return dates must be unique$"):
+            compute_window_metrics(returns, benchmark_returns=benchmark)
 
     def test_compute_window_metrics_basic(self) -> None:
         r = self.returns

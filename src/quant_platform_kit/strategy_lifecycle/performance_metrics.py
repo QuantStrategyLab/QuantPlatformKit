@@ -21,13 +21,16 @@ TRADING_DAYS_PER_YEAR: float = 252.0
 
 
 def normalize_return_series(series: pd.Series) -> pd.Series:
-    """Clean and normalize a daily return series."""
+    """Clean daily returns; reject repeated dates rather than compound twice."""
     s = pd.Series(series).copy()
     if not pd.api.types.is_datetime64_any_dtype(s.index):
         s.index = pd.to_datetime(s.index, errors="coerce")
     s.index = s.index.tz_localize(None).normalize()
+    s = s.loc[s.index.notna()]
+    if s.index.has_duplicates:
+        raise ValueError("daily return dates must be unique")
     s = pd.to_numeric(s, errors="coerce")
-    return s.loc[s.index.notna()].dropna().sort_index()
+    return s.dropna().sort_index()
 
 
 def normalize_return_matrix(
@@ -35,7 +38,7 @@ def normalize_return_matrix(
     *,
     date_column: str = "as_of",
 ) -> pd.DataFrame:
-    """Normalize a return matrix: datetime index, numeric values."""
+    """Normalize a daily return matrix, rejecting repeated normalized dates."""
     df = pd.DataFrame(frame).copy()
     if date_column in df.columns:
         df[date_column] = pd.to_datetime(df[date_column], errors="coerce").dt.tz_localize(None).dt.normalize()
@@ -43,6 +46,8 @@ def normalize_return_matrix(
     else:
         df.index = pd.to_datetime(df.index, errors="coerce").tz_localize(None).normalize()
         df = df.loc[df.index.notna()]
+    if df.index.has_duplicates:
+        raise ValueError("daily return dates must be unique")
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df.sort_index()
