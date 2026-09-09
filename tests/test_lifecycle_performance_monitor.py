@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -14,6 +15,7 @@ from quant_platform_kit.strategy_lifecycle.performance_monitor import (
     try_record_platform_execution,
 )
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+from quant_platform_kit.strategy_lifecycle.return_collector import ReturnCollector
 
 
 class PerformanceMonitorTests(unittest.TestCase):
@@ -70,6 +72,69 @@ class PerformanceMonitorTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
             run_monitor("us_equity", collector=EmptyCollector())
+
+    def test_csv_collector_to_monitor_rejects_duplicate_daily_returns(self) -> None:
+        for dates, values in (
+            (["2026-09-08", "2026-09-08"], [0.01, 0.01]),
+            (["2026-09-08T09:00:00", "2026-09-08T16:00:00"], [0.01, -0.02]),
+        ):
+            with self.subTest(dates=dates), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                matrix = root / "portfolio_and_tracker_returns.csv"
+                pd.DataFrame({"as_of": dates, "synthetic_soxl": values}).to_csv(matrix, index=False)
+                store = PerformanceStore(local_root=root / "store")
+                collector = ReturnCollector(artifact_roots={"us_equity": root}, projects_root=root, store=store)
+                with patch.object(PerformanceStore, "save_snapshot", autospec=True) as save:
+                    with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
+                        run_monitor("us_equity", strategy_profile="synthetic_soxl", collector=collector,
+                                    store=store, windows=(2,), min_observations=2)
+                    self.assertEqual(run_monitor(
+                        "us_equity", collector=collector, store=store, min_observations=2, fail_on_empty=False,
+                    ), [])
+                    save.assert_not_called()
+
+    def test_csv_collector_to_monitor_preserves_unique_daily_returns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pd.DataFrame({
+                "as_of": ["2026-09-08T16:00:00", "2026-09-09T16:00:00"],
+                "synthetic_soxl": [0.01, -0.02],
+                "SPY": [0.01, -0.02],
+            }).to_csv(root / "portfolio_and_tracker_returns.csv", index=False)
+            store = PerformanceStore(local_root=root / "store")
+            collector = ReturnCollector(artifact_roots={"us_equity": root}, projects_root=root, store=store)
+            snapshots = run_monitor(
+                "us_equity", strategy_profile="synthetic_soxl", collector=collector, store=store,
+                windows=(2,), min_observations=2, require_explicit_benchmark=True,
+                strategy_benchmarks={"synthetic_soxl": "SPY"},
+            )
+            self.assertEqual(len(snapshots), 1)
+            metrics = snapshots[0].windows[2]
+            self.assertEqual(metrics.observation_count, 2)
+            self.assertAlmostEqual(metrics.total_return, 1.01 * 0.98 - 1.0)
+            self.assertAlmostEqual(metrics.excess_cagr, 0.0)
+
+    def test_csv_collector_to_monitor_rejects_duplicate_required_benchmark(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pd.DataFrame({"as_of": ["2026-09-08", "2026-09-09"], "synthetic_soxl": [0.01, -0.02]}).to_csv(
+                root / "portfolio_and_tracker_returns.csv", index=False,
+            )
+            benchmark_dir = root / "benchmark"
+            benchmark_dir.mkdir()
+            pd.DataFrame({"as_of": ["2026-09-08", "2026-09-08"], "SPY": [0.01, -0.02]}).to_csv(
+                benchmark_dir / "portfolio_and_tracker_returns.csv", index=False,
+            )
+            store = PerformanceStore(local_root=root / "store")
+            collector = ReturnCollector(artifact_roots={"us_equity": root}, projects_root=root, store=store)
+            with patch.object(PerformanceStore, "save_snapshot", autospec=True) as save:
+                with self.assertRaisesRegex(RuntimeError, "explicit benchmark data is unavailable or insufficient"):
+                    run_monitor(
+                        "us_equity", strategy_profile="synthetic_soxl", collector=collector, store=store,
+                        windows=(2,), min_observations=2, require_explicit_benchmark=True,
+                        strategy_benchmarks={"synthetic_soxl": "SPY"},
+                    )
+                save.assert_not_called()
 
 
 if __name__ == "__main__":
