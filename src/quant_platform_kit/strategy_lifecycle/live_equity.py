@@ -152,6 +152,9 @@ def live_run_records_to_return_series(records: Sequence[Mapping[str, Any]]) -> p
     Multiple records from the same day use the final equity observation and
     accumulate their declared external flows.  This prevents a pure deposit or
     withdrawal from becoming a spurious gain or loss in lifecycle monitoring.
+    If a declared flow is invalid, only the latest comparable segment after
+    that date is returned because a plain Series cannot preserve segment
+    boundaries for downstream compounding.
     """
     points: list[tuple[pd.Timestamp, float, float]] = []
     invalid_cash_flow_dates: set[pd.Timestamp] = set()
@@ -180,7 +183,10 @@ def live_run_records_to_return_series(records: Sequence[Mapping[str, Any]]) -> p
         .agg({"equity": "last", "external_cash_flow": "sum"})
     )
     if invalid_cash_flow_dates:
-        frame = frame[~frame["date"].isin(invalid_cash_flow_dates)]
+        # A plain return series cannot preserve separate comparable segments.
+        # Keep only the latest segment so downstream metrics cannot compound
+        # valid returns from opposite sides of an unknown cash-flow interval.
+        frame = frame[frame["date"] > max(invalid_cash_flow_dates)]
     if len(frame) < 2:
         return pd.Series(dtype=float)
     frame = (

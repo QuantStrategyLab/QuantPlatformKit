@@ -16,6 +16,7 @@ from quant_platform_kit.strategy_lifecycle.live_equity import (
     resolve_consecutive_losses,
     stamp_consecutive_losses_on_snapshot,
 )
+from quant_platform_kit.strategy_lifecycle.performance_metrics import compute_window_metrics
 from quant_platform_kit.strategy_lifecycle.performance_monitor import PerformanceMonitor, resolve_lifecycle_stream_id
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 from quant_platform_kit.strategy_lifecycle.return_collector import ReturnCollector
@@ -91,6 +92,76 @@ class LiveEquityTests(unittest.TestCase):
         self.assertEqual(len(series), 2)
         self.assertAlmostEqual(float(series.iloc[0]), 0.0)
         self.assertAlmostEqual(float(series.iloc[1]), 0.10)
+
+    def test_live_returns_restart_after_invalid_cash_flow_gap(self) -> None:
+        for invalid_flow in ("invalid", float("nan")):
+            with self.subTest(invalid_flow=invalid_flow):
+                series = live_run_records_to_return_series(
+                    [
+                        {
+                            "recorded_at": "2026-09-07T20:00:00Z",
+                            "total_equity": 100.0,
+                            "external_cash_flow": 0.0,
+                        },
+                        {
+                            "recorded_at": "2026-09-08T20:00:00Z",
+                            "total_equity": 200.0,
+                            "external_cash_flow": invalid_flow,
+                        },
+                        {
+                            "recorded_at": "2026-09-09T20:00:00Z",
+                            "total_equity": 200.0,
+                            "external_cash_flow": 0.0,
+                        },
+                        {
+                            "recorded_at": "2026-09-10T20:00:00Z",
+                            "total_equity": 202.0,
+                            "external_cash_flow": 0.0,
+                        },
+                    ]
+                )
+
+                self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
+                self.assertAlmostEqual(float(series.iloc[0]), 0.01)
+
+    def test_same_day_invalid_cash_flow_discards_the_whole_daily_observation(self) -> None:
+        series = live_run_records_to_return_series(
+            [
+                {
+                    "recorded_at": "2026-09-06T20:00:00Z",
+                    "total_equity": 99.0,
+                    "external_cash_flow": 0.0,
+                },
+                {
+                    "recorded_at": "2026-09-07T20:00:00Z",
+                    "total_equity": 100.0,
+                    "external_cash_flow": 0.0,
+                },
+                {
+                    "recorded_at": "2026-09-08T09:00:00Z",
+                    "total_equity": 200.0,
+                    "external_cash_flow": 100.0,
+                },
+                {
+                    "recorded_at": "2026-09-08T20:00:00Z",
+                    "total_equity": 200.0,
+                    "external_cash_flow": "invalid",
+                },
+                {
+                    "recorded_at": "2026-09-09T20:00:00Z",
+                    "total_equity": 200.0,
+                    "external_cash_flow": 0.0,
+                },
+                {
+                    "recorded_at": "2026-09-10T20:00:00Z",
+                    "total_equity": 202.0,
+                    "external_cash_flow": 0.0,
+                },
+            ]
+        )
+
+        self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(series.iloc[0]), 0.01)
 
     def test_count_consecutive_losses_trailing_only(self) -> None:
         self.assertEqual(count_consecutive_losses(pd.Series([-0.01, 0.02, -0.01, -0.03])), 2)
@@ -240,6 +311,45 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
             merged = collector.collect("us_equity")
             self.assertIn("global_etf_rotation", merged)
             self.assertIsInstance(merged["global_etf_rotation"], pd.Series)
+
+    def test_collect_does_not_compound_across_invalid_cash_flow_gap(self) -> None:
+        rows = [
+            {
+                "recorded_at": "2026-09-07T20:00:00Z",
+                "total_equity": 100.0,
+                "external_cash_flow": 0.0,
+            },
+            {
+                "recorded_at": "2026-09-08T20:00:00Z",
+                "total_equity": 200.0,
+                "external_cash_flow": "invalid",
+            },
+            {
+                "recorded_at": "2026-09-09T20:00:00Z",
+                "total_equity": 200.0,
+                "external_cash_flow": 0.0,
+            },
+            {
+                "recorded_at": "2026-09-10T20:00:00Z",
+                "total_equity": 202.0,
+                "external_cash_flow": 0.0,
+            },
+        ]
+        for row in rows:
+            row.update(strategy_profile="audit_case", lifecycle_stream_id="offline-account")
+
+        class Store:
+            def list_live_run_records(self, domain: str) -> list[dict[str, object]]:
+                self.domain = domain
+                return rows
+
+        series = ReturnCollector(store=Store()).collect_from_live_runs(
+            "us_equity", stream_id="offline-account"
+        )["audit_case"]
+
+        self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(series.iloc[0]), 0.01)
+        self.assertAlmostEqual(compute_window_metrics(series).total_return, 0.01)
 
     def test_collect_refuses_to_merge_multiple_account_streams(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
