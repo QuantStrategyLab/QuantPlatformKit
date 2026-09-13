@@ -78,6 +78,8 @@ def run_actionable_research_promotion(
     resume_delivery_only: bool = False,
     admit_new_research: Callable[[Path, str], bool] | None = None,
     read_pending_shadow: Callable | None = None,
+    summarize: Callable | None = None,
+    research_owner: Mapping[str, Any] | None = None,
     cycle: Callable[..., ResearchPromotionTicket] | None = None,
 ) -> dict[str, Any]:
     """Run promotion once for REVIEW/CRITICAL drift and require paired shadow.
@@ -186,7 +188,8 @@ def run_actionable_research_promotion(
         return console_synced
 
     if (ticket_dir is not None or research_identity is not None or diagnose is not None
-            or resume_delivery_only or admit_new_research is not None or read_pending_shadow is not None):
+            or resume_delivery_only or admit_new_research is not None or read_pending_shadow is not None
+            or research_owner is not None):
         if ticket_dir is None or research_identity is None or cycle is not None:
             return {**health, "status": "parked", "reason": "research_identity_unavailable",
                     "console_synced": None}
@@ -199,6 +202,8 @@ def run_actionable_research_promotion(
             resume_delivery_only=resume_delivery_only,
             admit_new_research=admit_new_research,
             read_pending_shadow=read_pending_shadow,
+            summarize=summarize,
+            research_owner=research_owner,
         )
         return {**health, **saved}
 

@@ -11,6 +11,7 @@ import calendar
 import hashlib
 import json
 import math
+import re
 import uuid
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -26,6 +27,9 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     OptimizationProposal,
     PromotionBacktestRun,
 )
+
+
+_REAL_DATETIME = datetime
 
 
 class ResearchPromotionState(str, Enum):
@@ -163,11 +167,15 @@ class ResearchPromotionTicket:
     notes: tuple[str, ...] = ()
     # Local checkpoint only. QRT's candidate contract must not carry job state.
     research_progress: Mapping[str, Any] = field(default_factory=dict, repr=False)
+    # Local/operator-facing summary. It is advisory and never grants authority.
+    research_summary: Mapping[str, Any] = field(default_factory=dict)
 
     def to_dict(self, *, include_progress: bool = False) -> dict[str, Any]:
         payload = asdict(self)
         if not include_progress:
             payload.pop("research_progress")
+        if not self.research_summary:
+            payload.pop("research_summary", None)
         payload["state"] = self.state.value
         payload["notes"] = list(self.notes)
         payload["proposed_params"] = dict(self.proposed_params)
@@ -211,11 +219,12 @@ class ResearchPromotionTicket:
             confirmation_risk_profile=str(raw.get("confirmation_risk_profile") or ""),
             notes=tuple(str(item) for item in (raw.get("notes") or ())),
             research_progress=dict(raw.get("research_progress") or {}),
+            research_summary=dict(raw.get("research_summary") or {}),
         )
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return _clock_now().isoformat()
 
 
 def _new_ticket_id() -> str:
@@ -1258,6 +1267,341 @@ def _saved_proposal(raw: Mapping[str, Any]) -> OptimizationProposal:
     return proposal
 
 
+_MAX_NO_IMPROVEMENT_ROUNDS = 3
+_MAX_IDLE_DAYS = 30
+_SUMMARY_MAX_TEXT = 2000
+_RESEARCH_OWNER_FIELDS = frozenset({"repository", "issue_number", "watcher_issue_key"})
+_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+_RESEARCH_OWNER_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+class _ResearchScopeArchived(Exception):
+    """Internal short circuit after a scope reaches its research limit."""
+
+
+def _normalize_research_owner(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or set(value) != _RESEARCH_OWNER_FIELDS:
+        return None
+    repository = value.get("repository")
+    issue_number = value.get("issue_number")
+    watcher_issue_key = value.get("watcher_issue_key")
+    if (not isinstance(repository, str) or not _REPOSITORY_RE.fullmatch(repository)
+            or type(issue_number) is not int or issue_number <= 0
+            or not isinstance(watcher_issue_key, str)
+            or not _RESEARCH_OWNER_KEY_RE.fullmatch(watcher_issue_key)):
+        return None
+    return {
+        "repository": repository,
+        "issue_number": issue_number,
+        "watcher_issue_key": watcher_issue_key,
+    }
+
+
+def _progress_now() -> datetime:
+    """Use wall-clock time for lifecycle elapsed time, never observation dates."""
+    return _clock_now()
+
+
+def _clock_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _scope_identity(identity: Mapping[str, Any]) -> dict[str, Any]:
+    drift = identity.get("drift") if isinstance(identity, Mapping) else None
+    revisions = identity.get("revisions") if isinstance(identity, Mapping) else None
+    if not isinstance(drift, Mapping) or not isinstance(revisions, Mapping):
+        return {}
+    owner = identity.get("owner") if isinstance(identity, Mapping) else None
+    revision_keys = ("cost_model_revision", "validator_revision") if isinstance(owner, Mapping) else (
+        "code_revision", "cost_model_revision", "validator_revision",
+    )
+    result = {
+        "revisions": {key: revisions.get(key) for key in revision_keys},
+        "drift": {key: drift.get(key) for key in (
+            "strategy_profile", "domain", "baseline_param_set_id",
+            "baseline_param_version", "baseline_artifact_id",
+        )},
+    }
+    if isinstance(owner, Mapping):
+        result["owner"] = dict(owner)
+    return result
+
+
+def _scope_key(identity: Mapping[str, Any]) -> str:
+    scope = _scope_identity(identity)
+    if not scope or any(value is None for value in scope["revisions"].values()):
+        return ""
+    return hashlib.sha256(_canonical_ticket_value(scope).encode()).hexdigest()
+
+
+def _exact_identity(identity: Mapping[str, Any]) -> dict[str, Any]:
+    scope = _scope_identity(identity)
+    revisions = identity.get("revisions") if isinstance(identity, Mapping) else None
+    if not scope or not isinstance(revisions, Mapping):
+        return {}
+    scope["revisions"].update({key: revisions.get(key) for key in (
+        "code_revision", "input_revision", "param_space_revision",
+    )})
+    return scope
+
+
+def _exact_key(identity: Mapping[str, Any]) -> str:
+    exact = _exact_identity(identity)
+    if not exact or any(value is None for value in exact["revisions"].values()):
+        return ""
+    return hashlib.sha256(_canonical_ticket_value(exact).encode()).hexdigest()
+
+
+def _parse_progress_time(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = _REAL_DATETIME.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+
+
+def _lifecycle(progress: Mapping[str, Any], now: datetime) -> dict[str, Any]:
+    value = progress.get("lifecycle") if isinstance(progress, Mapping) else None
+    result = dict(value) if isinstance(value, Mapping) else {}
+    result.setdefault("first_observed_at", now.isoformat())
+    result.setdefault("last_substantive_progress_at", now.isoformat())
+    result["no_improvement_count"] = max(0, int(result.get("no_improvement_count") or 0))
+    result["counted_result_digests"] = [
+        str(item) for item in (result.get("counted_result_digests") or ()) if str(item)
+    ]
+    result.setdefault("paused", False)
+    result.setdefault("archived", False)
+    return result
+
+
+def _touch_progress(progress: dict[str, Any], now: datetime) -> dict[str, Any]:
+    value = _lifecycle(progress, now)
+    value["last_substantive_progress_at"] = now.isoformat()
+    value["paused"] = False
+    value.pop("paused_since", None)
+    value.pop("pause_reason", None)
+    progress["lifecycle"] = value
+    return value
+
+
+def _pause_progress(progress: dict[str, Any], now: datetime, reason: str) -> None:
+    value = _lifecycle(progress, now)
+    value["paused"] = True
+    value["paused_since"] = value.get("paused_since") or now.isoformat()
+    value["pause_reason"] = str(reason)
+    progress["lifecycle"] = value
+
+
+def _proposal_no_improvement(proposal: OptimizationProposal) -> bool:
+    if not _proposal_comparable(proposal):
+        return False
+    current = proposal.current_metrics
+    proposed = proposal.proposed_metrics
+    if not (float(proposed.cagr) <= float(current.cagr)
+            and abs(float(proposed.max_drawdown)) >= abs(float(current.max_drawdown))):
+        return False
+    score = proposal.improvement_score
+    return (proposal.recommendation == "reject"
+            and not proposal.winning_dimensions
+            and isinstance(score, (int, float)) and not isinstance(score, bool)
+            and math.isfinite(float(score)) and float(score) <= 0.0)
+
+
+def _record_no_improvement(progress: dict[str, Any], proposal: OptimizationProposal, now: datetime) -> bool:
+    value = _touch_progress(progress, now)
+    digest = hashlib.sha256(_canonical_ticket_value(proposal.to_dict()).encode()).hexdigest()
+    if digest in value["counted_result_digests"]:
+        return False
+    value["counted_result_digests"].append(digest)
+    value["no_improvement_count"] = len(value["counted_result_digests"])
+    progress["lifecycle"] = value
+    return True
+
+
+def _summary_context(proposal: OptimizationProposal) -> dict[str, Any]:
+    current = proposal.current_metrics
+    proposed = proposal.proposed_metrics
+    comparison: dict[str, Any] = {
+        "status": "unavailable", "start_date": None, "end_date": None,
+        "cost_model": "", "baseline": None, "candidate": None,
+    }
+    if _proposal_comparable(proposal):
+        comparison.update(
+            status="comparable", start_date=current.start_date.isoformat(),
+            end_date=current.end_date.isoformat(), cost_model=current.cost_model,
+            baseline={"cagr": current.cagr, "max_drawdown": current.max_drawdown},
+            candidate={"cagr": proposed.cagr, "max_drawdown": proposed.max_drawdown},
+        )
+    return {
+        "identity": {
+            "strategy_profile": proposal.strategy_profile,
+            "domain": proposal.domain,
+            "proposed_params": dict(proposal.proposed_params),
+        },
+        "strategy_description": "",
+        "plugins": None,
+        "comparison": comparison,
+        "limitations": [] if comparison["status"] == "comparable" else [
+            "尚无同一条件下的收益对比"
+        ],
+    }
+
+
+def _proposal_comparable(proposal: OptimizationProposal) -> bool:
+    current = proposal.current_metrics
+    proposed = proposal.proposed_metrics
+    if current is None or proposed is None:
+        return False
+    if (current.strategy_profile != proposal.strategy_profile
+            or proposed.strategy_profile != proposal.strategy_profile
+            or current.domain != proposal.domain or proposed.domain != proposal.domain
+            or current.start_date is None or current.end_date is None
+            or current.start_date != proposed.start_date or current.end_date != proposed.end_date
+            or current.cost_model != proposed.cost_model or not current.cost_model
+            or dict(current.cost_inputs) != dict(proposed.cost_inputs)
+            or not current.cost_inputs or current.source_revision != proposed.source_revision
+            or not current.source_revision or dict(current.params) != dict(proposal.current_params)
+            or dict(proposed.params) != dict(proposal.proposed_params)):
+        return False
+    values = (current.cagr, current.max_drawdown, proposed.cagr, proposed.max_drawdown)
+    if not all(value is not None and not isinstance(value, bool) and isinstance(value, (int, float))
+               and math.isfinite(float(value)) for value in values):
+        return False
+    if current.start_date > current.end_date:
+        return False
+    return all(isinstance(value, (int, float)) and not isinstance(value, bool)
+               and math.isfinite(float(value)) and float(value) >= 0.0
+               for value in current.cost_inputs.values())
+
+
+def _attach_research_summary(
+    ticket: ResearchPromotionTicket,
+    proposal: OptimizationProposal | None,
+    summarize: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None,
+    persist: Callable[[], None] | None = None,
+) -> None:
+    if "ai_explanation" in ticket.research_summary:
+        return
+    context = _summary_context(proposal) if proposal is not None else {
+        "identity": {"strategy_profile": ticket.strategy_profile, "domain": ticket.domain,
+                     "proposed_params": dict(ticket.proposed_params)},
+        "strategy_description": "", "plugins": None,
+        "comparison": {"status": "unavailable", "start_date": None, "end_date": None,
+                       "cost_model": "", "baseline": None,
+                       "candidate": None},
+        "limitations": ["尚无同一条件下的收益对比"],
+    }
+    explanation: dict[str, Any] = {"status": "unavailable", "text": "暂无法生成 AI 简述。",
+                                    "provider": "", "model": ""}
+    ticket.research_summary = {**context, "ai_explanation": explanation}
+    if persist is not None:
+        persist()
+    if callable(summarize):
+        try:
+            value = summarize(context)
+            if isinstance(value, Mapping) and value.get("status") == "available":
+                text = value.get("text")
+                provider = value.get("provider") or ""
+                model = value.get("model") or ""
+                if (isinstance(text, str) and text.strip() and len(text) <= _SUMMARY_MAX_TEXT
+                        and provider == "codex" and isinstance(model, str)):
+                    explanation = {"status": "available", "text": text.strip(),
+                                   "provider": "codex", "model": model}
+        except Exception:
+            pass
+    ticket.research_summary = {**context, "ai_explanation": explanation}
+    if persist is not None:
+        persist()
+
+
+def _saved_scope_records(directory: Path, scope_key: str) -> list[tuple[Path, ResearchPromotionTicket]]:
+    records: list[tuple[Path, ResearchPromotionTicket]] = []
+    if not directory.exists():
+        return records
+    for candidate in directory.glob("*.json"):
+        try:
+            ticket = load_research_promotion_ticket(candidate)
+            progress = ticket.research_progress
+            candidate_scope = str(progress.get("scope_key") or _scope_key(progress.get("identity", {})))
+            if candidate_scope == scope_key:
+                records.append((candidate, ticket))
+        except (OSError, ValueError, TypeError, KeyError, OverflowError):
+            raise ValueError("research_scope_checkpoint_unavailable") from None
+    return records
+
+
+def _saved_exact_record(
+    records: list[tuple[Path, ResearchPromotionTicket]], exact_key: str,
+) -> tuple[Path, ResearchPromotionTicket] | None:
+    for path, ticket in records:
+        progress = ticket.research_progress
+        identity = progress.get("identity", {})
+        if str(progress.get("exact_key") or _exact_key(identity)) == exact_key:
+            return path, ticket
+    return None
+
+
+def _scope_lifecycle(records: list[tuple[Path, ResearchPromotionTicket]], now: datetime) -> dict[str, Any]:
+    digests: list[str] = []
+    last_progress: datetime | None = None
+    first_observed: datetime | None = None
+    paused = False
+    archived = False
+    latest_state_at: datetime | None = None
+    for _, ticket in records:
+        value = _lifecycle(ticket.research_progress, now)
+        for digest in value["counted_result_digests"]:
+            if digest not in digests:
+                digests.append(digest)
+        current_last = _parse_progress_time(value.get("last_substantive_progress_at"))
+        current_first = _parse_progress_time(value.get("first_observed_at"))
+        if current_last is not None and (last_progress is None or current_last > last_progress):
+            last_progress = current_last
+        if current_first is not None and (first_observed is None or current_first < first_observed):
+            first_observed = current_first
+        archived = archived or value.get("archived") is True
+        state_at = current_last or current_first
+        if state_at is not None and (latest_state_at is None or state_at >= latest_state_at):
+            latest_state_at = state_at
+            paused = value.get("paused") is True
+    return {
+        "first_observed_at": (first_observed or now).isoformat(),
+        "last_substantive_progress_at": (last_progress or now).isoformat(),
+        "no_improvement_count": len(digests),
+        "counted_result_digests": digests,
+        "paused": paused,
+        "archived": archived,
+    }
+
+
+def _scope_is_protected(records: list[tuple[Path, ResearchPromotionTicket]]) -> bool:
+    for _, ticket in records:
+        progress = ticket.research_progress
+        stages = progress.get("stages", {})
+        if any(isinstance(value, Mapping) and value.get("status") in {"running", "unknown"}
+               for value in stages.values()):
+            return True
+        if ticket.state in {ResearchPromotionState.SHADOW_RECORDED,
+                            ResearchPromotionState.AWAITING_HUMAN,
+                            ResearchPromotionState.HUMAN_ACCEPTED}:
+            return True
+    return False
+
+
+def _archive_ticket(ticket: ResearchPromotionTicket, progress: dict[str, Any], now: datetime, reason: str) -> None:
+    lifecycle = _lifecycle(progress, now)
+    lifecycle.update({"archived": True, "archived_at": now.isoformat(), "archive_reason": reason})
+    progress["lifecycle"] = lifecycle
+    ticket.state = ResearchPromotionState.PARKED
+    ticket.notes = tuple(ticket.notes) + ("research_archived", f"archive_reason={reason}")
+    ticket.updated_at = now.isoformat()
+    ticket.research_progress = progress
+
+
 def run_saved_research_promotion_cycle(
     drift: DriftResult,
     *,
@@ -1275,6 +1619,8 @@ def run_saved_research_promotion_cycle(
     resume_delivery_only: bool = False,
     admit_new_research: Callable[[Path, str], bool] | None = None,
     read_pending_shadow: Callable[[OptimizationProposal], Mapping[str, Any]] | None = None,
+    summarize: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+    research_owner: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resume a bound experiment using the existing ticket's local progress.
 
@@ -1308,6 +1654,9 @@ def run_saved_research_promotion_cycle(
             or any(not isinstance(v, str) or not v.strip() for v in research_identity.values())
             or not isinstance(drift.source_revision, str) or not drift.source_revision.strip()):
         return {**base, "reason": "research_identity_unavailable"}
+    owner = _normalize_research_owner(research_owner)
+    if research_owner is not None and owner is None:
+        return {**base, "reason": "research_owner_invalid"}
     budget = budget or ResearchPromotionBudget(require_paired_shadow=True)
     if (type(budget.max_search_iterations) is not int or not 1 <= budget.max_search_iterations <= 25
             or type(budget.max_param_keys) is not int or not 1 <= budget.max_param_keys <= 4
@@ -1331,12 +1680,18 @@ def run_saved_research_promotion_cycle(
                     "strategy_profile", "domain", "as_of", "source_revision", "drift_score",
                     "baseline_param_set_id", "baseline_param_version", "baseline_artifact_id")},
                 "budget": asdict(budget)}
+    if owner is not None:
+        identity["owner"] = owner
     try:
         canonical = _canonical_ticket_value(identity)
         research_key = hashlib.sha256(canonical.encode()).hexdigest()
+        scope_key = _scope_key(identity)
+        exact_key = _exact_key(identity)
         directory = Path(ticket_dir)
     except (ValueError, TypeError):
         return base
+    if not scope_key or not exact_key:
+        return {**base, "reason": "research_identity_unavailable"}
     ticket_id = f"rpt_{research_key}"
     path = directory / f"{ticket_id}.json"
     base.update(research_key=research_key, ticket_path=str(path))
@@ -1345,20 +1700,79 @@ def run_saved_research_promotion_cycle(
         with _research_directory_lock(directory) as acquired:
             if not acquired:
                 return {**base, "status": "deferred", "reason": "research_in_progress"}
+            now_value = _progress_now()
+            records = _saved_scope_records(directory, scope_key)
+            reused_exact = False
+            if not path.exists():
+                exact_record = _saved_exact_record(records, exact_key)
+                if exact_record is not None:
+                    existing_path, existing_ticket = exact_record
+                    path = existing_path
+                    ticket_id = existing_ticket.ticket_id
+                    reused_exact = True
+                    base.update(
+                        research_key=ticket_id.removeprefix("rpt_"),
+                        ticket_path=str(path),
+                    )
             if path.exists():
                 ticket = load_research_promotion_ticket(path)
                 progress = dict(ticket.research_progress)
+                saved_identity = progress.get("identity")
+                identity_matches = _canonical_ticket_value(saved_identity) == canonical
+                exact_identity_matches = _exact_key(saved_identity) == exact_key
                 if (ticket.ticket_id != ticket_id or ticket.strategy_profile != drift.strategy_profile
                         or ticket.domain != drift.domain
-                        or _canonical_ticket_value(progress.get("identity")) != canonical):
+                        or (not identity_matches and not exact_identity_matches)):
                     return {**base, "reason": "research_checkpoint_mismatch"}
+                progress.setdefault("scope_key", scope_key)
+                progress.setdefault("exact_key", exact_key)
+                if "lifecycle" not in progress:
+                    progress["lifecycle"] = _lifecycle({}, now_value)
+                    ticket.research_progress = progress
+                    save_research_promotion_ticket(ticket, path)
+                current_lifecycle = _lifecycle(progress, now_value)
+                if (ticket.state is not ResearchPromotionState.HUMAN_REJECTED
+                        and not _scope_is_protected([(path, ticket)])
+                        and not current_lifecycle.get("paused")
+                        and now_value - (_parse_progress_time(current_lifecycle["last_substantive_progress_at"]) or now_value)
+                        >= timedelta(days=_MAX_IDLE_DAYS)):
+                    _archive_ticket(ticket, progress, now_value, "idle_timeout")
+                    save_research_promotion_ticket(ticket, path)
+                    return {**base, "status": "parked", "reason": "research_scope_archived",
+                            "ticket": ticket.to_dict()}
                 base["resumed"] = True
             else:
                 if stale:
                     return {**base, "reason": "observation_stale"}
                 if resume_delivery_only:
                     return {**base, "reason": "saved_research_ticket_pending"}
-                now = _now_iso()
+                archived_record = next(
+                    (item for item in records
+                     if _lifecycle(item[1].research_progress, now_value).get("archived") is True),
+                    None,
+                )
+                if archived_record is not None:
+                    base["ticket_path"] = str(archived_record[0])
+                    return {**base, "status": "parked", "reason": "research_scope_archived",
+                            "ticket": archived_record[1].to_dict()}
+                aggregate = _scope_lifecycle(records, now_value)
+                if _scope_is_protected(records):
+                    # Active shadow, human gates, and unknown work suppress idle
+                    # archival, while a materially new exact trial may proceed.
+                    aggregate["paused"] = True
+                if (aggregate["archived"]
+                        or aggregate["no_improvement_count"] >= _MAX_NO_IMPROVEMENT_ROUNDS
+                        or (not aggregate["paused"] and
+                            now_value - _parse_progress_time(aggregate["last_substantive_progress_at"]) >= timedelta(days=_MAX_IDLE_DAYS))):
+                    if records:
+                        old_path, old_ticket = records[-1]
+                        old_progress = dict(old_ticket.research_progress)
+                        _archive_ticket(old_ticket, old_progress, now_value, "no_improvement_limit" if aggregate["no_improvement_count"] >= _MAX_NO_IMPROVEMENT_ROUNDS else "idle_timeout")
+                        save_research_promotion_ticket(old_ticket, old_path)
+                        base["ticket_path"] = str(old_path)
+                        return {**base, "status": "parked", "reason": "research_scope_archived",
+                                "ticket": old_ticket.to_dict()}
+                now = now_value.isoformat()
                 if admit_new_research is not None:
                     try:
                         admitted = admit_new_research(directory, now)
@@ -1366,13 +1780,15 @@ def run_saved_research_promotion_cycle(
                         return {**base, "reason": "research_admission_unavailable"}
                     if admitted is not True:
                         return {**base, "status": "deferred", "reason": "new_research_not_admitted"}
-                progress = {"identity": identity, "stages": {}, "diagnosis_required": diagnose is not None}
+                progress = {"identity": identity, "scope_key": scope_key, "exact_key": exact_key,
+                            "stages": {}, "diagnosis_required": diagnose is not None,
+                            "lifecycle": aggregate}
                 ticket = ResearchPromotionTicket(
                     ticket_id=ticket_id, strategy_profile=drift.strategy_profile,
                     domain=drift.domain, state=ResearchPromotionState.BOUNDED_REOPT,
                     drift_status=drift.status.value, drift_score=drift.drift_score,
                     created_at=now, updated_at=now, budget=asdict(budget),
-                    research_progress=progress,
+                    research_progress=progress, research_summary={},
                 )
                 save_research_promotion_ticket(ticket, path)
 
@@ -1398,15 +1814,23 @@ def run_saved_research_promotion_cycle(
                 progress["console_delivery"] = "confirmed" if base["console_synced"] else "unconfirmed"
                 save_research_promotion_ticket(ticket, path)
 
+            def attach_summary(proposal: OptimizationProposal | None = None) -> None:
+                _attach_research_summary(
+                    ticket, proposal, summarize,
+                    persist=lambda: save_research_promotion_ticket(ticket, path),
+                )
+
             if resume_delivery_only and ticket.state != ResearchPromotionState.AWAITING_HUMAN:
                 return output("saved_research_ticket_pending", status="parked")
             stages = progress["stages"]
             if not isinstance(stages, dict):
                 return output("research_checkpoint_invalid")
+            if _lifecycle(progress, now_value).get("archived") is True:
+                return output("research_scope_archived", status="parked")
             if any(value.get("status") in {"running", "unknown"} for value in stages.values()):
                 return output("research_outcome_unknown", status="parked")
             if ticket.state in _TERMINAL:
-                return output("saved_research_ticket_terminal")
+                return output("saved_research_ticket_reused" if reused_exact else "saved_research_ticket_terminal")
             shadow_pending = stages.get("shadow", {}).get("status") == "pending"
             shadow_completed = (ticket.state == ResearchPromotionState.SHADOW_RECORDED
                                 and stages.get("shadow", {}).get("status") == "completed"
@@ -1442,13 +1866,20 @@ def run_saved_research_promotion_cycle(
                     return output("research_checkpoint_invalid", status="parked")
                 retry = pending_result.get("retry_at")
                 if (type(retry) not in (int, float) or not math.isfinite(retry)
-                        or retry > datetime.now(timezone.utc).timestamp()):
+                        or retry > _clock_now().timestamp()):
                     return {**output("paired_shadow_observation_pending", status="deferred"), "retry_at": retry}
                 if not callable(read_pending_shadow):
                     return output("shadow_reader_unavailable", status="deferred")
             elif stale and not (shadow_completed or awaiting_recovery):
                 return output("observation_stale", status="parked")
             if ticket.state == ResearchPromotionState.AWAITING_HUMAN:
+                stored_proposal = None
+                if isinstance(stages.get("optimize", {}).get("result"), Mapping):
+                    try:
+                        stored_proposal = _saved_proposal(stages["optimize"]["result"])
+                    except (ValueError, TypeError, KeyError):
+                        stored_proposal = None
+                attach_summary(stored_proposal)
                 reconciliation = _reconcile_saved_research_promotion_ticket(path, pull_console=pull_console)
                 ticket = load_research_promotion_ticket(path)
                 progress = ticket.research_progress
@@ -1471,9 +1902,13 @@ def run_saved_research_promotion_cycle(
                     stages[name] = {"status": "unknown"}
                     save_research_promotion_ticket(ticket, path)
                     raise ValueError("research_outcome_unknown") from None
-                status = "pending" if name == "shadow" and result.get("status") == "pending" else "completed"
-                stages[name] = {"status": status, "result": result}
-                if name == "shadow" and result.get("status") in {"pending", "complete"}:
+                status = ("pending" if name == "shadow" and isinstance(result, Mapping)
+                          and result.get("status") == "pending" else "completed")
+                completed_at = _progress_now()
+                stages[name] = {"status": status, "result": result,
+                                "completed_at": completed_at.isoformat()}
+                _touch_progress(progress, completed_at)
+                if name == "shadow" and isinstance(result, Mapping) and result.get("status") in {"pending", "complete"}:
                     # Save the resumable state with the result, not in a later
                     # write after the caller may already have stopped.
                     ticket.state = ResearchPromotionState.SHADOW_RECORDED
@@ -1486,7 +1921,7 @@ def run_saved_research_promotion_cycle(
                 old = stages.get("diagnose", {})
                 if old.get("status") == "deferred":
                     retry = old.get("retry_at")
-                    if type(retry) not in (int, float) or retry > datetime.now(timezone.utc).timestamp():
+                    if type(retry) not in (int, float) or retry > _clock_now().timestamp():
                         return {**output("codex_research_deferred", status="deferred"), "retry_at": retry}
                     del stages["diagnose"]
                 def checked_diagnosis():
@@ -1495,7 +1930,7 @@ def run_saved_research_promotion_cycle(
                         retry = value.get("retry_at")
                         # A reset already in the past is not a usable admission
                         # deadline. Preserve deferral without polling every run.
-                        if type(retry) not in (int, float) or retry <= datetime.now(timezone.utc).timestamp():
+                        if type(retry) not in (int, float) or retry <= _clock_now().timestamp():
                             value["retry_at"] = None
                     return value
 
@@ -1517,6 +1952,36 @@ def run_saved_research_promotion_cycle(
                 raw = stage("optimize", lambda: optimize(drift, budget), lambda value: value.to_dict())
                 return _saved_proposal(raw)
 
+            def count_no_improvement_or_archive(proposal: OptimizationProposal) -> None:
+                if (proposal.strategy_profile != drift.strategy_profile
+                        or proposal.domain != drift.domain):
+                    return
+                try:
+                    budget_ok, _ = enforce_optimization_budget(proposal, budget)
+                except (TypeError, ValueError, KeyError):
+                    return
+                if not budget_ok:
+                    return
+                if not _proposal_no_improvement(proposal) or not _record_no_improvement(progress, proposal, now_value):
+                    return
+                ticket.research_progress = progress
+                if progress["lifecycle"]["no_improvement_count"] >= _MAX_NO_IMPROVEMENT_ROUNDS:
+                    _archive_ticket(ticket, progress, now_value, "no_improvement_limit")
+                    save_research_promotion_ticket(ticket, path)
+                    raise _ResearchScopeArchived
+                save_research_promotion_ticket(ticket, path)
+
+            def checked_backtest(proposal):
+                value = stage("backtest", lambda: enforce_backtest_gates(proposal),
+                               lambda result: _promotion_backtest_evidence_mapping(result) if result is not None else None)
+                if not isinstance(value, Mapping) or value.get("status") != "PASS":
+                    _pause_progress(progress, now_value, "backtest_evidence_unavailable")
+                    ticket.research_progress = progress
+                    save_research_promotion_ticket(ticket, path)
+                else:
+                    count_no_improvement_or_archive(proposal)
+                return value
+
             def shadow_result(proposal):
                 # The first callback may create an external observation. Only
                 # the dedicated, caller-owned read-only callback can be polled.
@@ -1532,7 +1997,7 @@ def run_saved_research_promotion_cycle(
                             raise ValueError("invalid_shadow_pending")
                         retry = value.get("retry_at")
                         if (type(retry) not in (int, float) or not math.isfinite(retry)
-                                or retry <= datetime.now(timezone.utc).timestamp()):
+                                or retry <= _clock_now().timestamp()):
                             retry = None
                         return {"status": "pending", "retry_at": retry, "evidence_kind": "paired_shadow_pending",
                                 "passed": False, "no_order": True, "live_authority_granted": False}
@@ -1558,8 +2023,7 @@ def run_saved_research_promotion_cycle(
 
             result = run_research_promotion_cycle(
                 drift, budget=budget, ticket_id=ticket_id, optimize=cached_optimize,
-                enforce_backtest_gates=lambda proposal: stage("backtest", lambda: enforce_backtest_gates(proposal),
-                    lambda value: _promotion_backtest_evidence_mapping(value) if value is not None else None),
+                enforce_backtest_gates=checked_backtest,
                 record_shadow=shadow_result,
             )
             if any(value.get("status") in {"running", "unknown"} for value in stages.values()):
@@ -1567,12 +2031,28 @@ def run_saved_research_promotion_cycle(
             result.created_at = ticket.created_at
             result.research_progress = progress
             ticket = result
+            saved_proposal_for_count = None
+            if isinstance(stages.get("optimize", {}).get("result"), Mapping):
+                saved_proposal_for_count = _saved_proposal(stages["optimize"]["result"])
+            backtest_result = stages.get("backtest", {}).get("result")
+            if (ticket.state == ResearchPromotionState.PARKED
+                    and saved_proposal_for_count is not None
+                    and (saved_proposal_for_count.recommendation == "reject"
+                         or (isinstance(backtest_result, Mapping)
+                             and backtest_result.get("status") == "PASS"))):
+                count_no_improvement_or_archive(saved_proposal_for_count)
             save_research_promotion_ticket(ticket, path)
+            if ticket.state == ResearchPromotionState.AWAITING_HUMAN:
+                proposal = _saved_proposal(stages["optimize"]["result"])
+                attach_summary(proposal)
             deliver_saved_ticket()
             if stages.get("shadow", {}).get("status") == "pending":
                 return {**output("paired_shadow_observation_pending", status="deferred"),
                         "retry_at": stages["shadow"]["result"]["retry_at"]}
             return output("promotion_cycle_completed")
+    except _ResearchScopeArchived:
+        return {**base, "status": "parked", "reason": "research_scope_archived",
+                "ticket": ticket.to_dict()}
     except Exception:
         # Persisted running stage is deliberately left as unknown. Never include
         # exceptions, input rows, credentials or a provider's response text.
