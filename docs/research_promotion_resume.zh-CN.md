@@ -67,7 +67,11 @@ QPK 管单次实验的本地进度、严格门与人工决定。AAB 管 AI job�
 
 已经到达 awaiting 的同身份票据，也能在原 drift 过期后只读回收控制台决定：要求上述阶段和 shadow 全部完成、原严格门有效、票据候选参数匹配保存的 proposal。此路径只 GET，不再次 POST，不读取 shadow 或运行前置研究。未知提交先读取原票据；接受/拒绝后返回已有终态，不因时间过去而变成新实验。
 
-`research_in_progress` 表示同一目录已被另一进程持有，本次返回 `deferred`；不会等待或发起模型请求。研究、自动决定回收及本地 `research-promotion-decide` CLI 使用同一目录锁。损坏的独立票据不会阻断其他身份；损坏的当前身份不会被覆盖成新研究。
+`research_in_progress` 表示同一目录已被另一进程持有，本次返回 `deferred`；不会等待或发起模型请求。研究、自动决定回收及本地 `research-promotion-decide` CLI 使用同一目录锁。目录内票据不可读时，本次 admission 受控失败，不创建新票据或调用阶段。
+
+同一目录内的票据还共享一个本地研究 scope：没有 `research_owner` 时由 profile/domain、baseline 参数身份以及 code/cost/validator revision 组成 scope；提供已由 owner 验证的 `{repository, issue_number, watcher_issue_key}` 后，scope 改由 owner、profile/domain、baseline 身份以及 cost/validator revision 组成，允许同一研究目标跨代码版本共享预算。两种路径都排除 drift 日期、分数、input revision 和 param-space revision；exact identity 仍包含 owner（若有）、baseline 及全部五项 revision，用于复用同一冻结研究。owner 必须是合法 `owner/name` repo、正整数 issue 和 8–64 字符 key；无效 owner 直接拒绝，不替换为默认 owner。完整可比的 proposal 若明确 `reject`、finite improvement score 不大于零、没有 winning dimensions，且 candidate 的收益与回撤均未改善，才计入最多三轮无改善预算；重复证据不重复计数。暂停、额度/数据不可用、running/unknown、pending shadow 和人工阶段保护该 scope。缺可信生命周期时间的旧票据从首次观察时建立时间，不使用旧 `updated_at` 倒推；普通通知不刷新实质进度。三轮无改善或连续三十天无实质进展会在原票据上写入本地 archived marker 并保持 `parked`，不删除票据或证据；损坏票据会使本次 admission fail closed。
+
+到达 `awaiting_human` 前可以传入一次性的 `summarize(summary_context)` 回调。QPK 先缓存确定性 context 和 `ai_explanation.status=unavailable`，再最多调用一次回调；回调只接受短的 Codex plain text，失败不阻塞人工决定，也不自动重试。确定性 comparison 缺必要窗口、成本、source 或参数绑定时标为 unavailable，不从 `improvement_score` 单独推断收益。
 
 输出沿用 `status/reason/ticket/console_synced`，增加 `research_key`（本地去重键）、`ticket_path`、`resumed`，额度延期时有 `retry_at`。`console_synced=true` 只来自本次同步回调明确确认；恢复 GET 的结果单列 `reconciliation`。任何接受仍只有 intent，`live_authority_granted=false`。
 

@@ -18,6 +18,11 @@ IDENTITY = {
     "cost_model_revision": "cost-v1",
     "validator_revision": "strict-validator-v1",
 }
+OWNER = {
+    "repository": "QuantStrategyLab/CnEquityStrategies",
+    "issue_number": 123,
+    "watcher_issue_key": "watcher-key-123",
+}
 
 
 def invoke(tmp_path, **overrides):
@@ -48,6 +53,201 @@ def test_same_frozen_input_does_not_repeat_completed_stages_or_console_post(tmp_
     assert second["resumed"] is True
     assert [fn.call_count for fn in (optimize, gates, shadow, sync)] == [1, 1, 1, 1]
     assert "research_progress" not in first["ticket"]  # local state is never QRT material
+
+
+def _comparable_proposal(*, params=None, recommendation="reject", cagr=0.1):
+    from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult
+
+    current = BacktestResult(
+        strategy_profile="demo_strategy", domain="us_equity", param_set_id="baseline",
+        params={"a": 1}, cagr=cagr, max_drawdown=-0.2,
+        start_date=date(2025, 1, 1), end_date=date(2025, 12, 31),
+        source_revision="bars-v1", cost_model="cost-v1",
+        cost_inputs={"commission_bps": 1.0},
+    )
+    proposed = BacktestResult(
+        strategy_profile="demo_strategy", domain="us_equity", param_set_id="candidate",
+        params=params or {"a": 2}, cagr=cagr, max_drawdown=-0.2,
+        start_date=date(2025, 1, 1), end_date=date(2025, 12, 31),
+        source_revision="bars-v1", cost_model="cost-v1",
+        cost_inputs={"commission_bps": 1.0},
+    )
+    return replace(
+        _proposal(recommendation=recommendation, params=params or {"a": 2}),
+        current_params={"a": 1}, current_metrics=current, proposed_metrics=proposed,
+        improvement_score=0.0,
+    )
+
+
+def test_three_distinct_comparable_no_improvement_rounds_archive_scope_and_stop_new_calls(tmp_path):
+    proposals = [_comparable_proposal(params={"a": value}) for value in (2, 3, 4)]
+    optimize = Mock(side_effect=proposals)
+    gates = Mock(return_value=_promotion_backtest_evidence())
+    drift = replace(_drift(), source_revision="observation-v1")
+    for index in range(3):
+        result = invoke(
+            tmp_path, drift=replace(drift, as_of=date(2026, 9, 7 + index)),
+            evaluation_date=date(2026, 9, 8 + index), optimize=optimize,
+            research_identity={**IDENTITY, "input_revision": f"input-v{index}",
+                               "param_space_revision": f"space-v{index}"},
+            enforce_backtest_gates=gates,
+        )
+    assert result["status"] == "parked"
+    assert result["reason"] == "research_scope_archived"
+    saved = cycle.load_research_promotion_ticket(result["ticket_path"])
+    assert saved.research_progress["lifecycle"]["no_improvement_count"] == 3
+
+    fourth = invoke(
+        tmp_path, drift=replace(drift, as_of=date(2026, 9, 10), source_revision="observation-v1"),
+        evaluation_date=date(2026, 9, 11), optimize=optimize,
+        research_identity={**IDENTITY, "input_revision": "input-v3", "param_space_revision": "space-v3"},
+        enforce_backtest_gates=gates,
+    )
+    assert fourth["reason"] == "research_scope_archived"
+    assert optimize.call_count == 3
+
+
+def test_owner_scope_shares_budget_across_code_revisions_and_archives_fourth(tmp_path):
+    proposals = [_comparable_proposal(params={"a": value}) for value in (2, 3, 4)]
+    optimize = Mock(side_effect=proposals)
+    for value in ("code-a", "code-b", "code-c"):
+        result = invoke(
+            tmp_path, research_owner=OWNER,
+            research_identity={**IDENTITY, "code_revision": value}, optimize=optimize,
+        )
+    archived_ticket = cycle.load_research_promotion_ticket(result["ticket_path"])
+    assert archived_ticket.research_progress["identity"]["owner"] == OWNER
+    assert result["reason"] == "research_scope_archived"
+    fourth = invoke(
+        tmp_path, research_owner=OWNER,
+        research_identity={**IDENTITY, "code_revision": "code-d"}, optimize=optimize,
+    )
+    assert fourth["reason"] == "research_scope_archived"
+    assert optimize.call_count == 3
+
+
+def test_owner_change_isolated_and_code_revision_does_not_reuse_exact_ticket(tmp_path):
+    first_optimize = Mock(return_value=_proposal())
+    first = invoke(tmp_path, research_owner=OWNER, optimize=first_optimize)
+    second_optimize = Mock(return_value=_proposal())
+    second = invoke(
+        tmp_path, research_owner=OWNER,
+        research_identity={**IDENTITY, "code_revision": "code-b"}, optimize=second_optimize,
+    )
+    other_owner = {**OWNER, "issue_number": 124}
+    third_optimize = Mock(return_value=_proposal())
+    third = invoke(tmp_path, research_owner=other_owner, optimize=third_optimize)
+    assert first["ticket"]["ticket_id"] != second["ticket"]["ticket_id"]
+    assert second_optimize.call_count == third_optimize.call_count == 1
+    assert third["ticket"]["ticket_id"] != first["ticket"]["ticket_id"]
+
+
+@pytest.mark.parametrize("owner", [
+    {"repository": "invalid", "issue_number": 1, "watcher_issue_key": "abcdefgh"},
+    {"repository": "QuantStrategyLab/CnEquityStrategies", "issue_number": True, "watcher_issue_key": "abcdefgh"},
+    {"repository": "QuantStrategyLab/CnEquityStrategies", "issue_number": 1, "watcher_issue_key": "short"},
+    {"repository": "QuantStrategyLab/CnEquityStrategies", "issue_number": 1, "watcher_issue_key": "bad key!"},
+])
+def test_invalid_research_owner_rejects_before_ai(tmp_path, owner):
+    optimize = Mock()
+    result = invoke(tmp_path, research_owner=owner, optimize=optimize)
+    assert result["reason"] == "research_owner_invalid"
+    optimize.assert_not_called()
+
+
+def test_incomplete_backtest_is_paused_and_does_not_count_as_no_improvement(tmp_path):
+    proposal = _comparable_proposal(recommendation="research_candidate")
+    optimize = Mock(return_value=proposal)
+    gates = Mock(return_value=None)
+    result = invoke(tmp_path, optimize=optimize, enforce_backtest_gates=gates)
+    assert result["status"] == "parked"
+    lifecycle = cycle.load_research_promotion_ticket(result["ticket_path"]).research_progress["lifecycle"]
+    assert lifecycle["no_improvement_count"] == 0
+    assert lifecycle["paused"] is True
+
+
+@pytest.mark.parametrize("invalid_kind", ["target", "budget"])
+def test_invalid_target_or_budget_proposal_does_not_count_as_no_improvement(tmp_path, invalid_kind):
+    proposal = _comparable_proposal()
+    if invalid_kind == "target":
+        proposal = replace(
+            proposal, strategy_profile="other_strategy", domain="other_domain",
+            current_metrics=replace(proposal.current_metrics, strategy_profile="other_strategy", domain="other_domain"),
+            proposed_metrics=replace(proposal.proposed_metrics, strategy_profile="other_strategy", domain="other_domain"),
+        )
+    else:
+        params = {key: key for key in "abcde"}
+        proposal = replace(proposal, proposed_params=params,
+                           proposed_metrics=replace(proposal.proposed_metrics, params=params))
+    result = invoke(tmp_path, optimize=Mock(return_value=proposal))
+    saved = cycle.load_research_promotion_ticket(result["ticket_path"])
+    assert saved.research_progress["lifecycle"]["no_improvement_count"] == 0
+
+
+def test_pending_shadow_scope_is_protected_from_idle_archive(tmp_path):
+    first = invoke(
+        tmp_path, record_shadow=Mock(return_value={
+            "status": "pending", "passed": False, "no_order": True,
+            "live_authority_granted": False, "retry_at": datetime.now(timezone.utc).timestamp() + 3600,
+        }),
+    )
+    optimize = Mock()
+    second = invoke(
+        tmp_path, drift=replace(_drift(), as_of=date(2026, 10, 20), source_revision="observation-v1"),
+        evaluation_date=date(2026, 10, 21), optimize=optimize,
+    )
+    assert first["status"] == "deferred"
+    assert second["reason"] != "research_scope_archived"
+
+
+def test_summary_is_cached_before_console_and_reused_without_retry(tmp_path):
+    summarize = Mock(return_value={"status": "available", "text": "候选与基线在固定窗口下接近。",
+                                  "provider": "codex", "model": "gpt-test"})
+    result = invoke(
+        tmp_path, optimize=Mock(return_value=_comparable_proposal(recommendation="research_candidate")),
+        summarize=summarize,
+    )
+    saved = cycle.load_research_promotion_ticket(result["ticket_path"])
+    assert saved.research_summary["comparison"]["status"] == "comparable"
+    assert saved.research_summary["ai_explanation"]["status"] == "available"
+    context = summarize.call_args.args[0]
+    assert context["identity"]["proposed_params"] == {"a": 2}
+    invoke(
+        tmp_path, optimize=Mock(side_effect=AssertionError("must reuse")),
+        summarize=summarize,
+    )
+    assert summarize.call_count == 1
+
+
+def test_same_exact_frozen_identity_reuses_ticket_across_drift_dates(tmp_path):
+    optimize = Mock(return_value=_proposal())
+    drift = replace(_drift(), source_revision="observation-v1")
+    first = invoke(tmp_path, drift=drift, optimize=optimize)
+    second = invoke(
+        tmp_path, drift=replace(drift, as_of=date(2026, 9, 20)),
+        evaluation_date=date(2026, 9, 21), optimize=optimize,
+    )
+    assert first["ticket"]["ticket_id"] == second["ticket"]["ticket_id"]
+    assert optimize.call_count == 1
+
+
+def test_same_ticket_idle_marker_is_persisted_without_using_updated_at(tmp_path):
+    first = invoke(tmp_path)
+    path = cycle.Path(first["ticket_path"])
+    saved = cycle.load_research_promotion_ticket(path)
+    saved.research_progress["lifecycle"] = {
+        "first_observed_at": "2026-07-01T00:00:00+00:00",
+        "last_substantive_progress_at": "2026-07-01T00:00:00+00:00",
+        "no_improvement_count": 0, "counted_result_digests": [],
+        "paused": False, "archived": False,
+    }
+    saved.updated_at = "2026-09-12T00:00:00+00:00"
+    saved.state = cycle.ResearchPromotionState.PARKED
+    cycle.save_research_promotion_ticket(saved, path)
+    result = invoke(tmp_path, evaluation_date=date(2026, 10, 1), optimize=Mock())
+    archived = cycle.load_research_promotion_ticket(path)
+    assert result["reason"] == "research_scope_archived"
+    assert archived.research_progress["lifecycle"]["archive_reason"] == "idle_timeout"
 
 
 @pytest.mark.parametrize("field", list(IDENTITY))
@@ -233,13 +433,12 @@ def test_deferral_waits_until_admitted_retry_time_then_rechecks_once(tmp_path):
     retry = datetime(2026, 9, 8, 12, tzinfo=timezone.utc).timestamp()
     diagnose = Mock(side_effect=[{"optimization_needed": False, "reason": "codex_research_deferred", "retry_at": retry},
                                 {"optimization_needed": False}])
-    with patch.object(cycle, "datetime") as clock:
-        clock.now.return_value = datetime(2026, 9, 8, 11, tzinfo=timezone.utc)
+    with patch.object(cycle, "_clock_now", return_value=datetime(2026, 9, 8, 11, tzinfo=timezone.utc)) as clock:
         first = invoke(tmp_path, diagnose=diagnose)
         second = invoke(tmp_path, diagnose=diagnose)
         assert first["status"] == second["status"] == "deferred"
         assert diagnose.call_count == 1
-        clock.now.return_value = datetime(2026, 9, 8, 12, tzinfo=timezone.utc)
+        clock.return_value = datetime(2026, 9, 8, 12, tzinfo=timezone.utc)
         third = invoke(tmp_path, diagnose=diagnose)
         assert third["status"] == "parked"
         assert diagnose.call_count == 2
@@ -258,6 +457,18 @@ def test_damaged_checkpoint_does_not_rerun_or_block_a_different_identity(tmp_pat
     assert bad["reason"] == "research_checkpoint_mismatch"
     optimize.assert_not_called()
     assert invoke(tmp_path, research_identity={**IDENTITY, "input_revision": "next"})["status"] == "awaiting_human"
+
+
+def test_unreadable_scope_checkpoint_fails_closed_before_new_research(tmp_path):
+    invoke(tmp_path)
+    (tmp_path / "corrupt.json").write_text("{", encoding="utf-8")
+    optimize = Mock()
+
+    result = invoke(tmp_path, research_identity={**IDENTITY, "input_revision": "next"},
+                    optimize=optimize)
+
+    assert result["reason"] == "research_checkpoint_unavailable"
+    optimize.assert_not_called()
 
 
 def test_console_decision_recovery_does_not_race_an_active_directory_owner(tmp_path):

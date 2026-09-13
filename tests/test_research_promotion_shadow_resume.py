@@ -8,7 +8,7 @@ import pytest
 
 from quant_platform_kit.strategy_lifecycle import research_promotion_cycle as cycle
 from quant_platform_kit.strategy_lifecycle.promotion_actionable_runner import run_actionable_research_promotion
-from tests.test_research_promotion_resume import IDENTITY
+from tests.test_research_promotion_resume import IDENTITY, _comparable_proposal
 from tests.test_research_promotion_cycle import _proposal, _promotion_backtest_evidence
 from tests.test_paired_shadow_evidence import _dependencies, _leg, _policy
 
@@ -78,6 +78,66 @@ def test_actual_runner_resumes_only_local_shadow_after_original_drift_expires(tm
     assert second["ticket"]["live_authority_granted"] is False
     assert [args[key].call_count for key in ("diagnose", "optimize", "enforce_backtest_gates",
                                             "record_shadow", "read_pending_shadow", "sync_console")] == [1] * 6
+
+
+def test_exact_pending_shadow_reuses_ticket_across_drift_and_polls_reader(tmp_path):
+    args = job(tmp_path)
+    first = run_actionable_research_promotion(**args)
+    assert first["status"] == "deferred"
+    Clock.current = datetime(2026, 9, 21, tzinfo=timezone.utc)
+    second = run_actionable_research_promotion(**{
+        **args, "as_of": "2026-09-08", "evaluation_date": "2026-09-21",
+    })
+    assert second["status"] == "awaiting_human"
+    assert second["ticket_path"] == first["ticket_path"]
+    assert second["research_key"] == first["research_key"]
+    assert second["ticket"]["ticket_id"] == first["ticket"]["ticket_id"]
+    assert [args[key].call_count for key in ("diagnose", "optimize", "enforce_backtest_gates", "record_shadow")] == [1] * 4
+    assert args["read_pending_shadow"].call_count == 1
+
+
+def test_exact_awaiting_ticket_reconciles_across_drift(tmp_path):
+    args = job(tmp_path, record_shadow=Mock(return_value=complete()))
+    first = run_actionable_research_promotion(**args)
+    assert first["status"] == "awaiting_human"
+    Clock.current = datetime(2026, 9, 21, tzinfo=timezone.utc)
+    second = run_actionable_research_promotion(**{
+        **args, "as_of": "2026-09-08", "evaluation_date": "2026-09-21",
+    })
+    assert second["reason"] == "saved_research_ticket_reused"
+    assert second["ticket_path"] == first["ticket_path"]
+    assert second["research_key"] == first["research_key"]
+    assert second["ticket"]["ticket_id"] == first["ticket"]["ticket_id"]
+    assert [args[key].call_count for key in ("diagnose", "optimize", "enforce_backtest_gates", "record_shadow")] == [1] * 4
+    assert args["pull_console"].call_count == 1
+
+
+def test_exact_terminal_ticket_checks_idle_archive_across_drift(tmp_path):
+    args = job(tmp_path, optimize=Mock(return_value=_comparable_proposal()))
+    Clock.current = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    first = run_actionable_research_promotion(**args)
+    assert first["status"] == "parked"
+    path = cycle.Path(first["ticket_path"])
+    Clock.current = datetime(2026, 10, 18, tzinfo=timezone.utc)
+    result = run_actionable_research_promotion(**{
+        **args, "as_of": "2026-09-08", "evaluation_date": "2026-10-18",
+    })
+    assert result["reason"] == "research_scope_archived"
+    assert cycle.load_research_promotion_ticket(path).research_progress["lifecycle"]["archived"] is True
+
+
+def test_missing_backtest_pause_survives_polling_beyond_idle_timeout(tmp_path):
+    args = job(tmp_path, enforce_backtest_gates=Mock(return_value=None))
+    first = run_actionable_research_promotion(**args)
+    assert first["status"] == "parked"
+    Clock.current = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    run_actionable_research_promotion(**{**args, "evaluation_date": "2026-09-09"})
+    Clock.current = datetime(2026, 10, 10, tzinfo=timezone.utc)
+    result = run_actionable_research_promotion(**{**args, "evaluation_date": "2026-10-10"})
+    saved = cycle.load_research_promotion_ticket(first["ticket_path"])
+    assert result["reason"] == "saved_research_ticket_terminal"
+    assert saved.research_progress["lifecycle"]["paused"] is True
+    assert saved.research_progress["lifecycle"].get("archived") is not True
 
 
 @pytest.mark.parametrize("recommendation", ["promote", "needs_review", "research_candidate"])
