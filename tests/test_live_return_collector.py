@@ -12,6 +12,7 @@ from quant_platform_kit.strategy_lifecycle.live_equity import (
     count_consecutive_losses,
     extract_equity_value,
     extract_external_cash_flow,
+    live_interval_records_to_return_series,
     live_run_records_to_return_series,
     resolve_consecutive_losses,
     stamp_consecutive_losses_on_snapshot,
@@ -23,6 +24,130 @@ from quant_platform_kit.strategy_lifecycle.return_collector import ReturnCollect
 
 
 class LiveEquityTests(unittest.TestCase):
+    @staticmethod
+    def _interval(start: str, end: str, equity: float, flow: float = 0.0, scope: str = "a" * 64):
+        return {
+            "account_scope_sha256": scope,
+            "start_at": start,
+            "end_at": end,
+            "end_equity_usdt": str(equity),
+            "net_external_cash_flow": str(flow),
+            "currency": "USDT",
+            "valuation_basis": "checkpoint_quantities_sampled_prices",
+        }
+
+    def test_interval_deposit_is_baseline_and_later_day_return_uses_no_double_subtraction(self) -> None:
+        intervals = [
+            self._interval("2026-09-07T00:00:00Z", "2026-09-08T00:00:00Z", 200, 100),
+            self._interval("2026-09-08T00:00:00Z", "2026-09-08T12:00:00Z", 200),
+            self._interval("2026-09-08T12:00:00Z", "2026-09-09T00:00:00Z", 202),
+        ]
+        series = live_interval_records_to_return_series(intervals)
+        self.assertEqual(list(series.index), [pd.Timestamp("2026-09-09")])
+        self.assertAlmostEqual(float(series.iloc[0]), 0.01)
+
+    def test_interval_records_are_sorted_by_end_and_timezone_equivalent(self) -> None:
+        intervals = [
+            self._interval("2026-09-08T08:00:00+08:00", "2026-09-09T08:00:00+08:00", 202),
+            self._interval("2026-09-07T00:00:00Z", "2026-09-08T00:00:00Z", 200, 100),
+        ]
+        series = live_interval_records_to_return_series(intervals)
+        self.assertAlmostEqual(float(series.iloc[0]), 0.01)
+
+    def test_interval_conflicting_duplicate_and_mixed_accounts_fail_closed(self) -> None:
+        first = self._interval("2026-09-07T00:00:00Z", "2026-09-08T00:00:00Z", 200, 100)
+        conflict = dict(first, end_equity_usdt="201")
+        second = self._interval("2026-09-08T00:00:00Z", "2026-09-09T00:00:00Z", 202)
+        self.assertTrue(live_interval_records_to_return_series([first, conflict, second]).empty)
+        other = self._interval("2026-09-09T00:00:00Z", "2026-09-10T00:00:00Z", 203, scope="b" * 64)
+        self.assertTrue(live_interval_records_to_return_series([first, second, other]).empty)
+
+    def test_interval_gap_overlap_and_missing_full_day_do_not_bridge(self) -> None:
+        first = self._interval("2026-09-07T00:00:00Z", "2026-09-08T00:00:00Z", 200, 100)
+        gap = self._interval("2026-09-08T01:00:00Z", "2026-09-09T00:00:00Z", 202)
+        later = self._interval("2026-09-09T00:00:00Z", "2026-09-10T00:00:00Z", 204)
+        series = live_interval_records_to_return_series([first, gap, later])
+        self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(series.iloc[0]), 204 / 202 - 1)
+        too_long = self._interval("2026-09-08T00:00:00Z", "2026-09-10T00:00:00Z", 204)
+        self.assertTrue(live_interval_records_to_return_series([first, too_long]).empty)
+
+    def test_interval_schema_and_bad_day_fail_closed(self) -> None:
+        good = self._interval("2026-09-07T00:00:00Z", "2026-09-08T00:00:00Z", 200, 100)
+        malformed = dict(good, valuation_basis="close_only")
+        self.assertTrue(live_interval_records_to_return_series([good, malformed]).empty)
+
+    def test_interval_branch_is_selected_from_persisted_execution_payload(self) -> None:
+        rows = [
+            {"recorded_at": "2026-09-09T10:00:00Z", "execution_result": {"external_cash_flow_interval": self._interval("2026-09-08T00:00:00Z", "2026-09-09T00:00:00Z", 202)}},
+            {"recorded_at": "2026-09-08T10:00:00Z", "execution_result": {"external_cash_flow_interval": self._interval("2026-09-07T00:00:00Z", "2026-09-08T00:00:00Z", 200, 100)}},
+        ]
+        series = live_run_records_to_return_series(rows)
+        self.assertAlmostEqual(float(series.iloc[0]), 0.01)
+
+    def test_interval_none_failure_record_is_a_bad_day_barrier(self) -> None:
+        def row(recorded_at, interval):
+            return {
+                "recorded_at": recorded_at,
+                "execution_result": {"external_cash_flow_interval": interval},
+            }
+
+        rows = [
+            row("2026-09-08T20:00:00Z", self._interval("2026-09-07T20:00:00Z", "2026-09-08T20:00:00Z", 110, 10)),
+            row("2026-09-08T22:00:00Z", None),
+            row("2026-09-09T20:00:00Z", self._interval("2026-09-08T20:00:00Z", "2026-09-09T20:00:00Z", 111)),
+            row("2026-09-10T20:00:00Z", self._interval("2026-09-09T20:00:00Z", "2026-09-10T20:00:00Z", 112)),
+        ]
+        series = live_run_records_to_return_series(rows)
+        self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(series.iloc[0]), 112 / 111 - 1)
+
+    def test_legacy_record_after_interval_mode_is_an_unknown_barrier(self) -> None:
+        def interval_row(recorded_at, interval):
+            return {
+                "recorded_at": recorded_at,
+                "execution_result": {"external_cash_flow_interval": interval},
+            }
+
+        rows = [
+            interval_row("2026-09-08T20:00:00Z", self._interval("2026-09-07T20:00:00Z", "2026-09-08T20:00:00Z", 110, 10)),
+            {"recorded_at": "2026-09-08T22:00:00Z", "execution_result": {"external_cash_flow": None}},
+            interval_row("2026-09-09T20:00:00Z", self._interval("2026-09-08T20:00:00Z", "2026-09-09T20:00:00Z", 111)),
+            interval_row("2026-09-10T20:00:00Z", self._interval("2026-09-09T20:00:00Z", "2026-09-10T20:00:00Z", 112)),
+        ]
+        series = live_run_records_to_return_series(rows)
+        self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(series.iloc[0]), 112 / 111 - 1)
+
+    def test_interval_conflict_barrier_keeps_only_latest_clean_segment(self) -> None:
+        def row(interval):
+            return {"recorded_at": interval["end_at"], "execution_result": {"external_cash_flow_interval": interval}}
+
+        first = self._interval("2026-09-07T20:00:00Z", "2026-09-08T20:00:00Z", 110, 10)
+        conflict = dict(first, end_equity_usdt="1000")
+        rows = [
+            row(first), row(conflict),
+            row(self._interval("2026-09-08T20:00:00Z", "2026-09-09T20:00:00Z", 111)),
+            row(self._interval("2026-09-09T20:00:00Z", "2026-09-10T20:00:00Z", 112)),
+        ]
+        series = live_run_records_to_return_series(rows)
+        self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(series.iloc[0]), 112 / 111 - 1)
+
+    def test_interval_same_end_different_start_invalidates_that_day(self) -> None:
+        def row(interval):
+            return {"recorded_at": interval["end_at"], "execution_result": {"external_cash_flow_interval": interval}}
+
+        rows = [
+            row(self._interval("2026-09-07T20:00:00Z", "2026-09-08T20:00:00Z", 110, 10)),
+            row(self._interval("2026-09-07T21:00:00Z", "2026-09-08T20:00:00Z", 1000)),
+            row(self._interval("2026-09-08T20:00:00Z", "2026-09-09T20:00:00Z", 111)),
+            row(self._interval("2026-09-09T20:00:00Z", "2026-09-10T20:00:00Z", 112)),
+        ]
+        series = live_run_records_to_return_series(rows)
+        self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(series.iloc[0]), 112 / 111 - 1)
+
     def test_extract_equity_from_nested_execution_result(self) -> None:
         value = extract_equity_value(
             {
@@ -265,6 +390,42 @@ class LiveEquityTests(unittest.TestCase):
 
 
 class ReturnCollectorLiveRunTests(unittest.TestCase):
+    def test_interval_survives_recorder_store_and_return_collector(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            monitor = PerformanceMonitor(store=store)
+            stream_id = "binance-interval"
+            monitor.record_execution(
+                "crypto_live_pool_rotation",
+                {
+                    "platform": "binance",
+                    "status": "ok",
+                    "external_cash_flow_interval": LiveEquityTests._interval(
+                        "2026-09-07T00:00:00Z", "2026-09-08T00:00:00Z", 200, 100
+                    ),
+                },
+                domain="crypto",
+                stream_id=stream_id,
+            )
+            monitor.record_execution(
+                "crypto_live_pool_rotation",
+                {
+                    "platform": "binance",
+                    "status": "ok",
+                    "external_cash_flow_interval": LiveEquityTests._interval(
+                        "2026-09-08T00:00:00Z", "2026-09-09T00:00:00Z", 202
+                    ),
+                },
+                domain="crypto",
+                stream_id=stream_id,
+            )
+
+            series = ReturnCollector(store=store).collect_from_live_runs(
+                "crypto", stream_id=stream_id
+            )["crypto_live_pool_rotation"]
+            self.assertEqual(list(series.index), [pd.Timestamp("2026-09-09")])
+            self.assertAlmostEqual(float(series.iloc[0]), 0.01)
+
     def test_stream_identity_prefers_explicit_value_and_then_platform(self) -> None:
         self.assertEqual(
             resolve_lifecycle_stream_id("account-a", execution_result={"platform": "schwab"}),
