@@ -123,3 +123,13 @@ withdrawals are negative.  Lifecycle daily returns use
 `(ending_equity - external_cash_flow) / previous_equity - 1`, an
 end-of-period, time-weighted-return-compatible convention.  Do not put cash
 balances, internal sweeps, or PnL into this field.
+
+The checkpoint interval producer uses the strict seven-field
+`external_cash_flow_interval` form when it has a verified UTC observation
+window and account scope. Its return is for that observed interval under the
+end-flow assumption; it is not exact TWR and does not represent a midnight
+natural-day return. Binance currently emits USDT deposits only; accepting a
+signed negative flow in the consumer and tests does not enable withdrawal
+handling. Monitoring deployments must use a QPK revision with this interval
+consumer; the existing Binance recorder pin may pass the field through
+unchanged.
