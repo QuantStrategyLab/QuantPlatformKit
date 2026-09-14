@@ -2,11 +2,14 @@
 
 from dataclasses import replace
 from datetime import date, datetime, timezone
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
 
 from quant_platform_kit.strategy_lifecycle import research_promotion_cycle as cycle
+from quant_platform_kit.strategy_lifecycle.candidate_control import ResearchSourceReceiptRef
+from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import NewResearchRequest
 from tests.test_research_promotion_cycle import _drift, _proposal, _promotion_backtest_evidence
 from tests.test_research_promotion_reconciliation import remote_decision
 
@@ -38,6 +41,82 @@ def invoke(tmp_path, **overrides):
     kwargs.update(overrides)
     drift = kwargs.pop("drift", replace(_drift(), source_revision="observation-v1"))
     return cycle.run_saved_research_promotion_cycle(drift, **kwargs)
+
+
+def _new_request() -> NewResearchRequest:
+    return NewResearchRequest(
+        strategy_profile="demo_strategy", domain="us_equity", as_of=date(2026, 9, 8),
+        source_revision="source-v1", research_intent="bounded_template_selection",
+        source_receipt_refs=(ResearchSourceReceiptRef("research_source_receipt.v1", "a" * 64),),
+    )
+
+
+def test_new_request_uses_shared_cycle_without_fabricating_drift(tmp_path):
+    optimize = Mock(return_value=_proposal())
+    result = cycle.run_saved_research_promotion_cycle(
+        new_request=_new_request(), research_identity=IDENTITY, ticket_dir=tmp_path,
+        optimize=optimize, enforce_backtest_gates=Mock(return_value=_promotion_backtest_evidence()),
+        record_shadow=Mock(return_value={"evidence_kind": "paired_shadow", "passed": True}),
+    )
+    assert result["status"] == "awaiting_human"
+    assert result["ticket"]["drift_score"] is None
+    assert result["ticket"]["drift_status"] == "new_research"
+    assert optimize.call_args.args[0] == _new_request()
+
+
+def test_same_new_request_reuses_completed_stages(tmp_path):
+    optimize = Mock(return_value=_proposal())
+    kwargs = dict(
+        new_request=_new_request(), research_identity=IDENTITY, ticket_dir=tmp_path,
+        optimize=optimize, enforce_backtest_gates=Mock(return_value=_promotion_backtest_evidence()),
+        record_shadow=Mock(return_value={"evidence_kind": "paired_shadow", "passed": True}),
+    )
+    first = cycle.run_saved_research_promotion_cycle(**kwargs)
+    second = cycle.run_saved_research_promotion_cycle(**kwargs)
+    assert first["ticket"]["ticket_id"] == second["ticket"]["ticket_id"]
+    assert optimize.call_count == 1
+
+
+def test_new_request_requires_source_receipt():
+    with pytest.raises(ValueError, match="source_receipt_refs"):
+        NewResearchRequest(
+            strategy_profile="demo_strategy", domain="us_equity", as_of=date(2026, 9, 8),
+            source_revision="source-v1", research_intent="bounded_template_selection",
+            source_receipt_refs=(),
+        )
+
+
+def test_new_request_rejects_future_as_of_before_creating_ticket(tmp_path):
+    optimize = Mock(return_value=_proposal())
+    future = replace(_new_request(), as_of=date(2026, 9, 9))
+    result = cycle.run_saved_research_promotion_cycle(
+        new_request=future, research_identity=IDENTITY, ticket_dir=tmp_path,
+        optimize=optimize, enforce_backtest_gates=Mock(), record_shadow=Mock(),
+        evaluation_date=date(2026, 9, 8),
+    )
+    assert result["reason"] == "new_research_as_of_future"
+    assert not list(tmp_path.glob("*.json"))
+    optimize.assert_not_called()
+
+
+def test_new_request_date_is_exact_identity_but_stable_scope(tmp_path):
+    kwargs = dict(
+        research_identity=IDENTITY, ticket_dir=tmp_path,
+        optimize=Mock(return_value=_proposal()),
+        enforce_backtest_gates=Mock(return_value=_promotion_backtest_evidence()),
+        record_shadow=Mock(return_value={"evidence_kind": "paired_shadow", "passed": True}),
+    )
+    first = cycle.run_saved_research_promotion_cycle(
+        new_request=_new_request(), evaluation_date=date(2026, 9, 8), **kwargs)
+    second = cycle.run_saved_research_promotion_cycle(
+        new_request=replace(_new_request(), as_of=date(2026, 9, 7)),
+        evaluation_date=date(2026, 9, 8), **kwargs)
+    assert first["ticket"]["ticket_id"] == second["ticket"]["ticket_id"]
+    first_progress = cycle.load_research_promotion_ticket(Path(first["ticket_path"])).research_progress
+    second_progress = cycle.load_research_promotion_ticket(Path(second["ticket_path"])).research_progress
+    assert first_progress["scope_key"] == second_progress["scope_key"]
+    assert first_progress["exact_key"] == second_progress["exact_key"]
+    assert kwargs["optimize"].call_count == 1
 
 
 def test_same_frozen_input_does_not_repeat_completed_stages_or_console_post(tmp_path):
