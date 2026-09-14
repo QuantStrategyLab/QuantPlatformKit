@@ -27,6 +27,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     OptimizationProposal,
     PromotionBacktestRun,
 )
+from quant_platform_kit.strategy_lifecycle.candidate_control import ResearchSourceReceiptRef
 
 
 _REAL_DATETIME = datetime
@@ -70,6 +71,47 @@ class ResearchPromotionBudget:
             raise ValueError(
                 "ResearchPromotionBudget.allow_live_enablement must remain False"
             )
+
+
+@dataclass(frozen=True)
+class NewResearchRequest:
+    """Source-bound request for a new research design.
+
+    This is deliberately separate from :class:`DriftResult`: a new strategy
+    has no observed drift score and must never acquire one by construction.
+    """
+
+    strategy_profile: str
+    domain: str
+    as_of: date
+    source_revision: str
+    research_intent: str
+    source_receipt_refs: tuple[ResearchSourceReceiptRef, ...]
+
+    def __post_init__(self) -> None:
+        for name in ("strategy_profile", "domain", "source_revision", "research_intent"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        if not isinstance(self.as_of, date):
+            raise ValueError("as_of must be a date")
+        if (not isinstance(self.source_receipt_refs, tuple)
+                or not self.source_receipt_refs
+                or any(type(item) is not ResearchSourceReceiptRef for item in self.source_receipt_refs)):
+            raise ValueError("source_receipt_refs must contain at least one receipt reference")
+        digests = tuple(item.receipt_sha256 for item in self.source_receipt_refs)
+        if digests != tuple(sorted(set(digests))):
+            raise ValueError("source_receipt_refs must be unique and sorted")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "strategy_profile": self.strategy_profile,
+            "domain": self.domain,
+            "as_of": self.as_of.isoformat(),
+            "source_revision": self.source_revision,
+            "research_intent": self.research_intent,
+            "source_receipt_refs": [item.to_dict() for item in self.source_receipt_refs],
+        }
 
 
 RISK_PROFILE_IDS = (
@@ -147,7 +189,7 @@ class ResearchPromotionTicket:
     domain: str
     state: ResearchPromotionState
     drift_status: str
-    drift_score: float
+    drift_score: float | None
     created_at: str
     updated_at: str
     budget: Mapping[str, Any] = field(default_factory=dict)
@@ -190,7 +232,11 @@ class ResearchPromotionTicket:
             domain=str(raw["domain"]),
             state=ResearchPromotionState(str(raw["state"])),
             drift_status=str(raw.get("drift_status") or ""),
-            drift_score=float(raw.get("drift_score") or 0.0),
+            drift_score=(
+                None
+                if raw.get("drift_score") is None and raw.get("drift_status") == "new_research"
+                else float(raw.get("drift_score") or 0.0)
+            ),
             created_at=str(raw["created_at"]),
             updated_at=str(raw["updated_at"]),
             budget=dict(raw.get("budget") or {}),
@@ -965,7 +1011,7 @@ def _attach_shadow_or_park(
 
 
 def run_research_promotion_cycle(
-    drift: DriftResult,
+    context: DriftResult | NewResearchRequest,
     *,
     optimize: Callable[[DriftResult, ResearchPromotionBudget], OptimizationProposal],
     record_shadow: Callable[[OptimizationProposal], Mapping[str, Any]],
@@ -983,14 +1029,19 @@ def run_research_promotion_cycle(
 ) -> ResearchPromotionTicket:
     """Execute the non-live research promotion slice and stop for humans."""
     budget = budget or ResearchPromotionBudget()
+    is_new = isinstance(context, NewResearchRequest)
+    if not is_new and not isinstance(context, DriftResult):
+        raise TypeError("research context must be DriftResult or NewResearchRequest")
+    strategy_profile = context.strategy_profile
+    domain = context.domain
     now = _now_iso()
     ticket = ResearchPromotionTicket(
         ticket_id=ticket_id or _new_ticket_id(),
-        strategy_profile=drift.strategy_profile,
-        domain=drift.domain,
+        strategy_profile=strategy_profile,
+        domain=domain,
         state=ResearchPromotionState.PARKED,
-        drift_status=drift.status.value,
-        drift_score=float(drift.drift_score),
+        drift_status="new_research" if is_new else context.status.value,
+        drift_score=None if is_new else float(context.drift_score),
         created_at=now,
         updated_at=now,
         budget={
@@ -1002,14 +1053,14 @@ def run_research_promotion_cycle(
         live_authority_granted=False,
     )
 
-    if drift.status not in _ACTIVE_DRIFT:
+    if not is_new and context.status not in _ACTIVE_DRIFT:
         ticket.notes = ("drift_not_actionable",)
         ticket.updated_at = _now_iso()
         return ticket
 
     ticket.state = ResearchPromotionState.BOUNDED_REOPT
-    proposal = optimize(drift, budget)
-    if (proposal.strategy_profile != drift.strategy_profile or proposal.domain != drift.domain):
+    proposal = optimize(context, budget)
+    if (proposal.strategy_profile != strategy_profile or proposal.domain != domain):
         ticket.state = ResearchPromotionState.PARKED
         ticket.notes = ("proposal_target_mismatch",)
         return ticket
@@ -1310,8 +1361,10 @@ def _clock_now() -> datetime:
 
 def _scope_identity(identity: Mapping[str, Any]) -> dict[str, Any]:
     drift = identity.get("drift") if isinstance(identity, Mapping) else None
+    request = identity.get("request") if isinstance(identity, Mapping) else None
     revisions = identity.get("revisions") if isinstance(identity, Mapping) else None
-    if not isinstance(drift, Mapping) or not isinstance(revisions, Mapping):
+    context = drift if isinstance(drift, Mapping) else request
+    if not isinstance(context, Mapping) or not isinstance(revisions, Mapping):
         return {}
     owner = identity.get("owner") if isinstance(identity, Mapping) else None
     revision_keys = ("cost_model_revision", "validator_revision") if isinstance(owner, Mapping) else (
@@ -1319,10 +1372,12 @@ def _scope_identity(identity: Mapping[str, Any]) -> dict[str, Any]:
     )
     result = {
         "revisions": {key: revisions.get(key) for key in revision_keys},
-        "drift": {key: drift.get(key) for key in (
+        ("drift" if isinstance(drift, Mapping) else "request"): ({key: context.get(key) for key in (
             "strategy_profile", "domain", "baseline_param_set_id",
             "baseline_param_version", "baseline_artifact_id",
-        )},
+        )} if isinstance(drift, Mapping) else {
+            key: context.get(key) for key in ("strategy_profile", "domain", "research_intent", "source_receipt_refs")
+        }),
     }
     if isinstance(owner, Mapping):
         result["owner"] = dict(owner)
@@ -1344,6 +1399,11 @@ def _exact_identity(identity: Mapping[str, Any]) -> dict[str, Any]:
     scope["revisions"].update({key: revisions.get(key) for key in (
         "code_revision", "input_revision", "param_space_revision",
     )})
+    request = identity.get("request") if isinstance(identity, Mapping) else None
+    if isinstance(request, Mapping):
+        scope["request_exact"] = {
+            "source_revision": request.get("source_revision"),
+        }
     return scope
 
 
@@ -1603,8 +1663,9 @@ def _archive_ticket(ticket: ResearchPromotionTicket, progress: dict[str, Any], n
 
 
 def run_saved_research_promotion_cycle(
-    drift: DriftResult,
+    drift: DriftResult | None = None,
     *,
+    new_request: NewResearchRequest | None = None,
     research_identity: Mapping[str, str],
     ticket_dir: str | Path,
     optimize: Callable,
@@ -1648,11 +1709,18 @@ def run_saved_research_promotion_cycle(
             "console_synced": None, "live_authority_granted": False}
     if not all(callable(fn) for fn in (optimize, enforce_backtest_gates, record_shadow)):
         return {**base, "reason": "research_bindings_unavailable"}
+    if (drift is None) == (new_request is None):
+        return {**base, "reason": "research_context_invalid"}
+    context: DriftResult | NewResearchRequest = drift if drift is not None else new_request  # type: ignore[assignment]
+    is_new = isinstance(context, NewResearchRequest)
+    strategy_profile = context.strategy_profile
+    domain = context.domain
+    source_revision = context.source_revision
     fields = {"code_revision", "input_revision", "param_space_revision",
               "cost_model_revision", "validator_revision"}
     if (not isinstance(research_identity, Mapping) or set(research_identity) != fields
             or any(not isinstance(v, str) or not v.strip() for v in research_identity.values())
-            or not isinstance(drift.source_revision, str) or not drift.source_revision.strip()):
+            or not isinstance(source_revision, str) or not source_revision.strip()):
         return {**base, "reason": "research_identity_unavailable"}
     owner = _normalize_research_owner(research_owner)
     if research_owner is not None and owner is None:
@@ -1663,22 +1731,40 @@ def run_saved_research_promotion_cycle(
             or budget.require_paired_shadow is not True or budget.allow_live_enablement):
         return {**base, "reason": "research_budget_invalid"}
     try:
-        health = probe_production_drift_health(
-            strategy_profile=drift.strategy_profile, domain=drift.domain,
-            as_of=drift.as_of, drift_score=drift.drift_score,
+        health = (None if is_new else probe_production_drift_health(
+            strategy_profile=strategy_profile, domain=domain,
+            as_of=context.as_of, drift_score=context.drift_score,
             evaluation_date=evaluation_date, max_age_days=max_age_days,
-        )
+        ))
     except (ValueError, TypeError, OverflowError):
         return base
-    stale = health.get("reason") == "observation_stale"
-    if ((not health["actionable"] and not stale)
-            or drift.status not in _ACTIVE_DRIFT or drift.alert_suppressed):
+    if is_new:
+        try:
+            evaluation_day = evaluation_date
+            if evaluation_day is None:
+                evaluation_day = _clock_now().date()
+            elif isinstance(evaluation_day, str):
+                evaluation_day = date.fromisoformat(evaluation_day)
+            if not isinstance(evaluation_day, date):
+                return {**base, "reason": "new_research_evaluation_date_invalid"}
+        except (TypeError, ValueError):
+            return {**base, "reason": "new_research_evaluation_date_invalid"}
+        if context.as_of > evaluation_day:
+            return {**base, "reason": "new_research_as_of_future"}
+        request_stale = evaluation_day - context.as_of > timedelta(days=max_age_days)
+    else:
+        request_stale = False
+    stale = bool((health and health.get("reason") == "observation_stale") or request_stale)
+    if (not is_new and ((not health["actionable"] and not stale)
+            or context.status not in _ACTIVE_DRIFT or context.alert_suppressed)):
         return {**base, "reason": health.get("reason", "drift_not_actionable")}
-    observation = drift.to_dict()
+    context_identity = (context.to_dict() if is_new else {
+        key: context.to_dict()[key] for key in (
+            "strategy_profile", "domain", "as_of", "source_revision", "drift_score",
+            "baseline_param_set_id", "baseline_param_version", "baseline_artifact_id")
+    })
     identity = {"revisions": dict(research_identity),
-                "drift": {key: observation[key] for key in (
-                    "strategy_profile", "domain", "as_of", "source_revision", "drift_score",
-                    "baseline_param_set_id", "baseline_param_version", "baseline_artifact_id")},
+                ("request" if is_new else "drift"): context_identity,
                 "budget": asdict(budget)}
     if owner is not None:
         identity["owner"] = owner
@@ -1720,8 +1806,8 @@ def run_saved_research_promotion_cycle(
                 saved_identity = progress.get("identity")
                 identity_matches = _canonical_ticket_value(saved_identity) == canonical
                 exact_identity_matches = _exact_key(saved_identity) == exact_key
-                if (ticket.ticket_id != ticket_id or ticket.strategy_profile != drift.strategy_profile
-                        or ticket.domain != drift.domain
+                if (ticket.ticket_id != ticket_id or ticket.strategy_profile != strategy_profile
+                        or ticket.domain != domain
                         or (not identity_matches and not exact_identity_matches)):
                     return {**base, "reason": "research_checkpoint_mismatch"}
                 progress.setdefault("scope_key", scope_key)
@@ -1784,9 +1870,10 @@ def run_saved_research_promotion_cycle(
                             "stages": {}, "diagnosis_required": diagnose is not None,
                             "lifecycle": aggregate}
                 ticket = ResearchPromotionTicket(
-                    ticket_id=ticket_id, strategy_profile=drift.strategy_profile,
-                    domain=drift.domain, state=ResearchPromotionState.BOUNDED_REOPT,
-                    drift_status=drift.status.value, drift_score=drift.drift_score,
+                    ticket_id=ticket_id, strategy_profile=strategy_profile,
+                    domain=domain, state=ResearchPromotionState.BOUNDED_REOPT,
+                    drift_status="new_research" if is_new else context.status.value,
+                    drift_score=None if is_new else context.drift_score,
                     created_at=now, updated_at=now, budget=asdict(budget),
                     research_progress=progress, research_summary={},
                 )
@@ -1855,7 +1942,7 @@ def run_saved_research_promotion_cycle(
                 gates_ok, _ = enforce_promotion_backtest_gates(proposal, stages["backtest"]["result"])
                 budget_ok, _ = enforce_optimization_budget(proposal, budget)
                 if (not gates_ok or not budget_ok or proposal.recommendation not in _RESEARCH_CANDIDATE_RECOMMENDATIONS
-                        or proposal.strategy_profile != drift.strategy_profile or proposal.domain != drift.domain
+                        or proposal.strategy_profile != strategy_profile or proposal.domain != domain
                         or (progress.get("diagnosis_required")
                             and stages["diagnose"]["result"].get("optimization_needed") is not True)):
                     return output("research_checkpoint_invalid", status="parked")
@@ -1871,7 +1958,7 @@ def run_saved_research_promotion_cycle(
                 if not callable(read_pending_shadow):
                     return output("shadow_reader_unavailable", status="deferred")
             elif stale and not (shadow_completed or awaiting_recovery):
-                return output("observation_stale", status="parked")
+                return output("new_research_stale" if is_new else "observation_stale", status="parked")
             if ticket.state == ResearchPromotionState.AWAITING_HUMAN:
                 stored_proposal = None
                 if isinstance(stages.get("optimize", {}).get("result"), Mapping):
@@ -1925,7 +2012,7 @@ def run_saved_research_promotion_cycle(
                         return {**output("codex_research_deferred", status="deferred"), "retry_at": retry}
                     del stages["diagnose"]
                 def checked_diagnosis():
-                    value = dict(diagnose(drift, budget))
+                    value = dict(diagnose(context, budget))
                     if value.get("reason") == "codex_research_deferred":
                         retry = value.get("retry_at")
                         # A reset already in the past is not a usable admission
@@ -1949,12 +2036,12 @@ def run_saved_research_promotion_cycle(
                     return output("codex_did_not_recommend_research")
 
             def cached_optimize(*_):
-                raw = stage("optimize", lambda: optimize(drift, budget), lambda value: value.to_dict())
+                raw = stage("optimize", lambda: optimize(context, budget), lambda value: value.to_dict())
                 return _saved_proposal(raw)
 
             def count_no_improvement_or_archive(proposal: OptimizationProposal) -> None:
-                if (proposal.strategy_profile != drift.strategy_profile
-                        or proposal.domain != drift.domain):
+                if (proposal.strategy_profile != strategy_profile
+                        or proposal.domain != domain):
                     return
                 try:
                     budget_ok, _ = enforce_optimization_budget(proposal, budget)
@@ -2022,7 +2109,7 @@ def run_saved_research_promotion_cycle(
                 return stage("shadow", lambda: callback(proposal), encode)
 
             result = run_research_promotion_cycle(
-                drift, budget=budget, ticket_id=ticket_id, optimize=cached_optimize,
+                context, budget=budget, ticket_id=ticket_id, optimize=cached_optimize,
                 enforce_backtest_gates=checked_backtest,
                 record_shadow=shadow_result,
             )
@@ -2092,6 +2179,7 @@ __all__ = [
     "PromotionConfirmation",
     "RISK_PROFILE_IDS",
     "ResearchPromotionBudget",
+    "NewResearchRequest",
     "ResearchPromotionState",
     "ResearchPromotionTicket",
     "apply_console_research_promotion_decision",
