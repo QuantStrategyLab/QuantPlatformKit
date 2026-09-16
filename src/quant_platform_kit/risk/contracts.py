@@ -7,10 +7,13 @@ consolidates them into a single, versioned contract.
 
 from __future__ import annotations
 
+from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
+from types import MappingProxyType
 from typing import Any, Mapping
 
 
@@ -151,6 +154,75 @@ class RiskAction:
     risk_asset_scalar: float = 1.0
     target_destination: str | None = None
     notify: bool = True
+
+
+@dataclass(frozen=True)
+class RuntimeRiskLimits:
+    """Explicit, immutable limits supplied by a verified runtime binding."""
+
+    allowed_symbols: tuple[str, ...]
+    product_leverage_factors: Mapping[str, int]
+    nominal_caps: Mapping[str, float]
+    total_nominal_exposure_cap: float
+    total_effective_exposure_cap: float
+    max_positions: int
+
+    def __post_init__(self) -> None:
+        if isinstance(self.allowed_symbols, (str, bytes)):
+            raise ValueError("allowed_symbols must be a sequence of symbols")
+        symbols = tuple(self.allowed_symbols)
+        if not symbols or any(
+            type(symbol) is not str
+            or not symbol
+            or symbol != symbol.strip()
+            or symbol != symbol.upper()
+            for symbol in symbols
+        ):
+            raise ValueError("allowed_symbols must contain canonical symbols")
+        if len(set(symbols)) != len(symbols):
+            raise ValueError("allowed_symbols must not contain duplicates")
+
+        def _mapping(value: Mapping[str, Any], field_name: str) -> dict[str, Any]:
+            if not isinstance(value, ABCMapping):
+                raise ValueError(f"{field_name} must be a mapping")
+            result = dict(value)
+            if set(result) != set(symbols):
+                raise ValueError(f"{field_name} must cover allowed_symbols exactly")
+            return result
+
+        factors = _mapping(self.product_leverage_factors, "product_leverage_factors")
+        if any(
+            type(symbol) is not str
+            or type(factor) is not int
+            or isinstance(factor, bool)
+            or factor < 1
+            for symbol, factor in factors.items()
+        ):
+            raise ValueError("product_leverage_factors must contain positive integers")
+
+        caps = _mapping(self.nominal_caps, "nominal_caps")
+        if any(
+            type(symbol) is not str
+            or type(cap) not in (int, float)
+            or not math.isfinite(float(cap))
+            or float(cap) < 0.0
+            for symbol, cap in caps.items()
+        ):
+            raise ValueError("nominal_caps must contain finite nonnegative values")
+
+        for field_name in (
+            "total_nominal_exposure_cap",
+            "total_effective_exposure_cap",
+        ):
+            value = getattr(self, field_name)
+            if type(value) not in (int, float) or not math.isfinite(float(value)) or float(value) < 0.0:
+                raise ValueError(f"{field_name} must be finite and nonnegative")
+        if type(self.max_positions) is not int or isinstance(self.max_positions, bool) or self.max_positions < 0:
+            raise ValueError("max_positions must be a nonnegative integer")
+
+        object.__setattr__(self, "allowed_symbols", symbols)
+        object.__setattr__(self, "product_leverage_factors", MappingProxyType(factors))
+        object.__setattr__(self, "nominal_caps", MappingProxyType(caps))
 
 
 @dataclass(frozen=True)

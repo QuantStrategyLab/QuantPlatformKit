@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+import math
+from datetime import timezone
 from typing import Any
 
 import pandas as pd
@@ -96,6 +98,41 @@ def fetch_lot_sizes(q_ctx: Any, symbols: list[str]) -> dict[str, int]:
     return lot_sizes
 
 
+def _completed_daily_closes(bars: list[Any], expected_session: pd.Timestamp) -> pd.DataFrame | None:
+    rows = []
+    for bar in bars:
+        timestamp = getattr(bar, "timestamp", None)
+        if timestamp is None:
+            return None
+        try:
+            instant = pd.Timestamp(timestamp)
+            if instant is pd.NaT or pd.isna(instant):
+                return None
+            if instant.tzinfo is None:
+                # LongPort 3.x returns ``fromtimestamp(epoch, None)`` from
+                # its native extension.  A naive value therefore carries the
+                # process-local representation of the broker instant; using
+                # astimezone preserves that local-time meaning before the
+                # session calendar conversion.
+                instant = pd.Timestamp(instant.to_pydatetime().astimezone(timezone.utc))
+            else:
+                instant = instant.tz_convert("UTC")
+            session = instant.tz_convert("America/New_York").normalize().tz_localize(None)
+            close = float(bar.close)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(close) or close <= 0:
+            return None
+        if session <= expected_session:
+            rows.append({"session": session, "close": close})
+    if not rows:
+        return None
+    frame = pd.DataFrame(rows)
+    if frame["session"].duplicated().any():
+        return None
+    frame = frame.sort_values("session")
+    return frame if frame.iloc[-1]["session"] == expected_session else None
+
 def calculate_rotation_indicators(
     q_ctx: Any,
     *,
@@ -104,7 +141,8 @@ def calculate_rotation_indicators(
     dynamic_rsi_quantile_window: int = 252,
     dynamic_volatility_delever_window: int = 10,
     dynamic_volatility_delever_quantile_window: int = 252,
-) -> dict[str, dict[str, float]] | None:
+    completed_session_date: str | None = None,
+) -> dict[str, dict[str, Any]] | None:
     from longport.openapi import AdjustType, Period
 
     effective_lookback = (
@@ -126,12 +164,22 @@ def calculate_rotation_indicators(
     if not soxl_bars or not soxx_bars:
         return None
 
-    df_soxl = pd.DataFrame([{"close": float(k.close)} for k in soxl_bars])
-    df_soxx = pd.DataFrame([float(k.close) for k in soxx_bars], columns=["close"])
+    completed_session = None
+    if completed_session_date is None:
+        df_soxl = pd.DataFrame([{"close": float(k.close)} for k in soxl_bars])
+        df_soxx = pd.DataFrame([float(k.close) for k in soxx_bars], columns=["close"])
+    else:
+        completed_session = pd.Timestamp(completed_session_date).normalize()
+        df_soxl = _completed_daily_closes(soxl_bars, completed_session)
+        df_soxx = _completed_daily_closes(soxx_bars, completed_session)
+        if df_soxl is None or df_soxx is None:
+            return None
+        df_soxl = df_soxl[["close"]]
+        df_soxx = df_soxx[["close"]]
     if len(df_soxl) < trend_window or len(df_soxx) < trend_window:
         return None
 
-    return build_semiconductor_rotation_indicators_from_history(
+    indicators = build_semiconductor_rotation_indicators_from_history(
         soxl_history=df_soxl["close"],
         soxx_history=df_soxx["close"],
         trend_ma_window=trend_window,
@@ -139,3 +187,6 @@ def calculate_rotation_indicators(
         dynamic_volatility_delever_window=dynamic_volatility_delever_window,
         dynamic_volatility_delever_quantile_window=dynamic_volatility_delever_quantile_window,
     )
+    if completed_session is not None:
+        indicators["completed_session"] = {"date": completed_session.date().isoformat()}
+    return indicators

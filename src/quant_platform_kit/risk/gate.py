@@ -26,6 +26,7 @@ from quant_platform_kit.risk.contracts import (
     CandidateRiskIdentity,
     RiskGateAssessment,
     RiskGateResult,
+    RuntimeRiskLimits,
 )
 from quant_platform_kit.risk.engine import build_risk_engine
 from quant_platform_kit.common.strategy_contracts import (
@@ -178,6 +179,62 @@ def _canonical_numeric_mapping(
             return None
         result[key] = number
     return result
+
+
+def _runtime_risk_limits_rejection(
+    limits: RuntimeRiskLimits,
+    *,
+    positions: tuple[PositionTarget, ...],
+    budgets: tuple[BudgetIntent, ...],
+    weights: list[tuple[PositionTarget, float]],
+    value_target_exposure_enforced: bool,
+) -> tuple[str, str] | None:
+    """Return a fail-closed finding for an explicit runtime limit set."""
+    if type(limits) is not RuntimeRiskLimits:
+        return ("rejected:runtime_risk_limits", "invalid_runtime_risk_limits")
+
+    allowed = set(limits.allowed_symbols)
+    seen_symbols: set[str] = set()
+    for position in positions:
+        if type(position) is not PositionTarget:
+            return ("rejected:runtime_risk_limits", "invalid_runtime_risk_limits")
+        if position.symbol not in allowed:
+            return ("rejected:runtime_risk_limits", "symbol_not_allowed")
+        if position.symbol in seen_symbols:
+            return ("rejected:runtime_risk_limits", "duplicate_symbol")
+        seen_symbols.add(position.symbol)
+        if position.target_weight is not None and position.target_value is not None:
+            return ("rejected:runtime_risk_limits", "conflicting_target_modes")
+        if position.target_weight is not None and (
+            _finite_number(position.target_weight) is None
+            or float(position.target_weight) < 0.0
+        ):
+            return ("rejected:runtime_risk_limits", "negative_weight_not_allowed")
+        if position.target_value is not None and not value_target_exposure_enforced:
+            return ("rejected:runtime_risk_limits", "value_target_enforcement_required")
+
+    if budgets:
+        return ("rejected:runtime_risk_limits", "budgets_not_supported")
+
+    if len(weights) > limits.max_positions:
+        return ("rejected:runtime_risk_limits", "max_positions_exceeded")
+
+    nominal_total = 0.0
+    effective_total = 0.0
+    for position, weight in weights:
+        factor = limits.product_leverage_factors.get(position.symbol)
+        nominal_cap = limits.nominal_caps.get(position.symbol)
+        if factor is None or nominal_cap is None:
+            return ("rejected:runtime_risk_limits", "asset_limit_missing")
+        if weight > nominal_cap:
+            return ("rejected:runtime_risk_limits", "nominal_cap_exceeded")
+        nominal_total += weight
+        effective_total += weight * factor
+    if nominal_total > limits.total_nominal_exposure_cap + 1e-9:
+        return ("rejected:runtime_risk_limits", "total_nominal_cap_exceeded")
+    if effective_total > limits.total_effective_exposure_cap + 1e-9:
+        return ("rejected:runtime_risk_limits", "total_effective_cap_exceeded")
+    return None
 
 
 def _canonical_cap_material(
@@ -2138,6 +2195,7 @@ def _apply_risk_gate_static(
     enforce_value_target_exposure: Any,
     capital_base: CapitalBaseSnapshot | Mapping[str, Any] | None,
     capital_base_binding: CapitalBaseBinding | Mapping[str, Any] | None,
+    runtime_risk_limits: RuntimeRiskLimits | None,
     now: datetime,
     engine_action: Any,
     engine_failed: bool,
@@ -2390,6 +2448,17 @@ def _apply_risk_gate_static(
             if weight > 0.0:
                 weights.append((position, weight))
 
+    if static_rejection is None and runtime_risk_limits is not None:
+        runtime_rejection = _runtime_risk_limits_rejection(
+            runtime_risk_limits,
+            positions=positions,
+            budgets=raw_budgets,
+            weights=weights,
+            value_target_exposure_enforced=value_target_exposure_enforced,
+        )
+        if runtime_rejection is not None:
+            static_rejection = runtime_rejection
+
     if (
         static_rejection is None
         and positions
@@ -2440,7 +2509,7 @@ def _apply_risk_gate_static(
                             "rejected:overexposed",
                             f"名义仓位 {weight:.1%} > 可用账户容量",
                         )
-    elif static_rejection is None and positions:
+    elif static_rejection is None and positions and runtime_risk_limits is None:
         effective_single_weight = min(
             requested_single_weight,
             _DEFAULT_MAX_SINGLE_WEIGHT,
@@ -2543,6 +2612,7 @@ def apply_risk_gate(
     enforce_value_target_exposure: bool = False,
     capital_base: CapitalBaseSnapshot | Mapping[str, Any] | None = None,
     capital_base_binding: CapitalBaseBinding | Mapping[str, Any] | None = None,
+    runtime_risk_limits: RuntimeRiskLimits | None = None,
 ) -> StrategyDecision:
     """Apply hard checks and call RiskEngine.assess exactly once.
 
@@ -2578,6 +2648,7 @@ def apply_risk_gate(
             enforce_value_target_exposure=enforce_value_target_exposure,
             capital_base=capital_base,
             capital_base_binding=capital_base_binding,
+            runtime_risk_limits=runtime_risk_limits,
             now=now,
             engine_action=engine_action,
             engine_failed=engine_failed,
