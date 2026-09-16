@@ -1,7 +1,7 @@
 """Durable research stages, using synthetic evidence and no external services."""
 
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -57,6 +57,7 @@ def test_new_request_uses_shared_cycle_without_fabricating_drift(tmp_path):
         new_request=_new_request(), research_identity=IDENTITY, ticket_dir=tmp_path,
         optimize=optimize, enforce_backtest_gates=Mock(return_value=_promotion_backtest_evidence()),
         record_shadow=Mock(return_value={"evidence_kind": "paired_shadow", "passed": True}),
+        evaluation_date=date(2026, 9, 8),
     )
     assert result["status"] == "awaiting_human"
     assert result["ticket"]["drift_score"] is None
@@ -70,6 +71,7 @@ def test_same_new_request_reuses_completed_stages(tmp_path):
         new_request=_new_request(), research_identity=IDENTITY, ticket_dir=tmp_path,
         optimize=optimize, enforce_backtest_gates=Mock(return_value=_promotion_backtest_evidence()),
         record_shadow=Mock(return_value={"evidence_kind": "paired_shadow", "passed": True}),
+        evaluation_date=date(2026, 9, 8),
     )
     first = cycle.run_saved_research_promotion_cycle(**kwargs)
     second = cycle.run_saved_research_promotion_cycle(**kwargs)
@@ -441,13 +443,15 @@ def test_normal_cycle_reuses_declined_diagnosis_across_runs(tmp_path):
     from quant_platform_kit.strategy_lifecycle.codex_integration import run_auto_pilot_cycle
     from quant_platform_kit.strategy_lifecycle.contracts import StrategyPerformanceSnapshot
 
+    fresh_as_of = date.today() - timedelta(days=1)
+    fresh_drift = replace(_drift(), as_of=fresh_as_of, source_revision="observation-v1")
     store = Mock(local_root=tmp_path)
     store.load_latest_snapshot.return_value = StrategyPerformanceSnapshot(
-        strategy_profile="demo_strategy", domain="us_equity", platform="test", as_of=date(2026, 9, 7),
+        strategy_profile="demo_strategy", domain="us_equity", platform="test", as_of=fresh_as_of,
         source_revision="observation-v1")
     prefix = "quant_platform_kit.strategy_lifecycle.codex_integration."
     with patch(prefix + "_run_monitor_phase", return_value=[]), \
-            patch(prefix + "_run_drift_phase", return_value=([_drift()], [_drift()])), \
+            patch(prefix + "_run_drift_phase", return_value=([fresh_drift], [fresh_drift])), \
             patch(prefix + "_drift_freshness_reason", return_value=None), \
             patch(prefix + "call_ai_optimization_decision", return_value={"optimization_needed": False}) as ai:
         for _ in range(2):
@@ -734,8 +738,19 @@ def test_normal_auto_pilot_resumes_only_matching_unstarted_console_delivery(
     sync, optimize, gates, shadow = Mock(return_value=True), Mock(), Mock(), Mock()
     prefix = "quant_platform_kit.strategy_lifecycle.codex_integration."
     identity = {**IDENTITY, "input_revision": "new-input"} if identity_changes else IDENTITY
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 9, 8, tzinfo=timezone.utc)
+
     with patch(prefix + "_run_monitor_phase", return_value=[]), \
             patch(prefix + "_run_drift_phase", return_value=([_drift()], [_drift()])), \
+            patch(prefix + "_drift_freshness_reason", return_value=None), \
+            patch(
+                "quant_platform_kit.strategy_lifecycle.production_drift_health_probe.datetime",
+                _FrozenDateTime,
+            ), \
             patch(prefix + "call_ai_optimization_decision") as ai:
         run_auto_pilot_cycle("us_equity", store=store, create_issues=False, research_identity=identity,
             optimize=optimize, enforce_backtest_gates=gates, record_shadow=shadow,
@@ -803,8 +818,19 @@ def test_actual_auto_pilot_passes_new_admission_before_ai(tmp_path):
         source_revision="observation-v1"))
     admission = Mock(return_value=False)
     prefix = "quant_platform_kit.strategy_lifecycle.codex_integration."
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 9, 8, tzinfo=timezone.utc)
+
     with patch(prefix + "_run_monitor_phase", return_value=[]), \
             patch(prefix + "_run_drift_phase", return_value=([_drift()], [_drift()])), \
+            patch(prefix + "_drift_freshness_reason", return_value=None), \
+            patch(
+                "quant_platform_kit.strategy_lifecycle.production_drift_health_probe.datetime",
+                _FrozenDateTime,
+            ), \
             patch(prefix + "call_ai_optimization_decision") as ai:
         result = run_auto_pilot_cycle("us_equity", store=store, create_issues=False, research_identity=IDENTITY,
             optimize=Mock(), enforce_backtest_gates=Mock(), record_shadow=Mock(), admit_new_research=admission)

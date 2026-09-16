@@ -14,6 +14,7 @@ from quant_platform_kit.risk.contracts import (
     RiskGateAssessment,
     RiskGateResult,
     RiskSignal,
+    RuntimeRiskLimits,
 )
 from quant_platform_kit.risk.engine import (
     RiskEngine,
@@ -101,6 +102,7 @@ __all__ = [
     "RiskGateResult",
     "RiskEngine",
     "RiskSignal",
+    "RuntimeRiskLimits",
     "aggregate_risk_signals",
     "assess_with_evidence",
     "apply_risk_gate",

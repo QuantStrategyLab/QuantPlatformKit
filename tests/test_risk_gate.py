@@ -22,6 +22,7 @@ from quant_platform_kit.risk.contracts import (
     CandidateRiskIdentity,
     RiskAction,
     RiskSignal,
+    RuntimeRiskLimits,
 )
 from quant_platform_kit.risk.engine import RiskEngine
 from quant_platform_kit.risk.gate import (
@@ -143,6 +144,237 @@ class RiskEngineAssessmentTests(unittest.TestCase):
 
 
 class ApplyRiskGateTests(unittest.TestCase):
+    _EIGHT_ETF_SYMBOLS = (
+        "SOXL",
+        "SOXX",
+        "BOXX",
+        "SCHD",
+        "DGRO",
+        "SGOV",
+        "SPYI",
+        "QQQI",
+    )
+
+    @staticmethod
+    def _runtime_limits() -> RuntimeRiskLimits:
+        return RuntimeRiskLimits(
+            allowed_symbols=("SOXL", "SOXX", "BOXX"),
+            product_leverage_factors={"SOXL": 3, "SOXX": 1, "BOXX": 1},
+            nominal_caps={"SOXL": 0.679, "SOXX": 0.873, "BOXX": 0.97},
+            total_nominal_exposure_cap=0.97,
+            total_effective_exposure_cap=2.328,
+            max_positions=8,
+        )
+
+    @classmethod
+    def _approved_eight_etf_limits(cls) -> RuntimeRiskLimits:
+        """User-accepted SOXL runtime mapping used by the 8-ETF recovery case."""
+        symbols = cls._EIGHT_ETF_SYMBOLS
+        return RuntimeRiskLimits(
+            allowed_symbols=symbols,
+            product_leverage_factors={
+                "SOXL": 3,
+                **{symbol: 1 for symbol in symbols if symbol != "SOXL"},
+            },
+            nominal_caps={
+                "SOXL": 0.679,
+                "SOXX": 0.873,
+                **{
+                    symbol: 0.97
+                    for symbol in symbols
+                    if symbol not in {"SOXL", "SOXX"}
+                },
+            },
+            total_nominal_exposure_cap=0.97,
+            total_effective_exposure_cap=2.328,
+            max_positions=8,
+        )
+
+    def test_explicit_runtime_limits_approve_three_etf_targets(self) -> None:
+        result = apply_risk_gate(
+            _decision(
+                positions=(
+                    PositionTarget(symbol="SOXL", target_weight=0.20),
+                    PositionTarget(symbol="SOXX", target_weight=0.30),
+                    PositionTarget(symbol="BOXX", target_weight=0.40),
+                )
+            ),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            portfolio_snapshot=_portfolio_snapshot(),
+            runtime_risk_limits=self._runtime_limits(),
+        )
+
+        self.assertIn("risk_gate:passed", result.risk_flags)
+        self.assertEqual(len(result.positions), 3)
+
+    def test_explicit_runtime_limits_reject_unknown_asset_and_cap_overrun(self) -> None:
+        for decision in (
+            _decision(positions=(PositionTarget(symbol="SPY", target_weight=0.10),)),
+            _decision(positions=(PositionTarget(symbol="SOXL", target_weight=0.70),)),
+            _decision(
+                positions=(
+                    PositionTarget(symbol="SOXL", target_weight=0.10),
+                    PositionTarget(symbol="SOXL", target_weight=0.10),
+                )
+            ),
+            _decision(positions=(PositionTarget(symbol="SOXL", target_weight=-0.10),)),
+        ):
+            with self.subTest(decision=decision):
+                result = apply_risk_gate(
+                    decision,
+                    max_single_weight=1.0,
+                    max_total_exposure=1.0,
+                    portfolio_snapshot=_portfolio_snapshot(),
+                    runtime_risk_limits=self._runtime_limits(),
+                )
+            self.assertEqual(result.positions, ())
+            self.assertEqual(result.risk_flags, ("rejected:runtime_risk_limits",))
+
+    def test_explicit_runtime_limits_accept_approved_machine_precision_boundary(self) -> None:
+        result = apply_risk_gate(
+            _decision(
+                positions=(
+                    PositionTarget(symbol="SOXL", target_weight=0.679),
+                    PositionTarget(symbol="SOXX", target_weight=0.194),
+                    PositionTarget(symbol="BOXX", target_weight=0.097),
+                )
+            ),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            portfolio_snapshot=_portfolio_snapshot(),
+            runtime_risk_limits=self._runtime_limits(),
+        )
+
+        self.assertIn("risk_gate:passed", result.risk_flags)
+
+    def test_invalid_explicit_runtime_limits_fail_closed_without_fallback(self) -> None:
+        result = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SOXL", target_weight=0.10),)),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            portfolio_snapshot=_portfolio_snapshot(),
+            runtime_risk_limits=object(),  # type: ignore[arg-type]
+        )
+
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:runtime_risk_limits",))
+
+    def test_approved_eight_etf_full_nominal_budget_approve_and_reject_overruns(self) -> None:
+        # Full 8-ETF allocation at the accepted total nominal boundary (0.97).
+        # Overrun must REJECT rather than silently scale.
+        full_weights = {
+            "SOXL": 0.20,
+            "SOXX": 0.11,
+            "BOXX": 0.11,
+            "SCHD": 0.11,
+            "DGRO": 0.11,
+            "SGOV": 0.11,
+            "SPYI": 0.11,
+            "QQQI": 0.11,
+        }
+        self.assertAlmostEqual(sum(full_weights.values()), 0.97)
+        limits = self._approved_eight_etf_limits()
+
+        approved = apply_risk_gate(
+            _decision(
+                positions=tuple(
+                    PositionTarget(symbol=symbol, target_weight=weight)
+                    for symbol, weight in full_weights.items()
+                )
+            ),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            max_positions=8,
+            portfolio_snapshot=_portfolio_snapshot(),
+            runtime_risk_limits=limits,
+        )
+        self.assertIn("risk_gate:passed", approved.risk_flags)
+        self.assertEqual(len(approved.positions), 8)
+
+        over_total = dict(full_weights)
+        over_total["QQQI"] = 0.111
+        rejected_total = apply_risk_gate(
+            _decision(
+                positions=tuple(
+                    PositionTarget(symbol=symbol, target_weight=weight)
+                    for symbol, weight in over_total.items()
+                )
+            ),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            max_positions=8,
+            portfolio_snapshot=_portfolio_snapshot(),
+            runtime_risk_limits=limits,
+        )
+        self.assertEqual(rejected_total.positions, ())
+        self.assertEqual(rejected_total.risk_flags, ("rejected:runtime_risk_limits",))
+
+        over_soxl = {
+            "SOXL": 0.680,
+            "SOXX": 0.05,
+            "BOXX": 0.04,
+            "SCHD": 0.04,
+            "DGRO": 0.04,
+            "SGOV": 0.04,
+            "SPYI": 0.04,
+            "QQQI": 0.03,
+        }
+        self.assertLess(sum(over_soxl.values()), 0.97)
+        rejected_soxl = apply_risk_gate(
+            _decision(
+                positions=tuple(
+                    PositionTarget(symbol=symbol, target_weight=weight)
+                    for symbol, weight in over_soxl.items()
+                )
+            ),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            max_positions=8,
+            portfolio_snapshot=_portfolio_snapshot(),
+            runtime_risk_limits=limits,
+        )
+        self.assertEqual(rejected_soxl.positions, ())
+        self.assertEqual(rejected_soxl.risk_flags, ("rejected:runtime_risk_limits",))
+
+    def test_missing_runtime_risk_limits_falls_back_to_legacy_single_position_rule(self) -> None:
+        # When capability is absent (None), gate keeps the pre-authorization
+        # path: unauthorized configs may hold only one nonzero position.
+        # Callers must not treat missing limits as permission for the 8-ETF book.
+        eight_etf = _decision(
+            positions=tuple(
+                PositionTarget(symbol=symbol, target_weight=0.10)
+                for symbol in self._EIGHT_ETF_SYMBOLS
+            )
+        )
+
+        result = apply_risk_gate(
+            eight_etf,
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            max_positions=8,
+            portfolio_snapshot=_portfolio_snapshot(),
+            runtime_risk_limits=None,
+        )
+
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:too_many_positions",))
+
+    def test_explicit_runtime_limits_reject_uncovered_budget_symbol(self) -> None:
+        result = apply_risk_gate(
+            StrategyDecision(
+                positions=(PositionTarget(symbol="SOXL", target_weight=0.10),),
+                budgets=(BudgetIntent(name="reserve", symbol="SPY", amount=100.0),),
+            ),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            portfolio_snapshot=_portfolio_snapshot(),
+            runtime_risk_limits=self._runtime_limits(),
+        )
+
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:runtime_risk_limits",))
+
     def test_no_mandate_does_not_allow_caller_to_expand_default_cap(self) -> None:
         decision = _decision(
             positions=(PositionTarget(symbol="SPY", target_weight=0.11),),
