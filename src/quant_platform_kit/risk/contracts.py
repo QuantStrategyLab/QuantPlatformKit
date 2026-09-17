@@ -157,6 +157,43 @@ class RiskAction:
 
 
 @dataclass(frozen=True)
+class SmallAccountRiskHoldPolicy:
+    """Hold/reduce-only when a small account already exceeds RRL caps.
+
+    Does not raise ``RuntimeRiskLimits`` caps. When a verified
+    ``RuntimeRiskLimits`` binding is active and no policy is supplied, the
+    risk gate applies the platform-default enabled policy
+    (``hold_below_nav=1000``, ``require_cash_only=True``). Deployments may
+    override thresholds or set ``enabled=False`` to restore reject-on-overrun.
+    """
+
+    enabled: bool
+    hold_below_nav: float
+    require_cash_only: bool = True
+
+    def __post_init__(self) -> None:
+        if type(self.enabled) is not bool:
+            raise ValueError("enabled must be a bool")
+        if (
+            type(self.hold_below_nav) not in (int, float)
+            or isinstance(self.hold_below_nav, bool)
+            or not math.isfinite(float(self.hold_below_nav))
+            or float(self.hold_below_nav) <= 0.0
+        ):
+            raise ValueError("hold_below_nav must be a finite positive number")
+        if type(self.require_cash_only) is not bool:
+            raise ValueError("require_cash_only must be a bool")
+        object.__setattr__(self, "hold_below_nav", float(self.hold_below_nav))
+
+
+DEFAULT_SMALL_ACCOUNT_HOLD_POLICY = SmallAccountRiskHoldPolicy(
+    enabled=True,
+    hold_below_nav=1000.0,
+    require_cash_only=True,
+)
+
+
+@dataclass(frozen=True)
 class RuntimeRiskLimits:
     """Explicit, immutable limits supplied by a verified runtime binding."""
 

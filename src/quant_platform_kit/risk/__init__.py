@@ -15,6 +15,8 @@ from quant_platform_kit.risk.contracts import (
     RiskGateResult,
     RiskSignal,
     RuntimeRiskLimits,
+    DEFAULT_SMALL_ACCOUNT_HOLD_POLICY,
+    SmallAccountRiskHoldPolicy,
 )
 from quant_platform_kit.risk.engine import (
     RiskEngine,
@@ -103,6 +105,8 @@ __all__ = [
     "RiskEngine",
     "RiskSignal",
     "RuntimeRiskLimits",
+    "DEFAULT_SMALL_ACCOUNT_HOLD_POLICY",
+    "SmallAccountRiskHoldPolicy",
     "aggregate_risk_signals",
     "assess_with_evidence",
     "apply_risk_gate",

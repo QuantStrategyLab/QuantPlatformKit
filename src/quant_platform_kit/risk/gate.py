@@ -24,9 +24,11 @@ from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.position_sizing import validate_reduce_only_normalization
 from quant_platform_kit.risk.contracts import (
     CandidateRiskIdentity,
+    DEFAULT_SMALL_ACCOUNT_HOLD_POLICY,
     RiskGateAssessment,
     RiskGateResult,
     RuntimeRiskLimits,
+    SmallAccountRiskHoldPolicy,
 )
 from quant_platform_kit.risk.engine import build_risk_engine
 from quant_platform_kit.common.strategy_contracts import (
@@ -181,6 +183,110 @@ def _canonical_numeric_mapping(
     return result
 
 
+def _normalized_weight_map(raw: Mapping[str, Any] | None) -> dict[str, float] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        return None
+    result: dict[str, float] = {}
+    for key, value in raw.items():
+        symbol = str(key or "").strip().upper()
+        number = _finite_number(value)
+        if not symbol or number is None or number < 0.0:
+            return None
+        if number > 0.0:
+            result[symbol] = float(number)
+    return result
+
+
+def _portfolio_current_weights(
+    portfolio_snapshot: Any,
+    *,
+    verified_nav: float | None,
+) -> dict[str, float] | None:
+    if portfolio_snapshot is None or verified_nav is None or verified_nav <= 0.0:
+        return None
+    positions = getattr(portfolio_snapshot, "positions", None)
+    if positions is None:
+        return None
+    weights: dict[str, float] = {}
+    try:
+        for position in positions:
+            symbol = str(getattr(position, "symbol", "") or "").strip().upper()
+            market_value = _finite_number(getattr(position, "market_value", None))
+            if not symbol or market_value is None or market_value <= 0.0:
+                continue
+            weights[symbol] = weights.get(symbol, 0.0) + float(market_value) / verified_nav
+    except TypeError:
+        return None
+    return weights
+
+
+def _resolve_small_account_hold_policy(
+    hold_policy: SmallAccountRiskHoldPolicy | None,
+) -> SmallAccountRiskHoldPolicy:
+    """Default-enable hold for RRL paths; explicit policy (incl. disabled) wins."""
+    if hold_policy is None:
+        return DEFAULT_SMALL_ACCOUNT_HOLD_POLICY
+    return hold_policy
+
+
+def _small_account_hold_allows_overrun(
+    *,
+    limits: RuntimeRiskLimits,
+    target_weights: list[tuple[PositionTarget, float]],
+    overrun_codes: tuple[str, ...],
+    hold_policy: SmallAccountRiskHoldPolicy | None,
+    verified_nav: float | None,
+    current_weights: Mapping[str, float] | None,
+    cash_only_execution: bool | None,
+) -> bool:
+    hold_policy = _resolve_small_account_hold_policy(hold_policy)
+    if type(hold_policy) is not SmallAccountRiskHoldPolicy or not hold_policy.enabled:
+        return False
+    if verified_nav is None or not math.isfinite(verified_nav) or verified_nav <= 0.0:
+        return False
+    if verified_nav >= hold_policy.hold_below_nav:
+        return False
+    if hold_policy.require_cash_only and cash_only_execution is not True:
+        return False
+    current = _normalized_weight_map(current_weights)
+    if current is None:
+        return False
+
+    target_by_symbol = {position.symbol: float(weight) for position, weight in target_weights}
+    for position, weight in target_weights:
+        factor = limits.product_leverage_factors.get(position.symbol)
+        nominal_cap = limits.nominal_caps.get(position.symbol)
+        if factor is None or nominal_cap is None:
+            return False
+        if weight > nominal_cap + 1e-9:
+            if weight > current.get(position.symbol, 0.0) + 1e-9:
+                return False
+
+    target_nominal = sum(target_by_symbol.values())
+    target_effective = sum(
+        weight * float(limits.product_leverage_factors[symbol])
+        for symbol, weight in target_by_symbol.items()
+    )
+    current_nominal = sum(current.values())
+    current_effective = 0.0
+    for symbol, weight in current.items():
+        factor = limits.product_leverage_factors.get(symbol)
+        if factor is None:
+            # Unknown leverage on an existing book cannot prove non-worsening.
+            return False
+        current_effective += weight * float(factor)
+
+    if "total_nominal_cap_exceeded" in overrun_codes and target_nominal > current_nominal + 1e-9:
+        return False
+    if "total_effective_cap_exceeded" in overrun_codes and target_effective > current_effective + 1e-9:
+        return False
+    if not overrun_codes:
+        return False
+    return True
+
+
 def _runtime_risk_limits_rejection(
     limits: RuntimeRiskLimits,
     *,
@@ -188,6 +294,11 @@ def _runtime_risk_limits_rejection(
     budgets: tuple[BudgetIntent, ...],
     weights: list[tuple[PositionTarget, float]],
     value_target_exposure_enforced: bool,
+    hold_policy: SmallAccountRiskHoldPolicy | None = None,
+    verified_nav: float | None = None,
+    current_weights: Mapping[str, float] | None = None,
+    cash_only_execution: bool | None = None,
+    hold_diagnostics: dict[str, Any] | None = None,
 ) -> tuple[str, str] | None:
     """Return a fail-closed finding for an explicit runtime limit set."""
     if type(limits) is not RuntimeRiskLimits:
@@ -221,21 +332,41 @@ def _runtime_risk_limits_rejection(
 
     nominal_total = 0.0
     effective_total = 0.0
+    overrun_codes: list[str] = []
     for position, weight in weights:
         factor = limits.product_leverage_factors.get(position.symbol)
         nominal_cap = limits.nominal_caps.get(position.symbol)
         if factor is None or nominal_cap is None:
             return ("rejected:runtime_risk_limits", "asset_limit_missing")
         if weight > nominal_cap:
-            return ("rejected:runtime_risk_limits", "nominal_cap_exceeded")
+            overrun_codes.append("nominal_cap_exceeded")
         nominal_total += weight
         effective_total += weight * factor
     if nominal_total > limits.total_nominal_exposure_cap + 1e-9:
-        return ("rejected:runtime_risk_limits", "total_nominal_cap_exceeded")
+        overrun_codes.append("total_nominal_cap_exceeded")
     if effective_total > limits.total_effective_exposure_cap + 1e-9:
-        return ("rejected:runtime_risk_limits", "total_effective_cap_exceeded")
-    return None
+        overrun_codes.append("total_effective_cap_exceeded")
+    if not overrun_codes:
+        return None
 
+    primary = overrun_codes[0]
+    if _small_account_hold_allows_overrun(
+        limits=limits,
+        target_weights=weights,
+        overrun_codes=tuple(dict.fromkeys(overrun_codes)),
+        hold_policy=hold_policy,
+        verified_nav=verified_nav,
+        current_weights=current_weights,
+        cash_only_execution=cash_only_execution,
+    ):
+        if hold_diagnostics is not None:
+            hold_diagnostics["runtime_risk_small_account_hold"] = True
+            hold_diagnostics["runtime_risk_small_account_hold_overruns"] = tuple(
+                dict.fromkeys(overrun_codes)
+            )
+            hold_diagnostics["runtime_risk_small_account_hold_nav"] = float(verified_nav or 0.0)
+        return None
+    return ("rejected:runtime_risk_limits", primary)
 
 def _canonical_cap_material(
     value: Any,
@@ -2196,6 +2327,9 @@ def _apply_risk_gate_static(
     capital_base: CapitalBaseSnapshot | Mapping[str, Any] | None,
     capital_base_binding: CapitalBaseBinding | Mapping[str, Any] | None,
     runtime_risk_limits: RuntimeRiskLimits | None,
+    small_account_hold_policy: SmallAccountRiskHoldPolicy | None,
+    current_portfolio_weights: Mapping[str, float] | None,
+    cash_only_execution: bool | None,
     now: datetime,
     engine_action: Any,
     engine_failed: bool,
@@ -2449,16 +2583,40 @@ def _apply_risk_gate_static(
                 weights.append((position, weight))
 
     if static_rejection is None and runtime_risk_limits is not None:
+        hold_diagnostics: dict[str, Any] = {}
+        verified_nav = None
+        if isinstance(capital_base, CapitalBaseSnapshot):
+            try:
+                verified_nav = float(capital_base.target_equity)
+            except (TypeError, ValueError, AttributeError):
+                verified_nav = None
+        elif isinstance(capital_base, Mapping):
+            verified_nav = _finite_number(capital_base.get("reported_equity"))
+            fx = _finite_number(capital_base.get("fx_rate_to_target"))
+            if verified_nav is not None and fx is not None:
+                verified_nav = verified_nav * fx
+        resolved_current_weights = _normalized_weight_map(current_portfolio_weights)
+        if resolved_current_weights is None:
+            resolved_current_weights = _portfolio_current_weights(
+                portfolio_snapshot,
+                verified_nav=verified_nav,
+            )
         runtime_rejection = _runtime_risk_limits_rejection(
             runtime_risk_limits,
             positions=positions,
             budgets=raw_budgets,
             weights=weights,
             value_target_exposure_enforced=value_target_exposure_enforced,
+            hold_policy=small_account_hold_policy,
+            verified_nav=verified_nav,
+            current_weights=resolved_current_weights,
+            cash_only_execution=cash_only_execution,
+            hold_diagnostics=hold_diagnostics,
         )
         if runtime_rejection is not None:
             static_rejection = runtime_rejection
-
+        elif hold_diagnostics:
+            diagnostics.update(hold_diagnostics)
     if (
         static_rejection is None
         and positions
@@ -2613,6 +2771,9 @@ def apply_risk_gate(
     capital_base: CapitalBaseSnapshot | Mapping[str, Any] | None = None,
     capital_base_binding: CapitalBaseBinding | Mapping[str, Any] | None = None,
     runtime_risk_limits: RuntimeRiskLimits | None = None,
+    small_account_hold_policy: SmallAccountRiskHoldPolicy | None = None,
+    current_portfolio_weights: Mapping[str, float] | None = None,
+    cash_only_execution: bool | None = None,
 ) -> StrategyDecision:
     """Apply hard checks and call RiskEngine.assess exactly once.
 
@@ -2649,6 +2810,9 @@ def apply_risk_gate(
             capital_base=capital_base,
             capital_base_binding=capital_base_binding,
             runtime_risk_limits=runtime_risk_limits,
+            small_account_hold_policy=small_account_hold_policy,
+            current_portfolio_weights=current_portfolio_weights,
+            cash_only_execution=cash_only_execution,
             now=now,
             engine_action=engine_action,
             engine_failed=engine_failed,
