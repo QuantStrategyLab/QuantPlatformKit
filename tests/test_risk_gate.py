@@ -23,6 +23,7 @@ from quant_platform_kit.risk.contracts import (
     RiskAction,
     RiskSignal,
     RuntimeRiskLimits,
+    SmallAccountRiskHoldPolicy,
 )
 from quant_platform_kit.risk.engine import RiskEngine
 from quant_platform_kit.risk.gate import (
@@ -359,6 +360,70 @@ class ApplyRiskGateTests(unittest.TestCase):
 
         self.assertEqual(result.positions, ())
         self.assertEqual(result.risk_flags, ("rejected:too_many_positions",))
+
+    def test_small_account_hold_allows_non_worsening_overrun(self) -> None:
+        hold = SmallAccountRiskHoldPolicy(
+            enabled=True,
+            hold_below_nav=1000.0,
+            require_cash_only=True,
+        )
+        result = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SOXL", target_weight=0.90),)),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            portfolio_snapshot=_portfolio_snapshot(),
+            capital_base=_capital_base(reported_equity=472.0),
+            capital_base_binding=_capital_base_binding(),
+            runtime_risk_limits=self._runtime_limits(),
+            small_account_hold_policy=hold,
+            current_portfolio_weights={"SOXL": 0.90},
+            cash_only_execution=True,
+        )
+        self.assertIn("risk_gate:passed", result.risk_flags)
+        self.assertTrue(result.diagnostics.get("runtime_risk_small_account_hold"))
+        self.assertEqual(len(result.positions), 1)
+
+    def test_small_account_hold_rejects_worsening_overrun(self) -> None:
+        hold = SmallAccountRiskHoldPolicy(
+            enabled=True,
+            hold_below_nav=1000.0,
+            require_cash_only=True,
+        )
+        result = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SOXL", target_weight=0.95),)),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            portfolio_snapshot=_portfolio_snapshot(),
+            capital_base=_capital_base(reported_equity=472.0),
+            capital_base_binding=_capital_base_binding(),
+            runtime_risk_limits=self._runtime_limits(),
+            small_account_hold_policy=hold,
+            current_portfolio_weights={"SOXL": 0.90},
+            cash_only_execution=True,
+        )
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:runtime_risk_limits",))
+
+    def test_small_account_hold_disabled_for_large_nav(self) -> None:
+        hold = SmallAccountRiskHoldPolicy(
+            enabled=True,
+            hold_below_nav=1000.0,
+            require_cash_only=True,
+        )
+        result = apply_risk_gate(
+            _decision(positions=(PositionTarget(symbol="SOXL", target_weight=0.90),)),
+            max_single_weight=1.0,
+            max_total_exposure=1.0,
+            portfolio_snapshot=_portfolio_snapshot(),
+            capital_base=_capital_base(reported_equity=50_000.0),
+            capital_base_binding=_capital_base_binding(),
+            runtime_risk_limits=self._runtime_limits(),
+            small_account_hold_policy=hold,
+            current_portfolio_weights={"SOXL": 0.90},
+            cash_only_execution=True,
+        )
+        self.assertEqual(result.positions, ())
+        self.assertEqual(result.risk_flags, ("rejected:runtime_risk_limits",))
 
     def test_explicit_runtime_limits_reject_uncovered_budget_symbol(self) -> None:
         result = apply_risk_gate(
