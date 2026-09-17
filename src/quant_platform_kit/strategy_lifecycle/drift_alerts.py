@@ -1,36 +1,41 @@
-"""Drift alert signal builder — integrates with existing notification channels."""
+"""Drift alert signal builder — Telegram via real send path + attention keys."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import os
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Sequence
+from typing import Any
 
+from quant_platform_kit.risk.attention import (
+    AttentionAxes,
+    AttentionDecision,
+    AttentionLevel,
+    attention_level_from_drift_status,
+    attention_transition_key,
+    evaluate_attention,
+    render_attention_compact,
+)
 from quant_platform_kit.strategy_lifecycle.contracts import DriftResult, DriftStatus
 from quant_platform_kit.strategy_lifecycle.drift_policy import DriftPolicy
+
+_PAGEABLE = frozenset({DriftStatus.REVIEW, DriftStatus.CRITICAL})
 
 
 @dataclass(frozen=True)
 class DriftAlertEvent:
-    """A drift alert ready for dispatch through notification channels."""
-
     strategy_profile: str
     domain: str
     as_of: date
     drift_score: float
     status: DriftStatus
     escalated: bool
-
-    # Alert content
     subject: str
     body: str
-
-    # Metadata for dedup and routing
     alert_key: str
     channels: tuple[str, ...]
-    severity: str  # info, warning, critical
-
+    severity: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -39,84 +44,50 @@ def build_drift_alert(
     *,
     policy: DriftPolicy | None = None,
     previous_alerts_sent: int = 0,
+    locale: object | None = None,
+    platform: str | None = None,
+    account_alias: str | None = None,
 ) -> DriftAlertEvent | None:
-    """Build a drift alert event from a DriftResult.
+    """Build a pageable drift alert. WATCH/HEALTHY return None (no Telegram page)."""
 
-    Returns None if the drift status is HEALTHY or if the alert should be suppressed
-    (e.g., cooldown active, weekly limit reached).
-
-    Args:
-        drift: The drift analysis result.
-        policy: Drift policy for cooldown/limit checks.
-        previous_alerts_sent: Count of alerts already sent for this strategy this week.
-
-    Returns:
-        DriftAlertEvent if an alert should be sent, None otherwise.
-    """
     policy = policy or DriftPolicy.load_default()
-
     if drift.as_of is None or drift.status == DriftStatus.HEALTHY:
         return None
-
+    if drift.status not in _PAGEABLE:
+        return None
     if drift.alert_suppressed:
         return None
-
     if previous_alerts_sent >= policy.max_alerts_per_strategy_per_week:
         return None
 
-    # Determine severity
-    severity_map = {
-        DriftStatus.WATCH: "info",
-        DriftStatus.REVIEW: "warning",
-        DriftStatus.CRITICAL: "critical",
-    }
-    severity = severity_map.get(drift.status, "info")
-
-    # Build subject
-    status_labels = {
-        DriftStatus.WATCH: "⚠️ WATCH",
-        DriftStatus.REVIEW: "🔴 REVIEW",
-        DriftStatus.CRITICAL: "🚨 CRITICAL",
-    }
-    label = status_labels.get(drift.status, "UNKNOWN")
-    escalated_tag = " [ESCALATED]" if drift.escalated else ""
-    subject = f"[{drift.domain}] {label}{escalated_tag}: {drift.strategy_profile} — drift={drift.drift_score:.2f}"
-
-    # Build body
-    lines = [
-        "Strategy Lifecycle Drift Alert",
-        "",
-        f"Strategy: {drift.strategy_profile}",
-        f"Domain: {drift.domain}",
-        f"As-of: {drift.as_of}",
-        f"Drift Score: {drift.drift_score:.3f}",
-        f"Status: {drift.status.value.upper()}",
-        f"Escalated: {'Yes' if drift.escalated else 'No'}",
-        "",
-        "Breached Dimensions:",
-    ]
-
-    breached = drift.breached_dimensions
-    if breached:
-        for dim in breached:
-            lines.append(
-                f"  - {dim.metric_name}: actual={dim.actual:.4f}, "
-                f"expected={dim.expected:.4f}, "
-                f"deviation={dim.deviation_pct:.1%} (threshold: {dim.threshold:.1%})"
-            )
-    else:
-        lines.append("  (no individual dimensions breached — composite score triggered)")
-
-    lines.extend(
-        [
-            "",
-            "Action required:",
-            _action_for_status(drift.status),
-        ]
+    attention = evaluate_attention(
+        AttentionAxes(drift_status=drift.status.value)
+    )
+    platform_id = str(platform or drift.domain or "platform").strip() or "platform"
+    account = str(account_alias or "-").strip() or "-"
+    primary_reason = attention.reason_codes[0] if attention.reason_codes else f"drift_{drift.status.value}"
+    alert_key = attention_transition_key(
+        platform=platform_id,
+        account_alias=account,
+        strategy_profile=drift.strategy_profile,
+        level=attention.level,
+        primary_reason=primary_reason,
     )
 
-    # Build dedup key
-    alert_key = f"drift/{drift.domain}/{drift.strategy_profile}/{drift.as_of.isoformat()}/{drift.status.value}"
+    severity = "critical" if drift.status == DriftStatus.CRITICAL else "warning"
+    label = "🚨 CRITICAL" if drift.status == DriftStatus.CRITICAL else "🔴 REVIEW"
+    escalated_tag = " [ESCALATED]" if drift.escalated else ""
+    subject = (
+        f"[{drift.domain}] {label}{escalated_tag}: "
+        f"{drift.strategy_profile} — drift={drift.drift_score:.2f}"
+    )
+    body = render_attention_compact(
+        locale=locale,
+        platform=platform_id,
+        account_alias=account,
+        strategy_profile=drift.strategy_profile,
+        decision=attention,
+    )
 
     return DriftAlertEvent(
         strategy_profile=drift.strategy_profile,
@@ -126,15 +97,15 @@ def build_drift_alert(
         status=drift.status,
         escalated=drift.escalated,
         subject=subject,
-        body="\n".join(lines),
+        body=body,
         alert_key=alert_key,
         channels=policy.notification_channels,
         severity=severity,
         metadata={
             "alert_type": "drift",
+            "attention_level": attention.level.value,
+            "reason_codes": list(attention.reason_codes),
             "drift_score": drift.drift_score,
-            "breached_count": len(breached),
-            "dimensions": {k: v.to_dict() for k, v in drift.dimensions.items()},
         },
     )
 
@@ -143,98 +114,104 @@ def publish_drift_alerts(
     events: Sequence[DriftAlertEvent],
     *,
     dry_run: bool = False,
+    telegram_sender: Callable[..., bool] | None = None,
+    already_sent_keys: Sequence[str] | None = None,
+    record_sent_key: Callable[[str], Any] | None = None,
+    log_message: Callable[..., Any] = print,
 ) -> dict[str, int]:
-    """Publish drift alerts through configured notification channels.
+    """Publish pageable drift alerts. Returns counts: sent/skipped/failed.
 
-    Integrates with QuantPlatformKit notification system (telegram, email, etc.).
-
-    Args:
-        events: Alert events to publish.
-        dry_run: If True, log but don't actually send.
-
-    Returns:
-        Dict of channel → count of alerts published.
+    Compatible with lifecycle CLI ``sum(counts.values())``.
     """
-    counts: dict[str, int] = {}
+
+    counts = {"sent": 0, "skipped": 0, "failed": 0}
+    seen = {str(key) for key in (already_sent_keys or ())}
 
     for event in events:
-        for channel in event.channels:
-            try:
-                if not dry_run:
-                    _dispatch_to_channel(event, channel)
-                counts[channel] = counts.get(channel, 0) + 1
-            except Exception:
-                # Don't let one failed channel block others
-                pass
+        if "telegram" not in event.channels:
+            _log(log_message, f"drift_alert_skipped_no_telegram_channel key={event.alert_key}")
+            counts["skipped"] += 1
+            continue
+        if event.alert_key in seen:
+            counts["skipped"] += 1
+            continue
+        if dry_run:
+            _log(log_message, f"drift_alert_dry_run key={event.alert_key}")
+            counts["sent"] += 1
+            seen.add(event.alert_key)
+            if record_sent_key is not None:
+                record_sent_key(event.alert_key)
+            continue
 
+        sender = telegram_sender or _default_telegram_sender
+        try:
+            ok = bool(
+                sender(
+                    subject=event.subject,
+                    body=event.body,
+                    text=f"{event.subject}\n\n{event.body}",
+                    alert_key=event.alert_key,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log(
+                log_message,
+                f"drift_alert_send_failed key={event.alert_key} error={type(exc).__name__}",
+            )
+            counts["failed"] += 1
+            continue
+        if not ok:
+            _log(log_message, f"telegram_not_configured_or_send_false key={event.alert_key}")
+            # Missing config is skipped (observable), hard false from sender after config is failed.
+            # Default sender returns False only when unconfigured → skipped.
+            if telegram_sender is None:
+                counts["skipped"] += 1
+                _log(log_message, f"telegram_not_configured key={event.alert_key}")
+            else:
+                counts["failed"] += 1
+            continue
+        counts["sent"] += 1
+        seen.add(event.alert_key)
+        if record_sent_key is not None:
+            record_sent_key(event.alert_key)
     return counts
 
 
-def _dispatch_to_channel(event: DriftAlertEvent, channel: str) -> None:
-    """Dispatch a single alert event to a specific notification channel.
+def _default_telegram_sender(**kwargs: Any) -> bool:
+    from quant_platform_kit.notifications.telegram import send_telegram_message
 
-    Tries to use QuantPlatformKit notification adapters; falls back to printing.
-    """
-    # Try importing and using the platform notification system
-    try:
-        if channel == "telegram":
-            from quant_platform_kit.notifications.strategy_plugin_telegram import (
-                send_strategy_plugin_telegram_alert,
-            )
-            send_strategy_plugin_telegram_alert(
-                subject=event.subject,
-                body=event.body,
-                alert_key=event.alert_key,
-            )
-        elif channel == "email":
-            from quant_platform_kit.notifications.strategy_plugin_email import (
-                send_strategy_plugin_email_alert,
-            )
-            send_strategy_plugin_email_alert(
-                subject=event.subject,
-                body=event.body,
-                alert_key=event.alert_key,
-            )
-        elif channel == "push":
-            from quant_platform_kit.notifications.strategy_plugin_push import (
-                send_strategy_plugin_push_alert,
-            )
-            send_strategy_plugin_push_alert(
-                subject=event.subject,
-                body=event.body,
-                alert_key=event.alert_key,
-            )
-        elif channel == "webhook":
-            from quant_platform_kit.notifications.strategy_plugin_webhook import (
-                send_strategy_plugin_webhook_alert,
-            )
-            send_strategy_plugin_webhook_alert(
-                subject=event.subject,
-                body=event.body,
-                alert_key=event.alert_key,
-            )
-        else:
-            # Fallback: just print
-            print(f"[drift_alert][{channel}] {event.subject}")
-    except ImportError:
-        print(f"[drift_alert][{channel}] {event.subject}")
-
-
-def _action_for_status(status: DriftStatus) -> str:
-    if status == DriftStatus.CRITICAL:
-        return (
-            "CRITICAL: Review immediately. Consider pausing new risk additions, "
-            "reducing position size, or switching to defensive allocation. "
-            "The strategy may need parameter re-optimization or retirement review."
-        )
-    if status == DriftStatus.REVIEW:
-        return (
-            "REVIEW: Schedule a manual review within the next 1-2 trading days. "
-            "Compare live performance against backtest on multiple dimensions. "
-            "Consider triggering a parameter re-optimization run."
-        )
-    return (
-        "WATCH: Monitor for further deterioration. No immediate action required, "
-        "but track the trend over the next week. If drift persists or worsens, "
-        "escalate to REVIEW."
+    token = str(
+        os.environ.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN")
+        or os.environ.get("TELEGRAM_TOKEN")
+        or ""
+    ).strip()
+    chats = (
+        os.environ.get("QSL_GLOBAL_TELEGRAM_CHAT_ID")
+        or os.environ.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS")
+        or os.environ.get("GLOBAL_TELEGRAM_CHAT_ID")
+        or ""
     )
+    if not token or not str(chats).strip():
+        return False
+    text = str(kwargs.get("text") or "").strip()
+    if not text:
+        subject = str(kwargs.get("subject") or "").strip()
+        body = str(kwargs.get("body") or "").strip()
+        text = f"{subject}\n\n{body}".strip()
+    if not text:
+        return False
+    return bool(
+        send_telegram_message(
+            bot_token=token,
+            chat_ids=chats,
+            text=text,
+            parse_mode=None,
+        )
+    )
+
+
+def _log(log_message: Callable[..., Any], line: str) -> None:
+    try:
+        log_message(line)
+    except TypeError:
+        log_message(line, flush=True)
