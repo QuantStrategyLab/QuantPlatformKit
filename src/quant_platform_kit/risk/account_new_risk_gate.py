@@ -33,6 +33,7 @@ import math
 from typing import Protocol
 
 from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
+from quant_platform_kit.risk.contracts import RuntimeRiskLimits
 from quant_platform_kit.risk.production_drift_new_risk import (
     production_drift_new_risk_reasons,
 )
@@ -73,6 +74,7 @@ class InjectedReconciliationSnapshot:
     drawdown_from_peak: float | None = None
     realized_vol: float | None = None
     production_drift_status: str | None = None
+    daily_loss_usd: float | None = None
 
 
 class ReconciliationSnapshotReader(Protocol):
@@ -174,8 +176,34 @@ def _evaluate_capital_axis(
     return reasons, envelope.combined_scale
 
 
+def _evaluate_daily_loss_axis(
+    snapshot: InjectedReconciliationSnapshot,
+    runtime_risk_limits: RuntimeRiskLimits | None,
+) -> list[str]:
+    """Omit an unconfigured axis; otherwise require a finite nonnegative fact."""
+    if runtime_risk_limits is None:
+        return []
+    if not isinstance(runtime_risk_limits, RuntimeRiskLimits):
+        raise AccountNewRiskGateError("runtime_risk_limits must be RuntimeRiskLimits")
+    limit = runtime_risk_limits.max_daily_loss_usd
+    if limit is None:
+        return []
+
+    daily_loss = snapshot.daily_loss_usd
+    if (
+        type(daily_loss) not in (int, float)
+        or not math.isfinite(float(daily_loss))
+        or float(daily_loss) < 0.0
+    ):
+        return ["DAILY_LOSS_UNKNOWN_FAIL_CLOSED"]
+    if float(daily_loss) >= float(limit):
+        return ["DAILY_LOSS_LIMIT_EXCEEDED"]
+    return []
+
+
 def evaluate_new_risk_admission(
     snapshot: InjectedReconciliationSnapshot,
+    runtime_risk_limits: RuntimeRiskLimits | None = None,
 ) -> NewRiskAdmissionResult:
     """Map unhealthy injected snapshots / capital envelope / actionable
     production drift to ``NEW_RISK_PROHIBITED``.
@@ -196,6 +224,7 @@ def evaluate_new_risk_admission(
         reasons.append("CIRCUIT_BREAKER_OPEN")
     capital_reasons, combined_scale = _evaluate_capital_axis(validated)
     reasons.extend(capital_reasons)
+    reasons.extend(_evaluate_daily_loss_axis(validated, runtime_risk_limits))
     reasons.extend(production_drift_new_risk_reasons(validated.production_drift_status))
     if reasons:
         return NewRiskAdmissionResult(
@@ -212,6 +241,7 @@ def evaluate_new_risk_admission(
 
 def evaluate_new_risk_from_reader(
     reader: ReconciliationSnapshotReader,
+    runtime_risk_limits: RuntimeRiskLimits | None = None,
 ) -> NewRiskAdmissionResult:
     """Read via injected adapter; any reader/validation failure ⇒ prohibited."""
     try:
@@ -222,7 +252,7 @@ def evaluate_new_risk_from_reader(
         raise AccountNewRiskGateError(
             f"reconciliation snapshot reader failed: {type(exc).__name__}"
         ) from exc
-    return evaluate_new_risk_admission(snapshot)
+    return evaluate_new_risk_admission(snapshot, runtime_risk_limits)
 
 
 __all__ = [
