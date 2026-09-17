@@ -74,6 +74,17 @@ class ExecutionReceiptTest(unittest.TestCase):
         receipt = _receipt(outcome="failed", broker_confirmation="not_observed")
         self.assertEqual(receipt["broker_confirmation"], "not_observed")
 
+    def test_accepts_no_signal_and_no_rebalance_with_default_confirmation(self) -> None:
+        for outcome in ("no_signal", "no_rebalance"):
+            with self.subTest(outcome=outcome):
+                receipt = _receipt(outcome=outcome)
+                self.assertEqual(receipt["outcome"], outcome)
+                self.assertEqual(receipt["broker_confirmation"], "not_applicable")
+                self.assertEqual(validate_execution_receipt(receipt), receipt)
+
+                with self.assertRaisesRegex(ValueError, "broker_confirmation"):
+                    _receipt(outcome=outcome, broker_confirmation="filled")
+
     def test_rejects_tampered_or_inconsistent_receipts(self) -> None:
         receipt = _receipt()
         tampered = copy.deepcopy(receipt)
