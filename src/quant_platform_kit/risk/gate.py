@@ -24,6 +24,7 @@ from quant_platform_kit.common.models import PortfolioSnapshot
 from quant_platform_kit.position_sizing import validate_reduce_only_normalization
 from quant_platform_kit.risk.contracts import (
     CandidateRiskIdentity,
+    DEFAULT_SMALL_ACCOUNT_HOLD_POLICY,
     RiskGateAssessment,
     RiskGateResult,
     RuntimeRiskLimits,
@@ -221,6 +222,15 @@ def _portfolio_current_weights(
     return weights
 
 
+def _resolve_small_account_hold_policy(
+    hold_policy: SmallAccountRiskHoldPolicy | None,
+) -> SmallAccountRiskHoldPolicy:
+    """Default-enable hold for RRL paths; explicit policy (incl. disabled) wins."""
+    if hold_policy is None:
+        return DEFAULT_SMALL_ACCOUNT_HOLD_POLICY
+    return hold_policy
+
+
 def _small_account_hold_allows_overrun(
     *,
     limits: RuntimeRiskLimits,
@@ -231,6 +241,7 @@ def _small_account_hold_allows_overrun(
     current_weights: Mapping[str, float] | None,
     cash_only_execution: bool | None,
 ) -> bool:
+    hold_policy = _resolve_small_account_hold_policy(hold_policy)
     if type(hold_policy) is not SmallAccountRiskHoldPolicy or not hold_policy.enabled:
         return False
     if verified_nav is None or not math.isfinite(verified_nav) or verified_nav <= 0.0:
