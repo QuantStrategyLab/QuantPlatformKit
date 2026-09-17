@@ -23,6 +23,8 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "caller_pr_head_repository:" in workflow
     assert "lifecycle_preflight_artifact:" in workflow
     assert "strategy_profile:" in workflow
+    assert "live_stream_id:" in workflow
+    assert "LIFECYCLE_LIVE_STREAM_ID: ${{ inputs.live_stream_id }}" in workflow
     assert "codex_audit_service_url:" in workflow
     assert 'python-version: ${{ inputs.python_version }}' in workflow
     assert "LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}" in workflow
@@ -36,6 +38,8 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "SNAPSHOT_REPOSITORY_TOKEN:" not in workflow
     assert "LIFECYCLE_STRATEGY_PROFILE: ${{ inputs.strategy_profile }}" in workflow
     assert 'lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")' in workflow
+    assert 'lifecycle_args+=(--live-stream-id "${LIFECYCLE_LIVE_STREAM_ID}")' in workflow
+    assert "not paper/live account PnL" in workflow
     assert 'quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} "${lifecycle_args[@]}"' in workflow
     assert 'quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7 "${lifecycle_args[@]}"' in workflow
     assert 'quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts "${lifecycle_args[@]}"' in workflow

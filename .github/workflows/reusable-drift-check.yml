@@ -62,6 +62,14 @@ on:
         required: false
         type: string
         default: ""
+      live_stream_id:
+        description: >-
+          Optional PerformanceStore live_runs stream id for monitor. When empty,
+          monitor uses preflight/research return CSVs only (not paper/live account
+          PnL). Set only for a verified account-bound stream.
+        required: false
+        type: string
+        default: ""
     secrets:
       codex_audit_service_url:
         required: false
@@ -86,6 +94,7 @@ jobs:
       LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}
       LIFECYCLE_LOCAL_ROOT: ${{ github.workspace }}/data/lifecycle_store
       LIFECYCLE_STRATEGY_PROFILE: ${{ inputs.strategy_profile }}
+      LIFECYCLE_LIVE_STREAM_ID: ${{ inputs.live_stream_id }}
 
     steps:
       - name: Validate trusted caller
@@ -258,9 +267,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Without LIFECYCLE_LIVE_STREAM_ID, monitor reads preflight/research
+          # portfolio_and_tracker_returns.csv proxies — not paper/live account PnL.
           lifecycle_args=()
           if [ -n "${LIFECYCLE_STRATEGY_PROFILE:-}" ]; then
             lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")
+          fi
+          if [ -n "${LIFECYCLE_LIVE_STREAM_ID:-}" ]; then
+            lifecycle_args+=(--live-stream-id "${LIFECYCLE_LIVE_STREAM_ID}")
           fi
           quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} "${lifecycle_args[@]}"
 
