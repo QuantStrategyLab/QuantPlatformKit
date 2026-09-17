@@ -196,7 +196,7 @@ def _normalized_weight_map(raw: Mapping[str, Any] | None) -> dict[str, float] | 
             return None
         if number > 0.0:
             result[symbol] = float(number)
-    return result
+    return result or None
 
 
 def _portfolio_current_weights(
@@ -219,7 +219,7 @@ def _portfolio_current_weights(
             weights[symbol] = weights.get(symbol, 0.0) + float(market_value) / verified_nav
     except TypeError:
         return None
-    return weights
+    return weights or None
 
 
 def _resolve_small_account_hold_policy(
