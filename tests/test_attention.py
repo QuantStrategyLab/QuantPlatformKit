@@ -87,8 +87,37 @@ class AttentionEvaluationTest(unittest.TestCase):
             decision=decision,
         )
         self.assertIn("已禁止新增风险", text)
+        self.assertIn("原因：已禁止新增风险", text)
+        self.assertNotIn("new_risk_prohibited", text)
         self.assertIn("下一步", text)
         self.assertIn("管理站", text)
+        self.assertIn("确认意图不等于放行实盘", text)
+        self.assertNotIn("accept", text)
+
+    def test_compact_localizes_drift_critical_reason_zh_and_en(self) -> None:
+        decision = evaluate_attention(
+            AttentionAxes(new_risk_prohibited=True, production_drift_status="critical")
+        )
+        zh = render_attention_compact(
+            locale="zh",
+            platform="schwab",
+            account_alias="00682",
+            strategy_profile="soxl_soxx_trend_income",
+            decision=decision,
+        )
+        en = render_attention_compact(
+            locale="en",
+            platform="schwab",
+            account_alias="00682",
+            strategy_profile="soxl_soxx_trend_income",
+            decision=decision,
+        )
+        self.assertIn("原因：生产偏离严重（CRITICAL）", zh)
+        self.assertIn("打开管理站处理恢复", zh)
+        self.assertNotIn("accept ≠ live", zh)
+        self.assertIn("Reason: production drift critical", en)
+        self.assertIn("recovery / reset", en)
+        self.assertNotIn("accept ≠ live", en)
 
     def test_resolve_mandate_dd_budget_for_leveraged_profiles(self) -> None:
         from quant_platform_kit.risk.attention import resolve_mandate_dd_budget

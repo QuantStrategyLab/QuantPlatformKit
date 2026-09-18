@@ -183,6 +183,7 @@ def render_attention_compact(
     """Four-line operator message: identity / result / reason / next step."""
 
     from quant_platform_kit.common.operational_notification_localization import (
+        localize_attention_reason_code,
         operational_notification_text,
         resolve_operational_notification_locale,
     )
@@ -205,7 +206,11 @@ def render_attention_compact(
     )
     result_key = _result_text_key(level, decision.reason_codes)
     result = operational_notification_text(lang, result_key)
-    reason_line = operational_notification_text(lang, "attention_reason", code=reason)
+    reason_line = operational_notification_text(
+        lang,
+        "attention_reason",
+        code=localize_attention_reason_code(lang, reason),
+    )
     next_step = operational_notification_text(lang, f"attention_next_{decision.next_step_key}")
     return f"{emoji} {title}\n{result}\n{reason_line}\n{next_step}"
 
