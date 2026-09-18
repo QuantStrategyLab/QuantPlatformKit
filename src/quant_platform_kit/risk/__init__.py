@@ -95,8 +95,10 @@ from quant_platform_kit.risk.attention import (
     evaluate_attention,
     format_attention_compact_message,
     render_attention_compact,
+    resolve_mandate_dd_budget,
     should_notify_attention_transition,
 )
+from quant_platform_kit.risk.attention_notify import publish_attention_telegram_transition
 from quant_platform_kit.risk.synthetic_combo_evidence import (
     DEFAULT_CORRELATED_GROUP_CAP,
     DEFAULT_CORRELATION_THRESHOLD,
@@ -182,5 +184,7 @@ __all__ = [
     "evaluate_attention",
     "format_attention_compact_message",
     "render_attention_compact",
+    "resolve_mandate_dd_budget",
     "should_notify_attention_transition",
+    "publish_attention_telegram_transition",
 ]

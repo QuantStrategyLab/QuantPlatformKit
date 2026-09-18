@@ -90,6 +90,53 @@ class AttentionEvaluationTest(unittest.TestCase):
         self.assertIn("下一步", text)
         self.assertIn("管理站", text)
 
+    def test_resolve_mandate_dd_budget_for_leveraged_profiles(self) -> None:
+        from quant_platform_kit.risk.attention import resolve_mandate_dd_budget
+
+        self.assertEqual(resolve_mandate_dd_budget("soxl_soxx_trend_income"), 0.35)
+        self.assertEqual(resolve_mandate_dd_budget("tqqq_growth_income"), 0.35)
+        self.assertIsNone(resolve_mandate_dd_budget("unknown_profile"))
+        self.assertEqual(
+            resolve_mandate_dd_budget("soxl_soxx_trend_income", override=0.40),
+            0.40,
+        )
+        self.assertEqual(
+            resolve_mandate_dd_budget(
+                "other",
+                environ={"QSL_MANDATE_DD_BUDGET": "0.25"},
+            ),
+            0.25,
+        )
+
+    def test_publish_attention_transition_dedups(self) -> None:
+        from quant_platform_kit.risk.attention_notify import publish_attention_telegram_transition
+
+        decision = evaluate_attention(AttentionAxes(new_risk_prohibited=True))
+        sent: list[str] = []
+        recorded: list[str] = []
+        counts = publish_attention_telegram_transition(
+            decision=decision,
+            platform="schwab",
+            account_alias="00682",
+            strategy_profile="soxl_soxx_trend_income",
+            locale="zh",
+            telegram_sender=lambda **kwargs: sent.append(str(kwargs.get("text") or "")) or True,
+            record_sent_key=recorded.append,
+        )
+        self.assertEqual(counts["sent"], 1)
+        self.assertEqual(len(sent), 1)
+        counts2 = publish_attention_telegram_transition(
+            decision=decision,
+            platform="schwab",
+            account_alias="00682",
+            strategy_profile="soxl_soxx_trend_income",
+            already_sent_keys=recorded,
+            telegram_sender=lambda **kwargs: sent.append(str(kwargs.get("text") or "")) or True,
+            record_sent_key=recorded.append,
+        )
+        self.assertEqual(counts2["skipped"], 1)
+        self.assertEqual(len(sent), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
