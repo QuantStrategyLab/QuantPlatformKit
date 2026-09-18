@@ -276,7 +276,7 @@ jobs:
           if [ -n "${LIFECYCLE_LIVE_STREAM_ID:-}" ]; then
             lifecycle_args+=(--live-stream-id "${LIFECYCLE_LIVE_STREAM_ID}")
           fi
-          quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} "${lifecycle_args[@]}"
+          quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} --source-revision "${GITHUB_SHA}" "${lifecycle_args[@]}"
 
       - name: Validate lifecycle prerequisites
         shell: bash
