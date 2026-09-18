@@ -40,7 +40,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")' in workflow
     assert 'lifecycle_args+=(--live-stream-id "${LIFECYCLE_LIVE_STREAM_ID}")' in workflow
     assert "not paper/live account PnL" in workflow
-    assert 'quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} "${lifecycle_args[@]}"' in workflow
+    assert 'quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} --source-revision "${GITHUB_SHA}" "${lifecycle_args[@]}"' in workflow
     assert 'quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7 "${lifecycle_args[@]}"' in workflow
     assert 'quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts "${lifecycle_args[@]}"' in workflow
     assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
