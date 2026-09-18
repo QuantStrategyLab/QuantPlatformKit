@@ -69,6 +69,7 @@ from quant_platform_kit.risk.capital_risk_envelope import (
     DEFAULT_TARGET_VOL_ANNUAL,
     CapitalRiskEnvelope,
     LeverageProductCap,
+    apply_combined_scale_to_targets,
     apply_envelope_to_sized_weight,
     evaluate_capital_risk_envelope,
 )
@@ -152,6 +153,7 @@ __all__ = [
     "CapitalRiskEnvelope",
     "LeverageProductCap",
     "apply_envelope_to_sized_weight",
+    "apply_combined_scale_to_targets",
     "evaluate_capital_risk_envelope",
     "ReconciliationEquitySummary",
     "build_injected_snapshot_from_equity_summary",

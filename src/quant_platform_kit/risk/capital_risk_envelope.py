@@ -389,12 +389,56 @@ def apply_envelope_to_sized_weight(
     return min(float(sized_weight), 1.0, out)
 
 
+def apply_combined_scale_to_targets(
+    targets: Mapping[str, Any] | None,
+    combined_scale: float | None,
+) -> dict[str, float]:
+    """Shrink target values/weights by ``combined_scale``; never invent risk.
+
+    Live wiring rule (distinct from ``apply_envelope_to_sized_weight``):
+    - ``combined_scale is None`` / non-finite / negative → **omit** (return a
+      copy of finite non-negative inputs unchanged). Do not fail-closed to zero.
+    - Valid scale → each value becomes ``min(original, original * clamp(scale,0,1))``.
+    - Unknown / negative input values are dropped (not promoted to targets).
+    """
+
+    raw = dict(targets or {})
+    try:
+        if combined_scale is None or isinstance(combined_scale, bool):
+            scale: float | None = None
+        else:
+            number = float(combined_scale)
+            scale = None if (not math.isfinite(number) or number < 0.0) else _clamp_unit(number)
+    except (TypeError, ValueError):
+        scale = None
+
+    out: dict[str, float] = {}
+    for key, value in raw.items():
+        symbol = str(key or "").strip()
+        if not symbol:
+            continue
+        try:
+            if isinstance(value, bool):
+                continue
+            amount = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(amount) or amount < 0.0:
+            continue
+        if scale is None:
+            out[symbol] = amount
+        else:
+            out[symbol] = min(amount, amount * scale)
+    return out
+
+
 __all__ = [
     "DEFAULT_TARGET_VOL_ANNUAL",
     "AccountCapitalEnvelopeSummary",
     "CapitalRiskEnvelope",
     "LeverageProductCap",
     "MultiAccountCapitalEnvelopeView",
+    "apply_combined_scale_to_targets",
     "apply_envelope_to_sized_weight",
     "evaluate_capital_risk_envelope",
     "evaluate_multi_account_envelope_view",
