@@ -11,6 +11,7 @@ from quant_platform_kit.common.strategy_contracts import PositionTarget, Strateg
 from quant_platform_kit.strategy_lifecycle.performance_monitor import (
     PerformanceMonitor,
     infer_strategy_domain,
+    resolve_monitor_source_revision,
     run_monitor,
     try_record_platform_execution,
 )
@@ -65,15 +66,57 @@ class PerformanceMonitorTests(unittest.TestCase):
     def test_try_record_platform_execution_swallows_errors(self) -> None:
         try_record_platform_execution("", {"status": "ok"})
 
+    def test_resolve_monitor_source_revision_requires_real_provenance(self) -> None:
+        sha = "a" * 40
+        self.assertEqual(resolve_monitor_source_revision(sha), sha)
+        self.assertEqual(
+            resolve_monitor_source_revision(None, environ={"LIFECYCLE_SOURCE_REVISION": "fixture-rev"}),
+            "fixture-rev",
+        )
+        self.assertEqual(
+            resolve_monitor_source_revision(None, environ={"GITHUB_SHA": sha}),
+            sha,
+        )
+        with self.assertRaisesRegex(RuntimeError, "source_revision is required"):
+            resolve_monitor_source_revision(None, environ={})
+        with self.assertRaisesRegex(RuntimeError, "source_revision is required"):
+            resolve_monitor_source_revision("", environ={"GITHUB_SHA": "deadbeef"})
+
     def test_run_monitor_fails_closed_when_no_profiles_found(self) -> None:
         class EmptyCollector:
             def collect(self, _domain: str) -> dict[str, pd.Series]:
                 return {}
 
         with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
-            run_monitor("us_equity", collector=EmptyCollector())
+            run_monitor(
+                "us_equity",
+                collector=EmptyCollector(),
+                source_revision="a" * 40,
+            )
+
+    def test_run_monitor_fails_closed_without_source_revision(self) -> None:
+        class OneCollector:
+            def collect(self, _domain: str) -> dict[str, pd.Series]:
+                return {
+                    "synthetic_soxl": pd.Series(
+                        [0.01, -0.02],
+                        index=pd.to_datetime(["2026-09-08", "2026-09-09"]),
+                    )
+                }
+
+        with patch.dict("os.environ", {}, clear=False):
+            for key in ("LIFECYCLE_SOURCE_REVISION", "GITHUB_SHA"):
+                # Ensure missing provenance cannot silently write empty revision.
+                pass
+        with patch(
+            "quant_platform_kit.strategy_lifecycle.performance_monitor.resolve_monitor_source_revision",
+            side_effect=RuntimeError("monitor source_revision is required"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "source_revision is required"):
+                run_monitor("us_equity", collector=OneCollector(), windows=(2,), min_observations=2)
 
     def test_csv_collector_to_monitor_rejects_duplicate_daily_returns(self) -> None:
+        revision = "b" * 40
         for dates, values in (
             (["2026-09-08", "2026-09-08"], [0.01, 0.01]),
             (["2026-09-08T09:00:00", "2026-09-08T16:00:00"], [0.01, -0.02]),
@@ -86,14 +129,30 @@ class PerformanceMonitorTests(unittest.TestCase):
                 collector = ReturnCollector(artifact_roots={"us_equity": root}, projects_root=root, store=store)
                 with patch.object(PerformanceStore, "save_snapshot", autospec=True) as save:
                     with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
-                        run_monitor("us_equity", strategy_profile="synthetic_soxl", collector=collector,
-                                    store=store, windows=(2,), min_observations=2)
-                    self.assertEqual(run_monitor(
-                        "us_equity", collector=collector, store=store, min_observations=2, fail_on_empty=False,
-                    ), [])
+                        run_monitor(
+                            "us_equity",
+                            strategy_profile="synthetic_soxl",
+                            collector=collector,
+                            store=store,
+                            windows=(2,),
+                            min_observations=2,
+                            source_revision=revision,
+                        )
+                    self.assertEqual(
+                        run_monitor(
+                            "us_equity",
+                            collector=collector,
+                            store=store,
+                            min_observations=2,
+                            fail_on_empty=False,
+                            source_revision=revision,
+                        ),
+                        [],
+                    )
                     save.assert_not_called()
 
     def test_csv_collector_to_monitor_preserves_unique_daily_returns(self) -> None:
+        revision = "c" * 40
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             pd.DataFrame({
@@ -107,8 +166,10 @@ class PerformanceMonitorTests(unittest.TestCase):
                 "us_equity", strategy_profile="synthetic_soxl", collector=collector, store=store,
                 windows=(2,), min_observations=2, require_explicit_benchmark=True,
                 strategy_benchmarks={"synthetic_soxl": "SPY"},
+                source_revision=revision,
             )
             self.assertEqual(len(snapshots), 1)
+            self.assertEqual(snapshots[0].source_revision, revision)
             metrics = snapshots[0].windows[2]
             self.assertEqual(metrics.observation_count, 2)
             self.assertAlmostEqual(metrics.total_return, 1.01 * 0.98 - 1.0)
@@ -133,6 +194,7 @@ class PerformanceMonitorTests(unittest.TestCase):
                         "us_equity", strategy_profile="synthetic_soxl", collector=collector, store=store,
                         windows=(2,), min_observations=2, require_explicit_benchmark=True,
                         strategy_benchmarks={"synthetic_soxl": "SPY"},
+                        source_revision="d" * 40,
                     )
                 save.assert_not_called()
 
