@@ -13,6 +13,7 @@ from quant_platform_kit.common.notification_localization import (
 from quant_platform_kit.common.operational_notification_localization import (
     format_operational_alert,
     format_operational_heartbeat_status,
+    localize_attention_reason_code,
     localize_operational_activity,
     operational_notification_text,
     resolve_operational_notification_locale,
@@ -159,6 +160,32 @@ class NotificationLocalizationTests(unittest.TestCase):
                 detail=operational_notification_text("zh", "heartbeat_runtime_target_disabled"),
             ),
             "[执行回执心跳] LongBridge SG\n状态：正常\n运行目标已停用；未提交订单。",
+        )
+
+    def test_attention_reason_codes_are_localized(self):
+        self.assertEqual(
+            localize_attention_reason_code("zh", "new_risk_prohibited"),
+            "已禁止新增风险",
+        )
+        self.assertEqual(
+            localize_attention_reason_code("zh", "drift_critical"),
+            "生产偏离严重（CRITICAL）",
+        )
+        self.assertEqual(
+            localize_attention_reason_code("en", "PRODUCTION_DRIFT_REVIEW"),
+            "production drift review",
+        )
+        self.assertEqual(
+            localize_attention_reason_code("zh", "unknown_future_code"),
+            "unknown_future_code",
+        )
+        self.assertIn(
+            "确认意图不等于放行实盘",
+            operational_notification_text("zh", "attention_next_open_console_confirm"),
+        )
+        self.assertNotIn(
+            "accept",
+            operational_notification_text("zh", "attention_next_open_console_confirm"),
         )
 
 
