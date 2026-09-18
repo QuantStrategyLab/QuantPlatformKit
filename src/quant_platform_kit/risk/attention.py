@@ -300,3 +300,59 @@ def _coerce_level(value: AttentionLevel | str) -> AttentionLevel:
 def _clean_segment(value: object) -> str:
     text = str(value or "").strip().lower() or "unknown"
     return "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "-" for ch in text)[:80]
+
+
+# Leveraged live profiles: path DD commonly exceeds 10%; use mandate budgets, not 0.10.
+_DEFAULT_MANDATE_DD_BUDGET_BY_PROFILE: dict[str, float] = {
+    "soxl_soxx_trend_income": 0.35,
+    "tqqq_growth_income": 0.35,
+}
+
+
+def resolve_mandate_dd_budget(
+    strategy_profile: object | None,
+    *,
+    override: float | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> float | None:
+    """Resolve mandate drawdown budget for attention (never invents 10% default).
+
+    Precedence: explicit ``override`` → ``QSL_MANDATE_DD_BUDGET_<PROFILE>`` →
+    ``QSL_MANDATE_DD_BUDGET`` → built-in leveraged profile map → ``None`` (omit DD axis).
+    """
+
+    import os
+
+    env = environ if environ is not None else os.environ
+    for candidate in (override, _env_budget(env, strategy_profile), _env_budget(env, None)):
+        parsed = _optional_positive_unit(candidate)
+        if parsed is not None:
+            return parsed
+    profile = str(strategy_profile or "").strip().lower()
+    if profile in _DEFAULT_MANDATE_DD_BUDGET_BY_PROFILE:
+        return _DEFAULT_MANDATE_DD_BUDGET_BY_PROFILE[profile]
+    return None
+
+
+def _env_budget(env: Mapping[str, str], strategy_profile: object | None) -> float | None:
+    if strategy_profile is None:
+        raw = env.get("QSL_MANDATE_DD_BUDGET")
+    else:
+        profile = str(strategy_profile or "").strip().upper().replace("-", "_")
+        raw = env.get(f"QSL_MANDATE_DD_BUDGET_{profile}") if profile else None
+    return _optional_positive_unit(raw)
+
+
+def _optional_positive_unit(value: object) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        if isinstance(value, bool):
+            return None
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number != number or number <= 0.0 or number > 1.0:
+        return None
+    return number
+
