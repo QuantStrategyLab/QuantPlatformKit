@@ -79,6 +79,22 @@ class DriftDetectorTests(unittest.TestCase):
         self.assertIn("max_drawdown_breach", result.dimensions)
         self.assertTrue(result.dimensions["max_drawdown_breach"].breached)
 
+    def test_baseline_vol_scale_incompatible_preserves_critical(self) -> None:
+        # Leveraged live (~96% vol) vs low-vol proxy baseline (~7% vol).
+        snap = _make_snapshot(sharpe=1.7, cagr=2.2, dd=-0.48, vol=0.96, wr=0.63)
+        bt = _make_backtest(sharpe=0.5, cagr=0.035, dd=-0.05, vol=0.07, wr=0.52)
+        result = detect_drift(snap, backtest=bt, previous_status=DriftStatus.CRITICAL)
+        self.assertEqual(result.status, DriftStatus.CRITICAL)
+        self.assertIn("baseline_scale_incompatible", result.dimensions)
+        self.assertNotIn("cagr_drift", result.dimensions)
+
+    def test_baseline_vol_scale_incompatible_defaults_to_review(self) -> None:
+        snap = _make_snapshot(sharpe=1.7, cagr=2.2, dd=-0.48, vol=0.96, wr=0.63)
+        bt = _make_backtest(sharpe=0.5, cagr=0.035, dd=-0.05, vol=0.07, wr=0.52)
+        result = detect_drift(snap, backtest=bt)
+        self.assertEqual(result.status, DriftStatus.REVIEW)
+        self.assertIn("baseline_scale_incompatible", result.dimensions)
+
     def test_no_backtest_returns_healthy(self) -> None:
         snap = _make_snapshot(sharpe=0.6, cagr=0.01)
         result = detect_drift(snap, backtest=None)

@@ -33,11 +33,32 @@ _DIMENSION_SPECS = [
     ("win_rate_drift", "win_rate", "win_rate", "win_rate", "win_rate_deviation_pct"),
 ]
 
+# Reject apples-to-oranges baselines (e.g. low-vol proxy vs leveraged live path).
+_BASELINE_VOL_SCALE_LIMIT = 5.0
+
 
 def _baseline_artifact_id(backtest: BacktestResult | None) -> str | None:
     if backtest is None:
         return None
     return backtest.run_id or backtest.computed_at or None
+
+
+def _baseline_vol_scale_incompatible(
+    actual_volatility: object,
+    expected_volatility: object,
+    *,
+    limit: float = _BASELINE_VOL_SCALE_LIMIT,
+) -> bool:
+    """True when live vs baseline volatility differ by more than ``limit``×."""
+    try:
+        actual = abs(float(actual_volatility))  # type: ignore[arg-type]
+        expected = abs(float(expected_volatility))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    if actual < 1e-6 or expected < 1e-6:
+        return False
+    ratio = max(actual / expected, expected / actual)
+    return ratio >= float(limit)
 
 
 def _compute_dimension(
@@ -111,6 +132,47 @@ def detect_drift(
                            domain=snapshot.domain, as_of=snapshot.as_of,
                            source_revision=snapshot.source_revision,
                            drift_score=0.0, status=DriftStatus.HEALTHY)
+
+    if backtest is not None and _baseline_vol_scale_incompatible(
+        getattr(ref_window, "volatility", None),
+        getattr(backtest, "volatility", None),
+    ):
+        # Do not score leveraged live paths against low-vol proxy baselines.
+        # Preserve any prior restrictive status so Policy A cannot clear a ban
+        # via a bogus healthy comparison.
+        actual_vol = float(ref_window.volatility)
+        expected_vol = float(backtest.volatility or 0.0)
+        ratio = max(actual_vol, 1e-6) / max(abs(expected_vol), 1e-6)
+        if ratio < 1.0:
+            ratio = 1.0 / ratio
+        status = DriftStatus.REVIEW
+        if previous_status is not None and previous_status.severity_order > status.severity_order:
+            status = previous_status
+        score = 1.0 if status is DriftStatus.CRITICAL else 0.5
+        return DriftResult(
+            strategy_profile=snapshot.strategy_profile,
+            domain=snapshot.domain,
+            as_of=snapshot.as_of,
+            drift_score=score,
+            source_revision=snapshot.source_revision,
+            status=status,
+            dimensions={
+                "baseline_scale_incompatible": DriftDimension(
+                    metric_name="volatility_scale",
+                    actual=actual_vol,
+                    expected=expected_vol,
+                    deviation=abs(actual_vol - expected_vol),
+                    deviation_pct=ratio - 1.0,
+                    threshold=float(_BASELINE_VOL_SCALE_LIMIT),
+                    breached=True,
+                )
+            },
+            previous_status=previous_status,
+            baseline_param_set_id=backtest.param_set_id,
+            baseline_param_version=backtest.param_version,
+            baseline_artifact_id=_baseline_artifact_id(backtest),
+            escalated=False,
+        )
 
     # Compute each dimension via registry
     dimensions: dict[str, DriftDimension] = {}
