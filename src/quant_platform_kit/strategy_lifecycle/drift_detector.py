@@ -301,10 +301,20 @@ def detect_drift(
         expected = getattr(backtest, expected_attr, None)
         if actual is None or expected is None:
             continue
-        if np.isnan(actual) or np.isnan(expected):
+        actual_f = float(actual)
+        expected_f = float(expected)
+        if np.isnan(actual_f) or np.isnan(expected_f):
             continue
+        # Keep NaN skip; reject ±inf so comparisons stay unevaluable.
+        if not np.isfinite(actual_f) or not np.isfinite(expected_f):
+            return _unevaluable_result(
+                snapshot,
+                reason="non_finite_metrics",
+                previous_status=previous_status,
+                backtest=backtest,
+            )
         dimensions[key] = _compute_dimension(
-            key, metric, float(actual), float(expected),
+            key, metric, actual_f, expected_f,
             getattr(thresholds, threshold_attr),
         )
 
