@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -51,6 +52,13 @@ class PerformanceMetricsTest(unittest.TestCase):
         benchmark = pd.Series([0.01, 0.01], index=[self.dates[0], self.dates[0]])
         with self.assertRaisesRegex(ValueError, "^daily return dates must be unique$"):
             compute_window_metrics(returns, benchmark_returns=benchmark)
+
+    def test_invalid_return_values_are_rejected(self) -> None:
+        for value, message in ((np.nan, "NaN"), (np.inf, "infinite"), (-1.01, "below -100%")):
+            with self.subTest(value=value):
+                series = pd.Series([0.01, value], index=self.dates[:2])
+                with self.assertRaisesRegex(ValueError, message):
+                    normalize_return_series(series)
 
     def test_compute_window_metrics_basic(self) -> None:
         r = self.returns
@@ -144,7 +152,6 @@ class PerformanceMetricsTest(unittest.TestCase):
             ([-0.01, -0.01, -0.01], 0.0, -np.sqrt(252)),
             # All returns are positive, but one falls below the daily MAR of .002.
             ([0.001, 0.003, 0.004], 0.504, (0.002 / 3) / np.sqrt(0.000001 / 3) * np.sqrt(252)),
-            ([0.02, np.nan, -0.01, 0.02, -0.01], 0.0, 0.005 / np.sqrt(0.0002 / 4) * np.sqrt(252)),
         )
         for values, risk_free_rate, expected in cases:
             with self.subTest(values=values, risk_free_rate=risk_free_rate):
@@ -223,6 +230,106 @@ class PerformanceMetricsTest(unittest.TestCase):
         self.assertTrue(np.isnan(wp.information_ratio))
         self.assertAlmostEqual(wp.max_drawdown, -0.2)
         self.assertAlmostEqual(wp.benchmark_max_drawdown, -0.2)
+
+    def test_default_annualization_remains_252_for_existing_callers(self) -> None:
+        dates = pd.date_range("2026-01-02", periods=126, freq="D")
+        # Equal daily returns compounding to +10% over 126 observations.
+        daily = (1.10 ** (1.0 / 126.0)) - 1.0
+        returns = pd.Series(daily, index=dates)
+        wp = compute_window_metrics(returns)
+        self.assertEqual(wp.periods_per_year, 252.0)
+        self.assertAlmostEqual(wp.total_return, 0.10, places=10)
+        self.assertAlmostEqual(wp.cagr, 0.21, places=8)
+
+    def test_crypto_natural_day_annualization_basis_365_25(self) -> None:
+        dates = pd.date_range("2026-01-02", periods=126, freq="D")
+        values = np.full(126, 0.0008)
+        values[::2] = 0.0005
+        values[-1] = (1.10 / float(np.prod(1.0 + values[:-1]))) - 1.0
+        returns = pd.Series(values, index=dates)
+        expected = float(1.10 ** (365.25 / 126.0) - 1.0)
+        direct = compute_window_metrics(
+            returns,
+            periods_per_year=365.25,
+            calendar_id="CRYPTO_NATURAL_DAY",
+            window_label="crypto_direct",
+        )
+        via_windows = compute_windows(
+            returns,
+            windows=(126,),
+            periods_per_year=365.25,
+            calendar_id="CRYPTO_NATURAL_DAY",
+        )[126]
+        self.assertEqual(direct.calendar_id, "CRYPTO_NATURAL_DAY")
+        self.assertEqual(direct.periods_per_year, 365.25)
+        self.assertAlmostEqual(direct.total_return, 0.10, places=10)
+        self.assertAlmostEqual(direct.cagr, expected, places=8)
+        self.assertAlmostEqual(expected, 0.3182249, places=7)
+        self.assertEqual(direct.observation_count, via_windows.observation_count)
+        self.assertAlmostEqual(direct.cagr, via_windows.cagr, places=12)
+        self.assertAlmostEqual(direct.volatility, via_windows.volatility, places=12)
+        self.assertFalse(np.isnan(direct.sharpe_ratio))
+        self.assertAlmostEqual(direct.sharpe_ratio, via_windows.sharpe_ratio, places=12)
+
+    def test_invalid_periods_per_year_is_rejected(self) -> None:
+        returns = pd.Series([0.01], index=pd.to_datetime(["2026-01-02"]))
+        with self.assertRaisesRegex(ValueError, "periods_per_year must be one of"):
+            compute_window_metrics(returns, periods_per_year=360.0)
+
+    def test_compare_with_backtest_requires_matching_periods_per_year(self) -> None:
+        from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult, WindowPerformance
+        from quant_platform_kit.strategy_lifecycle.performance_metrics import (
+            annualization_basis_is_comparable,
+            compare_with_backtest,
+        )
+
+        actual = WindowPerformance(
+            window_name="w",
+            window_days=20,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 20),
+            observation_count=20,
+            total_return=0.1,
+            cagr=0.2,
+            volatility=0.1,
+            sharpe_ratio=1.0,
+            sortino_ratio=1.0,
+            calmar_ratio=1.0,
+            max_drawdown=-0.05,
+            win_rate=0.5,
+            periods_per_year=365.25,
+            calendar_id="CRYPTO_NATURAL_DAY",
+        )
+        legacy = BacktestResult(
+            strategy_profile="p",
+            domain="crypto",
+            param_set_id="baseline",
+            params={},
+            sharpe_ratio=1.5,
+            periods_per_year=None,
+        )
+        mismatched = BacktestResult(
+            strategy_profile="p",
+            domain="crypto",
+            param_set_id="baseline",
+            params={},
+            sharpe_ratio=1.5,
+            periods_per_year=252.0,
+        )
+        matched = BacktestResult(
+            strategy_profile="p",
+            domain="crypto",
+            param_set_id="baseline",
+            params={},
+            sharpe_ratio=0.5,
+            periods_per_year=365.25,
+        )
+        self.assertFalse(annualization_basis_is_comparable(actual, legacy))
+        self.assertEqual(compare_with_backtest(actual, legacy), {})
+        self.assertFalse(annualization_basis_is_comparable(actual, mismatched))
+        self.assertEqual(compare_with_backtest(actual, mismatched), {})
+        self.assertTrue(annualization_basis_is_comparable(actual, matched))
+        self.assertIn("sharpe_deviation", compare_with_backtest(actual, matched))
 
 
 if __name__ == "__main__":

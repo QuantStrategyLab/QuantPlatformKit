@@ -128,10 +128,55 @@ def detect_drift(
 
     ref_window = snapshot.windows.get(126) or snapshot.windows.get(252)
     if ref_window is None:
+        if backtest is not None:
+            status = DriftStatus.REVIEW
+            if previous_status is not None and previous_status.severity_order > status.severity_order:
+                status = previous_status
+            return DriftResult(
+                strategy_profile=snapshot.strategy_profile,
+                domain=snapshot.domain,
+                as_of=snapshot.as_of,
+                source_revision=snapshot.source_revision,
+                drift_score=0.5 if status is not DriftStatus.CRITICAL else 1.0,
+                status=status,
+                previous_status=previous_status,
+                baseline_available=True,
+            )
         return DriftResult(strategy_profile=snapshot.strategy_profile,
                            domain=snapshot.domain, as_of=snapshot.as_of,
                            source_revision=snapshot.source_revision,
                            drift_score=0.0, status=DriftStatus.HEALTHY)
+
+    observation_status = str(getattr(snapshot, "observation_status", "") or "ok")
+    if observation_status not in {"", "ok", "complete", "COMPLETE"}:
+        status = DriftStatus.REVIEW
+        if previous_status is not None and previous_status.severity_order > status.severity_order:
+            status = previous_status
+        return DriftResult(
+            strategy_profile=snapshot.strategy_profile,
+            domain=snapshot.domain,
+            as_of=snapshot.as_of,
+            source_revision=snapshot.source_revision,
+            drift_score=0.5 if status is not DriftStatus.CRITICAL else 1.0,
+            status=status,
+            previous_status=previous_status,
+            baseline_available=backtest is not None,
+        )
+
+    if snapshot.drift_status == "not_comparable_annualization":
+        status = DriftStatus.REVIEW
+        if previous_status is not None and previous_status.severity_order > status.severity_order:
+            status = previous_status
+        return DriftResult(
+            strategy_profile=snapshot.strategy_profile,
+            domain=snapshot.domain,
+            as_of=snapshot.as_of,
+            source_revision=snapshot.source_revision,
+            drift_score=0.5 if status is not DriftStatus.CRITICAL else 1.0,
+            status=status,
+            previous_status=previous_status,
+            baseline_available=backtest is not None,
+        )
 
     if backtest is not None and _baseline_vol_scale_incompatible(
         getattr(ref_window, "volatility", None),

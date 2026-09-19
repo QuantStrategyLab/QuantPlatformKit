@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import math
 import re
 from typing import Any
 
 import pandas as pd
+
+from quant_platform_kit.common.cn_equity_calendar import (
+    CN_EQUITY_HOLIDAYS,
+    is_cn_equity_trading_day,
+)
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    LiveReturnSeriesResult,
+    ReturnObservationContract,
+    exchange_holiday_calendar_readiness,
+    resolve_return_observation_contract,
+)
 
 _EQUITY_KEYS = (
     "total_equity",
@@ -37,6 +48,19 @@ _EXTERNAL_CASH_FLOW_INTERVAL_FIELDS = frozenset(
 _EXTERNAL_CASH_FLOW_INTERVAL_BASIS = "checkpoint_quantities_sampled_prices"
 _SHA256_RE = re.compile(r"[0-9a-f]{64}")
 
+# CN equity holiday coverage follows the in-repo calendar module's documented
+# bounded holiday table. US/HK defaults do not ship an unverified exchange
+# holiday table; callers may inject session_holidays when a source is verified.
+_CN_EQUITY_HOLIDAY_COVERAGE = (date(2023, 1, 1), date(2026, 12, 31))
+
+# Natural-day continuity when no domain contract is supplied. Callers with a
+# market domain should pass resolve_return_observation_contract(domain).
+_NATURAL_DAY_CONTRACT = ReturnObservationContract(
+    calendar_id="CRYPTO_NATURAL_DAY",
+    periods_per_year=365.25,
+    domain="",
+)
+
 
 def _as_float(value: Any) -> float | None:
     if value is None or isinstance(value, bool):
@@ -58,6 +82,114 @@ def _as_finite_number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def _as_calendar_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, pd.Timestamp):
+        return value.tz_localize(None).normalize().date() if value.tzinfo else value.normalize().date()
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return pd.Timestamp(text).tz_localize(None).normalize().date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _date_in_coverage(value: date, coverage: tuple[date, date]) -> bool:
+    return coverage[0] <= value <= coverage[1]
+
+
+def is_expected_observation_session(
+    value: Any,
+    contract: ReturnObservationContract,
+) -> bool:
+    """Return whether ``value`` is an expected session under the contract."""
+    day = _as_calendar_date(value)
+    if day is None:
+        return False
+    calendar_id = contract.calendar_id
+    if calendar_id == "CRYPTO_NATURAL_DAY":
+        return True
+    if calendar_id == "XSHG":
+        if not _date_in_coverage(day, _CN_EQUITY_HOLIDAY_COVERAGE):
+            return False
+        return is_cn_equity_trading_day(day, holidays=CN_EQUITY_HOLIDAYS)
+    if calendar_id in {"XNYS", "XHKG"}:
+        if day.weekday() >= 5:
+            return False
+        return day.isoformat() not in contract.session_holidays
+    return False
+
+
+def next_expected_observation_session(
+    value: Any,
+    contract: ReturnObservationContract,
+) -> date | None:
+    """First expected session strictly after ``value``, if resolvable."""
+    day = _as_calendar_date(value)
+    if day is None:
+        return None
+    probe = day + timedelta(days=1)
+    for _ in range(370):
+        if contract.calendar_id == "XSHG" and probe > _CN_EQUITY_HOLIDAY_COVERAGE[1]:
+            return None
+        if is_expected_observation_session(probe, contract):
+            return probe
+        probe += timedelta(days=1)
+    return None
+
+
+def observations_are_contiguous(
+    previous: Any,
+    current: Any,
+    contract: ReturnObservationContract,
+) -> bool:
+    """True when ``current`` is the next expected session after ``previous``."""
+    previous_day = _as_calendar_date(previous)
+    current_day = _as_calendar_date(current)
+    if previous_day is None or current_day is None:
+        return False
+    if not is_expected_observation_session(previous_day, contract):
+        return False
+    if not is_expected_observation_session(current_day, contract):
+        return False
+    return next_expected_observation_session(previous_day, contract) == current_day
+
+
+def _resolve_observation_contract(
+    *,
+    domain: str | None = None,
+    observation_contract: ReturnObservationContract | None = None,
+) -> ReturnObservationContract:
+    if observation_contract is not None:
+        return observation_contract
+    text = str(domain or "").strip()
+    if text:
+        return resolve_return_observation_contract(text)
+    return _NATURAL_DAY_CONTRACT
+
+
+def _latest_contiguous_observation_days(
+    ordered_days: Sequence[pd.Timestamp],
+    contract: ReturnObservationContract,
+) -> list[pd.Timestamp]:
+    if not ordered_days:
+        return []
+    segments: list[list[pd.Timestamp]] = []
+    segment = [ordered_days[0]]
+    for day in ordered_days[1:]:
+        if observations_are_contiguous(segment[-1], day, contract):
+            segment.append(day)
+        else:
+            segments.append(segment)
+            segment = [day]
+    segments.append(segment)
+    return list(segments[-1])
 
 
 def _nested_mapping(value: Any) -> Mapping[str, Any] | None:
@@ -360,16 +492,23 @@ def _parse_recorded_at(value: Any) -> pd.Timestamp | None:
         return None
 
 
-def live_run_records_to_return_series(records: Sequence[Mapping[str, Any]]) -> pd.Series:
-    """Convert live run records to cash-flow-adjusted daily returns.
+def _empty_live_return_result(status: str, detail: str = "") -> LiveReturnSeriesResult:
+    series = pd.Series(dtype=float)
+    series.name = "live_return"
+    return LiveReturnSeriesResult(series=series, status=status, detail=detail)
 
-    Multiple records from the same day use the final equity observation and
-    accumulate their declared external flows.  This prevents a pure deposit or
-    withdrawal from becoming a spurious gain or loss in lifecycle monitoring.
-    If a declared flow is invalid, only the latest comparable segment after
-    that date is returned because a plain Series cannot preserve segment
-    boundaries for downstream compounding.
-    """
+
+def live_run_records_to_return_series_result(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    domain: str | None = None,
+    observation_contract: ReturnObservationContract | None = None,
+) -> LiveReturnSeriesResult:
+    """Derive returns with an explicit status for incomplete calendars / gaps."""
+    contract = _resolve_observation_contract(
+        domain=domain,
+        observation_contract=observation_contract,
+    )
     has_interval_records = False
     for record in records:
         if not isinstance(record, Mapping):
@@ -412,7 +551,10 @@ def live_run_records_to_return_series(records: Sequence[Mapping[str, Any]]) -> p
                     "recorded_at": record.get("recorded_at"),
                 }
             )
-        return live_interval_records_to_return_series(interval_records)
+        series = live_interval_records_to_return_series(interval_records)
+        if series.empty:
+            return _empty_live_return_result("insufficient_observations")
+        return LiveReturnSeriesResult(series=series, status="ok", detail="interval")
 
     points: list[tuple[pd.Timestamp, float, float]] = []
     invalid_cash_flow_dates: set[pd.Timestamp] = set()
@@ -432,7 +574,7 @@ def live_run_records_to_return_series(records: Sequence[Mapping[str, Any]]) -> p
         points.append((recorded_at, equity, cash_flow))
 
     if len(points) < 2:
-        return pd.Series(dtype=float)
+        return _empty_live_return_result("insufficient_observations")
 
     frame = (
         pd.DataFrame(points, columns=["date", "equity", "external_cash_flow"])
@@ -446,12 +588,32 @@ def live_run_records_to_return_series(records: Sequence[Mapping[str, Any]]) -> p
         # valid returns from opposite sides of an unknown cash-flow interval.
         frame = frame[frame["date"] > max(invalid_cash_flow_dates)]
     if len(frame) < 2:
-        return pd.Series(dtype=float)
-    frame = (
-        frame
-        .sort_values("date", kind="stable")
-        .set_index("date")
+        return _empty_live_return_result("insufficient_observations")
+
+    span_start = _as_calendar_date(frame["date"].iloc[0])
+    span_end = _as_calendar_date(frame["date"].iloc[-1])
+    if span_start is None or span_end is None:
+        return _empty_live_return_result("insufficient_observations")
+    ready, readiness_detail = exchange_holiday_calendar_readiness(
+        contract,
+        span_start=span_start,
+        span_end=span_end,
     )
+    if not ready:
+        # Unknown / synthetic / uncovered calendars are not computable. Do not
+        # silently return a short weekday-approximated segment as success.
+        return _empty_live_return_result("incomplete_calendar", readiness_detail)
+
+    frame = frame.sort_values("date", kind="stable").set_index("date")
+    ordered_days = list(frame.index)
+    latest_days = _latest_contiguous_observation_days(ordered_days, contract)
+    if len(latest_days) < 2:
+        return _empty_live_return_result(
+            "incomplete_observation_gap",
+            "no_contiguous_session_pair",
+        )
+    truncated = latest_days != ordered_days
+    frame = frame.loc[latest_days]
     return_points: list[tuple[pd.Timestamp, float]] = []
     previous_equity: float | None = None
     for as_of, point in frame.iterrows():
@@ -465,13 +627,45 @@ def live_run_records_to_return_series(records: Sequence[Mapping[str, Any]]) -> p
             if adjusted_return is not None:
                 return_points.append((as_of, adjusted_return))
         previous_equity = current_equity
+    if not return_points:
+        return _empty_live_return_result("insufficient_observations")
     returns = pd.Series(
         (value for _, value in return_points),
         index=pd.Index((as_of for as_of, _ in return_points), name="date"),
         dtype=float,
     )
     returns.name = "live_return"
-    return returns.astype(float)
+    status = "truncated_after_observation_gap" if truncated else "ok"
+    detail = "latest_contiguous_segment" if truncated else readiness_detail
+    return LiveReturnSeriesResult(series=returns.astype(float), status=status, detail=detail)
+
+
+def live_run_records_to_return_series(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    domain: str | None = None,
+    observation_contract: ReturnObservationContract | None = None,
+) -> pd.Series:
+    """Convert live run records to cash-flow-adjusted daily returns.
+
+    Multiple records from the same day use the final equity observation and
+    accumulate their declared external flows.  This prevents a pure deposit or
+    withdrawal from becoming a spurious gain or loss in lifecycle monitoring.
+    If a declared flow is invalid, only the latest comparable segment after
+    that date is returned because a plain Series cannot preserve segment
+    boundaries for downstream compounding.
+
+    For exchange calendars, missing verified holiday source/coverage yields an
+    empty series with status ``incomplete_calendar`` (see
+    ``live_run_records_to_return_series_result``). Missing required sessions
+    under a ready calendar truncate to the latest contiguous segment and are
+    marked ``truncated_after_observation_gap``.
+    """
+    return live_run_records_to_return_series_result(
+        records,
+        domain=domain,
+        observation_contract=observation_contract,
+    ).series
 
 
 def count_consecutive_losses(returns: pd.Series | Sequence[Any] | None) -> int:
@@ -501,9 +695,18 @@ def count_consecutive_losses(returns: pd.Series | Sequence[Any] | None) -> int:
 
 def consecutive_losses_from_live_run_records(
     records: Sequence[Mapping[str, Any]],
+    *,
+    domain: str | None = None,
+    observation_contract: ReturnObservationContract | None = None,
 ) -> int:
     """Derive consecutive loss streak from persisted live equity snapshots."""
-    return count_consecutive_losses(live_run_records_to_return_series(records))
+    return count_consecutive_losses(
+        live_run_records_to_return_series(
+            records,
+            domain=domain,
+            observation_contract=observation_contract,
+        )
+    )
 
 
 def resolve_consecutive_losses(
@@ -511,10 +714,12 @@ def resolve_consecutive_losses(
     domain: str,
     strategy_profile: str,
     store: Any | None = None,
+    observation_contract: ReturnObservationContract | None = None,
 ) -> int | None:
     """Load live-run equity history and return trailing consecutive losses.
 
-    Returns ``None`` when history is insufficient (fewer than two equity points).
+    Returns ``None`` when history is insufficient (fewer than two equity points)
+    or the observation calendar is incomplete for the loaded span.
     """
     profile = str(strategy_profile or "").strip()
     market = str(domain or "").strip()
@@ -527,10 +732,14 @@ def resolve_consecutive_losses(
         store = PerformanceStore.from_env()
 
     records = store.list_live_run_records(market, strategy_profile=profile)
-    series = live_run_records_to_return_series(records)
-    if series.empty:
+    result = live_run_records_to_return_series_result(
+        records,
+        domain=market,
+        observation_contract=observation_contract,
+    )
+    if result.status == "incomplete_calendar" or result.series.empty:
         return None
-    return count_consecutive_losses(series)
+    return count_consecutive_losses(result.series)
 
 
 def stamp_consecutive_losses_on_snapshot(
@@ -540,6 +749,7 @@ def stamp_consecutive_losses_on_snapshot(
     domain: str = "",
     store: Any | None = None,
     logger: Any | None = None,
+    observation_contract: ReturnObservationContract | None = None,
 ) -> Any | None:
     """Stamp trailing consecutive_losses onto portfolio metadata before evaluate.
 
@@ -558,6 +768,7 @@ def stamp_consecutive_losses_on_snapshot(
             domain=infer_strategy_domain(strategy_profile, explicit_domain=domain),
             strategy_profile=strategy_profile,
             store=store,
+            observation_contract=observation_contract,
         )
     except Exception as exc:  # pragma: no cover - defensive platform boundary
         if callable(logger):
