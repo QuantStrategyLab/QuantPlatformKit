@@ -182,6 +182,36 @@ class DriftDetectorTests(unittest.TestCase):
         self.assertEqual(result.reason, "insufficient_dimensions")
         self.assertEqual(result.dimensions, {})
 
+    def test_non_finite_live_metric_is_unevaluable_not_healthy(self) -> None:
+        snap = _make_snapshot(cagr=float("inf"))
+        result = detect_drift(
+            snap, backtest=_make_backtest(), previous_status=DriftStatus.CRITICAL,
+        )
+        self.assertEqual(result.status, DriftStatus.CRITICAL)
+        self.assertEqual(result.reason, "non_finite_metrics")
+        self.assertEqual(result.dimensions, {})
+        self.assertGreater(result.drift_score, 0.0)
+
+    def test_non_finite_baseline_metric_is_unevaluable_not_scored(self) -> None:
+        result = detect_drift(
+            _make_snapshot(),
+            backtest=_make_backtest(sharpe=float("-inf")),
+        )
+        self.assertEqual(result.status, DriftStatus.REVIEW)
+        self.assertEqual(result.reason, "non_finite_metrics")
+        self.assertEqual(result.dimensions, {})
+        self.assertGreater(result.drift_score, 0.0)
+
+    def test_matching_infinite_metrics_do_not_score_as_healthy(self) -> None:
+        # inf - inf yields NaN deviation; breached stays False under > threshold.
+        snap = _make_snapshot(cagr=float("inf"))
+        bt = _make_backtest(cagr=float("inf"))
+        result = detect_drift(snap, backtest=bt, previous_status=DriftStatus.CRITICAL)
+        self.assertEqual(result.status, DriftStatus.CRITICAL)
+        self.assertEqual(result.reason, "non_finite_metrics")
+        self.assertEqual(result.dimensions, {})
+        self.assertNotEqual(result.status, DriftStatus.HEALTHY)
+
     def test_missing_baseline_preserves_critical(self) -> None:
         result = detect_drift(
             _make_snapshot(), backtest=None, previous_status=DriftStatus.CRITICAL,
