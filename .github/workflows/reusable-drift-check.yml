@@ -322,7 +322,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: QuantStrategyLab/AIAuditBridge
-          ref: cce4a5c454ef9b5bbf3b4cc067af8f4827de63cc
+          ref: 47cd11136b8375532b4b1aba8d11c09451110777
           path: external/AIAuditBridge
 
       - name: Dual-review critical drift
@@ -412,10 +412,13 @@ jobs:
               echo "::notice::Dual review completed and blocked promotion; drift remains parked"
               exit 0
             fi
-            review_reason="review_process_failed"
             if [ "$review_state" = "provider_degraded" ]; then
-              review_reason="review_provider_degraded"
-            elif [[ "$review_state" == invalid_review_json:* ]]; then
+              emit_parked_record "review_provider_degraded" "exit_code=$review_rc $review_state"
+              echo "::warning::Dual review unavailable/degraded; fail-closed without treating as completed veto"
+              exit 3
+            fi
+            review_reason="review_process_failed"
+            if [[ "$review_state" == invalid_review_json:* ]]; then
               review_reason="review_output_invalid_json"
             fi
             emit_parked_record "$review_reason" "exit_code=$review_rc $review_state"
