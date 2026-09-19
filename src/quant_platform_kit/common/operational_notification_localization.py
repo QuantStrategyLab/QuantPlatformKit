@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from quant_platform_kit.common.notification_localization import resolve_notification_locale
+
 
 OperationalLocale = str
 
@@ -146,7 +148,7 @@ def resolve_operational_notification_locale(value: object | None) -> Operational
     unknown values fall back to English to preserve the previous behavior.
     """
 
-    return "zh" if str(value or "").strip().lower().replace("_", "-").startswith("zh") else "en"
+    return resolve_notification_locale(value)
 
 
 def operational_notification_text(
