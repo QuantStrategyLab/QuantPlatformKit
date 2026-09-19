@@ -393,6 +393,94 @@ class LiveEquityTests(unittest.TestCase):
 
 
 class ReturnCollectorLiveRunTests(unittest.TestCase):
+    def test_collect_rejects_mixed_valid_and_invalid_return_matrices(self) -> None:
+        """A bad matrix in the same domain must not silently leave only valid columns."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            alpha_dir = root / "alpha"
+            beta_dir = root / "beta"
+            alpha_dir.mkdir()
+            beta_dir.mkdir()
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "alpha": [0.01, -0.02]}
+            ).to_csv(alpha_dir / "portfolio_and_tracker_returns.csv", index=False)
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "beta": [0.01, float("inf")]}
+            ).to_csv(beta_dir / "portfolio_and_tracker_returns.csv", index=False)
+
+            store = PerformanceStore(local_root=root / "store")
+            collector = ReturnCollector(
+                artifact_roots={"us_equity": root},
+                projects_root=root,
+                store=store,
+            )
+
+            with self.assertRaisesRegex(ValueError, r"invalid return matrix") as ctx:
+                collector.collect("us_equity")
+            self.assertIsInstance(ctx.exception.__cause__, ValueError)
+            self.assertRegex(str(ctx.exception.__cause__), r"infinite|NaN")
+
+    def test_collect_benchmark_rejects_invalid_return_matrix(self) -> None:
+        """Valid-before-invalid sort order must not early-return past a bad matrix."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Sorted discovery: a_valid before z_invalid.
+            a_valid = root / "a_valid"
+            z_invalid = root / "z_invalid"
+            a_valid.mkdir()
+            z_invalid.mkdir()
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "SPY": [0.01, -0.02]}
+            ).to_csv(a_valid / "portfolio_and_tracker_returns.csv", index=False)
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "SPY": [0.01, float("inf")]}
+            ).to_csv(z_invalid / "portfolio_and_tracker_returns.csv", index=False)
+
+            collector = ReturnCollector(
+                artifact_roots={"us_equity": root},
+                projects_root=root,
+                store=PerformanceStore(local_root=root / "store"),
+            )
+            discovered = collector.discover_return_matrices("us_equity")
+            self.assertEqual(
+                [p.parent.name for p in discovered],
+                ["a_valid", "z_invalid"],
+            )
+            with self.assertRaisesRegex(ValueError, r"invalid return matrix") as ctx:
+                collector.collect_benchmark("us_equity", "SPY")
+            self.assertIsInstance(ctx.exception.__cause__, ValueError)
+            self.assertRegex(str(ctx.exception.__cause__), r"infinite|NaN")
+            self.assertIn("z_invalid", str(ctx.exception))
+
+    def test_collect_benchmark_returns_none_when_symbol_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "alpha": [0.01, -0.02]}
+            ).to_csv(root / "portfolio_and_tracker_returns.csv", index=False)
+            collector = ReturnCollector(
+                artifact_roots={"us_equity": root},
+                projects_root=root,
+                store=PerformanceStore(local_root=root / "store"),
+            )
+            self.assertIsNone(collector.collect_benchmark("us_equity", "SPY"))
+
+    def test_collect_preserves_single_valid_return_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "alpha": [0.01, -0.02]}
+            ).to_csv(root / "portfolio_and_tracker_returns.csv", index=False)
+            collector = ReturnCollector(
+                artifact_roots={"us_equity": root},
+                projects_root=root,
+                store=PerformanceStore(local_root=root / "store"),
+            )
+            series_map = collector.collect("us_equity")
+            self.assertEqual(list(series_map), ["alpha"])
+            self.assertEqual(len(series_map["alpha"]), 2)
+            self.assertAlmostEqual(float(series_map["alpha"].iloc[0]), 0.01)
+
     def test_interval_survives_recorder_store_and_return_collector(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
