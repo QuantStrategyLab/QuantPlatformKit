@@ -7,6 +7,10 @@ from quant_platform_kit.common.notification_localization import (
     STRATEGY_PLUGIN_I18N,
     localize_price_source_label,
     localize_notification_text,
+    format_notification_account_label,
+    humanize_notification_line,
+    humanize_notification_lines,
+    resolve_notification_locale,
     merge_strategy_plugin_i18n,
     translator_uses_zh,
 )
@@ -33,6 +37,12 @@ class NotificationLocalizationTests(unittest.TestCase):
     def test_translator_uses_zh_detects_chinese_output(self):
         self.assertTrue(translator_uses_zh(_translator_factory("无需交易")))
         self.assertFalse(translator_uses_zh(_translator_factory("No trades")))
+
+    def test_resolve_notification_locale_defaults_to_english_and_normalizes_chinese(self):
+        self.assertEqual(resolve_notification_locale(None), "en")
+        self.assertEqual(resolve_notification_locale("fr"), "en")
+        self.assertEqual(resolve_notification_locale("zh-CN"), "zh")
+        self.assertEqual(resolve_notification_locale("zh_Hans"), "zh")
 
     def test_localize_notification_text_applies_common_replacements(self):
         localized = localize_notification_text(
@@ -66,6 +76,124 @@ class NotificationLocalizationTests(unittest.TestCase):
 
     def test_common_replacements_include_reason_label(self):
         self.assertIn(("reason=", "原因="), COMMON_ZH_NOTIFICATION_REPLACEMENTS)
+
+    def test_humanize_control_plane_lines_for_zh_operator_message(self):
+        translator = _translator_factory("无需交易")
+        self.assertEqual(
+            humanize_notification_line(
+                "[Account new-risk gate] disposition=ALLOW_NEW_RISK observation=COMPLETE reconciliation=VERIFIED breaker=CLOSED reasons=-",
+                translator=translator,
+            ),
+            "✅ 账户风险检查通过：允许新增风险",
+        )
+        self.assertIsNone(
+            humanize_notification_line(
+                "[Attention notify] sent=0 skipped=1 failed=0",
+                translator=translator,
+            )
+        )
+
+    def test_allow_new_risk_does_not_hide_incomplete_verification_state(self):
+        self.assertEqual(
+            humanize_notification_line(
+                "[Account new-risk gate] disposition=ALLOW_NEW_RISK observation=PARTIAL reconciliation=UNKNOWN breaker=OPEN reasons=-",
+                translator=_translator_factory("无需交易"),
+            ),
+            "⚠️ 账户风险检查：允许新增风险，但验证状态未完成（观测=PARTIAL，对账=UNKNOWN，熔断=OPEN）",
+        )
+
+    def test_duplicate_trade_events_are_preserved_but_duplicate_status_is_compacted(self):
+        translator = _translator_factory("无需交易")
+        order_event = "订单已提交：卖出 SOXL 1 股，成交状态未知"
+        self.assertEqual(
+            humanize_notification_lines((order_event, order_event), translator=translator),
+            [order_event, order_event],
+        )
+        # Generic 状态: trade copy must keep count (not prefix-compacted).
+        status_order = "状态：订单已提交，成交未知"
+        self.assertEqual(
+            humanize_notification_lines((status_order, status_order), translator=translator),
+            [status_order, status_order],
+        )
+        self.assertEqual(
+            humanize_notification_lines(
+                ("Status: Order submitted, fill unknown",) * 2,
+                translator=_translator_factory("No trades"),
+            ),
+            ["Status: Order submitted, fill unknown", "Status: Order submitted, fill unknown"],
+        )
+        # Exact known no-trade copy may compact; control-plane parser lines may too.
+        status_line = "状态：本轮无新增提醒"
+        self.assertEqual(
+            humanize_notification_lines((status_line, status_line), translator=translator),
+            [status_line],
+        )
+        gate = (
+            "[Account new-risk gate] disposition=ALLOW_NEW_RISK "
+            "observation=COMPLETE reconciliation=VERIFIED breaker=CLOSED reasons=-"
+        )
+        self.assertEqual(
+            humanize_notification_lines((gate, gate), translator=translator),
+            ["✅ 账户风险检查通过：允许新增风险"],
+        )
+        self.assertIsNone(
+            humanize_notification_line(
+                "[Envelope scale] combined_scale=1.0 applied_to_allocation_targets",
+                translator=translator,
+            )
+        )
+
+    def test_unknown_duplicate_alerts_keep_count_without_keyword_guessing(self):
+        translator = _translator_factory("无需交易")
+        unknown = "broker latency spike: SOXL lane"
+        self.assertEqual(
+            humanize_notification_lines((unknown, unknown, unknown), translator=translator),
+            [unknown, unknown, unknown],
+        )
+        opaque_fill = "SOXL qty=1 @ 41.25 lane=A"
+        self.assertEqual(
+            humanize_notification_lines(
+                (opaque_fill, "状态：本轮无新增提醒", opaque_fill, "状态：本轮无新增提醒"),
+                translator=translator,
+            ),
+            [opaque_fill, "状态：本轮无新增提醒", opaque_fill],
+        )
+
+    def test_allow_new_risk_english_incomplete_is_not_marked_passed(self):
+        self.assertEqual(
+            humanize_notification_line(
+                "[Account new-risk gate] disposition=ALLOW_NEW_RISK observation=PARTIAL reconciliation=UNKNOWN breaker=OPEN reasons=-",
+                translator=_translator_factory("No trades"),
+            ),
+            "⚠️ Account risk check: new risk is allowed, but verification is incomplete"
+            " (observation=PARTIAL, reconciliation=UNKNOWN, breaker=OPEN)",
+        )
+
+    def test_humanize_lines_preserves_unknown_warning_and_deduplicates(self):
+        # reason= is not a control-plane parser / exact no-trade line: keep duplicates.
+        lines = humanize_notification_lines(
+            ("reason=insufficient_buying_power", "reason=insufficient_buying_power"),
+            translator=_translator_factory("无需交易"),
+        )
+        self.assertEqual(lines, ["原因=购买力不足", "原因=购买力不足"])
+        # Unknown alert text must still surface (not dropped to None).
+        self.assertEqual(
+            humanize_notification_line(
+                "unexpected reconciliation drift marker",
+                translator=_translator_factory("无需交易"),
+            ),
+            "unexpected reconciliation drift marker",
+        )
+    def test_long_account_label_is_hidden_but_short_alias_is_kept(self):
+        translator = _translator_factory("无需交易")
+        self.assertEqual(
+            format_notification_account_label("a" * 64, translator=translator),
+            "已隐藏",
+        )
+        self.assertEqual(
+            format_notification_account_label("Schwab 主账户", translator=translator),
+            "Schwab 主账户",
+        )
 
     def test_localize_price_source_label_supports_broker_sources(self):
         self.assertEqual(

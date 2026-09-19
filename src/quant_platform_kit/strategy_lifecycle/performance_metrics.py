@@ -12,12 +12,18 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
-from quant_platform_kit.strategy_lifecycle.contracts import WindowPerformance
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    WindowPerformance,
+    validate_periods_per_year,
+)
 
 # Standard rolling windows (in trading days)
 DEFAULT_WINDOWS: tuple[int, ...] = (21, 63, 126, 252, 756)
 DEFAULT_RISK_FREE_RATE: float = 0.0
+# Default equity-session annualization basis. Crypto natural-day callers must
+# pass periods_per_year=365.25 explicitly (see ReturnObservationContract).
 TRADING_DAYS_PER_YEAR: float = 252.0
+CRYPTO_DAYS_PER_YEAR: float = 365.25
 
 
 def normalize_return_series(series: pd.Series) -> pd.Series:
@@ -30,7 +36,11 @@ def normalize_return_series(series: pd.Series) -> pd.Series:
     if s.index.has_duplicates:
         raise ValueError("daily return dates must be unique")
     s = pd.to_numeric(s, errors="coerce")
-    return s.dropna().sort_index()
+    if s.isna().any() or not np.isfinite(s.to_numpy(dtype=float)).all():
+        raise ValueError("daily returns contain NaN or infinite values")
+    if (s < -1.0).any():
+        raise ValueError("daily returns below -100% are invalid")
+    return s.sort_index()
 
 
 def normalize_return_matrix(
@@ -50,6 +60,9 @@ def normalize_return_matrix(
         raise ValueError("daily return dates must be unique")
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
+        values = df[col].dropna().to_numpy(dtype=float)
+        if not np.isfinite(values).all() or (values < -1.0).any():
+            raise ValueError(f"daily returns contain invalid values for {col!r}")
     return df.sort_index()
 
 
@@ -61,13 +74,16 @@ def compute_window_metrics(
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
     window_days: int | None = None,
     window_label: str = "",
+    periods_per_year: float = TRADING_DAYS_PER_YEAR,
+    calendar_id: str = "",
 ) -> WindowPerformance:
     """Compute all performance metrics for a return series.
 
     Returns are daily decimals; risk_free_rate is annual, converted to daily
-    MAR by dividing by 252. Sortino uses full-sample RMS shortfall from that
-    MAR and the same excess-return numerator as Sharpe; both are annualized.
-    Drawdowns include initial equity of 1 without adding an observation.
+    MAR by dividing by ``periods_per_year`` (default 252 for equity sessions).
+    Sortino uses full-sample RMS shortfall from that MAR and the same
+    excess-return numerator as Sharpe; both are annualized. Drawdowns include
+    initial equity of 1 without adding an observation.
 
     Benchmark comparisons use only common dates, including both CAGR legs.
     Jensen's alpha remains daily; beta uses matching population covariance
@@ -75,16 +91,24 @@ def compute_window_metrics(
     Information ratio is annualized aligned active mean / population std.
     Zero ratio denominators remain NaN; absent comparisons remain None.
     """
+    annualization_base = validate_periods_per_year(periods_per_year)
+    resolved_calendar_id = str(calendar_id or "").strip()
     series = normalize_return_series(returns)
     if window_days and len(series) > window_days:
         series = series.iloc[-window_days:]
     actual_days = len(series)
 
     if series.empty:
-        return _empty_window(window_label, window_days or 0, benchmark_symbol)
+        return _empty_window(
+            window_label,
+            window_days or 0,
+            benchmark_symbol,
+            calendar_id=resolved_calendar_id,
+            periods_per_year=annualization_base,
+        )
 
     equity = (1.0 + series).cumprod()
-    years = max(actual_days / TRADING_DAYS_PER_YEAR, 1.0 / TRADING_DAYS_PER_YEAR)
+    years = max(actual_days / annualization_base, 1.0 / annualization_base)
 
     total_return = float(equity.iloc[-1] - 1.0)
     cagr = float(equity.iloc[-1] ** (1.0 / years) - 1.0)
@@ -93,15 +117,15 @@ def compute_window_metrics(
     max_drawdown = float(drawdown.min())
 
     vol_daily = float(series.std(ddof=0)) if series.nunique() > 1 else 0.0
-    volatility = float(vol_daily * np.sqrt(TRADING_DAYS_PER_YEAR))
+    volatility = float(vol_daily * np.sqrt(annualization_base))
 
-    daily_risk_free = risk_free_rate / TRADING_DAYS_PER_YEAR
+    daily_risk_free = risk_free_rate / annualization_base
     excess = series.mean() - daily_risk_free
-    sharpe = float(excess / vol_daily * np.sqrt(TRADING_DAYS_PER_YEAR)) if vol_daily else float("nan")
+    sharpe = float(excess / vol_daily * np.sqrt(annualization_base)) if vol_daily else float("nan")
 
     downside = (series - daily_risk_free).clip(upper=0.0)
     downside_deviation = float(np.sqrt((downside ** 2).mean()))
-    sortino = float(excess / downside_deviation * np.sqrt(TRADING_DAYS_PER_YEAR)) if downside_deviation else float("nan")
+    sortino = float(excess / downside_deviation * np.sqrt(annualization_base)) if downside_deviation else float("nan")
 
     calmar = float(cagr / abs(max_drawdown)) if max_drawdown < 0.0 else float("nan")
 
@@ -129,7 +153,7 @@ def compute_window_metrics(
             strategy_aligned = aligned.iloc[:, 0]
             bench_aligned = aligned.iloc[:, 1]
             bench_equity = (1.0 + bench_aligned).cumprod()
-            bench_years = max(len(bench_aligned) / TRADING_DAYS_PER_YEAR, 1.0 / TRADING_DAYS_PER_YEAR)
+            bench_years = max(len(bench_aligned) / annualization_base, 1.0 / annualization_base)
             benchmark_return = float(bench_equity.iloc[-1] - 1.0)
             benchmark_cagr = float(bench_equity.iloc[-1] ** (1.0 / bench_years) - 1.0)
             bench_dd = bench_equity / bench_equity.cummax().clip(lower=1.0) - 1.0
@@ -144,7 +168,7 @@ def compute_window_metrics(
             # Information ratio
             active_returns = strategy_aligned - bench_aligned
             tracking_error = float(active_returns.std(ddof=0)) if active_returns.nunique() > 1 else 0.0
-            ir = float(active_returns.mean() / tracking_error * np.sqrt(TRADING_DAYS_PER_YEAR)) if tracking_error else float("nan")
+            ir = float(active_returns.mean() / tracking_error * np.sqrt(annualization_base)) if tracking_error else float("nan")
 
     return WindowPerformance(
         window_name=window_label or f"{actual_days}d",
@@ -168,6 +192,8 @@ def compute_window_metrics(
         excess_cagr=excess_cagr,
         alpha=alpha,
         information_ratio=ir,
+        calendar_id=resolved_calendar_id,
+        periods_per_year=annualization_base,
     )
 
 
@@ -177,6 +203,8 @@ def compute_windows(
     benchmark_returns: pd.Series | None = None,
     benchmark_symbol: str = "",
     windows: Sequence[int] = DEFAULT_WINDOWS,
+    periods_per_year: float = TRADING_DAYS_PER_YEAR,
+    calendar_id: str = "",
 ) -> dict[int, WindowPerformance]:
     """Compute metrics for multiple rolling windows."""
     series = normalize_return_series(returns)
@@ -190,6 +218,8 @@ def compute_windows(
             benchmark_symbol=benchmark_symbol,
             window_days=w,
             window_label=label,
+            periods_per_year=periods_per_year,
+            calendar_id=calendar_id,
         )
     return result
 
@@ -198,8 +228,17 @@ def compare_with_backtest(
     actual: WindowPerformance,
     backtest: "BacktestResult | None",
 ) -> dict[str, float]:
-    """Compute deviation between actual window performance and backtest expectations."""
+    """Compute deviation between actual window performance and backtest expectations.
+
+    Returns an empty mapping when the baseline lacks an explicit annualization
+    basis or the basis disagrees with ``actual.periods_per_year``. Callers must
+    treat that as not-comparable rather than zero drift.
+    """
     if backtest is None:
+        return {}
+    if backtest.periods_per_year is None:
+        return {}
+    if float(backtest.periods_per_year) != float(actual.periods_per_year):
         return {}
     diffs: dict[str, float] = {}
     if backtest.sharpe_ratio is not None and not np.isnan(actual.sharpe_ratio):
@@ -217,6 +256,16 @@ def compare_with_backtest(
     return diffs
 
 
+def annualization_basis_is_comparable(
+    actual: WindowPerformance,
+    backtest: "BacktestResult | None",
+) -> bool:
+    """True only when baseline declares the same periods_per_year as actual."""
+    if backtest is None or backtest.periods_per_year is None:
+        return False
+    return float(backtest.periods_per_year) == float(actual.periods_per_year)
+
+
 # ── helpers ─────────────────────────────────────────────────────────
 
 
@@ -232,7 +281,14 @@ def _window_label(days: int) -> str:
     return "trailing_3y"
 
 
-def _empty_window(label: str, window_days: int, benchmark: str) -> WindowPerformance:
+def _empty_window(
+    label: str,
+    window_days: int,
+    benchmark: str,
+    *,
+    calendar_id: str = "",
+    periods_per_year: float = TRADING_DAYS_PER_YEAR,
+) -> WindowPerformance:
     return WindowPerformance(
         window_name=label or "empty",
         window_days=window_days,
@@ -248,4 +304,6 @@ def _empty_window(label: str, window_days: int, benchmark: str) -> WindowPerform
         max_drawdown=float("nan"),
         win_rate=float("nan"),
         benchmark_symbol=benchmark,
+        calendar_id=calendar_id,
+        periods_per_year=periods_per_year,
     )

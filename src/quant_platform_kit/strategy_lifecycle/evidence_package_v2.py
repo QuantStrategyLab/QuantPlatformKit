@@ -80,6 +80,7 @@ _RESULT_NUMBER_FIELDS = (
     "oos_max_drawdown",
     "walk_forward_stability",
     "run_duration_seconds",
+    "periods_per_year",
 )
 _RESULT_FIELDS = frozenset(
     {
@@ -95,6 +96,7 @@ _RESULT_FIELDS = frozenset(
         "source_script",
         "computed_at",
         "source_revision",
+        "calendar_id",
         "cost_model",
         "validation_identity",
         "cost_inputs",
@@ -869,6 +871,14 @@ def _validate_backtest_result(
         and float(result["run_duration_seconds"]) < 0
     ):
         issues.append(f"{label}.run_duration_seconds must be non-negative")
+    if "calendar_id" in result and result.get("calendar_id") not in (None, ""):
+        _non_empty_string(result.get("calendar_id"), f"{label}.calendar_id", issues)
+    if "periods_per_year" in result and result.get("periods_per_year") is not None:
+        periods_per_year = _finite_number(
+            result.get("periods_per_year"), f"{label}.periods_per_year", issues
+        )
+        if periods_per_year is not None and periods_per_year <= 0:
+            issues.append(f"{label}.periods_per_year must be positive")
     start_date = _calendar_date(result.get("start_date"), f"{label}.start_date", issues)
     end_date = _calendar_date(result.get("end_date"), f"{label}.end_date", issues)
     if fold is not None and (start_date, end_date) != (fold[2], fold[3]):

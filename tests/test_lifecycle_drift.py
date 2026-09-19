@@ -108,6 +108,24 @@ class DriftDetectorTests(unittest.TestCase):
         result = detect_drift(snap)
         self.assertEqual(result.status, DriftStatus.HEALTHY)
 
+    def test_missing_reference_window_with_baseline_is_review(self) -> None:
+        snap = StrategyPerformanceSnapshot(
+            strategy_profile="t", domain="us", platform="t",
+            as_of=date(2026, 6, 1),
+        )
+        result = detect_drift(snap, backtest=_make_backtest())
+        self.assertEqual(result.status, DriftStatus.REVIEW)
+
+    def test_incomplete_observation_never_scores_as_healthy(self) -> None:
+        snap = replace(_make_snapshot(), observation_status="truncated_after_observation_gap")
+        result = detect_drift(snap, backtest=_make_backtest())
+        self.assertEqual(result.status, DriftStatus.REVIEW)
+
+    def test_not_comparable_annualization_preserves_restriction(self) -> None:
+        snap = replace(_make_snapshot(), drift_status="not_comparable_annualization")
+        result = detect_drift(snap, backtest=_make_backtest())
+        self.assertEqual(result.status, DriftStatus.REVIEW)
+
     def test_escalation_detected(self) -> None:
         snap = _make_snapshot(sharpe=0.5)
         bt = _make_backtest(sharpe=1.5)

@@ -63,6 +63,13 @@ def doctor_lifecycle(
 
         if require_snapshot and snapshot is None:
             issues.append(f"{profile}: missing lifecycle snapshot")
+        if snapshot is not None:
+            if snapshot.observation_status not in {"", "ok", "complete", "COMPLETE"}:
+                issues.append(f"{profile}: snapshot observation status is {snapshot.observation_status}")
+            if snapshot.drift_status == "not_comparable_annualization":
+                issues.append(f"{profile}: snapshot annualization is not comparable")
+            if not (snapshot.windows.get(126) or snapshot.windows.get(252)):
+                issues.append(f"{profile}: missing reference performance window")
         if require_backtest and backtest is None:
             issues.append(f"{profile}: missing lifecycle backtest")
         if require_drift and drift is None:

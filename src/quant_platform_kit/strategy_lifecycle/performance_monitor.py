@@ -18,9 +18,13 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-from quant_platform_kit.strategy_lifecycle.contracts import StrategyPerformanceSnapshot
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    StrategyPerformanceSnapshot,
+    resolve_return_observation_contract,
+)
 from quant_platform_kit.strategy_lifecycle.performance_metrics import (
     DEFAULT_WINDOWS,
+    annualization_basis_is_comparable,
     compare_with_backtest,
     compute_window_metrics,
     normalize_return_series,
@@ -162,10 +166,15 @@ def run_monitor(
     """
     store = store or PerformanceStore.from_env()
     collector = collector or ReturnCollector()
+    observation_contract = resolve_return_observation_contract(domain)
 
-    # 1. Collect returns
+    # 1. Collect returns under the domain observation contract.
     if isinstance(collector, ReturnCollector):
-        all_returns = collector.collect(domain, live_stream_id=live_stream_id)
+        all_returns = collector.collect(
+            domain,
+            live_stream_id=live_stream_id,
+            observation_contract=observation_contract,
+        )
     else:
         all_returns = collector.collect(domain)
     if not all_returns:
@@ -188,6 +197,7 @@ def run_monitor(
             continue
 
         series = normalize_return_series(returns)
+        observation_status = str(getattr(returns, "attrs", {}).get("observation_status") or "ok")
 
         # Resolve benchmark
         benchmark_symbol = resolve_strategy_benchmark(
@@ -196,7 +206,9 @@ def run_monitor(
             catalog_benchmarks=strategy_benchmarks,
             require_explicit=require_explicit_benchmark,
         )
-        benchmark_series = collector.collect_benchmark(domain, benchmark_symbol)
+        benchmark_series = None
+        if hasattr(collector, "collect_benchmark"):
+            benchmark_series = collector.collect_benchmark(domain, benchmark_symbol)
         if require_explicit_benchmark and not _is_valid_series(
             benchmark_series, min_observations=min_observations
         ):
@@ -218,18 +230,25 @@ def run_monitor(
             benchmark_symbol=benchmark_symbol,
             computed_at=_now_iso(),
             source_revision=resolved_source_revision,
+            observation_status=observation_status,
         )
 
-        # Compute each window
+        # Compute each window with the domain annualization contract.
         windows_dict = dict(snapshot.windows)
         for w in windows:
             sliced = series if w >= len(series) else series.iloc[-w:]
-            bench_sliced = benchmark_returns.iloc[-w:] if benchmark_returns is not None and len(benchmark_returns) >= w else None
+            bench_sliced = (
+                benchmark_returns.iloc[-w:]
+                if benchmark_returns is not None and len(benchmark_returns) >= w
+                else None
+            )
             wp = compute_window_metrics(
                 sliced,
                 benchmark_returns=bench_sliced,
                 benchmark_symbol=benchmark_symbol,
                 window_days=w,
+                periods_per_year=observation_contract.periods_per_year,
+                calendar_id=observation_contract.calendar_id,
             )
             windows_dict[w] = wp
 
@@ -249,13 +268,20 @@ def run_monitor(
         else:
             snapshot = replace(snapshot, windows=windows_dict)
 
-        # Attach drift reference: use 126-day window to compare against backtest
+        # Attach drift reference only when annualization bases are comparable.
         ref_window = windows_dict.get(126) or windows_dict.get(252)
         if ref_window is not None and latest_backtest is not None:
-            deviations = compare_with_backtest(ref_window, latest_backtest)
-            if deviations:
-                max_dev = max(deviations.values())
-                snapshot = replace(snapshot, drift_score=min(max_dev, 1.0))
+            if not annualization_basis_is_comparable(ref_window, latest_backtest):
+                snapshot = replace(
+                    snapshot,
+                    drift_score=None,
+                    drift_status="not_comparable_annualization",
+                )
+            else:
+                deviations = compare_with_backtest(ref_window, latest_backtest)
+                if deviations:
+                    max_dev = max(deviations.values())
+                    snapshot = replace(snapshot, drift_score=min(max_dev, 1.0))
 
         # Persist
         store.save_snapshot(snapshot)
