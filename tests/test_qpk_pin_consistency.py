@@ -138,6 +138,30 @@ class QpkPinConsistencyTests(unittest.TestCase):
                     _files, mismatches, errors = check_repo(root=root, target_sha=TARGET, fix_mode=False)
                     self.assertEqual((0, []), (mismatches, errors))
 
+    def test_fixed_workflow_strategy_ref_is_independent_of_project_dependency(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workflow = root / ".github" / "workflows" / "replay.yml"
+            workflow.parent.mkdir(parents=True)
+            root.joinpath("pyproject.toml").write_text(
+                "[project]\n"
+                "dependencies = [\n"
+                f'  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@{TARGET}",\n'
+                f'  "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@{TARGET}",\n'
+                "]\n",
+                encoding="utf-8",
+            )
+            workflow.write_text(
+                "jobs:\n"
+                "  replay:\n"
+                "    steps:\n"
+                f"      - run: pip install 'us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@{STALE}'\n",
+                encoding="utf-8",
+            )
+
+            _files, mismatches, errors = check_repo(root=root, target_sha=TARGET, fix_mode=False)
+            self.assertEqual((0, []), (mismatches, errors))
+
     def test_fix_package_pin_does_not_replace_same_sha_in_workflow_uses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
