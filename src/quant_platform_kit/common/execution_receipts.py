@@ -36,6 +36,8 @@ EXECUTION_RECEIPT_OUTCOMES = frozenset(
     {
         "not_due",
         "no_action",
+        "no_signal",
+        "no_rebalance",
         "risk_blocked",
         "submitted",
         "broker_acknowledged",
@@ -58,6 +60,8 @@ EXECUTION_RECEIPT_BROKER_CONFIRMATIONS = frozenset(
 _OUTCOME_CONFIRMATIONS = {
     "not_due": frozenset({"not_applicable"}),
     "no_action": frozenset({"not_applicable"}),
+    "no_signal": frozenset({"not_applicable"}),
+    "no_rebalance": frozenset({"not_applicable"}),
     "risk_blocked": frozenset({"not_applicable"}),
     "submitted": frozenset({"not_observed"}),
     "broker_acknowledged": frozenset({"acknowledged"}),

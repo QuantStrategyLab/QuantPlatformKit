@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 
+from quant_platform_kit.strategy_lifecycle.contracts import ReturnObservationContract
 from quant_platform_kit.strategy_lifecycle.live_equity import (
     cash_flow_adjusted_return,
     consecutive_losses_from_live_run_records,
@@ -14,6 +16,7 @@ from quant_platform_kit.strategy_lifecycle.live_equity import (
     extract_external_cash_flow,
     live_interval_records_to_return_series,
     live_run_records_to_return_series,
+    live_run_records_to_return_series_result,
     resolve_consecutive_losses,
     stamp_consecutive_losses_on_snapshot,
 )
@@ -313,7 +316,7 @@ class LiveEquityTests(unittest.TestCase):
             for day, equity in (
                 ("2026-07-01T10:00:00+00:00", 100.0),
                 ("2026-07-02T10:00:00+00:00", 98.0),
-                ("2026-07-03T10:00:00+00:00", 96.0),
+                ("2026-07-06T10:00:00+00:00", 96.0),
             ):
                 store.save_live_run_record(
                     "global_etf_rotation",
@@ -352,7 +355,7 @@ class LiveEquityTests(unittest.TestCase):
             for day, equity in (
                 ("2026-07-01T10:00:00+00:00", 100.0),
                 ("2026-07-02T10:00:00+00:00", 98.0),
-                ("2026-07-03T10:00:00+00:00", 96.0),
+                ("2026-07-06T10:00:00+00:00", 96.0),
             ):
                 store.save_live_run_record(
                     "global_etf_rotation",
@@ -390,6 +393,94 @@ class LiveEquityTests(unittest.TestCase):
 
 
 class ReturnCollectorLiveRunTests(unittest.TestCase):
+    def test_collect_rejects_mixed_valid_and_invalid_return_matrices(self) -> None:
+        """A bad matrix in the same domain must not silently leave only valid columns."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            alpha_dir = root / "alpha"
+            beta_dir = root / "beta"
+            alpha_dir.mkdir()
+            beta_dir.mkdir()
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "alpha": [0.01, -0.02]}
+            ).to_csv(alpha_dir / "portfolio_and_tracker_returns.csv", index=False)
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "beta": [0.01, float("inf")]}
+            ).to_csv(beta_dir / "portfolio_and_tracker_returns.csv", index=False)
+
+            store = PerformanceStore(local_root=root / "store")
+            collector = ReturnCollector(
+                artifact_roots={"us_equity": root},
+                projects_root=root,
+                store=store,
+            )
+
+            with self.assertRaisesRegex(ValueError, r"invalid return matrix") as ctx:
+                collector.collect("us_equity")
+            self.assertIsInstance(ctx.exception.__cause__, ValueError)
+            self.assertRegex(str(ctx.exception.__cause__), r"infinite|NaN")
+
+    def test_collect_benchmark_rejects_invalid_return_matrix(self) -> None:
+        """Valid-before-invalid sort order must not early-return past a bad matrix."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            # Sorted discovery: a_valid before z_invalid.
+            a_valid = root / "a_valid"
+            z_invalid = root / "z_invalid"
+            a_valid.mkdir()
+            z_invalid.mkdir()
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "SPY": [0.01, -0.02]}
+            ).to_csv(a_valid / "portfolio_and_tracker_returns.csv", index=False)
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "SPY": [0.01, float("inf")]}
+            ).to_csv(z_invalid / "portfolio_and_tracker_returns.csv", index=False)
+
+            collector = ReturnCollector(
+                artifact_roots={"us_equity": root},
+                projects_root=root,
+                store=PerformanceStore(local_root=root / "store"),
+            )
+            discovered = collector.discover_return_matrices("us_equity")
+            self.assertEqual(
+                [p.parent.name for p in discovered],
+                ["a_valid", "z_invalid"],
+            )
+            with self.assertRaisesRegex(ValueError, r"invalid return matrix") as ctx:
+                collector.collect_benchmark("us_equity", "SPY")
+            self.assertIsInstance(ctx.exception.__cause__, ValueError)
+            self.assertRegex(str(ctx.exception.__cause__), r"infinite|NaN")
+            self.assertIn("z_invalid", str(ctx.exception))
+
+    def test_collect_benchmark_returns_none_when_symbol_absent(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "alpha": [0.01, -0.02]}
+            ).to_csv(root / "portfolio_and_tracker_returns.csv", index=False)
+            collector = ReturnCollector(
+                artifact_roots={"us_equity": root},
+                projects_root=root,
+                store=PerformanceStore(local_root=root / "store"),
+            )
+            self.assertIsNone(collector.collect_benchmark("us_equity", "SPY"))
+
+    def test_collect_preserves_single_valid_return_matrix(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pd.DataFrame(
+                {"as_of": ["2026-09-08", "2026-09-09"], "alpha": [0.01, -0.02]}
+            ).to_csv(root / "portfolio_and_tracker_returns.csv", index=False)
+            collector = ReturnCollector(
+                artifact_roots={"us_equity": root},
+                projects_root=root,
+                store=PerformanceStore(local_root=root / "store"),
+            )
+            series_map = collector.collect("us_equity")
+            self.assertEqual(list(series_map), ["alpha"])
+            self.assertEqual(len(series_map["alpha"]), 2)
+            self.assertAlmostEqual(float(series_map["alpha"].iloc[0]), 0.01)
+
     def test_interval_survives_recorder_store_and_return_collector(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
@@ -439,29 +530,22 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
     def test_collect_merges_live_run_returns(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = PerformanceStore(local_root=Path(tmp))
-            monitor = PerformanceMonitor(store=store)
-            monitor.record_execution(
-                "global_etf_rotation",
-                {"platform": "schwab", "total_equity": 100.0},
-                domain="us_equity",
-            )
-            first_record = store.list_live_run_records("us_equity", strategy_profile="global_etf_rotation")[0]
-            second_recorded_at = (
-                pd.Timestamp(first_record["recorded_at"]).normalize() + pd.Timedelta(days=1, hours=10)
-            ).isoformat()
-            # Second record on a later day in the same account-safe stream.
-            store.save_live_run_record(
-                "global_etf_rotation",
-                "us_equity",
-                {
-                    "strategy_profile": "global_etf_rotation",
-                    "domain": "us_equity",
-                    "recorded_at": second_recorded_at,
-                    "record_kind": "execution",
-                    "execution_result": {"total_equity": 102.0},
-                },
-                stream_id="schwab",
-            )
+            for day, equity in (
+                ("2026-09-14T10:00:00+00:00", 100.0),
+                ("2026-09-15T10:00:00+00:00", 102.0),
+            ):
+                store.save_live_run_record(
+                    "global_etf_rotation",
+                    "us_equity",
+                    {
+                        "strategy_profile": "global_etf_rotation",
+                        "domain": "us_equity",
+                        "recorded_at": day,
+                        "record_kind": "execution",
+                        "execution_result": {"total_equity": equity},
+                    },
+                    stream_id="schwab",
+                )
 
             collector = ReturnCollector(store=store, projects_root=Path(tmp))
             returns = collector.collect_from_live_runs("us_equity")
@@ -505,12 +589,258 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
                 return rows
 
         series = ReturnCollector(store=Store()).collect_from_live_runs(
-            "us_equity", stream_id="offline-account"
+            "us_equity",
+            stream_id="offline-account",
         )["audit_case"]
 
         self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
         self.assertAlmostEqual(float(series.iloc[0]), 0.01)
         self.assertAlmostEqual(compute_window_metrics(series).total_return, 0.01)
+
+    def test_missing_us_trading_day_does_not_become_single_day_return(self) -> None:
+        result = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2026-09-16T20:00:00Z", "total_equity": 102.0},
+            ],
+            domain="us_equity",
+        )
+        self.assertEqual(result.status, "incomplete_observation_gap")
+        self.assertTrue(result.series.empty)
+        metrics = compute_window_metrics(result.series, window_days=1, window_label="gap")
+        self.assertEqual(metrics.observation_count, 0)
+
+    def test_published_2026_calendars_weekend_holiday_halfday_and_bounds(self) -> None:
+        weekend = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-09-11T20:00:00Z", "total_equity": 100.0},  # Fri
+                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 101.0},  # Mon
+            ],
+            domain="us_equity",
+        )
+        self.assertEqual(weekend.status, "ok")
+        self.assertAlmostEqual(float(weekend.series.iloc[0]), 0.01)
+
+        # Labor Day 2026-09-07 is a published full-day closure, not a gap.
+        labor = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-09-04T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2026-09-08T20:00:00Z", "total_equity": 102.0},
+            ],
+            domain="us_equity",
+        )
+        self.assertEqual(labor.status, "ok")
+        self.assertAlmostEqual(float(labor.series.iloc[0]), 0.02)
+
+        # Half-day 2026-11-27 remains an expected session after Thanksgiving.
+        half_day_gap = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-11-25T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2026-11-30T20:00:00Z", "total_equity": 101.0},
+            ],
+            domain="us_equity",
+        )
+        self.assertEqual(half_day_gap.status, "incomplete_observation_gap")
+        self.assertTrue(half_day_gap.series.empty)
+
+        half_day_ok = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-11-25T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2026-11-27T20:00:00Z", "total_equity": 101.0},
+            ],
+            domain="us_equity",
+        )
+        self.assertEqual(half_day_ok.status, "ok")
+
+        # HKEX Lunar New Year full closures; 2026-02-16 half-day still required.
+        hk_holiday = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-02-16T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2026-02-20T20:00:00Z", "total_equity": 101.0},
+            ],
+            domain="hk_equity",
+        )
+        self.assertEqual(hk_holiday.status, "ok")
+
+        out_of_range = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2025-12-30T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2025-12-31T20:00:00Z", "total_equity": 101.0},
+            ],
+            domain="us_equity",
+        )
+        self.assertEqual(out_of_range.status, "incomplete_calendar")
+        self.assertIn("coverage_exceeded", out_of_range.detail)
+
+        future = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2027-01-04T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2027-01-05T20:00:00Z", "total_equity": 101.0},
+            ],
+            domain="us_equity",
+        )
+        self.assertEqual(future.status, "incomplete_calendar")
+
+        synthetic = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-09-04T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2026-09-08T20:00:00Z", "total_equity": 102.0},
+            ],
+            observation_contract=ReturnObservationContract(
+                calendar_id="XNYS",
+                periods_per_year=252.0,
+                domain="us_equity",
+                session_holidays=frozenset({"2026-09-07"}),
+                holiday_source="synthetic_fixture_only",
+                holiday_coverage_start=date(2026, 9, 4),
+                holiday_coverage_end=date(2026, 9, 8),
+            ),
+        )
+        self.assertEqual(synthetic.status, "incomplete_calendar")
+
+    def test_crypto_weekend_gap_does_not_bridge_natural_days(self) -> None:
+        result = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-09-12T20:00:00Z", "total_equity": 100.0},  # Sat
+                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 102.0},  # Mon, missing Sun
+            ],
+            domain="crypto",
+        )
+        self.assertEqual(result.status, "incomplete_observation_gap")
+        self.assertTrue(result.series.empty)
+
+    def test_gap_keeps_only_latest_contiguous_segment(self) -> None:
+        result = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2026-09-16T20:00:00Z", "total_equity": 102.0},
+                {"recorded_at": "2026-09-17T20:00:00Z", "total_equity": 103.0},
+            ],
+            domain="us_equity",
+        )
+        self.assertEqual(result.status, "truncated_after_observation_gap")
+        self.assertEqual(list(result.series.index), [pd.Timestamp("2026-09-17")])
+        self.assertAlmostEqual(float(result.series.iloc[0]), 103 / 102 - 1)
+
+    def test_collect_from_live_runs_refuses_us_trading_day_gap(self) -> None:
+        rows = [
+            {
+                "recorded_at": "2026-09-14T20:00:00Z",
+                "total_equity": 100.0,
+                "strategy_profile": "gap_case",
+                "lifecycle_stream_id": "offline-account",
+            },
+            {
+                "recorded_at": "2026-09-16T20:00:00Z",
+                "total_equity": 102.0,
+                "strategy_profile": "gap_case",
+                "lifecycle_stream_id": "offline-account",
+            },
+        ]
+
+        class Store:
+            def list_live_run_records(self, domain: str) -> list[dict[str, object]]:
+                self.domain = domain
+                return rows
+
+        outcome = ReturnCollector(store=Store()).collect_from_live_runs_result(
+            "us_equity",
+            stream_id="offline-account",
+        )
+        self.assertNotIn("gap_case", outcome.series_by_profile)
+        self.assertIn("gap_case", outcome.incomplete_by_profile)
+        self.assertIn("incomplete_observation_gap", outcome.incomplete_by_profile["gap_case"])
+
+    def test_collect_rejects_synthetic_holiday_source_as_real(self) -> None:
+        rows = [
+            {
+                "recorded_at": "2026-09-04T20:00:00Z",
+                "total_equity": 100.0,
+                "strategy_profile": "holiday_case",
+                "lifecycle_stream_id": "offline-account",
+            },
+            {
+                "recorded_at": "2026-09-08T20:00:00Z",
+                "total_equity": 102.0,
+                "strategy_profile": "holiday_case",
+                "lifecycle_stream_id": "offline-account",
+            },
+        ]
+
+        class Store:
+            def list_live_run_records(self, domain: str) -> list[dict[str, object]]:
+                return rows
+
+        outcome = ReturnCollector(store=Store()).collect_from_live_runs_result(
+            "us_equity",
+            stream_id="offline-account",
+            holiday_source="synthetic_fixture_only",
+            holiday_coverage_start=date(2026, 9, 4),
+            holiday_coverage_end=date(2026, 9, 8),
+            session_holidays=frozenset({"2026-09-07"}),
+        )
+        self.assertEqual(outcome.series_by_profile, {})
+        self.assertIn("incomplete_calendar", outcome.incomplete_by_profile["holiday_case"])
+
+    def test_collect_default_uses_published_2026_labor_day(self) -> None:
+        rows = [
+            {
+                "recorded_at": "2026-09-04T20:00:00Z",
+                "total_equity": 100.0,
+                "strategy_profile": "holiday_case",
+                "lifecycle_stream_id": "offline-account",
+            },
+            {
+                "recorded_at": "2026-09-08T20:00:00Z",
+                "total_equity": 102.0,
+                "strategy_profile": "holiday_case",
+                "lifecycle_stream_id": "offline-account",
+            },
+        ]
+
+        class Store:
+            def list_live_run_records(self, domain: str) -> list[dict[str, object]]:
+                return rows
+
+        outcome = ReturnCollector(store=Store()).collect_from_live_runs_result(
+            "us_equity",
+            stream_id="offline-account",
+        )
+        self.assertIn("holiday_case", outcome.series_by_profile)
+        self.assertAlmostEqual(float(outcome.series_by_profile["holiday_case"].iloc[0]), 0.02)
+        self.assertEqual(outcome.incomplete_by_profile, {})
+
+    def test_custom_coverage_overlay_is_not_swallowed_by_defaults(self) -> None:
+        rows = [
+            {
+                "recorded_at": "2026-09-04T20:00:00Z",
+                "total_equity": 100.0,
+                "strategy_profile": "holiday_case",
+                "lifecycle_stream_id": "offline-account",
+            },
+            {
+                "recorded_at": "2026-09-08T20:00:00Z",
+                "total_equity": 102.0,
+                "strategy_profile": "holiday_case",
+                "lifecycle_stream_id": "offline-account",
+            },
+        ]
+
+        class Store:
+            def list_live_run_records(self, domain: str) -> list[dict[str, object]]:
+                return rows
+
+        # Explicit narrow coverage must win over the published full-year default.
+        outcome = ReturnCollector(store=Store()).collect_from_live_runs_result(
+            "us_equity",
+            stream_id="offline-account",
+            holiday_source="caller_attested",
+            holiday_coverage_start=date(2026, 9, 4),
+            holiday_coverage_end=date(2026, 9, 5),
+            session_holidays=frozenset({"2026-09-07"}),
+        )
+        self.assertEqual(outcome.series_by_profile, {})
+        self.assertIn("coverage_exceeded", outcome.incomplete_by_profile["holiday_case"])
 
     def test_collect_refuses_to_merge_multiple_account_streams(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -534,9 +864,14 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
                     )
 
             collector = ReturnCollector(store=store, projects_root=Path(tmp))
-            self.assertNotIn("soxl_soxx_trend_income", collector.collect_from_live_runs("us_equity"))
+            self.assertNotIn(
+                "soxl_soxx_trend_income",
+                collector.collect_from_live_runs("us_equity"),
+            )
 
-            account_a = collector.collect_from_live_runs("us_equity", stream_id="account-a")
+            account_a = collector.collect_from_live_runs(
+                "us_equity", stream_id="account-a"
+            )
             self.assertAlmostEqual(float(account_a["soxl_soxx_trend_income"].iloc[0]), 0.02)
 
 

@@ -7,6 +7,10 @@ artifacts, indicators, etc.) should be placed here rather than duplicated.
 
 from .notification_localization import (
     COMMON_ZH_NOTIFICATION_REPLACEMENTS,
+    format_notification_account_label,
+    humanize_notification_line,
+    humanize_notification_lines,
+    resolve_notification_locale,
     STRATEGY_PLUGIN_I18N,
     localize_notification_text,
     merge_strategy_plugin_i18n,

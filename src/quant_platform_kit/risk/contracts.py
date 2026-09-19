@@ -203,6 +203,7 @@ class RuntimeRiskLimits:
     total_nominal_exposure_cap: float
     total_effective_exposure_cap: float
     max_positions: int
+    max_daily_loss_usd: float | None = None
 
     def __post_init__(self) -> None:
         if isinstance(self.allowed_symbols, (str, bytes)):
@@ -256,6 +257,12 @@ class RuntimeRiskLimits:
                 raise ValueError(f"{field_name} must be finite and nonnegative")
         if type(self.max_positions) is not int or isinstance(self.max_positions, bool) or self.max_positions < 0:
             raise ValueError("max_positions must be a nonnegative integer")
+        if self.max_daily_loss_usd is not None and (
+            type(self.max_daily_loss_usd) not in (int, float)
+            or not math.isfinite(float(self.max_daily_loss_usd))
+            or float(self.max_daily_loss_usd) <= 0.0
+        ):
+            raise ValueError("max_daily_loss_usd must be finite and positive")
 
         object.__setattr__(self, "allowed_symbols", symbols)
         object.__setattr__(self, "product_leverage_factors", MappingProxyType(factors))

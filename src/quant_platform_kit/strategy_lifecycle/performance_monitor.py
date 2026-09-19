@@ -7,6 +7,9 @@ and persists StrategyPerformanceSnapshot records to the performance store.
 from __future__ import annotations
 
 import logging
+import os
+import re
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -15,9 +18,13 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-from quant_platform_kit.strategy_lifecycle.contracts import StrategyPerformanceSnapshot
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    StrategyPerformanceSnapshot,
+    resolve_return_observation_contract,
+)
 from quant_platform_kit.strategy_lifecycle.performance_metrics import (
     DEFAULT_WINDOWS,
+    annualization_basis_is_comparable,
     compare_with_backtest,
     compute_window_metrics,
     normalize_return_series,
@@ -28,9 +35,58 @@ from quant_platform_kit.strategy_lifecycle.return_collector import (
     resolve_strategy_benchmark,
 )
 
+_SOURCE_REVISION_SHA = re.compile(r"^[0-9a-f]{40}$")
+_SOURCE_REVISION_SENTINELS = frozenset(
+    {"", "unavailable", "not_available", "legacy_missing", "unknown", "none", "null"}
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def resolve_monitor_source_revision(
+    explicit: str | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve a real observation ``source_revision`` for daily snapshots.
+
+    Order: explicit argument, ``LIFECYCLE_SOURCE_REVISION``, then ``GITHUB_SHA``.
+    Full 40-character lowercase git SHAs are always accepted. Non-SHA labels are
+    allowed only from the explicit argument or ``LIFECYCLE_SOURCE_REVISION``
+    (existing probe/contract non-empty provenance). ``GITHUB_SHA`` must be a
+    full 40-character SHA. Missing or sentinel values raise instead of writing
+    an empty string that would look like a complete observation.
+    """
+    env = os.environ if environ is None else environ
+    candidates: list[tuple[str, bool]] = []
+    if explicit is not None:
+        candidates.append((str(explicit), False))
+    for key, sha_only in (
+        ("LIFECYCLE_SOURCE_REVISION", False),
+        ("GITHUB_SHA", True),
+    ):
+        raw = env.get(key)
+        if raw is None:
+            continue
+        candidates.append((str(raw), sha_only))
+
+    for raw, sha_only in candidates:
+        value = raw.strip()
+        if not value or value.lower() in _SOURCE_REVISION_SENTINELS:
+            continue
+        lowered = value.lower()
+        if _SOURCE_REVISION_SHA.fullmatch(lowered):
+            return lowered
+        if sha_only:
+            continue
+        return value
+
+    raise RuntimeError(
+        "monitor source_revision is required; pass source_revision=..., "
+        "set LIFECYCLE_SOURCE_REVISION, or provide GITHUB_SHA (40-char)"
+    )
 
 
 def resolve_lifecycle_stream_id(
@@ -45,8 +101,6 @@ def resolve_lifecycle_stream_id(
     synthetic equity curve.  ``LIFECYCLE_STREAM_ID`` is available for
     non-Cloud-Run runtimes that need a stable explicit identity.
     """
-    import os
-
     for candidate in (
         explicit_stream_id,
         os.environ.get("LIFECYCLE_STREAM_ID"),
@@ -83,6 +137,7 @@ def run_monitor(
     strategy_benchmarks: Mapping[str, str] | None = None,
     require_explicit_benchmark: bool = False,
     live_stream_id: str | None = None,
+    source_revision: str | None = None,
 ) -> list[StrategyPerformanceSnapshot]:
     """Run the performance monitor for the given domain.
 
@@ -102,16 +157,24 @@ def run_monitor(
         live_stream_id: Optional stable telemetry stream identity.  When live
             account data is used, this prevents independent broker accounts
             from being merged into one return series.
+        source_revision: Observation provenance. Required when snapshots would be
+            written; resolved from env when omitted (see
+            :func:`resolve_monitor_source_revision`).
 
     Returns:
         List of StrategyPerformanceSnapshot objects generated.
     """
     store = store or PerformanceStore.from_env()
     collector = collector or ReturnCollector()
+    observation_contract = resolve_return_observation_contract(domain)
 
-    # 1. Collect returns
+    # 1. Collect returns under the domain observation contract.
     if isinstance(collector, ReturnCollector):
-        all_returns = collector.collect(domain, live_stream_id=live_stream_id)
+        all_returns = collector.collect(
+            domain,
+            live_stream_id=live_stream_id,
+            observation_contract=observation_contract,
+        )
     else:
         all_returns = collector.collect(domain)
     if not all_returns:
@@ -122,6 +185,9 @@ def run_monitor(
             )
         return []
 
+    # Fail closed before any snapshot write when provenance is missing.
+    resolved_source_revision = resolve_monitor_source_revision(source_revision)
+
     profiles = [strategy_profile] if strategy_profile else sorted(all_returns.keys())
     snapshots: list[StrategyPerformanceSnapshot] = []
 
@@ -131,6 +197,7 @@ def run_monitor(
             continue
 
         series = normalize_return_series(returns)
+        observation_status = str(getattr(returns, "attrs", {}).get("observation_status") or "ok")
 
         # Resolve benchmark
         benchmark_symbol = resolve_strategy_benchmark(
@@ -139,7 +206,9 @@ def run_monitor(
             catalog_benchmarks=strategy_benchmarks,
             require_explicit=require_explicit_benchmark,
         )
-        benchmark_series = collector.collect_benchmark(domain, benchmark_symbol)
+        benchmark_series = None
+        if hasattr(collector, "collect_benchmark"):
+            benchmark_series = collector.collect_benchmark(domain, benchmark_symbol)
         if require_explicit_benchmark and not _is_valid_series(
             benchmark_series, min_observations=min_observations
         ):
@@ -160,65 +229,59 @@ def run_monitor(
             as_of=date.today(),
             benchmark_symbol=benchmark_symbol,
             computed_at=_now_iso(),
+            source_revision=resolved_source_revision,
+            observation_status=observation_status,
         )
 
-        # Compute each window
+        # Compute each window with the domain annualization contract.
         windows_dict = dict(snapshot.windows)
         for w in windows:
             sliced = series if w >= len(series) else series.iloc[-w:]
-            bench_sliced = benchmark_returns.iloc[-w:] if benchmark_returns is not None and len(benchmark_returns) >= w else None
+            bench_sliced = (
+                benchmark_returns.iloc[-w:]
+                if benchmark_returns is not None and len(benchmark_returns) >= w
+                else None
+            )
             wp = compute_window_metrics(
                 sliced,
                 benchmark_returns=bench_sliced,
                 benchmark_symbol=benchmark_symbol,
                 window_days=w,
+                periods_per_year=observation_contract.periods_per_year,
+                calendar_id=observation_contract.calendar_id,
             )
             windows_dict[w] = wp
 
         # Latest return
         if len(series) > 0:
-            snapshot = StrategyPerformanceSnapshot(
-                strategy_profile=snapshot.strategy_profile,
-                domain=snapshot.domain,
-                platform=snapshot.platform,
-                as_of=snapshot.as_of,
+            snapshot = replace(
+                snapshot,
                 windows=windows_dict,
                 latest_return=float(series.iloc[-1]),
-                benchmark_symbol=snapshot.benchmark_symbol,
-                data_freshness_days=(date.today() - series.index[-1].date()).days if hasattr(series.index[-1], "date") else 0,
+                data_freshness_days=(
+                    (date.today() - series.index[-1].date()).days
+                    if hasattr(series.index[-1], "date")
+                    else 0
+                ),
                 source_artifact_path="",
-                computed_at=snapshot.computed_at,
             )
         else:
-            snapshot = StrategyPerformanceSnapshot(
-                strategy_profile=snapshot.strategy_profile,
-                domain=snapshot.domain,
-                platform=snapshot.platform,
-                as_of=snapshot.as_of,
-                windows=windows_dict,
-                benchmark_symbol=snapshot.benchmark_symbol,
-                computed_at=snapshot.computed_at,
-            )
+            snapshot = replace(snapshot, windows=windows_dict)
 
-        # Attach drift reference: use 126-day window to compare against backtest
+        # Attach drift reference only when annualization bases are comparable.
         ref_window = windows_dict.get(126) or windows_dict.get(252)
         if ref_window is not None and latest_backtest is not None:
-            deviations = compare_with_backtest(ref_window, latest_backtest)
-            if deviations:
-                max_dev = max(deviations.values())
-                snapshot = StrategyPerformanceSnapshot(
-                    strategy_profile=snapshot.strategy_profile,
-                    domain=snapshot.domain,
-                    platform=snapshot.platform,
-                    as_of=snapshot.as_of,
-                    windows=snapshot.windows,
-                    latest_return=snapshot.latest_return,
-                    benchmark_symbol=snapshot.benchmark_symbol,
-                    drift_score=min(max_dev, 1.0),
-                    data_freshness_days=snapshot.data_freshness_days,
-                    source_artifact_path=snapshot.source_artifact_path,
-                    computed_at=snapshot.computed_at,
+            if not annualization_basis_is_comparable(ref_window, latest_backtest):
+                snapshot = replace(
+                    snapshot,
+                    drift_score=None,
+                    drift_status="not_comparable_annualization",
                 )
+            else:
+                deviations = compare_with_backtest(ref_window, latest_backtest)
+                if deviations:
+                    max_dev = max(deviations.values())
+                    snapshot = replace(snapshot, drift_score=min(max_dev, 1.0))
 
         # Persist
         store.save_snapshot(snapshot)

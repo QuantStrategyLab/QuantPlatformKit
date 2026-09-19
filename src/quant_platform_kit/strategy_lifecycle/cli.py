@@ -42,6 +42,9 @@ def _run_monitor(args: argparse.Namespace) -> int:
     live_stream_id = getattr(args, "live_stream_id", None)
     if live_stream_id:
         kwargs["live_stream_id"] = live_stream_id
+    source_revision = getattr(args, "source_revision", None)
+    if source_revision:
+        kwargs["source_revision"] = source_revision
     snapshots = run_monitor(**kwargs)
     _print(f"[monitor] Generated {len(snapshots)} performance snapshots")
     return 0
@@ -380,6 +383,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--live-stream-id",
         default=None,
         help="Monitor one stable account/runtime telemetry stream; never mix streams.",
+    )
+    monitor.add_argument(
+        "--source-revision",
+        default=None,
+        help=(
+            "Observation provenance written onto daily snapshots "
+            "(40-char git SHA preferred). Falls back to LIFECYCLE_SOURCE_REVISION "
+            "or GITHUB_SHA when omitted."
+        ),
     )
     monitor.add_argument(
         "--benchmark-catalog",

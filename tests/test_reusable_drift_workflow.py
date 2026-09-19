@@ -23,6 +23,8 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "caller_pr_head_repository:" in workflow
     assert "lifecycle_preflight_artifact:" in workflow
     assert "strategy_profile:" in workflow
+    assert "live_stream_id:" in workflow
+    assert "LIFECYCLE_LIVE_STREAM_ID: ${{ inputs.live_stream_id }}" in workflow
     assert "codex_audit_service_url:" in workflow
     assert 'python-version: ${{ inputs.python_version }}' in workflow
     assert "LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}" in workflow
@@ -36,7 +38,9 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "SNAPSHOT_REPOSITORY_TOKEN:" not in workflow
     assert "LIFECYCLE_STRATEGY_PROFILE: ${{ inputs.strategy_profile }}" in workflow
     assert 'lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")' in workflow
-    assert 'quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} "${lifecycle_args[@]}"' in workflow
+    assert 'lifecycle_args+=(--live-stream-id "${LIFECYCLE_LIVE_STREAM_ID}")' in workflow
+    assert "not paper/live account PnL" in workflow
+    assert 'quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} --source-revision "${GITHUB_SHA}" "${lifecycle_args[@]}"' in workflow
     assert 'quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7 "${lifecycle_args[@]}"' in workflow
     assert 'quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts "${lifecycle_args[@]}"' in workflow
     assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
@@ -61,7 +65,11 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "create_issues_for_domain" in workflow
     assert 'CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}' in workflow
     assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
-    assert 'ref: 60bd64a2ae059a082614181eeb845b46df395523' in workflow
+    # Consume AAB main SHA that maps review_unavailable → degraded/exit 3
+    # (not disagreement-as-completed-veto). Do not pin older 60bd64a2 / cce4a5c4.
+    assert 'ref: 47cd11136b8375532b4b1aba8d11c09451110777' in workflow
+    assert 'ref: 60bd64a2ae059a082614181eeb845b46df395523' not in workflow
+    assert 'ref: cce4a5c454ef9b5bbf3b4cc067af8f4827de63cc' not in workflow
     assert workflow.count('GH_TOKEN: ${{ github.token }}') >= 2
     assert "emit_parked_record" in workflow
     assert '"schema": "qsl.drift_dual_review_availability.v1"' in workflow
@@ -79,4 +87,18 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'if [ ! -f "$review_output" ]; then' in workflow
     assert workflow.index('if [ ! -f "$review_output" ]; then') < workflow.index('cat "$review_output"')
     assert 'if [ "$review_rc" -ne 0 ]; then' in workflow
+    # Unavailable/degraded is fail-closed exit 3, not Actions success or
+    # completed substantive veto. Do not blindly re-exit every review_rc.
     assert 'exit "$review_rc"' not in workflow
+    # Classify degraded before treating fail/disagreement as completed veto.
+    assert workflow.index('if payload.get("degraded") is True:') < workflow.index(
+        'completed_outcomes = {"fail", "disagreement"}'
+    )
+    assert 'emit_parked_record "review_provider_degraded"' in workflow
+    assert 'if [ "$review_state" = "provider_degraded" ]; then' in workflow
+    assert "exit 3" in workflow
+    degraded_handler = workflow.split('if [ "$review_state" = "provider_degraded" ]; then', 1)[1]
+    degraded_handler = degraded_handler.split("fi", 1)[0]
+    assert "exit 3" in degraded_handler
+    assert "exit 0" not in degraded_handler
+    assert "review_completed_blocked" not in degraded_handler

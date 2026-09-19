@@ -529,6 +529,8 @@ def _snapshot_from_dict(data: Mapping[str, Any]) -> StrategyPerformanceSnapshot 
                 excess_cagr=float(v.get("excess_cagr")) if v.get("excess_cagr") is not None else None,
                 alpha=float(v.get("alpha")) if v.get("alpha") is not None else None,
                 information_ratio=float(v.get("information_ratio")) if v.get("information_ratio") is not None else None,
+                calendar_id=str(v.get("calendar_id", "") or ""),
+                periods_per_year=float(v["periods_per_year"]) if v.get("periods_per_year") is not None else 252.0,
             )
         return StrategyPerformanceSnapshot(
             strategy_profile=str(data.get("strategy_profile", "")),
@@ -545,6 +547,7 @@ def _snapshot_from_dict(data: Mapping[str, Any]) -> StrategyPerformanceSnapshot 
             computed_at=str(data.get("computed_at", "")),
             source_revision=data.get("source_revision") if isinstance(data.get("source_revision"), str) else "",
             cost_model=data.get("cost_model") if isinstance(data.get("cost_model"), str) else "",
+            observation_status=str(data.get("observation_status", "") or ""),
         )
     except Exception:
         return None
@@ -589,6 +592,7 @@ def _drift_from_dict(data: Mapping[str, Any]) -> DriftResult | None:
                 if data.get("baseline_artifact_id")
                 else None
             ),
+            reason=str(data.get("reason", "") or ""),
         )
     except Exception:
         return None
@@ -631,6 +635,12 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
             computed_at=str(data.get("computed_at", "")),
             source_revision=data.get("source_revision") if isinstance(data.get("source_revision"), str) else "",
             cost_model=data.get("cost_model") if isinstance(data.get("cost_model"), str) else "",
+            validation_identity=None,
+            cost_inputs={},
+            periods_per_year=(
+                float(data["periods_per_year"]) if data.get("periods_per_year") is not None else None
+            ),
+            calendar_id=str(data.get("calendar_id", "") or ""),
         )
     except Exception:
         return None

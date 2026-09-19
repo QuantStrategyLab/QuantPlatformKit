@@ -69,6 +69,7 @@ from quant_platform_kit.risk.capital_risk_envelope import (
     DEFAULT_TARGET_VOL_ANNUAL,
     CapitalRiskEnvelope,
     LeverageProductCap,
+    apply_combined_scale_to_targets,
     apply_envelope_to_sized_weight,
     evaluate_capital_risk_envelope,
 )
@@ -84,6 +85,20 @@ from quant_platform_kit.risk.promotion_sizing import (
     resolve_risk_profile_scale,
     size_target_weight,
 )
+from quant_platform_kit.risk.attention import (
+    AttentionAxes,
+    AttentionDecision,
+    AttentionLevel,
+    attention_alert_key,
+    attention_level_from_drift_status,
+    attention_transition_key,
+    evaluate_attention,
+    format_attention_compact_message,
+    render_attention_compact,
+    resolve_mandate_dd_budget,
+    should_notify_attention_transition,
+)
+from quant_platform_kit.risk.attention_notify import publish_attention_telegram_transition
 from quant_platform_kit.risk.synthetic_combo_evidence import (
     DEFAULT_CORRELATED_GROUP_CAP,
     DEFAULT_CORRELATION_THRESHOLD,
@@ -140,6 +155,7 @@ __all__ = [
     "CapitalRiskEnvelope",
     "LeverageProductCap",
     "apply_envelope_to_sized_weight",
+    "apply_combined_scale_to_targets",
     "evaluate_capital_risk_envelope",
     "ReconciliationEquitySummary",
     "build_injected_snapshot_from_equity_summary",
@@ -159,4 +175,16 @@ __all__ = [
     "SyntheticComboMember",
     "SyntheticComboMemberEvidence",
     "evaluate_synthetic_combo_evidence",
+    "AttentionAxes",
+    "AttentionDecision",
+    "AttentionLevel",
+    "attention_alert_key",
+    "attention_level_from_drift_status",
+    "attention_transition_key",
+    "evaluate_attention",
+    "format_attention_compact_message",
+    "render_attention_compact",
+    "resolve_mandate_dd_budget",
+    "should_notify_attention_transition",
+    "publish_attention_telegram_transition",
 ]

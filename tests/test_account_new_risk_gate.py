@@ -11,6 +11,7 @@ from quant_platform_kit.risk.account_new_risk_gate import (
     evaluate_new_risk_admission,
     evaluate_new_risk_from_reader,
 )
+from quant_platform_kit.risk.contracts import RuntimeRiskLimits
 
 
 def _healthy(*, equity_usd: float | None = 40_000.0, **kwargs) -> InjectedReconciliationSnapshot:
@@ -20,6 +21,18 @@ def _healthy(*, equity_usd: float | None = 40_000.0, **kwargs) -> InjectedReconc
         circuit_breaker_state="CLOSED",
         equity_usd=equity_usd,
         **kwargs,
+    )
+
+
+def _runtime_limits(*, max_daily_loss_usd: float | None) -> RuntimeRiskLimits:
+    return RuntimeRiskLimits(
+        allowed_symbols=("SPY",),
+        product_leverage_factors={"SPY": 1},
+        nominal_caps={"SPY": 1.0},
+        total_nominal_exposure_cap=1.0,
+        total_effective_exposure_cap=1.0,
+        max_positions=1,
+        max_daily_loss_usd=max_daily_loss_usd,
     )
 
 
@@ -166,6 +179,79 @@ class EvaluateNewRiskAdmissionTests(unittest.TestCase):
         )
         self.assertEqual(result.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
         self.assertIn("PRODUCTION_DRIFT_STATUS_INVALID_FAIL_CLOSED", result.reason_codes)
+
+    def test_daily_loss_below_limit_allows_new_risk(self) -> None:
+        result = evaluate_new_risk_admission(
+            _healthy(daily_loss_usd=99.99),
+            runtime_risk_limits=_runtime_limits(max_daily_loss_usd=100.0),
+        )
+        self.assertEqual(result.disposition, NewRiskDisposition.ALLOW_NEW_RISK)
+        self.assertEqual(result.reason_codes, ())
+
+    def test_daily_loss_at_or_above_limit_prohibits(self) -> None:
+        limits = _runtime_limits(max_daily_loss_usd=100.0)
+        for daily_loss_usd in (100.0, 100.01):
+            with self.subTest(daily_loss_usd=daily_loss_usd):
+                result = evaluate_new_risk_admission(
+                    _healthy(daily_loss_usd=daily_loss_usd),
+                    runtime_risk_limits=limits,
+                )
+                self.assertEqual(
+                    result.disposition,
+                    NewRiskDisposition.NEW_RISK_PROHIBITED,
+                )
+                self.assertIn("DAILY_LOSS_LIMIT_EXCEEDED", result.reason_codes)
+
+    def test_missing_or_invalid_daily_loss_fails_closed_when_configured(self) -> None:
+        limits = _runtime_limits(max_daily_loss_usd=100.0)
+        for daily_loss_usd in (None, -1.0, float("nan"), float("inf"), True):
+            with self.subTest(daily_loss_usd=daily_loss_usd):
+                result = evaluate_new_risk_admission(
+                    _healthy(daily_loss_usd=daily_loss_usd),
+                    runtime_risk_limits=limits,
+                )
+                self.assertEqual(
+                    result.disposition,
+                    NewRiskDisposition.NEW_RISK_PROHIBITED,
+                )
+                self.assertIn(
+                    "DAILY_LOSS_UNKNOWN_FAIL_CLOSED",
+                    result.reason_codes,
+                )
+
+    def test_unconfigured_daily_loss_axis_is_omitted(self) -> None:
+        for limits in (None, _runtime_limits(max_daily_loss_usd=None)):
+            with self.subTest(limits=limits):
+                result = evaluate_new_risk_admission(
+                    _healthy(daily_loss_usd=float("nan")),
+                    runtime_risk_limits=limits,
+                )
+                self.assertEqual(result.disposition, NewRiskDisposition.ALLOW_NEW_RISK)
+                self.assertNotIn(
+                    "DAILY_LOSS_UNKNOWN_FAIL_CLOSED",
+                    result.reason_codes,
+                )
+                self.assertNotIn("DAILY_LOSS_LIMIT_EXCEEDED", result.reason_codes)
+
+    def test_daily_loss_reason_coexists_with_other_axes(self) -> None:
+        result = evaluate_new_risk_admission(
+            _healthy(
+                daily_loss_usd=100.0,
+                production_drift_status="critical",
+            ),
+            runtime_risk_limits=_runtime_limits(max_daily_loss_usd=100.0),
+        )
+        self.assertEqual(
+            result.reason_codes,
+            ("DAILY_LOSS_LIMIT_EXCEEDED", "PRODUCTION_DRIFT_CRITICAL"),
+        )
+
+
+class RuntimeRiskLimitsDailyLossTests(unittest.TestCase):
+    def test_max_daily_loss_must_be_finite_positive_when_configured(self) -> None:
+        for value in (0.0, -1.0, float("nan"), float("inf"), True):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                _runtime_limits(max_daily_loss_usd=value)
 
 
 class ReaderInjectionTests(unittest.TestCase):

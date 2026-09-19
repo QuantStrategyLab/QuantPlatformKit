@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -51,6 +52,109 @@ class PerformanceMetricsTest(unittest.TestCase):
         benchmark = pd.Series([0.01, 0.01], index=[self.dates[0], self.dates[0]])
         with self.assertRaisesRegex(ValueError, "^daily return dates must be unique$"):
             compute_window_metrics(returns, benchmark_returns=benchmark)
+
+    def test_invalid_return_values_are_rejected(self) -> None:
+        for value, message in ((np.nan, "NaN"), (np.inf, "infinite"), (-1.01, "below -100%")):
+            with self.subTest(value=value):
+                series = pd.Series([0.01, value], index=self.dates[:2])
+                with self.assertRaisesRegex(ValueError, message):
+                    normalize_return_series(series)
+
+    def test_leading_warmup_nans_are_preserved_not_zero_filled(self) -> None:
+        series = pd.Series(
+            [np.nan, np.nan, 0.01, -0.02],
+            index=self.dates[:4],
+        )
+        cleaned = normalize_return_series(series)
+        self.assertEqual(list(cleaned.to_numpy()), [0.01, -0.02])
+        self.assertEqual(cleaned.index[0], self.dates[2])
+        wp = compute_window_metrics(series)
+        self.assertEqual(wp.observation_count, 2)
+        self.assertAlmostEqual(wp.total_return, 1.01 * 0.98 - 1.0)
+
+    def test_mid_series_nan_is_incomplete(self) -> None:
+        series = pd.Series([0.01, np.nan, -0.02], index=self.dates[:3])
+        with self.assertRaisesRegex(ValueError, "NaN|incomplete"):
+            normalize_return_series(series)
+
+    def test_illegal_dates_are_rejected(self) -> None:
+        series = pd.Series([0.01, -0.02], index=["not-a-date", "2026-01-02"])
+        with self.assertRaisesRegex(ValueError, "invalid"):
+            normalize_return_series(series)
+
+    def test_bankruptcy_return_is_terminal_not_ordinary_cagr(self) -> None:
+        series = pd.Series([0.01, -1.0], index=self.dates[:2])
+        with self.assertRaisesRegex(ValueError, "bankruptcy|terminal"):
+            normalize_return_series(series)
+        with self.assertRaisesRegex(ValueError, "bankruptcy|terminal"):
+            compute_window_metrics(series)
+        frame = pd.DataFrame({"as_of": self.dates[:2], "strategy": [0.01, -1.0]})
+        with self.assertRaisesRegex(ValueError, "bankruptcy|terminal"):
+            normalize_return_matrix(frame)
+
+    def test_matrix_rejects_mid_nan_and_allows_leading_warmup(self) -> None:
+        warmup = pd.DataFrame(
+            {
+                "as_of": self.dates[:4],
+                "strategy": [np.nan, np.nan, 0.01, -0.02],
+            }
+        )
+        cleaned = normalize_return_matrix(warmup)
+        self.assertEqual(len(cleaned), 2)
+        self.assertAlmostEqual(float(cleaned["strategy"].iloc[0]), 0.01)
+        mid = pd.DataFrame(
+            {
+                "as_of": self.dates[:3],
+                "strategy": [0.01, np.nan, -0.02],
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "NaN|incomplete|invalid"):
+            normalize_return_matrix(mid)
+
+    def test_matrix_allows_per_strategy_staggered_leading_warmup(self) -> None:
+        """Each strategy may start later; leading NaNs are warm-up, never zero-filled."""
+        staggered = pd.DataFrame(
+            {
+                "as_of": self.dates[:5],
+                "alpha": [np.nan, 0.01, -0.02, 0.03, -0.01],
+                "beta": [np.nan, np.nan, np.nan, 0.02, -0.03],
+            }
+        )
+        cleaned = normalize_return_matrix(staggered)
+        # Shared all-NaN first row stripped; beta's own leading NaNs remain.
+        self.assertEqual(len(cleaned), 4)
+        self.assertTrue(np.isnan(cleaned["beta"].iloc[0]))
+        self.assertTrue(np.isnan(cleaned["beta"].iloc[1]))
+        self.assertAlmostEqual(float(cleaned["alpha"].iloc[0]), 0.01)
+        self.assertAlmostEqual(float(cleaned["beta"].iloc[2]), 0.02)
+        # Must not silently replace warm-up gaps with zeros.
+        self.assertFalse(bool((cleaned["beta"].iloc[:2] == 0.0).any()))
+
+        after_start_nan = pd.DataFrame(
+            {
+                "as_of": self.dates[:4],
+                "alpha": [0.01, -0.02, 0.03, -0.01],
+                "beta": [np.nan, 0.02, np.nan, -0.03],
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "NaN|incomplete|invalid"):
+            normalize_return_matrix(after_start_nan)
+
+        for bad, message in (
+            (np.inf, "infinite|NaN"),
+            (-1.1, "below -100%"),
+            (-1.0, "bankruptcy|terminal"),
+        ):
+            with self.subTest(bad=bad):
+                frame = pd.DataFrame(
+                    {
+                        "as_of": self.dates[:3],
+                        "alpha": [0.01, -0.02, 0.03],
+                        "beta": [np.nan, 0.02, bad],
+                    }
+                )
+                with self.assertRaisesRegex(ValueError, message):
+                    normalize_return_matrix(frame)
 
     def test_compute_window_metrics_basic(self) -> None:
         r = self.returns
@@ -144,7 +248,6 @@ class PerformanceMetricsTest(unittest.TestCase):
             ([-0.01, -0.01, -0.01], 0.0, -np.sqrt(252)),
             # All returns are positive, but one falls below the daily MAR of .002.
             ([0.001, 0.003, 0.004], 0.504, (0.002 / 3) / np.sqrt(0.000001 / 3) * np.sqrt(252)),
-            ([0.02, np.nan, -0.01, 0.02, -0.01], 0.0, 0.005 / np.sqrt(0.0002 / 4) * np.sqrt(252)),
         )
         for values, risk_free_rate, expected in cases:
             with self.subTest(values=values, risk_free_rate=risk_free_rate):
@@ -223,6 +326,106 @@ class PerformanceMetricsTest(unittest.TestCase):
         self.assertTrue(np.isnan(wp.information_ratio))
         self.assertAlmostEqual(wp.max_drawdown, -0.2)
         self.assertAlmostEqual(wp.benchmark_max_drawdown, -0.2)
+
+    def test_default_annualization_remains_252_for_existing_callers(self) -> None:
+        dates = pd.date_range("2026-01-02", periods=126, freq="D")
+        # Equal daily returns compounding to +10% over 126 observations.
+        daily = (1.10 ** (1.0 / 126.0)) - 1.0
+        returns = pd.Series(daily, index=dates)
+        wp = compute_window_metrics(returns)
+        self.assertEqual(wp.periods_per_year, 252.0)
+        self.assertAlmostEqual(wp.total_return, 0.10, places=10)
+        self.assertAlmostEqual(wp.cagr, 0.21, places=8)
+
+    def test_crypto_natural_day_annualization_basis_365_25(self) -> None:
+        dates = pd.date_range("2026-01-02", periods=126, freq="D")
+        values = np.full(126, 0.0008)
+        values[::2] = 0.0005
+        values[-1] = (1.10 / float(np.prod(1.0 + values[:-1]))) - 1.0
+        returns = pd.Series(values, index=dates)
+        expected = float(1.10 ** (365.25 / 126.0) - 1.0)
+        direct = compute_window_metrics(
+            returns,
+            periods_per_year=365.25,
+            calendar_id="CRYPTO_NATURAL_DAY",
+            window_label="crypto_direct",
+        )
+        via_windows = compute_windows(
+            returns,
+            windows=(126,),
+            periods_per_year=365.25,
+            calendar_id="CRYPTO_NATURAL_DAY",
+        )[126]
+        self.assertEqual(direct.calendar_id, "CRYPTO_NATURAL_DAY")
+        self.assertEqual(direct.periods_per_year, 365.25)
+        self.assertAlmostEqual(direct.total_return, 0.10, places=10)
+        self.assertAlmostEqual(direct.cagr, expected, places=8)
+        self.assertAlmostEqual(expected, 0.3182249, places=7)
+        self.assertEqual(direct.observation_count, via_windows.observation_count)
+        self.assertAlmostEqual(direct.cagr, via_windows.cagr, places=12)
+        self.assertAlmostEqual(direct.volatility, via_windows.volatility, places=12)
+        self.assertFalse(np.isnan(direct.sharpe_ratio))
+        self.assertAlmostEqual(direct.sharpe_ratio, via_windows.sharpe_ratio, places=12)
+
+    def test_invalid_periods_per_year_is_rejected(self) -> None:
+        returns = pd.Series([0.01], index=pd.to_datetime(["2026-01-02"]))
+        with self.assertRaisesRegex(ValueError, "periods_per_year must be one of"):
+            compute_window_metrics(returns, periods_per_year=360.0)
+
+    def test_compare_with_backtest_requires_matching_periods_per_year(self) -> None:
+        from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult, WindowPerformance
+        from quant_platform_kit.strategy_lifecycle.performance_metrics import (
+            annualization_basis_is_comparable,
+            compare_with_backtest,
+        )
+
+        actual = WindowPerformance(
+            window_name="w",
+            window_days=20,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 20),
+            observation_count=20,
+            total_return=0.1,
+            cagr=0.2,
+            volatility=0.1,
+            sharpe_ratio=1.0,
+            sortino_ratio=1.0,
+            calmar_ratio=1.0,
+            max_drawdown=-0.05,
+            win_rate=0.5,
+            periods_per_year=365.25,
+            calendar_id="CRYPTO_NATURAL_DAY",
+        )
+        legacy = BacktestResult(
+            strategy_profile="p",
+            domain="crypto",
+            param_set_id="baseline",
+            params={},
+            sharpe_ratio=1.5,
+            periods_per_year=None,
+        )
+        mismatched = BacktestResult(
+            strategy_profile="p",
+            domain="crypto",
+            param_set_id="baseline",
+            params={},
+            sharpe_ratio=1.5,
+            periods_per_year=252.0,
+        )
+        matched = BacktestResult(
+            strategy_profile="p",
+            domain="crypto",
+            param_set_id="baseline",
+            params={},
+            sharpe_ratio=0.5,
+            periods_per_year=365.25,
+        )
+        self.assertFalse(annualization_basis_is_comparable(actual, legacy))
+        self.assertEqual(compare_with_backtest(actual, legacy), {})
+        self.assertFalse(annualization_basis_is_comparable(actual, mismatched))
+        self.assertEqual(compare_with_backtest(actual, mismatched), {})
+        self.assertTrue(annualization_basis_is_comparable(actual, matched))
+        self.assertIn("sharpe_deviation", compare_with_backtest(actual, matched))
 
 
 if __name__ == "__main__":

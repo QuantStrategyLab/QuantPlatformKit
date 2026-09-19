@@ -7,6 +7,7 @@ import unittest
 from quant_platform_kit.risk.capital_risk_envelope import (
     DEFAULT_TARGET_VOL_ANNUAL,
     CapitalRiskEnvelope,
+    apply_combined_scale_to_targets,
     apply_envelope_to_sized_weight,
     evaluate_multi_account_envelope_view,
     evaluate_capital_risk_envelope,
@@ -211,6 +212,29 @@ class ApplyEnvelopeToSizedWeightTests(unittest.TestCase):
     def test_result_is_capital_risk_envelope_dataclass(self) -> None:
         env = evaluate_capital_risk_envelope(10_000.0)
         self.assertIsInstance(env, CapitalRiskEnvelope)
+
+
+class ApplyCombinedScaleToTargetsTests(unittest.TestCase):
+    def test_none_scale_omits_without_zeroing(self) -> None:
+        targets = {"SOXL": 0.60, "SOXX": 0.20}
+        self.assertEqual(apply_combined_scale_to_targets(targets, None), targets)
+
+    def test_invalid_scale_omits(self) -> None:
+        targets = {"SOXL": 1000.0}
+        self.assertEqual(apply_combined_scale_to_targets(targets, float("nan")), targets)
+        self.assertEqual(apply_combined_scale_to_targets(targets, -0.1), targets)
+
+    def test_valid_scale_only_shrinks(self) -> None:
+        targets = {"SOXL": 1000.0, "BOXX": 200.0}
+        scaled = apply_combined_scale_to_targets(targets, 0.85)
+        self.assertAlmostEqual(scaled["SOXL"], 850.0)
+        self.assertAlmostEqual(scaled["BOXX"], 170.0)
+        self.assertLessEqual(scaled["SOXL"], targets["SOXL"])
+
+    def test_scale_above_one_clamped(self) -> None:
+        targets = {"QQQ": 0.50}
+        scaled = apply_combined_scale_to_targets(targets, 1.5)
+        self.assertAlmostEqual(scaled["QQQ"], 0.50)
 
 
 if __name__ == "__main__":
