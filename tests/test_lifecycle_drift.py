@@ -19,7 +19,8 @@ from quant_platform_kit.strategy_lifecycle.drift_detector import detect_drift, r
 
 
 def _make_snapshot(sharpe: float = 1.5, cagr: float = 0.18, dd: float = -0.12,
-                   vol: float = 0.20, wr: float = 0.58) -> StrategyPerformanceSnapshot:
+                   vol: float = 0.20, wr: float = 0.58,
+                   *, periods_per_year: float = 252.0) -> StrategyPerformanceSnapshot:
     wp126 = WindowPerformance(
         window_name="trailing_6m", window_days=126,
         start_date=date(2026, 1, 1), end_date=date(2026, 6, 1),
@@ -27,6 +28,7 @@ def _make_snapshot(sharpe: float = 1.5, cagr: float = 0.18, dd: float = -0.12,
         volatility=vol, sharpe_ratio=sharpe, sortino_ratio=sharpe * 1.2,
         calmar_ratio=abs(cagr / dd) if dd else 0,
         max_drawdown=dd, win_rate=wr,
+        periods_per_year=periods_per_year,
     )
     return StrategyPerformanceSnapshot(
         strategy_profile="test_strat", domain="us_equity",
@@ -36,13 +38,15 @@ def _make_snapshot(sharpe: float = 1.5, cagr: float = 0.18, dd: float = -0.12,
 
 
 def _make_backtest(sharpe: float = 1.5, cagr: float = 0.18, dd: float = -0.12,
-                   vol: float = 0.20, wr: float = 0.58) -> BacktestResult:
+                   vol: float = 0.20, wr: float = 0.58,
+                   *, periods_per_year: float | None = 252.0) -> BacktestResult:
     return BacktestResult(
         strategy_profile="test_strat", domain="us_equity",
         param_set_id="baseline", params={}, param_version=1,
         sharpe_ratio=sharpe, cagr=cagr, max_drawdown=dd,
         volatility=vol, win_rate=wr,
         observation_count=1500,
+        periods_per_year=periods_per_year,
     )
 
 
@@ -125,6 +129,84 @@ class DriftDetectorTests(unittest.TestCase):
         snap = replace(_make_snapshot(), drift_status="not_comparable_annualization")
         result = detect_drift(snap, backtest=_make_backtest())
         self.assertEqual(result.status, DriftStatus.REVIEW)
+        self.assertEqual(result.reason, "not_comparable_annualization")
+        self.assertEqual(result.dimensions, {})
+        self.assertGreater(result.drift_score, 0.0)
+
+    def test_mismatched_periods_per_year_is_unevaluable_without_monitor_flag(self) -> None:
+        snap = _make_snapshot(periods_per_year=365.25)
+        bt = _make_backtest(periods_per_year=252.0)
+        result = detect_drift(snap, backtest=bt, previous_status=DriftStatus.CRITICAL)
+        self.assertEqual(result.status, DriftStatus.CRITICAL)
+        self.assertEqual(result.reason, "not_comparable_annualization")
+        self.assertEqual(result.dimensions, {})
+        self.assertEqual(result.drift_score, 1.0)
+
+    def test_missing_baseline_periods_per_year_is_unevaluable(self) -> None:
+        result = detect_drift(
+            _make_snapshot(),
+            backtest=_make_backtest(periods_per_year=None),
+            previous_status=DriftStatus.CRITICAL,
+        )
+        self.assertEqual(result.status, DriftStatus.CRITICAL)
+        self.assertEqual(result.reason, "not_comparable_annualization")
+        self.assertEqual(result.dimensions, {})
+
+    def test_matched_annualization_still_detects_drift(self) -> None:
+        snap = _make_snapshot(sharpe=0.6, periods_per_year=252.0)
+        bt = _make_backtest(sharpe=1.5, periods_per_year=252.0)
+        result = detect_drift(snap, backtest=bt)
+        self.assertNotEqual(result.status, DriftStatus.HEALTHY)
+        self.assertEqual(result.reason, "")
+        self.assertIn("sharpe_drift", result.dimensions)
+
+    def test_missing_reference_without_baseline_preserves_critical(self) -> None:
+        snap = StrategyPerformanceSnapshot(
+            strategy_profile="t", domain="us", platform="t",
+            as_of=date(2026, 6, 1),
+        )
+        result = detect_drift(snap, previous_status=DriftStatus.CRITICAL)
+        self.assertEqual(result.status, DriftStatus.CRITICAL)
+        self.assertEqual(result.reason, "missing_reference_window")
+        self.assertGreater(result.drift_score, 0.0)
+
+    def test_empty_dimensions_preserve_critical(self) -> None:
+        snap = _make_snapshot(
+            sharpe=float("nan"), cagr=float("nan"), dd=float("nan"),
+            vol=float("nan"), wr=float("nan"),
+        )
+        result = detect_drift(
+            snap, backtest=_make_backtest(), previous_status=DriftStatus.CRITICAL,
+        )
+        self.assertEqual(result.status, DriftStatus.CRITICAL)
+        self.assertEqual(result.reason, "insufficient_dimensions")
+        self.assertEqual(result.dimensions, {})
+
+    def test_missing_baseline_preserves_critical(self) -> None:
+        result = detect_drift(
+            _make_snapshot(), backtest=None, previous_status=DriftStatus.CRITICAL,
+        )
+        self.assertEqual(result.status, DriftStatus.CRITICAL)
+        self.assertEqual(result.reason, "missing_baseline")
+        self.assertFalse(result.baseline_available)
+
+    def test_constant_baseline_is_unevaluable_and_preserves_critical(self) -> None:
+        snap = _make_snapshot(sharpe=float("nan"), cagr=0.0, dd=0.0, vol=0.0, wr=0.5)
+        bt = _make_backtest(sharpe=float("nan"), cagr=0.0, dd=0.0, vol=0.0, wr=0.5)
+        result = detect_drift(snap, backtest=bt, previous_status=DriftStatus.CRITICAL)
+        self.assertEqual(result.status, DriftStatus.CRITICAL)
+        self.assertEqual(result.reason, "constant_baseline")
+        self.assertEqual(result.dimensions, {})
+
+    def test_complete_evidence_can_recover_from_critical(self) -> None:
+        result = detect_drift(
+            _make_snapshot(),
+            backtest=_make_backtest(),
+            previous_status=DriftStatus.CRITICAL,
+        )
+        self.assertEqual(result.status, DriftStatus.HEALTHY)
+        self.assertEqual(result.reason, "")
+        self.assertLess(result.drift_score, 0.25)
 
     def test_escalation_detected(self) -> None:
         snap = _make_snapshot(sharpe=0.5)

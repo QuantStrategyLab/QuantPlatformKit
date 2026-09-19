@@ -20,6 +20,9 @@ from quant_platform_kit.strategy_lifecycle.market_regime import (
     MarketRegime,
     MarketRegimeResult,
 )
+from quant_platform_kit.strategy_lifecycle.performance_metrics import (
+    annualization_basis_is_comparable,
+)
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 
@@ -35,6 +38,7 @@ _DIMENSION_SPECS = [
 
 # Reject apples-to-oranges baselines (e.g. low-vol proxy vs leveraged live path).
 _BASELINE_VOL_SCALE_LIMIT = 5.0
+_CONSTANT_VOL_EPS = 1e-6
 
 
 def _baseline_artifact_id(backtest: BacktestResult | None) -> str | None:
@@ -55,10 +59,56 @@ def _baseline_vol_scale_incompatible(
         expected = abs(float(expected_volatility))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return False
-    if actual < 1e-6 or expected < 1e-6:
+    if actual < _CONSTANT_VOL_EPS or expected < _CONSTANT_VOL_EPS:
         return False
     ratio = max(actual / expected, expected / actual)
     return ratio >= float(limit)
+
+
+def _is_constant_baseline(backtest: BacktestResult) -> bool:
+    """Constant / zero-vol baselines are not identifiable for ordinary drift."""
+    try:
+        expected = abs(float(backtest.volatility))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    return expected < _CONSTANT_VOL_EPS
+
+
+def _restrictive_status(
+    previous_status: DriftStatus | None,
+    *,
+    floor: DriftStatus = DriftStatus.REVIEW,
+) -> DriftStatus:
+    status = floor
+    if previous_status is not None and previous_status.severity_order > status.severity_order:
+        return previous_status
+    return status
+
+
+def _unevaluable_result(
+    snapshot: StrategyPerformanceSnapshot,
+    *,
+    reason: str,
+    previous_status: DriftStatus | None,
+    backtest: BacktestResult | None,
+) -> DriftResult:
+    """Incomplete / incomparable evidence: never fake healthy or zero drift."""
+    status = _restrictive_status(previous_status)
+    return DriftResult(
+        strategy_profile=snapshot.strategy_profile,
+        domain=snapshot.domain,
+        as_of=snapshot.as_of,
+        source_revision=snapshot.source_revision,
+        drift_score=1.0 if status is DriftStatus.CRITICAL else 0.5,
+        status=status,
+        dimensions={},
+        previous_status=previous_status,
+        baseline_param_set_id=backtest.param_set_id if backtest else None,
+        baseline_param_version=backtest.param_version if backtest else None,
+        baseline_artifact_id=_baseline_artifact_id(backtest),
+        baseline_available=backtest is not None,
+        reason=reason,
+    )
 
 
 def _compute_dimension(
@@ -117,6 +167,8 @@ def detect_drift(
     """Analyze a performance snapshot for drift against backtest expectations.
 
     Thresholds are dynamically relaxed during ELEVATED/STRESS regimes.
+    Incomplete or incomparable evidence returns an explicit unevaluable reason
+    and never clears a prior restriction to healthy / zero drift.
     """
     if snapshot.as_of is None:
         raise ValueError("observation_date_unavailable")
@@ -128,57 +180,81 @@ def detect_drift(
 
     ref_window = snapshot.windows.get(126) or snapshot.windows.get(252)
     if ref_window is None:
-        if backtest is not None:
-            status = DriftStatus.REVIEW
-            if previous_status is not None and previous_status.severity_order > status.severity_order:
-                status = previous_status
-            return DriftResult(
-                strategy_profile=snapshot.strategy_profile,
-                domain=snapshot.domain,
-                as_of=snapshot.as_of,
-                source_revision=snapshot.source_revision,
-                drift_score=0.5 if status is not DriftStatus.CRITICAL else 1.0,
-                status=status,
-                previous_status=previous_status,
-                baseline_available=True,
+        if (
+            backtest is not None
+            or (
+                previous_status is not None
+                and previous_status.severity_order > DriftStatus.HEALTHY.severity_order
             )
-        return DriftResult(strategy_profile=snapshot.strategy_profile,
-                           domain=snapshot.domain, as_of=snapshot.as_of,
-                           source_revision=snapshot.source_revision,
-                           drift_score=0.0, status=DriftStatus.HEALTHY)
+        ):
+            return _unevaluable_result(
+                snapshot,
+                reason="missing_reference_window",
+                previous_status=previous_status,
+                backtest=backtest,
+            )
+        return DriftResult(
+            strategy_profile=snapshot.strategy_profile,
+            domain=snapshot.domain,
+            as_of=snapshot.as_of,
+            source_revision=snapshot.source_revision,
+            drift_score=0.0,
+            status=DriftStatus.HEALTHY,
+            previous_status=previous_status,
+            baseline_available=False,
+        )
 
     observation_status = str(getattr(snapshot, "observation_status", "") or "ok")
     if observation_status not in {"", "ok", "complete", "COMPLETE"}:
-        status = DriftStatus.REVIEW
-        if previous_status is not None and previous_status.severity_order > status.severity_order:
-            status = previous_status
+        return _unevaluable_result(
+            snapshot,
+            reason="incomplete_observation",
+            previous_status=previous_status,
+            backtest=backtest,
+        )
+
+    if backtest is None:
+        if (
+            previous_status is not None
+            and previous_status.severity_order > DriftStatus.HEALTHY.severity_order
+        ):
+            return _unevaluable_result(
+                snapshot,
+                reason="missing_baseline",
+                previous_status=previous_status,
+                backtest=None,
+            )
         return DriftResult(
             strategy_profile=snapshot.strategy_profile,
             domain=snapshot.domain,
             as_of=snapshot.as_of,
             source_revision=snapshot.source_revision,
-            drift_score=0.5 if status is not DriftStatus.CRITICAL else 1.0,
-            status=status,
+            drift_score=0.0,
+            status=DriftStatus.HEALTHY,
             previous_status=previous_status,
-            baseline_available=backtest is not None,
+            baseline_available=False,
         )
 
-    if snapshot.drift_status == "not_comparable_annualization":
-        status = DriftStatus.REVIEW
-        if previous_status is not None and previous_status.severity_order > status.severity_order:
-            status = previous_status
-        return DriftResult(
-            strategy_profile=snapshot.strategy_profile,
-            domain=snapshot.domain,
-            as_of=snapshot.as_of,
-            source_revision=snapshot.source_revision,
-            drift_score=0.5 if status is not DriftStatus.CRITICAL else 1.0,
-            status=status,
+    if (
+        snapshot.drift_status == "not_comparable_annualization"
+        or not annualization_basis_is_comparable(ref_window, backtest)
+    ):
+        return _unevaluable_result(
+            snapshot,
+            reason="not_comparable_annualization",
             previous_status=previous_status,
-            baseline_available=backtest is not None,
+            backtest=backtest,
         )
 
-    if backtest is not None and _baseline_vol_scale_incompatible(
+    if _is_constant_baseline(backtest):
+        return _unevaluable_result(
+            snapshot,
+            reason="constant_baseline",
+            previous_status=previous_status,
+            backtest=backtest,
+        )
+
+    if _baseline_vol_scale_incompatible(
         getattr(ref_window, "volatility", None),
         getattr(backtest, "volatility", None),
     ):
@@ -190,9 +266,7 @@ def detect_drift(
         ratio = max(actual_vol, 1e-6) / max(abs(expected_vol), 1e-6)
         if ratio < 1.0:
             ratio = 1.0 / ratio
-        status = DriftStatus.REVIEW
-        if previous_status is not None and previous_status.severity_order > status.severity_order:
-            status = previous_status
+        status = _restrictive_status(previous_status)
         score = 1.0 if status is DriftStatus.CRITICAL else 0.5
         return DriftResult(
             strategy_profile=snapshot.strategy_profile,
@@ -217,21 +291,30 @@ def detect_drift(
             baseline_param_version=backtest.param_version,
             baseline_artifact_id=_baseline_artifact_id(backtest),
             escalated=False,
+            reason="baseline_scale_incompatible",
         )
 
     # Compute each dimension via registry
     dimensions: dict[str, DriftDimension] = {}
     for key, metric, actual_attr, expected_attr, threshold_attr in _DIMENSION_SPECS:
-        if backtest is None:
-            continue
         actual = getattr(ref_window, actual_attr, None)
         expected = getattr(backtest, expected_attr, None)
         if actual is None or expected is None:
             continue
         if np.isnan(actual) or np.isnan(expected):
             continue
-        dimensions[key] = _compute_dimension(key, metric, float(actual), float(expected),
-                                              getattr(thresholds, threshold_attr))
+        dimensions[key] = _compute_dimension(
+            key, metric, float(actual), float(expected),
+            getattr(thresholds, threshold_attr),
+        )
+
+    if not dimensions:
+        return _unevaluable_result(
+            snapshot,
+            reason="insufficient_dimensions",
+            previous_status=previous_status,
+            backtest=backtest,
+        )
 
     drift_score = _compute_drift_score(dimensions)
     status = _status_from_score(drift_score, policy.escalation)
@@ -243,8 +326,8 @@ def detect_drift(
         source_revision=snapshot.source_revision,
         status=status, dimensions=dimensions,
         previous_status=previous_status,
-        baseline_param_set_id=backtest.param_set_id if backtest else None,
-        baseline_param_version=backtest.param_version if backtest else None,
+        baseline_param_set_id=backtest.param_set_id,
+        baseline_param_version=backtest.param_version,
         baseline_artifact_id=_baseline_artifact_id(backtest),
         escalated=escalated,
     )

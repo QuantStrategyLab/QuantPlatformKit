@@ -26,21 +26,50 @@ TRADING_DAYS_PER_YEAR: float = 252.0
 CRYPTO_DAYS_PER_YEAR: float = 365.25
 
 
+def _strip_leading_warmup_nans(series: pd.Series) -> pd.Series:
+    """Drop only leading NaN warm-up rows; never fill gaps with zeros."""
+    values = series.to_numpy(dtype=float, copy=False)
+    first = 0
+    while first < len(values) and np.isnan(values[first]):
+        first += 1
+    return series.iloc[first:]
+
+
+def _validate_ordinary_compounding_returns(series: pd.Series) -> pd.Series:
+    """Reject incomplete / non-compoundable ordinary equity returns."""
+    values = series.to_numpy(dtype=float, copy=False)
+    if series.isna().any() or not np.isfinite(values).all():
+        raise ValueError("daily returns contain NaN or infinite values")
+    if (series < -1.0).any():
+        raise ValueError("daily returns below -100% are invalid")
+    if (series == -1.0).any():
+        raise ValueError("daily return of -100% is terminal bankruptcy")
+    return series
+
+
 def normalize_return_series(series: pd.Series) -> pd.Series:
-    """Clean daily returns; reject repeated dates rather than compound twice."""
+    """Clean daily returns; reject repeated dates rather than compound twice.
+
+    Leading warm-up NaNs are dropped. Mid-series gaps, inf, illegal/duplicate
+    dates, r<-1, and r=-1 (terminal bankruptcy) are explicit errors — never
+    zero-filled into an ordinary compounding path.
+    """
     s = pd.Series(series).copy()
     if not pd.api.types.is_datetime64_any_dtype(s.index):
-        s.index = pd.to_datetime(s.index, errors="coerce")
+        coerced = pd.to_datetime(s.index, errors="coerce")
+        if coerced.isna().any():
+            raise ValueError("daily return dates are invalid")
+        s.index = coerced
+    else:
+        s.index = pd.DatetimeIndex(s.index)
     s.index = s.index.tz_localize(None).normalize()
-    s = s.loc[s.index.notna()]
+    if s.index.isna().any():
+        raise ValueError("daily return dates are invalid")
     if s.index.has_duplicates:
         raise ValueError("daily return dates must be unique")
     s = pd.to_numeric(s, errors="coerce")
-    if s.isna().any() or not np.isfinite(s.to_numpy(dtype=float)).all():
-        raise ValueError("daily returns contain NaN or infinite values")
-    if (s < -1.0).any():
-        raise ValueError("daily returns below -100% are invalid")
-    return s.sort_index()
+    s = _strip_leading_warmup_nans(s.sort_index())
+    return _validate_ordinary_compounding_returns(s)
 
 
 def normalize_return_matrix(
@@ -48,22 +77,36 @@ def normalize_return_matrix(
     *,
     date_column: str = "as_of",
 ) -> pd.DataFrame:
-    """Normalize a daily return matrix, rejecting repeated normalized dates."""
+    """Normalize a daily return matrix, rejecting repeated normalized dates.
+
+    Shared all-NaN leading rows and per-strategy leading warm-up NaNs are
+    allowed (staggered starts). After a column's first observation, NaN/inf,
+    r<-1, and r=-1 are errors — never zero-filled.
+    """
     df = pd.DataFrame(frame).copy()
     if date_column in df.columns:
-        df[date_column] = pd.to_datetime(df[date_column], errors="coerce").dt.tz_localize(None).dt.normalize()
-        df = df.dropna(subset=[date_column]).set_index(date_column)
+        parsed = pd.to_datetime(df[date_column], errors="coerce")
+        if parsed.isna().any():
+            raise ValueError("daily return dates are invalid")
+        df[date_column] = parsed.dt.tz_localize(None).dt.normalize()
+        df = df.set_index(date_column)
     else:
-        df.index = pd.to_datetime(df.index, errors="coerce").tz_localize(None).normalize()
-        df = df.loc[df.index.notna()]
+        parsed = pd.to_datetime(df.index, errors="coerce")
+        if parsed.isna().any():
+            raise ValueError("daily return dates are invalid")
+        df.index = parsed.tz_localize(None).normalize()
     if df.index.has_duplicates:
         raise ValueError("daily return dates must be unique")
+    df = df.sort_index()
     for col in df.columns:
         df[col] = pd.to_numeric(df[col], errors="coerce")
-        values = df[col].dropna().to_numpy(dtype=float)
-        if not np.isfinite(values).all() or (values < -1.0).any():
-            raise ValueError(f"daily returns contain invalid values for {col!r}")
-    return df.sort_index()
+    # Shared leading all-NaN rows are warm-up.
+    while len(df) and bool(df.iloc[0].isna().all()):
+        df = df.iloc[1:]
+    # Per-column leading NaNs are also warm-up; validate only after each start.
+    for col in df.columns:
+        _validate_ordinary_compounding_returns(_strip_leading_warmup_nans(df[col]))
+    return df
 
 
 def compute_window_metrics(

@@ -69,3 +69,20 @@ def test_doctor_accepts_complete_snapshot_with_reference_window(tmp_path: Path):
     )
 
     assert result["ok"] is True
+
+
+def test_doctor_flags_empty_windows_without_requiring_drift(tmp_path: Path):
+    store = PerformanceStore(local_root=tmp_path)
+    store.save_snapshot(_snapshot(windows={}, observation_status="ok"))
+
+    result = doctor_lifecycle(
+        "us_equity",
+        store=store,
+        collector=FixedCollector(),
+        require_snapshot=True,
+        require_drift=False,
+    )
+
+    assert result["ok"] is False
+    assert any("reference performance window" in issue for issue in result["issues"])
+    assert not any("missing lifecycle drift" in issue for issue in result["issues"])
