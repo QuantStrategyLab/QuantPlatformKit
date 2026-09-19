@@ -37,6 +37,7 @@ jobs:
     env:
       QSL_GITHUB_APP_ID: ${{ secrets.QSL_GITHUB_APP_ID }}
       QSL_GITHUB_APP_PRIVATE_KEY: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY }}
+      QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
@@ -50,8 +51,11 @@ jobs:
           python -m pip install --upgrade pip uv
           type -p gh >/dev/null || (type -p apt-get >/dev/null && sudo apt-get update -qq && sudo apt-get install -y -qq gh)
 
-      - name: Mint short-lived QSL GitHub App token
-        id: qsl_app_token
+      # Official create-github-app-token accepts a single private-key input.
+      # Primary is tried first; secondary mints only when primary did not succeed.
+      - name: Mint App token (primary)
+        id: app_token_primary
+        continue-on-error: true
         if: env.QSL_GITHUB_APP_ID != '' && env.QSL_GITHUB_APP_PRIVATE_KEY != ''
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
         with:
@@ -75,10 +79,39 @@ jobs:
             UsEquitySnapshotPipelines
             CryptoLivePoolPipelines
 
+      - name: Mint App token (secondary)
+        id: app_token_secondary
+        continue-on-error: true
+        if: >-
+          env.QSL_GITHUB_APP_ID != '' &&
+          env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY != '' &&
+          steps.app_token_primary.outcome != 'success'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ env.QSL_GITHUB_APP_ID }}
+          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
+          owner: QuantStrategyLab
+          repositories: |
+            QuantPlatformKit
+            CnEquityStrategies
+            HkEquityStrategies
+            UsEquityStrategies
+            CryptoStrategies
+            InteractiveBrokersPlatform
+            LongBridgePlatform
+            CharlesSchwabPlatform
+            FirstradePlatform
+            BinancePlatform
+            QmtPlatform
+            CnEquitySnapshotPipelines
+            HkEquitySnapshotPipelines
+            UsEquitySnapshotPipelines
+            CryptoLivePoolPipelines
+
       - name: Open downstream pin sync PRs
         id: sync
         env:
-          QSL_REPO_SYNC_TOKEN: ${{ steps.qsl_app_token.outputs.token || secrets.QSL_REPO_SYNC_TOKEN }}
+          QSL_REPO_SYNC_TOKEN: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token || secrets.QSL_REPO_SYNC_TOKEN }}
           QSL_PIN_PHASE: ${{ github.event_name == 'workflow_dispatch' && inputs.phase || 'auto' }}
           QSL_PIN_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'upgrade-affected' }}
         run: |
@@ -98,7 +131,7 @@ jobs:
         if: steps.sync.outputs.missing_token != 'true'
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.8
         with:
-          token: ${{ steps.qsl_app_token.outputs.token || secrets.QSL_REPO_SYNC_TOKEN }}
+          token: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token || secrets.QSL_REPO_SYNC_TOKEN }}
           commit-message: "chore(deps): reconcile coherent QSL pin bundle"
           title: "chore(deps): reconcile coherent QSL pin bundle"
           body: |
@@ -117,7 +150,7 @@ jobs:
       - name: Queue verified strategy pin PRs
         if: steps.sync.outputs.missing_token != 'true'
         env:
-          QSL_REPO_SYNC_TOKEN: ${{ steps.qsl_app_token.outputs.token || secrets.QSL_REPO_SYNC_TOKEN }}
+          QSL_REPO_SYNC_TOKEN: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token || secrets.QSL_REPO_SYNC_TOKEN }}
         run: |
           set -euo pipefail
           qpk_sha=$(tr -d '[:space:]' < QPK_PIN)
@@ -130,7 +163,7 @@ jobs:
       - name: Report consumer QPK pin PR hygiene
         if: steps.sync.outputs.missing_token != 'true'
         env:
-          QSL_REPO_SYNC_TOKEN: ${{ steps.qsl_app_token.outputs.token || secrets.QSL_REPO_SYNC_TOKEN }}
+          QSL_REPO_SYNC_TOKEN: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token || secrets.QSL_REPO_SYNC_TOKEN }}
         run: |
           set -euo pipefail
           qpk_sha=$(tr -d '[:space:]' < QPK_PIN)
@@ -142,9 +175,9 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'MD'
           ## Downstream QPK pin PRs were not opened
 
-          Configure `QSL_GITHUB_APP_ID` and `QSL_GITHUB_APP_PRIVATE_KEY` on
-          **QuantPlatformKit**. During migration, `QSL_REPO_SYNC_TOKEN` remains a
-          temporary fallback.
+          Configure `QSL_GITHUB_APP_ID`, `QSL_GITHUB_APP_PRIVATE_KEY`, and optionally
+          `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY` on **QuantPlatformKit**. During
+          migration, `QSL_REPO_SYNC_TOKEN` remains a temporary fallback only.
 
           Org-level secrets are **not** injected reliably into this public repo on GitHub Free.
           Configure a **repository secret** instead (see `docs/qpk_repo_sync_auth.zh-CN.md`).
@@ -157,6 +190,7 @@ jobs:
 
           Production: use a GitHub App installation token scoped to the listed
           QuantStrategyLab repositories with `contents:write` and `pull_requests:write`.
+          Binance authority PATs are separate and must not be reused here.
           MD
 
       - name: Summarize opened PRs
