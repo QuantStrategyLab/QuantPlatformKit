@@ -1,6 +1,7 @@
 # QPK 下游 Pin 自动化 Token 配置
 
-`open-downstream-qpk-pin-prs` workflow 需要 `QSL_REPO_SYNC_TOKEN` 才能跨仓 push 分支并开 PR。
+`open-downstream-qpk-pin-prs` workflow 默认使用 GitHub App installation token 跨仓 push 分支并开 PR；
+`QSL_REPO_SYNC_TOKEN` 仅作为迁移/故障回退凭据。
 
 ## 命名约定
 
@@ -27,16 +28,17 @@ QPK 发布采用 release-set 两阶段流程：先生成候选 QPK 版本并验�
 
 ## 一次性配置（org admin）
 
-### 长期方案：GitHub App
+### 当前方案：组织级 GitHub App
 
-1. 创建一个仅服务于 QSL 下游 Pin 同步的 GitHub App，并安装到 QuantStrategyLab 组织。
+1. 已创建并安装组织级 App `QSL QPK Pin Sync 20260920`（App ID `5004823`）到 QuantStrategyLab。
 2. 只授予目标 15 个仓库的 `Contents: Read and write`、`Pull requests: Read and write`，保留必要的 metadata 读取权限。
 3. 将 App ID 写入 `QSL_GITHUB_APP_ID`，将下载的私钥完整写入 `QSL_GITHUB_APP_PRIVATE_KEY`。
-4. 先手动触发 `open-downstream-qpk-pin-prs`，确认日志显示同步和 PR 操作成功；再撤销旧 PAT。
+4. 已通过 workflow run `35472759155` 验证 App token mint、跨仓同步和 PR 更新成功；旧的
+   `qsl-github-repo-sync-annual` PAT 已撤销。Binance 专用 PAT 不属于本次迁移，保持不变。
 
 App 私钥只存储在 GitHub Actions Secret 中，不写入仓库、工作流日志、issue 或本机文件。
 
-### Fine-grained PAT（当前生产方案）
+### Fine-grained PAT（仅回退方案）
 
 1. 打开生成页（需 Pigbibi 登录 GitHub），token 显示名使用
    `qsl-github-repo-sync-annual`，有效期使用组织允许的最长期限：
@@ -56,13 +58,14 @@ App 私钥只存储在 GitHub Actions Secret 中，不写入仓库、工作流�
    gh secret set QSL_REPO_SYNC_TOKEN --repo QuantStrategyLab/QuantPlatformKit
    ```
 
-不要把 `gh auth token`、classic PAT 或 token 明文写入生产 Secret；迁移完成并通过工作流验证后撤销旧 token。
+不要把 `gh auth token`、classic PAT 或 token 明文写入生产 Secret。只有在 App secret 缺失或 App 安装失效时，
+才临时恢复 `QSL_REPO_SYNC_TOKEN`，并在 App 恢复后撤销回退 PAT。
 
 ## 验真
 
 ```bash
 gh workflow run open-downstream-qpk-pin-prs.yml -R QuantStrategyLab/QuantPlatformKit
-# 日志应出现 QSL_REPO_SYNC_TOKEN: *** 且各仓 no changes needed
+# 日志应出现 Mint short-lived QSL GitHub App token、Token revoked，且同步步骤成功
 ```
 
 ## 权限要求
