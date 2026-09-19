@@ -268,8 +268,8 @@ class ReturnCollector:
             for path in paths:
                 try:
                     frame = self.read_return_matrix(path, date_column=date_column)
-                except Exception:
-                    continue
+                except Exception as exc:
+                    raise ValueError(f"invalid return matrix at {path}: {exc}") from exc
                 strategies = self.extract_strategy_columns(
                     frame, domain=domain, benchmark_columns=benchmark_columns
                 )
@@ -314,17 +314,24 @@ class ReturnCollector:
         *,
         date_column: str = "as_of",
     ) -> pd.Series | None:
-        """Collect the benchmark return series for a domain."""
+        """Collect the benchmark return series for a domain.
+
+        Normalizes every discovered matrix before returning so an earlier match
+        cannot hide a later invalid file. Returns None when the symbol is absent.
+        """
         paths = self.discover_return_matrices(domain)
+        matched: pd.Series | None = None
         for path in paths:
             try:
                 frame = self.read_return_matrix(path, date_column=date_column)
-            except Exception:
-                continue
-            for column in frame.columns:
-                if str(column or "").strip() == benchmark_symbol:
-                    return frame[column].dropna()
-        return None
+            except Exception as exc:
+                raise ValueError(f"invalid return matrix at {path}: {exc}") from exc
+            if matched is None:
+                for column in frame.columns:
+                    if str(column or "").strip() == benchmark_symbol:
+                        matched = frame[column].dropna()
+                        break
+        return matched
 
 
 def resolve_strategy_benchmark(

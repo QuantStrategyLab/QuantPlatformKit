@@ -128,7 +128,7 @@ class PerformanceMonitorTests(unittest.TestCase):
                 store = PerformanceStore(local_root=root / "store")
                 collector = ReturnCollector(artifact_roots={"us_equity": root}, projects_root=root, store=store)
                 with patch.object(PerformanceStore, "save_snapshot", autospec=True) as save:
-                    with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
+                    with self.assertRaisesRegex(ValueError, r"invalid return matrix"):
                         run_monitor(
                             "us_equity",
                             strategy_profile="synthetic_soxl",
@@ -138,7 +138,9 @@ class PerformanceMonitorTests(unittest.TestCase):
                             min_observations=2,
                             source_revision=revision,
                         )
-                    self.assertEqual(
+                    # fail_on_empty only applies after a successful empty collect;
+                    # a bad matrix must still fail closed before any snapshot write.
+                    with self.assertRaisesRegex(ValueError, r"invalid return matrix"):
                         run_monitor(
                             "us_equity",
                             collector=collector,
@@ -146,9 +148,7 @@ class PerformanceMonitorTests(unittest.TestCase):
                             min_observations=2,
                             fail_on_empty=False,
                             source_revision=revision,
-                        ),
-                        [],
-                    )
+                        )
                     save.assert_not_called()
 
     def test_csv_collector_to_monitor_preserves_unique_daily_returns(self) -> None:
@@ -189,7 +189,9 @@ class PerformanceMonitorTests(unittest.TestCase):
             store = PerformanceStore(local_root=root / "store")
             collector = ReturnCollector(artifact_roots={"us_equity": root}, projects_root=root, store=store)
             with patch.object(PerformanceStore, "save_snapshot", autospec=True) as save:
-                with self.assertRaisesRegex(RuntimeError, "explicit benchmark data is unavailable or insufficient"):
+                # A bad matrix in the same artifact root must fail closed, not
+                # silently drop the benchmark file and continue with strategy-only data.
+                with self.assertRaisesRegex(ValueError, r"invalid return matrix"):
                     run_monitor(
                         "us_equity", strategy_profile="synthetic_soxl", collector=collector, store=store,
                         windows=(2,), min_observations=2, require_explicit_benchmark=True,
