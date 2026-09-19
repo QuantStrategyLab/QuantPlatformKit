@@ -434,6 +434,8 @@ class DriftResult:
     baseline_param_version: int | None = None
     baseline_artifact_id: str | None = None
     source_revision: str = ""
+    # Explicit unevaluable / incomplete-evidence reason; empty when scored normally.
+    reason: str = ""
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -454,6 +456,7 @@ class DriftResult:
             "escalated": self.escalated,
             "cooldown_active": self.cooldown_active,
             "alert_suppressed": self.alert_suppressed,
+            "reason": self.reason,
         }
 
     @property

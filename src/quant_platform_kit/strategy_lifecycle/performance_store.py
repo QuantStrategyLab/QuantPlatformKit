@@ -592,6 +592,7 @@ def _drift_from_dict(data: Mapping[str, Any]) -> DriftResult | None:
                 if data.get("baseline_artifact_id")
                 else None
             ),
+            reason=str(data.get("reason", "") or ""),
         )
     except Exception:
         return None

@@ -105,8 +105,10 @@ class ReturnCollector:
             col_str = str(column or "").strip()
             if not col_str or col_str in ignored or col_str.startswith("buy_hold_"):
                 continue
-            series = frame[column].dropna()
-            if not series.empty:
+            # Keep mid-series gaps for normalize/metrics to reject; only drop
+            # all-null columns. Never fill zeros to beautify incomplete series.
+            series = pd.to_numeric(frame[column], errors="coerce")
+            if series.notna().any():
                 strategies[col_str] = series
         return strategies
 
