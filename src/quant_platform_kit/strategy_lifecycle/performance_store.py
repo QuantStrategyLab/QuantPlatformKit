@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ from typing import Any
 from quant_platform_kit.cloud import get_object_store
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
+    BacktestValidationIdentity,
     DriftResult,
     OptimizationProposal,
     StrategyHealthScore,
@@ -673,6 +675,91 @@ def _drift_from_dict(data: Mapping[str, Any]) -> DriftResult | None:
         return None
 
 
+def _finite_nonnegative_number(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("cost_inputs")
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise ValueError("cost_inputs")
+    return number
+
+
+def _cost_inputs_from_payload(data: Mapping[str, Any]) -> dict[str, float]:
+    if "cost_inputs" not in data:
+        return {}
+    raw = data["cost_inputs"]
+    if not isinstance(raw, Mapping):
+        raise ValueError("cost_inputs")
+    parsed: dict[str, float] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError("cost_inputs")
+        parsed[key] = _finite_nonnegative_number(value)
+    return parsed
+
+
+def _stored_text(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("validation_identity")
+    return value
+
+
+def _optional_stored_date(value: object) -> date | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError("validation_identity")
+    return date.fromisoformat(value)
+
+
+def _required_stored_date(value: object) -> date:
+    if not isinstance(value, str) or not value:
+        raise ValueError("validation_identity")
+    return date.fromisoformat(value)
+
+
+def _positive_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError("validation_identity")
+    return value
+
+
+def _validation_identity_from_payload(data: Mapping[str, Any]) -> BacktestValidationIdentity | None:
+    if "validation_identity" not in data or data["validation_identity"] is None:
+        return None
+    raw = data["validation_identity"]
+    if not isinstance(raw, Mapping):
+        raise ValueError("validation_identity")
+    required = (
+        "protocol",
+        "fold_id",
+        "fold_role",
+        "train_start",
+        "train_end",
+        "test_start",
+        "test_end",
+        "locked_oos_start",
+        "locked_oos_end",
+        "purge_days",
+        "embargo_days",
+    )
+    if any(name not in raw for name in required):
+        raise ValueError("validation_identity")
+    return BacktestValidationIdentity(
+        protocol=_stored_text(raw["protocol"]),
+        fold_id=_stored_text(raw["fold_id"]),
+        fold_role=_stored_text(raw["fold_role"]),
+        train_start=_optional_stored_date(raw["train_start"]),
+        train_end=_optional_stored_date(raw["train_end"]),
+        test_start=_required_stored_date(raw["test_start"]),
+        test_end=_required_stored_date(raw["test_end"]),
+        locked_oos_start=_required_stored_date(raw["locked_oos_start"]),
+        locked_oos_end=_required_stored_date(raw["locked_oos_end"]),
+        purge_days=_positive_int(raw["purge_days"]),
+        embargo_days=_positive_int(raw["embargo_days"]),
+    )
+
+
 def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
     try:
         return BacktestResult(
@@ -710,8 +797,8 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
             computed_at=str(data.get("computed_at", "")),
             source_revision=data.get("source_revision") if isinstance(data.get("source_revision"), str) else "",
             cost_model=data.get("cost_model") if isinstance(data.get("cost_model"), str) else "",
-            validation_identity=None,
-            cost_inputs={},
+            validation_identity=_validation_identity_from_payload(data),
+            cost_inputs=_cost_inputs_from_payload(data),
             periods_per_year=(
                 float(data["periods_per_year"]) if data.get("periods_per_year") is not None else None
             ),
