@@ -6,10 +6,14 @@ import hashlib
 import json
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
-from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    BacktestResult,
+    BacktestValidationIdentity,
+)
 from quant_platform_kit.strategy_lifecycle.performance_store import (
     DEFAULT_LOCAL_ROOT,
     PerformanceStore,
@@ -488,6 +492,98 @@ class BacktestRunIdentityTest(unittest.TestCase):
         self.assertEqual(pinned_legacy.sharpe_ratio, 8.0)
         self.assertEqual(pinned_new.param_version, 2)
         self.assertEqual(pinned_new.sharpe_ratio, 2.0)
+
+
+def _validation_identity() -> BacktestValidationIdentity:
+    return BacktestValidationIdentity(
+        protocol="purged_walk_forward.v1",
+        fold_id="candidate_wf0",
+        fold_role="test",
+        train_start=date(2020, 1, 2),
+        train_end=date(2021, 1, 4),
+        test_start=date(2021, 2, 1),
+        test_end=date(2021, 6, 1),
+        locked_oos_start=date(2022, 1, 3),
+        locked_oos_end=date(2023, 1, 4),
+        purge_days=5,
+        embargo_days=3,
+    )
+
+
+def _plant_backtest(root: Path, run_id: str, payload: dict[str, object]) -> None:
+    path = _run_file(root, run_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+class BacktestReadbackMetadataTest(unittest.TestCase):
+    def test_exact_readback_keeps_two_distinct_cost_inputs(self) -> None:
+        low = {"commission_bps": 1.0, "slippage_bps": 2.0, "market_impact_bps": 0.0}
+        high = {"commission_bps": 5.5, "slippage_bps": 3.0, "market_impact_bps": 1.25}
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_backtest_result(_backtest(run_id="cost-low", cost_inputs=low, sharpe_ratio=0.4))
+            store.save_backtest_result(_backtest(run_id="cost-high", cost_inputs=high, sharpe_ratio=0.8))
+            loaded_low = store.load_backtest_by_run_id("us_equity", "global_etf_rotation", "cost-low")
+            loaded_high = store.load_backtest_by_run_id("us_equity", "global_etf_rotation", "cost-high")
+
+        self.assertEqual(dict(loaded_low.cost_inputs), low)
+        self.assertEqual(dict(loaded_high.cost_inputs), high)
+        self.assertIsNone(loaded_low.validation_identity)
+        self.assertIsNone(loaded_high.validation_identity)
+
+    def test_validation_identity_round_trip(self) -> None:
+        identity = _validation_identity()
+        costs = {"commission_bps": 2.0, "slippage_bps": 1.0, "market_impact_bps": 0.5}
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_backtest_result(_backtest(
+                run_id="identity-run",
+                validation_identity=identity,
+                cost_inputs=costs,
+            ))
+            loaded = store.load_backtest_by_run_id("us_equity", "global_etf_rotation", "identity-run")
+
+        self.assertEqual(loaded.validation_identity, identity)
+        self.assertEqual(dict(loaded.cost_inputs), costs)
+
+    def test_legacy_file_without_cost_or_identity_keeps_defaults(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            payload = _backtest(run_id="legacy-meta", sharpe_ratio=0.2).to_dict()
+            payload.pop("cost_inputs")
+            payload.pop("validation_identity")
+            _plant_backtest(root, "legacy-meta", payload)
+            loaded = store.load_backtest_by_run_id("us_equity", "global_etf_rotation", "legacy-meta")
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual(dict(loaded.cost_inputs), {})
+        self.assertIsNone(loaded.validation_identity)
+        self.assertEqual(loaded.sharpe_ratio, 0.2)
+
+    def test_malformed_cost_inputs_or_identity_fail_closed(self) -> None:
+        identity = _validation_identity().to_dict()
+        malformed: dict[str, dict[str, object]] = {
+            "null-cost": {"cost_inputs": None},
+            "bool-cost": {"cost_inputs": {"commission_bps": True}},
+            "text-cost": {"cost_inputs": {"commission_bps": "1"}},
+            "nonfinite-cost": {"cost_inputs": {"commission_bps": float("nan")}},
+            "negative-cost": {"cost_inputs": {"commission_bps": -1}},
+            "bad-identity-type": {"validation_identity": "purged_walk_forward.v1"},
+            "partial-identity": {"validation_identity": {"protocol": "purged_walk_forward.v1"}},
+            "bool-purge": {"validation_identity": {**identity, "purge_days": True}},
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            for run_id, changes in malformed.items():
+                payload = _backtest(run_id=run_id, cost_inputs={"commission_bps": 1.0}).to_dict()
+                payload["validation_identity"] = identity
+                payload.update(changes)
+                _plant_backtest(root, run_id, payload)
+                loaded = store.load_backtest_by_run_id("us_equity", "global_etf_rotation", run_id)
+                self.assertIsNone(loaded, run_id)
 
 
 if __name__ == "__main__":
