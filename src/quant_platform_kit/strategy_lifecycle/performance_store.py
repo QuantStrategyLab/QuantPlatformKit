@@ -5,6 +5,7 @@ Data is organized under partitioned GCS paths:
 
     gs://{bucket}/daily/{domain}/{strategy}/{date}.json
     gs://{bucket}/backtest/{domain}/{strategy}/backtest_v{n}_{stamp}.json
+    gs://{bucket}/backtest/{domain}/{strategy}/runs/{run_digest}/backtest_v{n}.json
     gs://{bucket}/drift/{domain}/{strategy}/drift_{date}.json
     gs://{bucket}/optimization/{domain}/{strategy}/proposal_v{n}_{stamp}.json
     gs://{bucket}/dashboard/aggregated_health.json
@@ -13,6 +14,7 @@ Data is organized under partitioned GCS paths:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 from collections.abc import Mapping, Sequence
@@ -257,17 +259,90 @@ class PerformanceStore:
     # ── backtest ─────────────────────────────────────────────────
 
     def _backtest_key(self, result: BacktestResult) -> str:
+        raw_run_id = result.run_id if isinstance(result.run_id, str) else ""
+        directory = f"backtest/{_clean_key(result.domain)}/{_clean_key(result.strategy_profile)}"
+        if raw_run_id.strip():
+            digest = hashlib.sha256(raw_run_id.encode("utf-8")).hexdigest()
+            return f"{directory}/runs/{digest}/backtest_v{result.param_version}.json"
         stamp = _clean_key(result.computed_at or result.run_id or result.param_set_id or _now_iso()).replace("/", "_")
-        return (
-            f"backtest/{_clean_key(result.domain)}/{_clean_key(result.strategy_profile)}/"
-            f"backtest_v{result.param_version}_{stamp}.json"
-        )
+        return f"{directory}/backtest_v{result.param_version}_{stamp}.json"
 
     def save_backtest_result(self, result: BacktestResult) -> None:
         self._write(
             self._backtest_key(result),
             {**result.to_dict(), "schema_version": SCHEMA_VERSION},
         )
+
+    def load_backtest_by_run_id(
+        self,
+        domain: str,
+        strategy_profile: str,
+        run_id: str,
+        *,
+        param_version: int | None = None,
+    ) -> BacktestResult | None:
+        raw_run_id = run_id if isinstance(run_id, str) else ""
+        if not raw_run_id.strip():
+            return None
+        prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
+        keys = list(dict.fromkeys([*self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
+        matches = self._exact_backtest_matches(
+            keys,
+            domain=domain,
+            strategy_profile=strategy_profile,
+            run_id=raw_run_id,
+            param_version=param_version,
+        )
+        if not matches:
+            return None
+        matches.sort(key=lambda item: item[0])
+        return matches[-1][1]
+
+    def _exact_backtest_matches(
+        self,
+        keys: list[str],
+        *,
+        domain: str,
+        strategy_profile: str,
+        run_id: str,
+        param_version: int | None,
+    ) -> list[tuple[tuple[str, int, str], BacktestResult]]:
+        matches: list[tuple[tuple[str, int, str], BacktestResult]] = []
+        for key in keys:
+            item = self._exact_backtest_match(
+                key,
+                domain=domain,
+                strategy_profile=strategy_profile,
+                run_id=run_id,
+                param_version=param_version,
+            )
+            if item is not None:
+                matches.append(item)
+        return matches
+
+    def _exact_backtest_match(
+        self,
+        key: str,
+        *,
+        domain: str,
+        strategy_profile: str,
+        run_id: str,
+        param_version: int | None,
+    ) -> tuple[tuple[str, int, str], BacktestResult] | None:
+        data = self._read(key)
+        if not isinstance(data, Mapping) or data.get("run_id") != run_id:
+            return None
+        result = _backtest_from_dict(data)
+        if (
+            result is None
+            or result.run_id != run_id
+            or result.domain != domain
+            or result.strategy_profile != strategy_profile
+        ):
+            return None
+        if param_version is not None and int(result.param_version) != int(param_version):
+            return None
+        return (_backtest_sort_key(result, key), result)
 
     def load_latest_backtest(self, domain: str, strategy_profile: str) -> BacktestResult | None:
         prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
