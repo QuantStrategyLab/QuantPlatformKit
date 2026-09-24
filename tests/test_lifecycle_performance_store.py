@@ -15,6 +15,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
     BacktestValidationIdentity,
     ResearchDailyLedger,
+    ResearchLedgerEvent,
     ResearchLedgerDay,
     ResearchPositionMark,
     ResearchTrialRecord,
@@ -23,6 +24,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
 from quant_platform_kit.strategy_lifecycle.performance_store import (
     DEFAULT_LOCAL_ROOT,
     PerformanceStore,
+    SCHEMA_VERSION,
 )
 
 
@@ -608,9 +610,74 @@ def _research_file(root: Path, domain: str, profile: str, trial_id: str, name: s
     return root / "research_trial" / _identity_digest(domain, profile, trial_id) / f"{name}.json"
 
 
-def _mark_day(session: date, cash: float, quantity: float, valuation: float, flow: float, fees: float, nav: float, previous: float) -> ResearchLedgerDay:
-    positions = () if quantity == 0 else (ResearchPositionMark("SOXL", quantity, valuation),)
-    return ResearchLedgerDay(session, cash, positions, flow, fees, nav, nav / previous - 1.0)
+def _mark_day(
+    session: date,
+    cash: float,
+    quantity: float,
+    valuation: float,
+    flow: float,
+    fees: float,
+    nav: float,
+    previous: float,
+    income_cashflow: float = 0.0,
+    external_cashflow: float = 0.0,
+    dividend_receivable: float = 0.0,
+    declared_event_ids: tuple[str, ...] | None = None,
+    events: tuple[ResearchLedgerEvent, ...] = (),
+    restricted_cash: float = 0.0,
+    option_settlement_cashflow: float = 0.0,
+    position_marks: tuple[ResearchPositionMark, ...] | None = None,
+    equity_trade_cashflow: float | None = None,
+    equity_trade_quantities: dict[str, float] | None = None,
+    equity_trade_phase: str | None = None,
+) -> ResearchLedgerDay:
+    positions = position_marks if position_marks is not None else (
+        () if quantity == 0 else (ResearchPositionMark("SOXL", quantity, valuation),)
+    )
+    return ResearchLedgerDay(
+        session,
+        cash,
+        positions,
+        flow,
+        fees,
+        nav,
+        nav / (previous + external_cashflow) - 1.0,
+        income_cashflow,
+        external_cashflow,
+        dividend_receivable,
+        declared_event_ids,
+        events,
+        restricted_cash,
+        option_settlement_cashflow,
+        equity_trade_cashflow,
+        equity_trade_quantities,
+        equity_trade_phase,
+    )
+
+
+def _option_mark(
+    symbol: str,
+    quantity: float,
+    valuation: float,
+    *,
+    right: str,
+    strike: float,
+    expiration: date,
+    premium_cashflow: float,
+    underlying: str = "SOXL",
+    multiplier: float = 100.0,
+) -> ResearchPositionMark:
+    return ResearchPositionMark(
+        symbol=symbol,
+        quantity=quantity,
+        valuation=valuation,
+        option_underlying=underlying,
+        option_right=right,
+        option_strike=strike,
+        option_expiration=expiration,
+        option_multiplier=multiplier,
+        option_premium_cashflow=premium_cashflow,
+    )
 
 
 def _ledger(trial_id: str = "trial-a", run_id: str = "run-a", version: int = 1, domain: str = "us_equity", profile: str = "global_etf_rotation") -> ResearchDailyLedger:
@@ -729,8 +796,802 @@ class _ResearchCloud:
 
 
 class ResearchTrialLedgerStoreTest(unittest.TestCase):
+    def test_external_cashflow_is_excluded_from_daily_and_total_return_and_matches_result(self) -> None:
+        day = _mark_day(
+            _END,
+            cash=200.0,
+            quantity=0.0,
+            valuation=0.0,
+            flow=0.0,
+            fees=0.0,
+            nav=200.0,
+            previous=100.0,
+            external_cashflow=100.0,
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=100.0,
+            initial_positions=(), days=(day,), synthetic=True,
+        )
+        self.assertEqual(ledger.days[0].daily_return, 0.0)
+        self.assertEqual(ledger.total_return, 0.0)
+        self.assertEqual(ledger.to_dict()["days"][0]["external_cashflow"], 100.0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            result = _result(ledger)
+            store.save_backtest_result(result)
+            store.save_research_ledger(ledger)
+            store.save_research_trial(_trial(ResearchTrialStatus.SUCCEEDED))
+            loaded = store.load_research_trial("us_equity", "global_etf_rotation", "trial-a")
+        self.assertEqual(result.total_return, 0.0)
+        self.assertEqual(loaded.status, ResearchTrialStatus.SUCCEEDED)
+
+    def test_legacy_non_integer_nav_total_return_uses_original_formula(self) -> None:
+        first_return = 1.2 / 1.1 - 1.0
+        second_return = 1.3 / 1.2 - 1.0
+        self.assertNotEqual((1.0 + first_return) * (1.0 + second_return) - 1.0, 1.3 / 1.1 - 1.0)
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=1.1, initial_cash=1.1, initial_positions=(),
+            days=(
+                _mark_day(_START, 1.2, 0.0, 0.0, 0.1, 0.0, 1.2, 1.1),
+                _mark_day(_END, 1.3, 0.0, 0.0, 0.1, 0.0, 1.3, 1.2),
+            ), synthetic=True,
+        )
+        self.assertEqual(ledger.total_return, ledger.days[-1].nav / ledger.initial_nav - 1.0)
+        result = _result(ledger)
+        self.assertEqual(result.total_return, ledger.total_return)
+
+    def test_explicit_empty_event_declaration_is_complete_and_round_trips(self) -> None:
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=100.0, initial_positions=(),
+            days=(_mark_day(
+                _START, 100.0, 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, declared_event_ids=(),
+            ),), synthetic=True,
+        )
+        self.assertTrue(ledger.events_complete)
+        self.assertEqual(ledger.days[0].to_dict()["declared_event_ids"], [])
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_research_ledger(ledger)
+            loaded = store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1)
+        self.assertEqual(loaded, ledger)
+
+    def test_long_leaps_purchase_keeps_nav_flat_and_round_trips(self) -> None:
+        leaps = _option_mark(
+            "SOXL-2026-01-16-90C", 1.0, 9000.0, right="call", strike=90.0,
+            expiration=date(2026, 1, 16), premium_cashflow=-9000.0,
+        )
+        day = ResearchLedgerDay(
+            _START, 1000.0, (leaps,), -9000.0, 0.0, 10000.0, 0.0,
+            declared_event_ids=("leaps-buy",),
+            events=(ResearchLedgerEvent("leaps-buy", "option_trade", leaps.symbol, amount=-9000.0),),
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=10000.0, initial_cash=10000.0,
+            initial_positions=(), days=(day,), synthetic=True,
+        )
+        self.assertEqual(ledger.days[0].nav, ledger.initial_nav)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_research_ledger(ledger)
+            loaded = store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1)
+        self.assertEqual(loaded, ledger)
+        self.assertEqual(loaded.days[0].positions[0].symbol, "SOXL-2026-01-16-90C")
+
+    def test_zero_mark_option_can_expire_worthless_without_share_delivery(self) -> None:
+        call = _option_mark(
+            "SOXL-2024-01-03-90C", 1.0, 0.0, right="call", strike=90.0,
+            expiration=_END, premium_cashflow=-100.0,
+        )
+        expired = _mark_day(
+            _END, 1000.0, 0.0, 0.0, 0.0, 0.0, 1000.0, 1000.0,
+            declared_event_ids=("call-expiry",),
+            events=(ResearchLedgerEvent("call-expiry", "option_settlement", "SOXL", settlement_price=75.0),),
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=1000.0, initial_cash=1000.0,
+            initial_positions=(call,), days=(expired,), synthetic=True,
+        )
+        self.assertEqual(ledger.days[0].nav, ledger.initial_nav)
+        self.assertEqual(ledger.days[0].option_settlement_cashflow, 0.0)
+
+    def test_option_close_cashflow_sign_matches_open_position_side(self) -> None:
+        short = _option_mark(
+            "SOXL-2024-01-17-90P", -1.0, -900.0, right="put", strike=90.0,
+            expiration=date(2024, 1, 17), premium_cashflow=900.0,
+        )
+        long = _option_mark(
+            "SOXL-2024-01-17-80P", 1.0, 700.0, right="put", strike=80.0,
+            expiration=date(2024, 1, 17), premium_cashflow=-700.0,
+        )
+        for short_close, long_close in ((100.0, 100.0), (-100.0, -100.0)):
+            with self.subTest(short_close=short_close, long_close=long_close):
+                flow = short_close + long_close
+                day = _mark_day(
+                    _START, 1000.0 + flow, 0.0, 0.0, flow, 0.0, 1000.0 + flow, 800.0,
+                    declared_event_ids=("short-close", "long-close", "collateral-release"),
+                    events=(
+                        ResearchLedgerEvent("short-close", "option_trade", short.symbol, amount=short_close),
+                        ResearchLedgerEvent("long-close", "option_trade", long.symbol, amount=long_close),
+                        ResearchLedgerEvent("collateral-release", "collateral_change", "CASH", amount=-800.0),
+                    ),
+                    restricted_cash=0.0,
+                )
+                with self.assertRaisesRegex(ValueError, "ledger_option_trade"):
+                    ResearchDailyLedger(
+                        trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                        run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                        periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                        initial_session_date=_INITIAL, initial_nav=800.0, initial_cash=1000.0,
+                        initial_positions=(short, long), days=(day,), synthetic=True,
+                        initial_restricted_cash=800.0,
+                    )
+
+    def test_put_credit_spread_settles_physical_legs_and_releases_collateral(self) -> None:
+        expiration = _END
+        short = _option_mark(
+            "SOXL-2024-01-03-90P", -1.0, -900.0, right="put", strike=90.0,
+            expiration=expiration, premium_cashflow=900.0,
+        )
+        long = _option_mark(
+            "SOXL-2024-01-03-80P", 1.0, 700.0, right="put", strike=80.0,
+            expiration=expiration, premium_cashflow=-700.0,
+        )
+        opened = _mark_day(
+            _START, 1200.0, 0.0, 0.0, 200.0, 0.0, 1000.0, 1000.0,
+            declared_event_ids=("short-open", "long-open", "collateral-lock"),
+            events=(
+                ResearchLedgerEvent("short-open", "option_trade", short.symbol, amount=900.0),
+                ResearchLedgerEvent("long-open", "option_trade", long.symbol, amount=-700.0),
+                ResearchLedgerEvent("collateral-lock", "collateral_change", "CASH", amount=800.0),
+            ),
+            restricted_cash=800.0,
+            position_marks=(short, long),
+        )
+        settled = _mark_day(
+            _END, 200.0, 0.0, 0.0, 0.0, 0.0, 200.0, 1000.0,
+            declared_event_ids=("expiry", "collateral-release"),
+            events=(
+                ResearchLedgerEvent("expiry", "option_settlement", "SOXL", settlement_price=75.0),
+                ResearchLedgerEvent("collateral-release", "collateral_change", "CASH", amount=-800.0),
+            ),
+            restricted_cash=0.0,
+            option_settlement_cashflow=-1000.0,
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=1000.0, initial_cash=1000.0,
+            initial_positions=(), days=(opened, settled), synthetic=True,
+        )
+        self.assertEqual(opened.nav, 1000.0)
+        self.assertEqual(opened.restricted_cash, 800.0)
+        self.assertEqual(settled.cash, 200.0)
+        self.assertEqual(settled.nav, 200.0)
+        self.assertEqual(settled.daily_return, -0.8)
+        self.assertEqual(ledger.total_return, -0.8)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_research_ledger(ledger)
+            loaded = store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1)
+        self.assertEqual(loaded, ledger)
+
+        repeated_settlement = _mark_day(
+            date(2024, 1, 4), 200.0, 0.0, 0.0, 0.0, 0.0, 200.0, 200.0,
+            declared_event_ids=("expiry-repeat",),
+            events=(ResearchLedgerEvent("expiry-repeat", "option_settlement", "SOXL", settlement_price=75.0),),
+        )
+        with self.assertRaisesRegex(ValueError, "ledger_option_settlement"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=1000.0, initial_cash=1000.0,
+                initial_positions=(), days=(opened, settled, repeated_settlement), synthetic=True,
+            )
+
+    def test_equity_rebalance_and_option_trade_cashflows_are_explicitly_decomposed(self) -> None:
+        short = _option_mark(
+            "SOXL-2024-01-17-90P", -1.0, -900.0, right="put", strike=90.0,
+            expiration=_END, premium_cashflow=900.0,
+        )
+        long = _option_mark(
+            "SOXL-2024-01-17-80P", 1.0, 700.0, right="put", strike=80.0,
+            expiration=_END, premium_cashflow=-700.0,
+        )
+        equity = ResearchPositionMark("SOXL", 2.0, 200.0)
+        opened = _mark_day(
+            _START, 1100.0, 2.0, 200.0, 100.0, 0.0, 1100.0, 1100.0,
+            declared_event_ids=("short-open", "long-open", "collateral-lock"),
+            events=(
+                ResearchLedgerEvent("short-open", "option_trade", short.symbol, amount=900.0),
+                ResearchLedgerEvent("long-open", "option_trade", long.symbol, amount=-700.0),
+                ResearchLedgerEvent("collateral-lock", "collateral_change", "CASH", amount=800.0),
+            ),
+            restricted_cash=800.0,
+            position_marks=(equity, short, long),
+            equity_trade_cashflow=-100.0,
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=1100.0, initial_cash=1000.0,
+            initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+            days=(opened,), synthetic=True,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_research_ledger(ledger)
+            loaded = store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1)
+        self.assertEqual(loaded, ledger)
+        self.assertEqual(loaded.days[0].trade_net_cashflow, 100.0)
+        self.assertEqual(loaded.days[0].equity_trade_cashflow, -100.0)
+
+    def test_option_trade_day_rejects_missing_or_unbalanced_equity_cashflow(self) -> None:
+        short = _option_mark(
+            "SOXL-2024-01-17-90P", -1.0, -900.0, right="put", strike=90.0,
+            expiration=_END, premium_cashflow=900.0,
+        )
+        long = _option_mark(
+            "SOXL-2024-01-17-80P", 1.0, 700.0, right="put", strike=80.0,
+            expiration=_END, premium_cashflow=-700.0,
+        )
+        common = dict(
+            session_date=_START, cash=1100.0, positions=(ResearchPositionMark("SOXL", 2.0, 200.0), short, long),
+            trade_net_cashflow=100.0, fees=0.0, nav=1100.0, daily_return=0.0,
+            declared_event_ids=("short-open", "long-open"),
+            events=(
+                ResearchLedgerEvent("short-open", "option_trade", short.symbol, amount=900.0),
+                ResearchLedgerEvent("long-open", "option_trade", long.symbol, amount=-700.0),
+            ),
+        )
+        for equity_cashflow in (None, -90.0):
+            with self.subTest(equity_cashflow=equity_cashflow), self.assertRaises(ValueError):
+                day = ResearchLedgerDay(**common, equity_trade_cashflow=equity_cashflow)
+                ResearchDailyLedger(
+                    trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                    run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                    periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                    initial_session_date=_INITIAL, initial_nav=1100.0, initial_cash=1000.0,
+                    initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+                    days=(day,), synthetic=True,
+                )
+    def test_single_itm_put_assignment_requires_full_cash_and_stock_delivery(self) -> None:
+        expiration = _END
+        short = _option_mark(
+            "SOXL-2024-01-03-90P", -1.0, -900.0, right="put", strike=90.0,
+            expiration=expiration, premium_cashflow=900.0,
+        )
+        long = _option_mark(
+            "SOXL-2024-01-03-80P", 1.0, 700.0, right="put", strike=80.0,
+            expiration=expiration, premium_cashflow=-700.0,
+        )
+        opened = _mark_day(
+            _START, 10200.0, 0.0, 0.0, 200.0, 0.0, 10000.0, 10000.0,
+            declared_event_ids=("short-open", "long-open", "collateral-lock"),
+            events=(
+                ResearchLedgerEvent("short-open", "option_trade", short.symbol, amount=900.0),
+                ResearchLedgerEvent("long-open", "option_trade", long.symbol, amount=-700.0),
+                ResearchLedgerEvent("collateral-lock", "collateral_change", "CASH", amount=800.0),
+            ),
+            restricted_cash=800.0,
+            position_marks=(short, long),
+        )
+        stock = ResearchPositionMark("SOXL", 100.0, 8500.0)
+        expiration_day = _mark_day(
+            _END, 1200.0, 100.0, 8500.0, 0.0, 0.0, 9700.0, 10000.0,
+            declared_event_ids=("expiry", "collateral-release"),
+            events=(
+                ResearchLedgerEvent("expiry", "option_settlement", "SOXL", settlement_price=85.0),
+                ResearchLedgerEvent("collateral-release", "collateral_change", "CASH", amount=-800.0),
+            ),
+            restricted_cash=0.0,
+            option_settlement_cashflow=-9000.0,
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=10000.0, initial_cash=10000.0,
+            initial_positions=(), days=(opened, dataclasses.replace(expiration_day, positions=(stock,))),
+            synthetic=True,
+        )
+        self.assertEqual(ledger.days[-1].cash, 1200.0)
+        self.assertEqual(ledger.days[-1].positions[0].quantity, 100.0)
+        self.assertEqual(ledger.days[-1].nav, 9700.0)
+
+        with self.assertRaisesRegex(ValueError, "ledger_event_type"):
+            ResearchLedgerEvent("early-assignment", "option_assignment", "SOXL", amount=-9000.0)
+
+        funded_open = _mark_day(
+            _START, 1200.0, 0.0, 0.0, 200.0, 0.0, 1000.0, 1000.0,
+            declared_event_ids=("short-open", "long-open", "collateral-lock"),
+            events=(
+                ResearchLedgerEvent("short-open", "option_trade", short.symbol, amount=900.0),
+                ResearchLedgerEvent("long-open", "option_trade", long.symbol, amount=-700.0),
+                ResearchLedgerEvent("collateral-lock", "collateral_change", "CASH", amount=800.0),
+            ), restricted_cash=800.0, position_marks=(short, long),
+        )
+        explicitly_funded = _mark_day(
+            _END, 200.0, 100.0, 8500.0, 0.0, 0.0, 8700.0, 1000.0,
+            external_cashflow=8000.0,
+            declared_event_ids=("expiry", "collateral-release"),
+            events=(
+                ResearchLedgerEvent("expiry", "option_settlement", "SOXL", settlement_price=85.0),
+                ResearchLedgerEvent("collateral-release", "collateral_change", "CASH", amount=-800.0),
+            ), restricted_cash=0.0, option_settlement_cashflow=-9000.0,
+        )
+        funded_ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=1000.0, initial_cash=1000.0,
+            initial_positions=(), days=(funded_open, explicitly_funded), synthetic=True,
+        )
+        self.assertEqual(funded_ledger.days[-1].external_cashflow, 8000.0)
+        self.assertEqual(funded_ledger.days[-1].cash, 200.0)
+
+    def test_option_settlement_allows_declared_same_day_equity_trades_and_fees(self) -> None:
+        call = _option_mark(
+            "TQQQ-2024-01-03-90C", 1.0, 100.0, right="call", strike=90.0,
+            expiration=_END, premium_cashflow=-100.0, underlying="TQQQ",
+        )
+
+        def make_ledger(
+            initial_cash: float,
+            *,
+            initial_equity: bool = False,
+            include_quantities: bool = True,
+            declared_equity_cashflow: float | None = 1800.0,
+            trade_phase: str | None = "after_settlement",
+        ) -> ResearchDailyLedger:
+            starting_stock = ResearchPositionMark("TQQQ", 20.0, 2000.0) if initial_equity else None
+            initial_positions = (call,) if starting_stock is None else (call, starting_stock)
+            settlement_cashflow = -9000.0
+            net_equity_flow = 1800.0
+            fees = 5.0
+            ending_cash = initial_cash + net_equity_flow - fees + settlement_cashflow
+            ending_shares = 100.0 if initial_equity else 80.0
+            ending_nav = ending_cash + ending_shares * 100.0 + 2 * 100.0
+            day = _mark_day(
+                _END, ending_cash, ending_shares, ending_shares * 100.0,
+                net_equity_flow, fees, ending_nav,
+                initial_cash + call.valuation + (2000.0 if initial_equity else 0.0),
+                declared_event_ids=("call-expiry",),
+                events=(ResearchLedgerEvent(
+                    "call-expiry", "option_settlement", "TQQQ", settlement_price=100.0,
+                ),),
+                option_settlement_cashflow=settlement_cashflow,
+                equity_trade_cashflow=declared_equity_cashflow,
+                equity_trade_quantities={"TQQQ": -20.0, "SPY": 2.0} if include_quantities else None,
+                equity_trade_phase=trade_phase if include_quantities else None,
+                position_marks=(
+                    ResearchPositionMark("TQQQ", ending_shares, ending_shares * 100.0),
+                    ResearchPositionMark("SPY", 2.0, 200.0),
+                ),
+            )
+            return ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL,
+                initial_nav=initial_cash + call.valuation + (2000.0 if initial_equity else 0.0),
+                initial_cash=initial_cash, initial_positions=initial_positions, days=(day,), synthetic=True,
+            )
+
+        ledger = make_ledger(9900.0)
+        self.assertEqual(ledger.days[0].cash, 2695.0)
+        self.assertEqual(ledger.days[0].nav, 10895.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_research_ledger(ledger)
+            loaded = store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1)
+        self.assertEqual(loaded, ledger)
+        self.assertEqual(loaded.days[0].equity_trade_quantities, {"SPY": 2.0, "TQQQ": -20.0})
+
+        with self.assertRaisesRegex(ValueError, "ledger_equity_trade_quantity"):
+            make_ledger(9900.0, trade_phase="before_settlement")
+
+        before_settlement = make_ledger(
+            8500.0, initial_equity=True, trade_phase="before_settlement",
+        )
+        self.assertEqual(before_settlement.days[0].cash, 1295.0)
+        self.assertEqual(before_settlement.days[0].nav, 11495.0)
+
+        with self.assertRaisesRegex(ValueError, "ledger_equity_trade_quantity"):
+            make_ledger(9900.0, include_quantities=False)
+        with self.assertRaisesRegex(ValueError, "ledger_option_settlement"):
+            make_ledger(9900.0, declared_equity_cashflow=1700.0)
+        with self.assertRaisesRegex(ValueError, "ledger_option_funding"):
+            make_ledger(8000.0)
+
+    def test_insufficient_collateral_funding_missing_settlement_and_repeat_fail_closed(self) -> None:
+        expiration = _END
+        short = _option_mark(
+            "SOXL-2024-01-03-90P", -1.0, -900.0, right="put", strike=90.0,
+            expiration=expiration, premium_cashflow=900.0,
+        )
+        long = _option_mark(
+            "SOXL-2024-01-03-80P", 1.0, 700.0, right="put", strike=80.0,
+            expiration=expiration, premium_cashflow=-700.0,
+        )
+        events = (
+            ResearchLedgerEvent("short-open", "option_trade", short.symbol, amount=900.0),
+            ResearchLedgerEvent("long-open", "option_trade", long.symbol, amount=-700.0),
+            ResearchLedgerEvent("collateral-lock", "collateral_change", "CASH", amount=700.0),
+        )
+        under_collateralized = _mark_day(
+            _START, 1200.0, 0.0, 0.0, 200.0, 0.0, 1000.0, 1000.0,
+            declared_event_ids=tuple(event.event_id for event in events), events=events, restricted_cash=700.0,
+            position_marks=(short, long),
+        )
+        base = dict(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=1000.0, initial_cash=1000.0,
+            initial_positions=(), synthetic=True,
+        )
+        with self.assertRaisesRegex(ValueError, "ledger_option_collateral"):
+            ResearchDailyLedger(**base, days=(under_collateralized,))
+
+        funded_events = (
+            events[0], events[1],
+            ResearchLedgerEvent("collateral-lock", "collateral_change", "CASH", amount=800.0),
+        )
+        funded_open = dataclasses.replace(
+            under_collateralized,
+            declared_event_ids=tuple(event.event_id for event in funded_events),
+            events=funded_events,
+            restricted_cash=800.0,
+        )
+
+        insufficient_settlement = _mark_day(
+            _END, -7800.0, 100.0, 8500.0, 0.0, 0.0, 700.0, 1000.0,
+            declared_event_ids=("expiry", "collateral-release"),
+            events=(
+                ResearchLedgerEvent("expiry", "option_settlement", "SOXL", settlement_price=85.0),
+                ResearchLedgerEvent("collateral-release", "collateral_change", "CASH", amount=-800.0),
+            ), restricted_cash=0.0, option_settlement_cashflow=-9000.0,
+        )
+        with self.assertRaisesRegex(ValueError, "ledger_option_funding"):
+            ResearchDailyLedger(**base, days=(funded_open, insufficient_settlement))
+
+        missing_settlement = _mark_day(
+            _END, 1200.0, 0.0, 0.0, 0.0, 0.0, 1000.0, 1000.0,
+            declared_event_ids=(), restricted_cash=800.0, position_marks=(short, long),
+        )
+        with self.assertRaisesRegex(ValueError, "ledger_option_settlement"):
+            ResearchDailyLedger(**base, days=(funded_open, missing_settlement))
+
+    def test_dividend_accrual_and_payment_preserve_nav_and_read_back(self) -> None:
+        accrual = ResearchLedgerEvent("div-ex-1", "dividend_accrual", "SOXL", per_share=5.0)
+        payment = ResearchLedgerEvent(
+            "div-pay-1", "dividend_payment", "SOXL", amount=5.0, reference_event_id="div-ex-1"
+        )
+        ex_day = _mark_day(
+            _START, 0.0, 1.0, 95.0, 0.0, 0.0, 100.0, 100.0,
+            dividend_receivable=5.0, declared_event_ids=("div-ex-1",), events=(accrual,),
+        )
+        pay_day = _mark_day(
+            _END, 5.0, 1.0, 95.0, 0.0, 0.0, 100.0, 100.0, income_cashflow=5.0,
+            declared_event_ids=("div-pay-1",), events=(payment,),
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+            initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+            days=(ex_day, pay_day), synthetic=True,
+        )
+        self.assertEqual((ex_day.nav, ex_day.dividend_receivable, ex_day.daily_return), (100.0, 5.0, 0.0))
+        self.assertEqual((pay_day.nav, pay_day.dividend_receivable, pay_day.daily_return), (100.0, 0.0, 0.0))
+        self.assertEqual(ledger.total_return, 0.0)
+        self.assertTrue(ledger.events_complete)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_research_ledger(ledger)
+            loaded = store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1)
+        self.assertEqual(loaded, ledger)
+        self.assertTrue(all(day.declared_event_ids is not None for day in loaded.days))
+
+    def test_split_preserves_wealth_and_validates_quantity(self) -> None:
+        day = _mark_day(
+            _START, 0.0, 2.0, 100.0, 0.0, 0.0, 100.0, 100.0,
+            declared_event_ids=("split-1",),
+            events=(ResearchLedgerEvent("split-1", "split", "SOXL", ratio=2.0),),
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+            initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),), days=(day,), synthetic=True,
+        )
+        self.assertEqual(ledger.days[0].positions[0].quantity * 50.0, 100.0)
+        with self.assertRaisesRegex(ValueError, "ledger_split_quantity"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+                initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+                days=(_mark_day(
+                    _START, 0.0, 3.0, 150.0, 0.0, 0.0, 150.0, 100.0,
+                    declared_event_ids=("split-1",),
+                    events=(ResearchLedgerEvent("split-1", "split", "SOXL", ratio=2.0),),
+                ),), synthetic=True,
+            )
+
+    def test_event_declarations_pairing_duplicates_and_split_trade_fail_closed(self) -> None:
+        accrual = ResearchLedgerEvent("ex-1", "dividend_accrual", "SOXL", per_share=1.0)
+        day = _mark_day(
+            _START, 0.0, 1.0, 99.0, 0.0, 0.0, 100.0, 100.0,
+            dividend_receivable=1.0, declared_event_ids=("wrong-id",), events=(accrual,),
+        )
+        with self.assertRaisesRegex(ValueError, "ledger_event_set"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+                initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),), days=(day,), synthetic=True,
+            )
+        payment = ResearchLedgerEvent(
+            "pay-1", "dividend_payment", "SOXL", amount=1.0, reference_event_id="missing-ex"
+        )
+        with self.assertRaisesRegex(ValueError, "ledger_dividend_pair"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+                initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+                days=(_mark_day(
+                    _START, 1.0, 1.0, 99.0, 0.0, 0.0, 100.0, 100.0, income_cashflow=1.0,
+                    declared_event_ids=("pay-1",), events=(payment,),
+                ),), synthetic=True,
+            )
+        split = ResearchLedgerEvent("split-2", "split", "SOXL", ratio=2.0)
+        with self.assertRaisesRegex(ValueError, "ledger_split_trade"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+                initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+                days=(_mark_day(
+                    _START, -10.0, 2.0, 110.0, -10.0, 0.0, 100.0, 100.0,
+                    declared_event_ids=("split-2",), events=(split,),
+                ),), synthetic=True,
+            )
+        valid_day = _mark_day(
+            _START, 0.0, 1.0, 99.0, 0.0, 0.0, 100.0, 100.0,
+            dividend_receivable=1.0, declared_event_ids=("ex-1",), events=(accrual,),
+        )
+        repeated = ResearchLedgerEvent("ex-1", "dividend_accrual", "SOXL", per_share=1.0)
+        with self.assertRaisesRegex(ValueError, "ledger_event_duplicate"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+                initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+                days=(valid_day, _mark_day(
+                    _END, 0.0, 1.0, 98.0, 0.0, 0.0, 100.0, 100.0,
+                    dividend_receivable=2.0, declared_event_ids=("ex-1",), events=(repeated,),
+                )), synthetic=True,
+            )
+        with self.assertRaisesRegex(ValueError, "ledger_dividend_pair"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+                initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+                days=(
+                    valid_day,
+                    _mark_day(
+                        _END, 1.0, 1.0, 99.0, 0.0, 0.0, 100.0, 100.0, income_cashflow=1.0,
+                        declared_event_ids=("pay-1",), events=(ResearchLedgerEvent(
+                            "pay-1", "dividend_payment", "SOXL", amount=1.0, reference_event_id="ex-1"
+                        ),),
+                    ),
+                    _mark_day(
+                        date(2024, 1, 4), 2.0, 1.0, 99.0, 0.0, 0.0, 101.0, 100.0, income_cashflow=1.0,
+                        declared_event_ids=("pay-retry",), events=(ResearchLedgerEvent(
+                            "pay-retry", "dividend_payment", "SOXL", amount=1.0,
+                            reference_event_id="ex-1",
+                        ),),
+                    ),
+                ), synthetic=True,
+            )
+        with self.assertRaisesRegex(ValueError, "ledger_event_set"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+                initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+                days=(day, _mark_day(_END, 0.0, 1.0, 100.0, 0.0, 0.0, 100.0, 100.0)), synthetic=True,
+            )
+        with self.assertRaisesRegex(ValueError, "ledger_event_set"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+                initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+                days=(_mark_day(
+                    _START, 0.0, 1.0, 99.0, 0.0, 0.0, 100.0, 100.0,
+                    dividend_receivable=1.0, events=(accrual,),
+                ),), synthetic=True,
+            )
+        with self.assertRaisesRegex(ValueError, "ledger_dividend_cashflow"):
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+                initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+                days=(
+                    _mark_day(
+                        _START, 0.0, 1.0, 99.0, 0.0, 0.0, 100.0, 100.0,
+                        dividend_receivable=1.0, declared_event_ids=("ex-1",), events=(accrual,),
+                    ),
+                    _mark_day(
+                        _END, 2.0, 1.0, 99.0, 0.0, 0.0, 101.0, 100.0, income_cashflow=2.0,
+                        declared_event_ids=("pay-extra",), events=(ResearchLedgerEvent(
+                            "pay-extra", "dividend_payment", "SOXL", amount=1.0,
+                            reference_event_id="ex-1",
+                        ),),
+                    ),
+                ), synthetic=True,
+            )
+
+    def test_income_cashflow_conserves_cash_and_preserves_legacy_zero_payload(self) -> None:
+        income_day = _mark_day(
+            _START,
+            cash=105.0,
+            quantity=1.0,
+            valuation=110.0,
+            flow=0.0,
+            fees=0.0,
+            nav=215.0,
+            previous=200.0,
+            income_cashflow=5.0,
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a",
+            domain="us_equity",
+            strategy_profile="global_etf_rotation",
+            run_id="run-a",
+            param_version=1,
+            input_id="input-a",
+            calendar_id="XNYS",
+            periods_per_year=252.0,
+            cost_source="synthetic_cost_v1",
+            cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL,
+            initial_nav=200.0,
+            initial_cash=100.0,
+            initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+            days=(income_day,),
+            synthetic=True,
+        )
+        self.assertEqual(ledger.days[0].cash, 105.0)
+        self.assertEqual(ledger.days[0].nav, 215.0)
+        self.assertAlmostEqual(ledger.days[0].daily_return, 0.075)
+        self.assertEqual(ledger.days[0].to_dict()["income_cashflow"], 5.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_research_ledger(ledger)
+            loaded_income = store.load_research_ledger(
+                "us_equity", "global_etf_rotation", "trial-a", "run-a", 1
+            )
+        self.assertEqual(loaded_income, ledger)
+        self.assertEqual(loaded_income.days[0].income_cashflow, 5.0)
+
+        old_ledger = _ledger()
+        old_payload = {"schema_version": SCHEMA_VERSION, **old_ledger.to_dict()}
+        old_day_payload = old_payload["days"][0]
+        self.assertNotIn("income_cashflow", old_day_payload)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "research_trial" / _identity_digest("us_equity", "global_etf_rotation", "trial-a") / "ledger.json"
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(old_payload), encoding="utf-8")
+            loaded_old = PerformanceStore(local_root=root).load_research_ledger(
+                "us_equity", "global_etf_rotation", "trial-a", "run-a", 1
+            )
+        self.assertEqual(loaded_old, old_ledger)
+        self.assertEqual(loaded_old.days[0].income_cashflow, 0.0)
+        self.assertEqual(loaded_old.days[0].dividend_receivable, 0.0)
+        self.assertIsNone(loaded_old.days[0].declared_event_ids)
+        self.assertFalse(loaded_old.events_complete)
+
+    def test_tampered_cash_does_not_match_income_cashflow(self) -> None:
+        income_day = _mark_day(
+            _START,
+            cash=105.0,
+            quantity=1.0,
+            valuation=110.0,
+            flow=0.0,
+            fees=0.0,
+            nav=215.0,
+            previous=200.0,
+            income_cashflow=5.0,
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=200.0, initial_cash=100.0,
+            initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),),
+            days=(income_day,), synthetic=True,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_ledger(ledger)
+            path = root / "research_trial" / _identity_digest("us_equity", "global_etf_rotation", "trial-a") / "ledger.json"
+            planted = json.loads(path.read_text())
+            planted["days"][0]["cash"] = 104.0
+            path.write_text(json.dumps(planted), encoding="utf-8")
+            self.assertIsNone(store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1))
+
+    def test_event_ledger_readback_rejects_tampered_cash_and_nav(self) -> None:
+        event = ResearchLedgerEvent("ex-1", "dividend_accrual", "SOXL", per_share=5.0)
+        day = _mark_day(
+            _START, 0.0, 1.0, 95.0, 0.0, 0.0, 100.0, 100.0,
+            dividend_receivable=5.0, declared_event_ids=("ex-1",), events=(event,),
+        )
+        ledger = ResearchDailyLedger(
+            trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+            run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+            periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+            initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=0.0,
+            initial_positions=(ResearchPositionMark("SOXL", 1.0, 100.0),), days=(day,), synthetic=True,
+        )
+        for key, value in (("cash", 1.0), ("nav", 101.0)):
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                store = PerformanceStore(local_root=root)
+                store.save_research_ledger(ledger)
+                path = root / "research_trial" / _identity_digest(
+                    "us_equity", "global_etf_rotation", "trial-a"
+                ) / "ledger.json"
+                payload = json.loads(path.read_text())
+                payload["days"][0][key] = value
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                self.assertIsNone(store.load_research_ledger(
+                    "us_equity", "global_etf_rotation", "trial-a", "run-a", 1
+                ))
+
     def test_rejected_before_parse_keeps_null_actual_params_and_cost_inputs(self) -> None:
         for field in dataclasses.fields(ResearchTrialRecord):
+            if field.name == "research_identity":
+                self.assertIsNone(field.default)
+                continue
             self.assertIs(field.default, dataclasses.MISSING)
             self.assertIs(field.default_factory, dataclasses.MISSING)
         with self.assertRaises(ValueError) as unknown:
@@ -758,6 +1619,30 @@ class ResearchTrialLedgerStoreTest(unittest.TestCase):
         self.assertEqual(path.name, "terminal.json")
         for banned in ("sharpe_ratio", "total_return", "promotion_eligible"):
             self.assertNotIn(banned, payload)
+
+    def test_legacy_trial_payload_without_research_identity_round_trips(self) -> None:
+        legacy = {
+            "schema_version": SCHEMA_VERSION,
+            **_trial(ResearchTrialStatus.REJECTED, actual_params=None).to_dict(),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal")
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(legacy), encoding="utf-8")
+            loaded = PerformanceStore(local_root=root).load_research_trial(
+                "us_equity", "global_etf_rotation", "trial-a"
+            )
+        self.assertEqual(loaded, _trial(ResearchTrialStatus.REJECTED, actual_params=None))
+        self.assertIsNone(loaded.research_identity)
+        self.assertNotIn("research_identity", legacy)
+
+    def test_research_identity_requires_a_nonempty_json_mapping(self) -> None:
+        for identity in ([], {}, {"source": object()}, {"source": float("nan")}):
+            with self.subTest(identity=identity):
+                with self.assertRaises(ValueError) as malformed:
+                    _trial(ResearchTrialStatus.REJECTED, actual_params=None, research_identity=identity)
+                self.assertEqual(str(malformed.exception), "research_identity")
 
     def test_orphan_ledger_still_allows_failed_and_aborted_records(self) -> None:
         started = _trial(ResearchTrialStatus.STARTED, actual_params=None, cost_inputs={}, reason_code="")
@@ -866,10 +1751,13 @@ class ResearchTrialLedgerStoreTest(unittest.TestCase):
             _mark_day(_START, 59, True, 40, -40, 1, 99, 100)
         with self.assertRaises(ValueError) as bad_nan:
             _mark_day(_START, float("nan"), 2, 40, -40, 1, 99, 100)
+        with self.assertRaises(ValueError) as bad_income:
+            _mark_day(_START, 100, 0, 0, 0, 0, 100, 100, income_cashflow=float("inf"))
         with self.assertRaises(ValueError) as bad_fee:
             _mark_day(_START, 59, 2, 40, -40, -1, 99, 100)
         self.assertEqual(str(bad_bool.exception), "invalid_number")
         self.assertEqual(str(bad_nan.exception), "invalid_number")
+        self.assertEqual(str(bad_income.exception), "invalid_number")
         self.assertEqual(str(bad_fee.exception), "ledger_fee")
         day = _mark_day(_START, 59, 2, 40, -40, 1, 99, 100)
         earlier = _mark_day(date(2024, 1, 1), 100, 0, 0, 0, 0, 100, 100)
@@ -991,6 +1879,116 @@ class ResearchTrialLedgerStoreTest(unittest.TestCase):
         self.assertEqual(ledger.observation_count, result.observation_count)
         self.assertEqual(ledger.total_return, result.total_return)
 
+    def test_research_identity_round_trips_and_must_match_result_params(self) -> None:
+        identity = {"producer": "research-runner", "source": {"revision": "rev-a", "input": "input-a"}}
+        ledger = _ledger()
+        started = _trial(
+            ResearchTrialStatus.STARTED,
+            actual_params=dict(_PARAMS),
+            param_set_id="set-a",
+            source_revision="rev-a",
+            cost_inputs={},
+            research_identity=identity,
+        )
+        success = _trial(ResearchTrialStatus.SUCCEEDED, research_identity=identity)
+        result = _result(ledger, params={**_PARAMS, "research_identity": identity})
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_backtest_result(result)
+            store.save_research_ledger(ledger)
+            store.save_research_trial(started)
+            store.save_research_trial(success)
+            loaded = store.load_research_trial("us_equity", "global_etf_rotation", "trial-a")
+        self.assertEqual(loaded, success)
+        self.assertEqual(dict(loaded.research_identity), identity)
+
+        for params in (_PARAMS, {**_PARAMS, "research_identity": {"producer": "other"}}):
+            with self.subTest(params=params):
+                with tempfile.TemporaryDirectory() as tmp:
+                    store = PerformanceStore(local_root=Path(tmp))
+                    store.save_backtest_result(_result(ledger, params=params))
+                    store.save_research_ledger(ledger)
+                    with self.assertRaises(ValueError) as mismatch:
+                        store.save_research_trial(success)
+                    self.assertEqual(str(mismatch.exception), "research_trial_result_mismatch")
+                    self.assertFalse(
+                        _research_file(Path(tmp), "us_equity", "global_etf_rotation", "trial-a", "terminal").exists()
+                    )
+
+    def test_started_trial_rejects_changed_research_identity(self) -> None:
+        started = _trial(ResearchTrialStatus.STARTED, research_identity={"producer": "runner-a"})
+        terminal = _trial(
+            ResearchTrialStatus.FAILED,
+            reason_code="result_rejected",
+            research_identity={"producer": "runner-b"},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_trial(started)
+            with self.assertRaises(ValueError) as conflict:
+                store.save_research_trial(terminal)
+            self.assertEqual(str(conflict.exception), "research_trial_conflict")
+            self.assertFalse(
+                _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal").exists()
+            )
+
+    def test_research_identity_comparison_preserves_json_value_types(self) -> None:
+        started = _trial(ResearchTrialStatus.STARTED, research_identity={"schema": {"version": True}})
+        terminal = _trial(
+            ResearchTrialStatus.FAILED,
+            reason_code="result_rejected",
+            research_identity={"schema": {"version": 1}},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_research_trial(started)
+            with self.assertRaises(ValueError) as conflict:
+                store.save_research_trial(terminal)
+            self.assertEqual(str(conflict.exception), "research_trial_conflict")
+
+        ledger = _ledger()
+        success = _trial(
+            ResearchTrialStatus.SUCCEEDED,
+            research_identity={"schema": {"version": 1}},
+        )
+        result = _result(
+            ledger,
+            params={**_PARAMS, "research_identity": {"schema": {"version": True}}},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_backtest_result(result)
+            store.save_research_ledger(ledger)
+            with self.assertRaises(ValueError) as mismatch:
+                store.save_research_trial(success)
+            self.assertEqual(str(mismatch.exception), "research_trial_result_mismatch")
+
+    def test_actual_params_comparison_preserves_json_value_types(self) -> None:
+        started = _trial(ResearchTrialStatus.STARTED, actual_params={"flag": True})
+        terminal = _trial(
+            ResearchTrialStatus.FAILED,
+            reason_code="result_rejected",
+            actual_params={"flag": 1},
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_research_trial(started)
+            with self.assertRaises(ValueError) as conflict:
+                store.save_research_trial(terminal)
+            self.assertEqual(str(conflict.exception), "research_trial_conflict")
+
+        ledger = _ledger()
+        success = _trial(ResearchTrialStatus.SUCCEEDED, actual_params={"flag": 1})
+        result = _result(ledger, params={"flag": True})
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            store.save_backtest_result(result)
+            store.save_research_ledger(ledger)
+            with self.assertRaises(ValueError) as mismatch:
+                store.save_research_trial(success)
+            self.assertEqual(str(mismatch.exception), "research_trial_result_mismatch")
+
     def test_param_or_source_mismatch_does_not_create_terminal(self) -> None:
         ledger = _ledger()
         cases = {
@@ -1033,6 +2031,7 @@ class ResearchTrialLedgerStoreTest(unittest.TestCase):
             "periods": {"periods_per_year": 365.25},
             "synthetic": {"synthetic": False},
             "actual_params": {"actual_params": {"lookback": 21}},
+            "research_identity": {"research_identity": {"producer": "other"}},
             "cost_inputs": {"cost_inputs": {"commission_bps": 9.0}},
             "cost_source": {"cost_source": "other_cost"},
         }
