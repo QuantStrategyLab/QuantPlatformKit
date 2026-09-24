@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import enum
+import json
+import math
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Mapping
@@ -769,6 +771,483 @@ class OptimizationProposal:
             "optimization_method": self.optimization_method,
             "search_iterations": self.search_iterations,
             "computed_at": self.computed_at,
+        }
+
+
+# ── Research trial ledger ───────────────────────────────────────────
+# Independent of BacktestResult / promotion. Synthetic storage is not a grant.
+
+
+_IDENTITY_PLACEHOLDERS = frozenset({"unknown", "default", "none", "null", "na", "n/a"})
+_RESEARCH_NON_SUCCESS = frozenset({"failed", "rejected", "aborted"})
+
+
+class ResearchTrialStatus(str, enum.Enum):
+    """Lifecycle of one research attempt. Terminal states do not promote."""
+
+    STARTED = "started"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    REJECTED = "rejected"
+    ABORTED = "aborted"
+
+
+def _reject_identity_placeholder(value: str) -> None:
+    if value.casefold() in _IDENTITY_PLACEHOLDERS:
+        raise ValueError("identity_placeholder")
+
+
+def _label(value: object) -> str:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError("identity")
+    if len(value) > 200 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError("identity")
+    _reject_identity_placeholder(value)
+    return value
+
+
+def _raw_identity(value: object) -> str:
+    if not isinstance(value, str) or not value or any(char.isspace() for char in value):
+        raise ValueError("identity")
+    if len(value) > 500 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError("identity")
+    _reject_identity_placeholder(value)
+    return value
+
+
+def _run_identity(value: object) -> str:
+    """Backtest run ids may contain internal spaces; they are not reason text."""
+
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError("identity")
+    if len(value) > 500 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise ValueError("identity")
+    if any(char.isspace() and char != " " for char in value):
+        raise ValueError("identity")
+    _reject_identity_placeholder(value)
+    return value
+
+
+def _require_date(value: object) -> date:
+    if type(value) is not date:
+        raise ValueError("window")
+    return value
+
+
+def _finite_number(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("invalid_number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("invalid_number")
+    return number
+
+
+def _reason_code(value: object, *, allow_empty: bool) -> str:
+    if not isinstance(value, str):
+        raise ValueError("reason_code")
+    if value == "" and allow_empty:
+        return ""
+    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789_"
+    if (
+        not value
+        or len(value) > 64
+        or value[0] not in "abcdefghijklmnopqrstuvwxyz"
+        or any(char not in alphabet for char in value)
+    ):
+        raise ValueError("reason_code")
+    return value
+
+
+def _cost_inputs(value: object, *, allow_empty: bool) -> dict[str, float]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, Mapping):
+        raise ValueError("cost_inputs")
+    parsed: dict[str, float] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key or any(char.isspace() for char in key):
+            raise ValueError("cost_inputs")
+        number = _finite_number(item)
+        if number < 0:
+            raise ValueError("cost_inputs")
+        parsed[key] = number
+    if not parsed and not allow_empty:
+        raise ValueError("cost_inputs")
+    return parsed
+
+
+def _symbol(value: object) -> str:
+    if not isinstance(value, str) or not value or len(value) > 32:
+        raise ValueError("position_mark")
+    if any(not (char.isalnum() or char in "._-") for char in value):
+        raise ValueError("position_mark")
+    return value
+
+
+@dataclass(frozen=True)
+class ResearchPositionMark:
+    """One position's quantity and marked value. Zero quantity has zero value."""
+
+    symbol: str
+    quantity: float
+    valuation: float
+
+    def __post_init__(self) -> None:
+        symbol = _symbol(self.symbol)
+        quantity = _finite_number(self.quantity)
+        valuation = _finite_number(self.valuation)
+        if (quantity == 0.0) != (valuation == 0.0):
+            raise ValueError("position_mark")
+        object.__setattr__(self, "symbol", symbol)
+        object.__setattr__(self, "quantity", quantity)
+        object.__setattr__(self, "valuation", valuation)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "symbol": self.symbol,
+            "quantity": self.quantity,
+            "valuation": self.valuation,
+        }
+
+
+def _position_marks(value: object) -> tuple[ResearchPositionMark, ...]:
+    if isinstance(value, (str, bytes)) or not isinstance(value, (tuple, list)):
+        raise ValueError("position_mark")
+    marks: list[ResearchPositionMark] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, ResearchPositionMark):
+            raise ValueError("position_mark")
+        if item.symbol in seen:
+            raise ValueError("position_mark")
+        seen.add(item.symbol)
+        marks.append(item)
+    return tuple(marks)
+
+
+@dataclass(frozen=True)
+class ResearchLedgerDay:
+    """End-of-session cash, marks, flows, fees, NAV, and that session's return."""
+
+    session_date: date
+    cash: float
+    positions: tuple[ResearchPositionMark, ...]
+    trade_net_cashflow: float
+    fees: float
+    nav: float
+    daily_return: float
+
+    def __post_init__(self) -> None:
+        session_date = _require_date(self.session_date)
+        cash = _finite_number(self.cash)
+        positions = _position_marks(self.positions)
+        trade_net_cashflow = _finite_number(self.trade_net_cashflow)
+        fees = _finite_number(self.fees)
+        if fees < 0:
+            raise ValueError("ledger_fee")
+        nav = _finite_number(self.nav)
+        if nav <= 0:
+            raise ValueError("ledger_nav")
+        daily_return = _finite_number(self.daily_return)
+        expected_nav = cash + sum(mark.valuation for mark in positions)
+        if not math.isclose(nav, expected_nav, rel_tol=0.0, abs_tol=1e-9):
+            raise ValueError("ledger_nav")
+        object.__setattr__(self, "session_date", session_date)
+        object.__setattr__(self, "cash", cash)
+        object.__setattr__(self, "positions", positions)
+        object.__setattr__(self, "trade_net_cashflow", trade_net_cashflow)
+        object.__setattr__(self, "fees", fees)
+        object.__setattr__(self, "nav", nav)
+        object.__setattr__(self, "daily_return", daily_return)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "session_date": self.session_date.isoformat(),
+            "cash": self.cash,
+            "positions": [mark.to_dict() for mark in self.positions],
+            "trade_net_cashflow": self.trade_net_cashflow,
+            "fees": self.fees,
+            "nav": self.nav,
+            "daily_return": self.daily_return,
+        }
+
+
+@dataclass(frozen=True)
+class ResearchDailyLedger:
+    """Complete daily book for one research trial.
+
+    ``initial_session_date`` is the first marked session. Its cash, positions,
+    and NAV are not a return observation. ``days`` are strictly later sessions
+    and each carries that session's return. ``window_start`` is the initial
+    session; ``observation_count`` counts only those later return days.
+    """
+
+    trial_id: str
+    domain: str
+    strategy_profile: str
+    run_id: str
+    param_version: int
+    input_id: str
+    calendar_id: str
+    periods_per_year: float
+    cost_source: str
+    cost_inputs: Mapping[str, float]
+    initial_session_date: date
+    initial_nav: float
+    initial_cash: float
+    initial_positions: tuple[ResearchPositionMark, ...]
+    days: tuple[ResearchLedgerDay, ...]
+    synthetic: bool
+
+    def __post_init__(self) -> None:
+        trial_id = _raw_identity(self.trial_id)
+        domain = _label(self.domain)
+        strategy_profile = _label(self.strategy_profile)
+        run_id = _run_identity(self.run_id)
+        if type(self.param_version) is not int or self.param_version <= 0:
+            raise ValueError("param_version")
+        input_id = _raw_identity(self.input_id)
+        calendar_id = _label(self.calendar_id)
+        number = _finite_number(self.periods_per_year)
+        try:
+            periods = validate_periods_per_year(number)
+        except ValueError as exc:
+            raise ValueError("periods_per_year") from exc
+        cost_source = _raw_identity(self.cost_source)
+        cost_inputs = _cost_inputs(self.cost_inputs, allow_empty=False)
+        initial_session_date = _require_date(self.initial_session_date)
+        initial_nav = _finite_number(self.initial_nav)
+        initial_cash = _finite_number(self.initial_cash)
+        initial_positions = _position_marks(self.initial_positions)
+        if initial_nav <= 0:
+            raise ValueError("ledger_nav")
+        expected_initial = initial_cash + sum(mark.valuation for mark in initial_positions)
+        if not math.isclose(initial_nav, expected_initial, rel_tol=0.0, abs_tol=1e-9):
+            raise ValueError("ledger_nav")
+        if isinstance(self.days, (str, bytes)) or not isinstance(self.days, (tuple, list)) or not self.days:
+            raise ValueError("ledger_dates")
+        days = tuple(self.days)
+        previous_date = initial_session_date
+        for day in days:
+            if not isinstance(day, ResearchLedgerDay):
+                raise ValueError("ledger_dates")
+            if day.session_date <= previous_date:
+                raise ValueError("ledger_dates")
+            previous_date = day.session_date
+        if type(self.synthetic) is not bool:
+            raise ValueError("synthetic")
+        previous_cash = initial_cash
+        previous_nav = initial_nav
+        for day in days:
+            expected_cash = previous_cash + day.trade_net_cashflow - day.fees
+            if not math.isclose(day.cash, expected_cash, rel_tol=0.0, abs_tol=1e-9):
+                raise ValueError("ledger_cash")
+            expected_return = day.nav / previous_nav - 1.0
+            if day.daily_return != expected_return:
+                raise ValueError("ledger_return")
+            previous_cash = day.cash
+            previous_nav = day.nav
+        object.__setattr__(self, "trial_id", trial_id)
+        object.__setattr__(self, "domain", domain)
+        object.__setattr__(self, "strategy_profile", strategy_profile)
+        object.__setattr__(self, "run_id", run_id)
+        object.__setattr__(self, "input_id", input_id)
+        object.__setattr__(self, "calendar_id", calendar_id)
+        object.__setattr__(self, "periods_per_year", periods)
+        object.__setattr__(self, "cost_source", cost_source)
+        object.__setattr__(self, "cost_inputs", cost_inputs)
+        object.__setattr__(self, "initial_session_date", initial_session_date)
+        object.__setattr__(self, "initial_nav", initial_nav)
+        object.__setattr__(self, "initial_cash", initial_cash)
+        object.__setattr__(self, "initial_positions", initial_positions)
+        object.__setattr__(self, "days", days)
+
+    @property
+    def window_start(self) -> date:
+        return self.initial_session_date
+
+    @property
+    def window_end(self) -> date:
+        return self.days[-1].session_date
+
+    @property
+    def observation_count(self) -> int:
+        return len(self.days)
+
+    @property
+    def total_return(self) -> float:
+        return self.days[-1].nav / self.initial_nav - 1.0
+
+    @property
+    def total_fees(self) -> float:
+        return float(sum(day.fees for day in self.days))
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "trial_id": self.trial_id,
+            "domain": self.domain,
+            "strategy_profile": self.strategy_profile,
+            "run_id": self.run_id,
+            "param_version": self.param_version,
+            "input_id": self.input_id,
+            "calendar_id": self.calendar_id,
+            "periods_per_year": self.periods_per_year,
+            "cost_source": self.cost_source,
+            "cost_inputs": dict(self.cost_inputs),
+            "initial_session_date": self.initial_session_date.isoformat(),
+            "initial_nav": self.initial_nav,
+            "initial_cash": self.initial_cash,
+            "initial_positions": [mark.to_dict() for mark in self.initial_positions],
+            "days": [day.to_dict() for day in self.days],
+            "synthetic": self.synthetic,
+        }
+
+
+def _actual_params(value: object, *, required: bool) -> dict[str, Any] | None:
+    if value is None:
+        if required:
+            raise ValueError("actual_config_unknown")
+        return None
+    if type(value) is not dict:
+        raise ValueError("actual_params")
+    try:
+        parsed = json.loads(json.dumps(value, sort_keys=True, allow_nan=False))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("actual_params") from exc
+    if type(parsed) is not dict or any(type(key) is not str or not key for key in parsed):
+        raise ValueError("actual_params")
+    return parsed
+
+
+def _optional_identity(value: object, *, required: bool) -> str | None:
+    if value is None:
+        if required:
+            raise ValueError("identity")
+        return None
+    return _raw_identity(value)
+
+
+@dataclass(frozen=True)
+class ResearchTrialRecord:
+    """One research attempt. Unknown actual params stay null, never a filler.
+
+    Failed, rejected, and aborted trials store no run or return metric. They
+    may keep known cost inputs. Succeeded points at one stored result and ledger.
+    """
+
+    trial_id: str
+    domain: str
+    strategy_profile: str
+    status: ResearchTrialStatus
+    candidate_config_id: str
+    actual_params: Mapping[str, Any] | None
+    param_set_id: str | None
+    source_revision: str | None
+    input_id: str
+    window_start: date
+    window_end: date
+    calendar_id: str
+    periods_per_year: float
+    cost_source: str | None
+    cost_inputs: Mapping[str, float]
+    reason_code: str
+    synthetic: bool
+    run_id: str | None
+    param_version: int | None
+
+    def __post_init__(self) -> None:
+        status = self.status
+        if isinstance(status, str) and not isinstance(status, ResearchTrialStatus):
+            try:
+                status = ResearchTrialStatus(status)
+            except ValueError as exc:
+                raise ValueError("status") from exc
+        if not isinstance(status, ResearchTrialStatus):
+            raise ValueError("status")
+        succeeded = status is ResearchTrialStatus.SUCCEEDED
+        trial_id = _raw_identity(self.trial_id)
+        domain = _label(self.domain)
+        strategy_profile = _label(self.strategy_profile)
+        candidate_config_id = _raw_identity(self.candidate_config_id)
+        actual_params = _actual_params(self.actual_params, required=succeeded)
+        param_set_id = _optional_identity(self.param_set_id, required=succeeded)
+        source_revision = _optional_identity(self.source_revision, required=succeeded)
+        input_id = _raw_identity(self.input_id)
+        window_start = _require_date(self.window_start)
+        window_end = _require_date(self.window_end)
+        if window_end < window_start:
+            raise ValueError("window")
+        calendar_id = _label(self.calendar_id)
+        try:
+            periods = validate_periods_per_year(_finite_number(self.periods_per_year))
+        except ValueError as exc:
+            raise ValueError("periods_per_year") from exc
+        cost_source = _optional_identity(self.cost_source, required=succeeded)
+        if type(self.synthetic) is not bool:
+            raise ValueError("synthetic")
+        cost_inputs = _cost_inputs(self.cost_inputs, allow_empty=not succeeded)
+        if succeeded:
+            if not isinstance(self.run_id, str):
+                raise ValueError("research_trial_result_link")
+            run_id: str | None = _run_identity(self.run_id)
+            if type(self.param_version) is not int or self.param_version <= 0:
+                raise ValueError("param_version")
+            param_version: int | None = self.param_version
+            reason_code = _reason_code(self.reason_code, allow_empty=True)
+            if reason_code != "":
+                raise ValueError("reason_code")
+        else:
+            if self.run_id is not None or self.param_version is not None:
+                raise ValueError("research_trial_result_link")
+            run_id = None
+            param_version = None
+            if status is ResearchTrialStatus.STARTED:
+                reason_code = _reason_code(self.reason_code, allow_empty=True)
+                if reason_code != "":
+                    raise ValueError("reason_code")
+            elif status.value not in _RESEARCH_NON_SUCCESS:
+                raise ValueError("status")
+            else:
+                reason_code = _reason_code(self.reason_code, allow_empty=False)
+        object.__setattr__(self, "status", status)
+        object.__setattr__(self, "trial_id", trial_id)
+        object.__setattr__(self, "domain", domain)
+        object.__setattr__(self, "strategy_profile", strategy_profile)
+        object.__setattr__(self, "candidate_config_id", candidate_config_id)
+        object.__setattr__(self, "actual_params", actual_params)
+        object.__setattr__(self, "param_set_id", param_set_id)
+        object.__setattr__(self, "source_revision", source_revision)
+        object.__setattr__(self, "input_id", input_id)
+        object.__setattr__(self, "window_start", window_start)
+        object.__setattr__(self, "window_end", window_end)
+        object.__setattr__(self, "calendar_id", calendar_id)
+        object.__setattr__(self, "periods_per_year", periods)
+        object.__setattr__(self, "cost_source", cost_source)
+        object.__setattr__(self, "cost_inputs", cost_inputs)
+        object.__setattr__(self, "reason_code", reason_code)
+        object.__setattr__(self, "run_id", run_id)
+        object.__setattr__(self, "param_version", param_version)
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "trial_id": self.trial_id,
+            "domain": self.domain,
+            "strategy_profile": self.strategy_profile,
+            "status": self.status.value,
+            "candidate_config_id": self.candidate_config_id,
+            "actual_params": None if self.actual_params is None else dict(self.actual_params),
+            "param_set_id": self.param_set_id,
+            "source_revision": self.source_revision,
+            "input_id": self.input_id,
+            "window_start": self.window_start.isoformat(),
+            "window_end": self.window_end.isoformat(),
+            "calendar_id": self.calendar_id,
+            "periods_per_year": self.periods_per_year,
+            "cost_source": self.cost_source,
+            "cost_inputs": dict(self.cost_inputs),
+            "reason_code": self.reason_code,
+            "synthetic": self.synthetic,
+            "run_id": self.run_id,
+            "param_version": self.param_version,
         }
 
 
