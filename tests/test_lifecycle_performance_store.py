@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import tempfile
@@ -13,6 +14,11 @@ from unittest.mock import patch
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
     BacktestValidationIdentity,
+    ResearchDailyLedger,
+    ResearchLedgerDay,
+    ResearchPositionMark,
+    ResearchTrialRecord,
+    ResearchTrialStatus,
 )
 from quant_platform_kit.strategy_lifecycle.performance_store import (
     DEFAULT_LOCAL_ROOT,
@@ -584,6 +590,603 @@ class BacktestReadbackMetadataTest(unittest.TestCase):
                 _plant_backtest(root, run_id, payload)
                 loaded = store.load_backtest_by_run_id("us_equity", "global_etf_rotation", run_id)
                 self.assertIsNone(loaded, run_id)
+
+
+
+_PARAMS = {"lookback": 20}
+_COSTS = {"commission_bps": 1.0, "slippage_bps": 0.5}
+_INITIAL = date(2024, 1, 1)
+_START = date(2024, 1, 2)
+_END = date(2024, 1, 3)
+
+
+def _identity_digest(domain: str, profile: str, trial_id: str) -> str:
+    return hashlib.sha256(f"{domain}\0{profile}\0{trial_id}".encode()).hexdigest()
+
+
+def _research_file(root: Path, domain: str, profile: str, trial_id: str, name: str) -> Path:
+    return root / "research_trial" / _identity_digest(domain, profile, trial_id) / f"{name}.json"
+
+
+def _mark_day(session: date, cash: float, quantity: float, valuation: float, flow: float, fees: float, nav: float, previous: float) -> ResearchLedgerDay:
+    positions = () if quantity == 0 else (ResearchPositionMark("SOXL", quantity, valuation),)
+    return ResearchLedgerDay(session, cash, positions, flow, fees, nav, nav / previous - 1.0)
+
+
+def _ledger(trial_id: str = "trial-a", run_id: str = "run-a", version: int = 1, domain: str = "us_equity", profile: str = "global_etf_rotation") -> ResearchDailyLedger:
+    return ResearchDailyLedger(
+        trial_id=trial_id,
+        domain=domain,
+        strategy_profile=profile,
+        run_id=run_id,
+        param_version=version,
+        input_id="input-a",
+        calendar_id="XNYS",
+        periods_per_year=252.0,
+        cost_source="synthetic_cost_v1",
+        cost_inputs=dict(_COSTS),
+        initial_session_date=_INITIAL,
+        initial_nav=100.0,
+        initial_cash=100.0,
+        initial_positions=(),
+        days=(
+            _mark_day(_START, 59, 2, 40, -40, 1, 99, 100),
+            _mark_day(_END, 59, 2, 50, 0, 0, 109, 99),
+        ),
+        synthetic=True,
+    )
+
+
+def _trial(status: ResearchTrialStatus, **overrides: object) -> ResearchTrialRecord:
+    succeeded = status is ResearchTrialStatus.SUCCEEDED
+    payload: dict[str, object] = {
+        "trial_id": "trial-a",
+        "domain": "us_equity",
+        "strategy_profile": "global_etf_rotation",
+        "status": status,
+        "candidate_config_id": "candidate-a",
+        "actual_params": dict(_PARAMS) if succeeded else None,
+        "param_set_id": "set-a" if succeeded else None,
+        "source_revision": "rev-a" if succeeded else None,
+        "input_id": "input-a",
+        "window_start": _INITIAL,
+        "window_end": _END,
+        "calendar_id": "XNYS",
+        "periods_per_year": 252.0,
+        "cost_source": "synthetic_cost_v1",
+        "cost_inputs": dict(_COSTS),
+        "reason_code": "" if succeeded or status is ResearchTrialStatus.STARTED else "config_unparsed",
+        "synthetic": True,
+        "run_id": "run-a" if succeeded else None,
+        "param_version": 1 if succeeded else None,
+    }
+    payload.update(overrides)
+    return ResearchTrialRecord(**payload)
+
+
+def _result(ledger: ResearchDailyLedger, **overrides: object) -> BacktestResult:
+    payload: dict[str, object] = {
+        "strategy_profile": ledger.strategy_profile,
+        "domain": ledger.domain,
+        "param_set_id": "set-a",
+        "params": dict(_PARAMS),
+        "param_version": ledger.param_version,
+        "run_id": ledger.run_id,
+        "start_date": ledger.window_start,
+        "end_date": ledger.window_end,
+        "observation_count": ledger.observation_count,
+        "total_return": ledger.total_return,
+        "calendar_id": ledger.calendar_id,
+        "periods_per_year": ledger.periods_per_year,
+        "cost_model": ledger.cost_source,
+        "cost_inputs": dict(ledger.cost_inputs),
+        "source_revision": "rev-a",
+        "sharpe_ratio": 1.0,
+        "computed_at": "2026-01-01T00:00:00Z",
+    }
+    payload.update(overrides)
+    return BacktestResult(**payload)
+
+
+class _ResearchCloud:
+    """In-memory object store. A successful round trip here is not GCS persistence."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, str] = {}
+        self.fail_exists = False
+        self.fail_read = False
+        self.fail_create = False
+        self.create_calls = 0
+
+    def exists(self, uri: str) -> bool:
+        if self.fail_exists:
+            raise OSError("exists down")
+        return uri in self.objects
+
+    def read_text(self, uri: str) -> str:
+        if self.fail_read:
+            raise OSError("read down")
+        return self.objects[uri]
+
+    def read_bytes(self, uri: str) -> bytes:
+        return self.read_text(uri).encode()
+
+    def write_bytes(self, uri: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        self.objects[uri] = data.decode()
+        return uri
+
+    def create_text(self, uri: str, data: str, content_type: str = "text/plain") -> bool:
+        self.create_calls += 1
+        if self.fail_create:
+            raise OSError("create down")
+        if uri in self.objects:
+            return False
+        self.objects[uri] = data
+        return True
+
+    def list(self, prefix: str) -> list[str]:
+        return [uri for uri in self.objects if uri.startswith(prefix)]
+
+
+class ResearchTrialLedgerStoreTest(unittest.TestCase):
+    def test_rejected_before_parse_keeps_null_actual_params_and_cost_inputs(self) -> None:
+        for field in dataclasses.fields(ResearchTrialRecord):
+            self.assertIs(field.default, dataclasses.MISSING)
+            self.assertIs(field.default_factory, dataclasses.MISSING)
+        with self.assertRaises(ValueError) as unknown:
+            _trial(ResearchTrialStatus.REJECTED, actual_params="unknown")
+        with self.assertRaises(ValueError) as blank:
+            _trial(ResearchTrialStatus.REJECTED, actual_params="")
+        self.assertEqual(str(unknown.exception), "actual_params")
+        self.assertEqual(str(blank.exception), "actual_params")
+        trial = _trial(ResearchTrialStatus.REJECTED, actual_params=None, cost_inputs=dict(_COSTS))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_trial(trial)
+            loaded = store.load_research_trial("us_equity", "global_etf_rotation", "trial-a")
+            path = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal")
+            payload = json.loads(path.read_text())
+            self.assertFalse(any(item.parts[len(root.parts)] == "backtest" for item in root.rglob("*") if item != root))
+        self.assertEqual(loaded, trial)
+        self.assertIsNone(loaded.actual_params)
+        self.assertIsNone(loaded.run_id)
+        self.assertIsNone(loaded.param_version)
+        self.assertEqual(dict(loaded.cost_inputs), _COSTS)
+        self.assertIsNone(payload["actual_params"])
+        self.assertEqual(path.parent.name, _identity_digest("us_equity", "global_etf_rotation", "trial-a"))
+        self.assertEqual(path.name, "terminal.json")
+        for banned in ("sharpe_ratio", "total_return", "promotion_eligible"):
+            self.assertNotIn(banned, payload)
+
+    def test_orphan_ledger_still_allows_failed_and_aborted_records(self) -> None:
+        started = _trial(ResearchTrialStatus.STARTED, actual_params=None, cost_inputs={}, reason_code="")
+        changed = _trial(ResearchTrialStatus.STARTED, actual_params=None, cost_inputs={}, reason_code="", input_id="input-b")
+        failed = _trial(ResearchTrialStatus.FAILED, reason_code="result_rejected", cost_inputs=dict(_COSTS), actual_params=None)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_trial(started)
+            store.save_research_trial(started)
+            started_path = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "started")
+            started_bytes = started_path.read_text()
+            with self.assertRaises(ValueError) as changed_error:
+                store.save_research_trial(changed)
+            self.assertEqual(str(changed_error.exception), "research_trial_conflict")
+            self.assertEqual(started_path.read_text(), started_bytes)
+            store.save_research_ledger(_ledger())
+            store.save_research_trial(failed)
+            loaded = store.load_research_trial("us_equity", "global_etf_rotation", "trial-a")
+            ledger = store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1)
+            terminal = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal")
+            planted = json.loads(terminal.read_text())
+            planted["sharpe_ratio"] = 1.2
+            terminal.write_text(json.dumps(planted))
+            planted_text = terminal.read_text()
+            self.assertIsNone(store.load_research_trial("us_equity", "global_etf_rotation", "trial-a"))
+            with self.assertRaises(ValueError) as malformed:
+                store.save_research_trial(failed)
+            self.assertEqual(str(malformed.exception), "research_trial_malformed")
+            self.assertEqual(terminal.read_text(), planted_text)
+            self.assertIn("sharpe_ratio", terminal.read_text())
+            self.assertEqual(len(list(root.rglob("started.json"))), 1)
+        self.assertEqual(loaded, failed)
+        self.assertIsNone(loaded.run_id)
+        self.assertEqual(dict(loaded.cost_inputs), _COSTS)
+        self.assertEqual(ledger.run_id, "run-a")
+        with self.assertRaises(ValueError) as linked:
+            _trial(ResearchTrialStatus.FAILED, run_id="run-a", reason_code="result_rejected")
+        self.assertEqual(str(linked.exception), "research_trial_result_link")
+        aborted = _trial(ResearchTrialStatus.ABORTED, trial_id="trial-b", reason_code="operator_abort", cost_inputs=dict(_COSTS))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_ledger(_ledger(trial_id="trial-b"))
+            store.save_research_trial(aborted)
+            loaded_aborted = store.load_research_trial("us_equity", "global_etf_rotation", "trial-b")
+        self.assertEqual(loaded_aborted, aborted)
+        self.assertIsNone(loaded_aborted.run_id)
+        self.assertEqual(dict(loaded_aborted.cost_inputs), _COSTS)
+
+    def test_same_params_keep_distinct_trials(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            saved = []
+            for trial_id, run_id in (("trial-a", "run-a"), ("trial-b", "run-b")):
+                ledger = _ledger(trial_id=trial_id, run_id=run_id)
+                trial = _trial(ResearchTrialStatus.SUCCEEDED, trial_id=trial_id, run_id=run_id)
+                store.save_backtest_result(_result(ledger))
+                store.save_research_ledger(ledger)
+                store.save_research_trial(trial)
+                saved.append(trial)
+                self.assertEqual(
+                    store.load_research_trial("us_equity", "global_etf_rotation", trial_id, run_id=run_id, param_version=1),
+                    trial,
+                )
+            self.assertIsNone(store.load_research_trial("us_equity", "global_etf_rotation", "trial-a", run_id="run-b"))
+            self.assertIsNone(store.load_research_trial("us_equity", "global_etf_rotation", "trial-a", param_version=2))
+            names = {path.relative_to(root).parts[0] for path in root.rglob("*.json")}
+        self.assertEqual(names, {"research_trial", "backtest"})
+        self.assertEqual(saved[0].actual_params, saved[1].actual_params)
+        self.assertNotEqual(saved[0].trial_id, saved[1].trial_id)
+
+    def test_nul_in_domain_or_profile_is_rejected(self) -> None:
+        colliding = (("a\0b", "c"), ("a", "b\0c"))
+        for domain, profile in colliding:
+            with self.subTest(domain=domain, profile=profile):
+                with self.assertRaises(ValueError) as caught:
+                    _trial(ResearchTrialStatus.REJECTED, domain=domain, strategy_profile=profile)
+                self.assertEqual(str(caught.exception), "identity")
+
+    def test_original_identity_does_not_collapse_cleaned_keys(self) -> None:
+        spaced = _trial(ResearchTrialStatus.REJECTED, domain="us equity", strategy_profile="global etf", actual_params=None)
+        hyphen = _trial(ResearchTrialStatus.REJECTED, domain="us-equity", strategy_profile="global-etf", actual_params=None)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_trial(spaced)
+            store.save_research_trial(hyphen)
+            self.assertEqual(store.load_research_trial("us equity", "global etf", "trial-a"), spaced)
+            self.assertEqual(store.load_research_trial("us-equity", "global-etf", "trial-a"), hyphen)
+            self.assertIsNone(store.load_research_trial("us equity", "global-etf", "trial-a"))
+            self.assertIsNone(store.load_research_trial("us-equity", "global etf", "trial-a"))
+            path = _research_file(root, "us equity", "global etf", "trial-a", "terminal")
+            planted = json.loads(path.read_text())
+            planted["trial_id"] = "trial-other"
+            path.write_text(json.dumps(planted))
+            self.assertIsNone(store.load_research_trial("us equity", "global etf", "trial-a"))
+            with self.assertRaises(ValueError) as conflict:
+                store.save_research_trial(spaced)
+            self.assertEqual(str(conflict.exception), "research_trial_conflict")
+            self.assertEqual(json.loads(path.read_text())["trial_id"], "trial-other")
+
+    def test_illegal_ledger_is_rejected_and_planted_cash_is_not_rewritten(self) -> None:
+        with self.assertRaises(ValueError) as bad_bool:
+            _mark_day(_START, 59, True, 40, -40, 1, 99, 100)
+        with self.assertRaises(ValueError) as bad_nan:
+            _mark_day(_START, float("nan"), 2, 40, -40, 1, 99, 100)
+        with self.assertRaises(ValueError) as bad_fee:
+            _mark_day(_START, 59, 2, 40, -40, -1, 99, 100)
+        self.assertEqual(str(bad_bool.exception), "invalid_number")
+        self.assertEqual(str(bad_nan.exception), "invalid_number")
+        self.assertEqual(str(bad_fee.exception), "ledger_fee")
+        day = _mark_day(_START, 59, 2, 40, -40, 1, 99, 100)
+        earlier = _mark_day(date(2024, 1, 1), 100, 0, 0, 0, 0, 100, 100)
+        with self.assertRaises(ValueError) as bad_dates:
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=100.0,
+                initial_positions=(), days=(day, earlier), synthetic=True,
+            )
+        self.assertEqual(str(bad_dates.exception), "ledger_dates")
+        with self.assertRaises(ValueError) as same_session:
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_START, initial_nav=100.0, initial_cash=100.0,
+                initial_positions=(), days=(day,), synthetic=True,
+            )
+        self.assertEqual(str(same_session.exception), "ledger_dates")
+        short_cash = _mark_day(_START, 50, 2, 40, -40, 1, 90, 100)
+        with self.assertRaises(ValueError) as bad_cash:
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=100.0,
+                initial_positions=(), days=(short_cash,), synthetic=True,
+            )
+        self.assertEqual(str(bad_cash.exception), "ledger_cash")
+        broken = _mark_day(_START, 59, 2, 40, -40, 1, 99, 100)
+        object.__setattr__(broken, "daily_return", 0.0)
+        with self.assertRaises(ValueError) as bad_return:
+            ResearchDailyLedger(
+                trial_id="trial-a", domain="us_equity", strategy_profile="global_etf_rotation",
+                run_id="run-a", param_version=1, input_id="input-a", calendar_id="XNYS",
+                periods_per_year=252.0, cost_source="synthetic_cost_v1", cost_inputs=dict(_COSTS),
+                initial_session_date=_INITIAL, initial_nav=100.0, initial_cash=100.0,
+                initial_positions=(), days=(broken,), synthetic=True,
+            )
+        self.assertEqual(str(bad_return.exception), "ledger_return")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_ledger(_ledger())
+            path = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "ledger")
+            planted = json.loads(path.read_text())
+            planted["days"][0]["cash"] = 1
+            path.write_text(json.dumps(planted))
+            planted_text = path.read_text()
+            self.assertIsNone(store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1))
+            with self.assertRaises(ValueError) as malformed:
+                store.save_research_ledger(_ledger())
+            self.assertEqual(str(malformed.exception), "research_ledger_malformed")
+            self.assertEqual(path.read_text(), planted_text)
+
+    def test_terminal_resave_is_identical_only(self) -> None:
+        trial = _trial(ResearchTrialStatus.REJECTED, actual_params=None, cost_inputs=dict(_COSTS))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_trial(trial)
+            store.save_research_trial(trial)
+            path = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal")
+            original = path.read_text()
+            other = _trial(ResearchTrialStatus.REJECTED, actual_params=None, cost_inputs=dict(_COSTS), reason_code="operator_abort")
+            with self.assertRaises(ValueError) as conflict:
+                store.save_research_trial(other)
+            self.assertEqual(str(conflict.exception), "research_trial_conflict")
+            self.assertEqual(path.read_text(), original)
+
+    def test_success_is_written_last_and_binds_result_fields(self) -> None:
+        ledger = _ledger()
+        result = _result(ledger)
+        started = _trial(ResearchTrialStatus.STARTED, actual_params=dict(_PARAMS), param_set_id="set-a", source_revision="rev-a", cost_inputs={})
+        success = _trial(ResearchTrialStatus.SUCCEEDED)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_trial(started)
+            with self.assertRaises(ValueError) as missing_result:
+                store.save_research_trial(success)
+            self.assertEqual(str(missing_result.exception), "research_trial_result_missing")
+            self.assertFalse(_research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal").exists())
+            store.save_backtest_result(result)
+            with self.assertRaises(ValueError) as missing_ledger:
+                store.save_research_trial(success)
+            self.assertEqual(str(missing_ledger.exception), "research_trial_ledger_missing")
+            self.assertFalse(_research_file(root, "us_equity", "global_etf_rotation", "trial-a", "ledger").exists())
+            self.assertFalse(_research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal").exists())
+            store.save_research_ledger(ledger)
+            store.save_research_trial(success)
+            store.save_research_trial(success)
+            loaded = store.load_research_trial("us_equity", "global_etf_rotation", "trial-a", run_id="run-a", param_version=1)
+            ledger_path = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "ledger")
+            ledger_bytes = ledger_path.read_text()
+            with self.assertRaises(ValueError) as second_ledger:
+                store.save_research_ledger(_ledger(run_id="run-b"))
+            self.assertEqual(str(second_ledger.exception), "research_trial_conflict")
+            self.assertEqual(ledger_path.read_text(), ledger_bytes)
+            self.assertTrue(_run_file(root, "run-a").exists())
+        self.assertEqual(loaded, success)
+        self.assertEqual(dict(loaded.actual_params), dict(result.params))
+        self.assertEqual(loaded.param_set_id, result.param_set_id)
+        self.assertEqual(loaded.source_revision, result.source_revision)
+        self.assertEqual(dict(loaded.cost_inputs), dict(result.cost_inputs))
+        self.assertEqual(loaded.calendar_id, result.calendar_id)
+        self.assertEqual(loaded.run_id, result.run_id)
+        self.assertEqual((ledger.initial_nav, ledger.days[0].nav, ledger.days[1].nav), (100.0, 99.0, 109.0))
+        self.assertEqual(ledger.initial_session_date, _INITIAL)
+        self.assertEqual(ledger.window_start, _INITIAL)
+        self.assertEqual(ledger.days[0].session_date, _START)
+        self.assertEqual(ledger.observation_count, 2)
+        self.assertEqual(result.start_date, _INITIAL)
+        self.assertEqual(result.end_date, _END)
+        self.assertEqual(result.observation_count, 2)
+        self.assertEqual(loaded.window_start, result.start_date)
+        self.assertEqual(ledger.observation_count, result.observation_count)
+        self.assertEqual(ledger.total_return, result.total_return)
+
+    def test_param_or_source_mismatch_does_not_create_terminal(self) -> None:
+        ledger = _ledger()
+        cases = {
+            "params": {"params": {"lookback": 21}},
+            "source_revision": {"source_revision": "rev-other"},
+            "param_set_id": {"param_set_id": "set-other"},
+            "calendar": {"calendar_id": "XNAS"},
+            "cost_inputs": {"cost_inputs": {"commission_bps": 9.0}},
+            "cost_model": {"cost_model": "other_cost"},
+            "observation_count": {"observation_count": 9},
+            "total_return": {"total_return": 0.5},
+            "window": {"start_date": _START},
+        }
+        for name, overrides in cases.items():
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    store = PerformanceStore(local_root=root)
+                    store.save_backtest_result(_result(ledger, **overrides))
+                    store.save_research_ledger(ledger)
+                    with self.assertRaises(ValueError) as mismatch:
+                        store.save_research_trial(_trial(ResearchTrialStatus.SUCCEEDED))
+                    self.assertEqual(str(mismatch.exception), "research_trial_result_mismatch")
+                    self.assertFalse(_research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal").exists())
+
+    def test_terminal_keeps_known_started_identity(self) -> None:
+        started = _trial(
+            ResearchTrialStatus.STARTED,
+            actual_params={"lookback": 20},
+            param_set_id=None,
+            source_revision=None,
+            cost_source="synthetic_cost_v1",
+            cost_inputs=dict(_COSTS),
+        )
+        replacements = {
+            "candidate": {"candidate_config_id": "candidate-b"},
+            "input": {"input_id": "input-b"},
+            "window": {"window_end": date(2024, 1, 4)},
+            "calendar": {"calendar_id": "XNAS"},
+            "periods": {"periods_per_year": 365.25},
+            "synthetic": {"synthetic": False},
+            "actual_params": {"actual_params": {"lookback": 21}},
+            "cost_inputs": {"cost_inputs": {"commission_bps": 9.0}},
+            "cost_source": {"cost_source": "other_cost"},
+        }
+        filled = _trial(
+            ResearchTrialStatus.FAILED,
+            reason_code="result_rejected",
+            actual_params={"lookback": 20},
+            param_set_id="set-a",
+            source_revision="rev-a",
+            cost_inputs=dict(_COSTS),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_trial(started)
+            started_path = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "started")
+            started_bytes = started_path.read_text()
+            for name, overrides in replacements.items():
+                with self.subTest(name=name):
+                    payload = {
+                        "reason_code": "result_rejected",
+                        "actual_params": {"lookback": 20},
+                        "cost_inputs": dict(_COSTS),
+                    }
+                    payload.update(overrides)
+                    with self.assertRaises(ValueError) as conflict:
+                        store.save_research_trial(_trial(ResearchTrialStatus.FAILED, **payload))
+                    self.assertEqual(str(conflict.exception), "research_trial_conflict")
+                    self.assertFalse(_research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal").exists())
+            store.save_research_trial(filled)
+            store.save_research_trial(filled)
+            store.save_research_trial(started)
+            self.assertEqual(store.load_research_trial("us_equity", "global_etf_rotation", "trial-a"), filled)
+            self.assertEqual(started_path.read_text(), started_bytes)
+            with self.assertRaises(ValueError) as rewritten:
+                store.save_research_trial(_trial(
+                    ResearchTrialStatus.STARTED,
+                    candidate_config_id="candidate-b",
+                    actual_params={"lookback": 20},
+                    cost_inputs=dict(_COSTS),
+                ))
+            self.assertEqual(str(rewritten.exception), "research_trial_conflict")
+            self.assertEqual(started_path.read_text(), started_bytes)
+            self.assertEqual(store.load_research_trial("us_equity", "global_etf_rotation", "trial-a"), filled)
+            planted = json.loads(_research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal").read_text())
+            planted["candidate_config_id"] = "candidate-b"
+            terminal_path = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal")
+            terminal_path.write_text(json.dumps(planted))
+            self.assertIsNone(store.load_research_trial("us_equity", "global_etf_rotation", "trial-a"))
+            self.assertEqual(json.loads(terminal_path.read_text())["candidate_config_id"], "candidate-b")
+        open_started = _trial(
+            ResearchTrialStatus.STARTED,
+            trial_id="trial-b",
+            actual_params=None,
+            param_set_id=None,
+            source_revision=None,
+            cost_source=None,
+            cost_inputs={},
+        )
+        completed = _trial(
+            ResearchTrialStatus.FAILED,
+            trial_id="trial-b",
+            reason_code="result_rejected",
+            actual_params={"lookback": 20},
+            param_set_id="set-a",
+            source_revision="rev-a",
+            cost_source="synthetic_cost_v1",
+            cost_inputs=dict(_COSTS),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root)
+            store.save_research_trial(completed)
+            with self.assertRaises(ValueError) as late_started:
+                store.save_research_trial(_trial(
+                    ResearchTrialStatus.STARTED,
+                    trial_id="trial-b",
+                    candidate_config_id="candidate-b",
+                    cost_inputs=dict(_COSTS),
+                ))
+            self.assertEqual(str(late_started.exception), "research_trial_conflict")
+            self.assertFalse(_research_file(root, "us_equity", "global_etf_rotation", "trial-b", "started").exists())
+            self.assertEqual(store.load_research_trial("us_equity", "global_etf_rotation", "trial-b"), completed)
+            store.save_research_trial(open_started)
+            store.save_research_trial(open_started)
+            self.assertEqual(store.load_research_trial("us_equity", "global_etf_rotation", "trial-b"), completed)
+
+    def test_cloud_faults_fail_closed_without_local_fallback(self) -> None:
+        trial = _trial(ResearchTrialStatus.REJECTED, actual_params=None, cost_inputs=dict(_COSTS))
+        digest = _identity_digest("us_equity", "global_etf_rotation", "trial-a")
+        uri = f"gs://lifecycle-bucket/production/research_trial/{digest}/terminal.json"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            local_path = _research_file(root, "us_equity", "global_etf_rotation", "trial-a", "terminal")
+            local_path.parent.mkdir(parents=True)
+            local_path.write_text('{"trial_id":"local-only"}')
+            cloud = _ResearchCloud()
+            store = PerformanceStore(cloud_bucket="lifecycle-bucket", cloud_prefix="production", local_root=root)
+            with patch("quant_platform_kit.strategy_lifecycle.performance_store.get_object_store", return_value=cloud):
+                cloud.fail_exists = True
+                with self.assertRaises(ValueError) as exists_error:
+                    store.save_research_trial(trial)
+                self.assertEqual(str(exists_error.exception), "research_store_unavailable")
+                self.assertEqual(cloud.create_calls, 0)
+                with self.assertRaises(ValueError) as load_error:
+                    store.load_research_trial("us_equity", "global_etf_rotation", "trial-a")
+                self.assertEqual(str(load_error.exception), "research_store_unavailable")
+                cloud.fail_exists = False
+                cloud.objects[uri] = "{}"
+                cloud.fail_read = True
+                with self.assertRaises(ValueError) as read_error:
+                    store.save_research_trial(trial)
+                self.assertEqual(str(read_error.exception), "research_store_unavailable")
+                self.assertEqual(cloud.create_calls, 0)
+                self.assertEqual(cloud.objects[uri], "{}")
+                cloud.fail_read = False
+                cloud.objects.clear()
+                self.assertIsNone(store.load_research_trial("us_equity", "global_etf_rotation", "trial-a"))
+                cloud.fail_create = True
+                with self.assertRaises(ValueError) as create_error:
+                    store.save_research_trial(trial)
+                self.assertEqual(str(create_error.exception), "research_store_unavailable")
+                self.assertEqual(cloud.objects, {})
+                cloud.fail_create = False
+                store.save_research_trial(trial)
+                self.assertEqual(local_path.read_text(), '{"trial_id":"local-only"}')
+                local_path.write_text('{"reason_code":"local-copy"}')
+                loaded = store.load_research_trial("us_equity", "global_etf_rotation", "trial-a")
+                self.assertEqual(json.loads(cloud.objects[uri])["reason_code"], "config_unparsed")
+            self.assertEqual(loaded, trial)
+            self.assertEqual(local_path.read_text(), '{"reason_code":"local-copy"}')
+
+    def test_cloud_success_uses_only_the_bucket(self) -> None:
+        ledger = _ledger()
+        trial = _trial(ResearchTrialStatus.SUCCEEDED)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cloud = _ResearchCloud()
+            store = PerformanceStore(cloud_bucket="lifecycle-bucket", cloud_prefix="production", local_root=root)
+            with patch("quant_platform_kit.strategy_lifecycle.performance_store.get_object_store", return_value=cloud):
+                store.save_backtest_result(_result(ledger))
+                store.save_research_ledger(ledger)
+                store.save_research_trial(trial)
+                loaded = store.load_research_trial("us_equity", "global_etf_rotation", "trial-a", run_id="run-a", param_version=1)
+                loaded_ledger = store.load_research_ledger("us_equity", "global_etf_rotation", "trial-a", "run-a", 1)
+            uris = list(cloud.objects)
+            research = [uri for uri in uris if "/research_trial/" in uri]
+            self.assertEqual(loaded, trial)
+            self.assertEqual(loaded_ledger.total_fees, 1.0)
+            self.assertTrue(research)
+            self.assertTrue(any("/backtest/" in uri for uri in uris))
+            self.assertTrue(all(uri.startswith("gs://lifecycle-bucket/production/") for uri in uris))
+            self.assertTrue(all("/research_trial/" in uri or "/backtest/" in uri for uri in uris))
+            self.assertFalse(any("research_trial" in path.parts for path in root.rglob("*")))
 
 
 if __name__ == "__main__":
