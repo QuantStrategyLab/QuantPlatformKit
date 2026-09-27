@@ -38,6 +38,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     DriftResult,
     OptimizationProposal,
     ResearchDailyLedger,
+    ResearchLedgerEvent,
     ResearchLedgerDay,
     ResearchPositionMark,
     ResearchTrialRecord,
@@ -1117,18 +1118,29 @@ def _research_date(value: object) -> date:
 
 
 _POSITION_FIELDS = frozenset({"symbol", "quantity", "valuation"})
+_OPTION_POSITION_FIELDS = _POSITION_FIELDS | {
+    "option_underlying", "option_right", "option_strike", "option_expiration", "option_multiplier",
+    "option_premium_cashflow",
+}
 _DAY_FIELDS = frozenset({"session_date", "cash", "positions", "trade_net_cashflow", "fees", "nav", "daily_return"})
+_DAY_OPTIONAL_FIELDS = _DAY_FIELDS | {
+    "income_cashflow", "external_cashflow", "dividend_receivable", "declared_event_ids", "events",
+    "restricted_cash", "option_settlement_cashflow", "equity_trade_cashflow",
+    "equity_trade_quantities", "equity_trade_phase",
+}
 _LEDGER_FIELDS = frozenset({
     "schema_version", "trial_id", "domain", "strategy_profile", "run_id", "param_version",
     "input_id", "calendar_id", "periods_per_year", "cost_source", "cost_inputs",
     "initial_session_date", "initial_nav", "initial_cash", "initial_positions", "days", "synthetic",
 })
+_LEDGER_COLLATERAL_FIELDS = _LEDGER_FIELDS | {"initial_restricted_cash"}
 _TRIAL_FIELDS = frozenset({
     "schema_version", "trial_id", "domain", "strategy_profile", "status", "candidate_config_id",
     "actual_params", "param_set_id", "source_revision", "input_id", "window_start", "window_end",
     "calendar_id", "periods_per_year", "cost_source", "cost_inputs", "reason_code", "synthetic",
     "run_id", "param_version",
 })
+_TRIAL_IDENTITY_FIELDS = _TRIAL_FIELDS | {"research_identity"}
 
 
 def _research_positions(value: object) -> tuple[ResearchPositionMark, ...]:
@@ -1136,9 +1148,12 @@ def _research_positions(value: object) -> tuple[ResearchPositionMark, ...]:
         raise ValueError("position_mark")
     marks: list[ResearchPositionMark] = []
     for item in value:
-        if not isinstance(item, dict) or set(item) != _POSITION_FIELDS:
+        if not isinstance(item, dict) or frozenset(item) not in {_POSITION_FIELDS, _OPTION_POSITION_FIELDS}:
             raise ValueError("position_mark")
-        marks.append(ResearchPositionMark(symbol=item["symbol"], quantity=item["quantity"], valuation=item["valuation"]))
+        parsed = dict(item)
+        if "option_expiration" in parsed:
+            parsed["option_expiration"] = _research_date(parsed["option_expiration"])
+        marks.append(ResearchPositionMark(**parsed))
     return tuple(marks)
 
 
@@ -1147,8 +1162,28 @@ def _research_days(value: object) -> tuple[ResearchLedgerDay, ...]:
         raise ValueError("ledger_dates")
     days: list[ResearchLedgerDay] = []
     for item in value:
-        if not isinstance(item, dict) or set(item) != _DAY_FIELDS:
+        if (
+            not isinstance(item, dict)
+            or not _DAY_FIELDS.issubset(item)
+            or not frozenset(item).issubset(_DAY_OPTIONAL_FIELDS)
+        ):
             raise ValueError("ledger_dates")
+        parsed_events = []
+        for event in item.get("events", []):
+            if not isinstance(event, dict):
+                raise ValueError("ledger_event")
+            event_type = event.get("event_type")
+            event_fields = {
+                "split": {"event_id", "event_type", "symbol", "ratio"},
+                "dividend_accrual": {"event_id", "event_type", "symbol", "per_share"},
+                "dividend_payment": {"event_id", "event_type", "symbol", "amount", "reference_event_id"},
+                "option_trade": {"event_id", "event_type", "symbol", "amount"},
+                "option_settlement": {"event_id", "event_type", "symbol", "settlement_price"},
+                "collateral_change": {"event_id", "event_type", "symbol", "amount"},
+            }.get(event_type)
+            if event_fields is None or frozenset(event) != event_fields:
+                raise ValueError("ledger_event_fields")
+            parsed_events.append(ResearchLedgerEvent(**event))
         days.append(ResearchLedgerDay(
             session_date=_research_date(item["session_date"]),
             cash=item["cash"],
@@ -1157,12 +1192,26 @@ def _research_days(value: object) -> tuple[ResearchLedgerDay, ...]:
             fees=item["fees"],
             nav=item["nav"],
             daily_return=item["daily_return"],
+            income_cashflow=item.get("income_cashflow", 0.0),
+            external_cashflow=item.get("external_cashflow", 0.0),
+            dividend_receivable=item.get("dividend_receivable", 0.0),
+            declared_event_ids=item.get("declared_event_ids"),
+            events=tuple(parsed_events),
+            restricted_cash=item.get("restricted_cash", 0.0),
+            option_settlement_cashflow=item.get("option_settlement_cashflow", 0.0),
+            equity_trade_cashflow=item.get("equity_trade_cashflow"),
+            equity_trade_quantities=item.get("equity_trade_quantities"),
+            equity_trade_phase=item.get("equity_trade_phase"),
         ))
     return tuple(days)
 
 
 def _research_ledger_from_dict(data: Mapping[str, Any] | None) -> ResearchDailyLedger | None:
-    if not isinstance(data, dict) or set(data) != _LEDGER_FIELDS or data.get("schema_version") != SCHEMA_VERSION:
+    if (
+        not isinstance(data, dict)
+        or frozenset(data) not in {_LEDGER_FIELDS, _LEDGER_COLLATERAL_FIELDS}
+        or data.get("schema_version") != SCHEMA_VERSION
+    ):
         return None
     try:
         return ResearchDailyLedger(
@@ -1182,13 +1231,18 @@ def _research_ledger_from_dict(data: Mapping[str, Any] | None) -> ResearchDailyL
             initial_positions=_research_positions(data["initial_positions"]),
             days=_research_days(data["days"]),
             synthetic=data["synthetic"],
+            initial_restricted_cash=data.get("initial_restricted_cash", 0.0),
         )
     except Exception:
         return None
 
 
 def _research_trial_from_dict(data: Mapping[str, Any] | None) -> ResearchTrialRecord | None:
-    if not isinstance(data, dict) or set(data) != _TRIAL_FIELDS or data.get("schema_version") != SCHEMA_VERSION:
+    if (
+        not isinstance(data, dict)
+        or frozenset(data) not in {_TRIAL_FIELDS, _TRIAL_IDENTITY_FIELDS}
+        or data.get("schema_version") != SCHEMA_VERSION
+    ):
         return None
     try:
         return ResearchTrialRecord(
@@ -1211,6 +1265,7 @@ def _research_trial_from_dict(data: Mapping[str, Any] | None) -> ResearchTrialRe
             synthetic=data["synthetic"],
             run_id=data["run_id"],
             param_version=data["param_version"],
+            research_identity=data.get("research_identity"),
         )
     except Exception:
         return None
@@ -1230,9 +1285,12 @@ def _research_trial_continues(started: ResearchTrialRecord, terminal: ResearchTr
         or started.calendar_id != terminal.calendar_id
         or started.periods_per_year != terminal.periods_per_year
         or started.synthetic is not terminal.synthetic
+        or not _research_json_mapping_equal(started.research_identity, terminal.research_identity)
     ):
         return False
-    if started.actual_params is not None and started.actual_params != terminal.actual_params:
+    if started.actual_params is not None and not _research_json_mapping_equal(
+        started.actual_params, terminal.actual_params
+    ):
         return False
     if started.param_set_id is not None and started.param_set_id != terminal.param_set_id:
         return False
@@ -1245,11 +1303,30 @@ def _research_trial_continues(started: ResearchTrialRecord, terminal: ResearchTr
     return True
 
 
+def _research_json_mapping_equal(left: Mapping[str, Any] | None, right: Mapping[str, Any] | None) -> bool:
+    try:
+        return json.dumps(left, sort_keys=True, separators=(",", ":"), allow_nan=False) == json.dumps(
+            right, sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _research_result_matches(result: BacktestResult, trial: ResearchTrialRecord, ledger: ResearchDailyLedger) -> bool:
     if trial.actual_params is None or not trial.param_set_id or not trial.source_revision:
         return False
+    result_params = dict(result.params)
+    if trial.research_identity is None:
+        if "research_identity" in result_params:
+            return False
+    else:
+        result_identity = result_params.pop("research_identity", None)
+        if not isinstance(result_identity, Mapping) or not _research_json_mapping_equal(
+            result_identity, trial.research_identity
+        ):
+            return False
     return (
-        dict(result.params) == dict(trial.actual_params)
+        _research_json_mapping_equal(result_params, trial.actual_params)
         and result.param_set_id == trial.param_set_id
         and result.source_revision == trial.source_revision
         and result.run_id == trial.run_id
