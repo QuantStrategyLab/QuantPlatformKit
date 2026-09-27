@@ -838,3 +838,206 @@ def test_actual_auto_pilot_passes_new_admission_before_ai(tmp_path):
     assert admission.call_count == 1
     ai.assert_not_called()
     assert not list((tmp_path / "research_promotion_tickets").glob("*.json"))
+
+
+def _summary_locale(*, chinese, **overrides):
+    fields = {
+        "question": "该候选与基线在固定窗口下是否接近？",
+        "basis": "比较来自同一窗口与同一成本条件。",
+        "limits": "这只是候选建议，尚未选定账户。",
+        "suggestion": "请人工审阅，不构成执行授权。",
+    } if chinese else {
+        "question": "Does this candidate stay close to the baseline?",
+        "basis": "The comparison uses one fixed window and one cost model.",
+        "limits": "This is candidate advice before any account is selected.",
+        "suggestion": "Ask a human to review it without execution authority.",
+    }
+    fields.update(overrides)
+    return fields
+
+
+def _bilingual_summary(provider="codex", model="synthetic-summary-model", locales=None, **extra):
+    payload = {
+        "status": "available",
+        "provider": provider,
+        "model": model,
+        "locales": locales if locales is not None else {
+            "zh-CN": _summary_locale(chinese=True),
+            "en": _summary_locale(chinese=False),
+        },
+    }
+    payload.update(extra)
+    return payload
+
+
+def _candidate_cycle(tmp_path, summarize):
+    return invoke(
+        tmp_path,
+        optimize=Mock(return_value=_comparable_proposal(recommendation="research_candidate")),
+        summarize=summarize,
+    )
+
+
+def test_one_callback_saves_both_locales_and_reuses_without_recall(tmp_path):
+    summarize = Mock(return_value=_bilingual_summary())
+    result = _candidate_cycle(tmp_path, summarize)
+    saved = cycle.load_research_promotion_ticket(result["ticket_path"])
+    explanation = saved.research_summary["ai_explanation"]
+    context = summarize.call_args.args[0]
+    assert summarize.call_count == 1
+    assert set(context) == {"identity", "strategy_description", "plugins", "comparison", "limitations"}
+    assert context["identity"]["proposed_params"] == {"a": 2}
+    assert explanation["status"] == "available"
+    assert explanation["provider"] == "codex"
+    assert explanation["model"] == "synthetic-summary-model"
+    assert explanation["scope"] == "candidate"
+    assert set(explanation["locales"]) == {"zh-CN", "en"}
+    assert set(explanation["locales"]["zh-CN"]) == {"question", "basis", "limits", "suggestion"}
+    assert explanation["binding"]["ticket_id"] == saved.ticket_id
+    assert explanation["binding"]["proposed_params"] == {"a": 2}
+    assert explanation["binding"]["comparison"] == saved.research_summary["comparison"]
+    assert explanation["binding"]["shadow_evidence_kind"] == saved.shadow_evidence_kind
+    assert explanation["binding"]["shadow_passed"] is True
+    assert explanation["binding"]["notes"] == list(saved.notes)
+    assert "selected_account" not in explanation
+    assert saved.state == cycle.ResearchPromotionState.AWAITING_HUMAN
+    assert saved.live_authority_granted is False
+    assert saved.human_decision == ""
+    _candidate_cycle(tmp_path, summarize)
+    assert summarize.call_count == 1
+    reread = cycle.load_research_promotion_ticket(result["ticket_path"])
+    assert reread.research_summary["ai_explanation"] == explanation
+    assert reread.live_authority_granted is False
+    assert reread.state == cycle.ResearchPromotionState.AWAITING_HUMAN
+
+
+@pytest.mark.parametrize("provider", ["codex", "cursor"])
+def test_legal_single_provider_bilingual_summary_is_saved(tmp_path, provider):
+    summarize = Mock(return_value=_bilingual_summary(provider=provider))
+    result = _candidate_cycle(tmp_path, summarize)
+    saved = cycle.load_research_promotion_ticket(result["ticket_path"])
+    explanation = saved.research_summary["ai_explanation"]
+    assert summarize.call_count == 1
+    assert explanation["provider"] == provider
+    assert explanation["scope"] == "candidate"
+    assert explanation["locales"]["en"]["question"].startswith("Does this candidate")
+    assert saved.live_authority_granted is False
+    assert saved.human_decision == ""
+
+
+def test_saved_plain_text_summary_is_not_rewritten_as_bilingual(tmp_path):
+    old = Mock(return_value={"status": "available", "text": "候选与基线在固定窗口下接近。",
+                             "provider": "codex", "model": "gpt-test"})
+    result = _candidate_cycle(tmp_path, old)
+    fresh = Mock(return_value=_bilingual_summary(provider="cursor"))
+    _candidate_cycle(tmp_path, fresh)
+    saved = cycle.load_research_promotion_ticket(result["ticket_path"])
+    explanation = saved.research_summary["ai_explanation"]
+    assert old.call_count == 1
+    assert fresh.call_count == 0
+    assert explanation == {"status": "available", "text": "候选与基线在固定窗口下接近。",
+                           "provider": "codex", "model": "gpt-test"}
+
+
+def test_summary_callback_cannot_mutate_persisted_binding_or_facts(tmp_path):
+    def mutate(context):
+        context["identity"]["strategy_profile"] = "hijacked"
+        context["identity"]["proposed_params"]["a"] = 9
+        context["comparison"]["status"] = "hijacked"
+        context["limitations"].append("hijacked")
+        return _bilingual_summary()
+
+    summarize = Mock(side_effect=mutate)
+    result = _candidate_cycle(tmp_path, summarize)
+    saved = cycle.load_research_promotion_ticket(result["ticket_path"])
+    assert saved.strategy_profile == "demo_strategy"
+    assert saved.proposed_params == {"a": 2}
+    assert saved.research_summary["identity"]["proposed_params"] == {"a": 2}
+    assert saved.research_summary["comparison"]["status"] == "comparable"
+    assert saved.research_summary["limitations"] == []
+    binding = saved.research_summary["ai_explanation"]["binding"]
+    assert binding["strategy_profile"] == "demo_strategy"
+    assert binding["proposed_params"] == {"a": 2}
+    assert binding["comparison"]["status"] == "comparable"
+    assert saved.live_authority_granted is False
+
+
+def test_mismatched_proposal_does_not_call_summary_or_change_eligibility(tmp_path):
+    result = _candidate_cycle(tmp_path, None)
+    path = cycle.Path(result["ticket_path"])
+    saved = cycle.load_research_promotion_ticket(path)
+    saved.research_summary = {
+        key: value for key, value in saved.research_summary.items() if key != "ai_explanation"
+    }
+    saved.proposed_params = {"a": 99}
+    cycle.save_research_promotion_ticket(saved, path)
+    summarize = Mock(return_value=_bilingual_summary())
+    second = _candidate_cycle(tmp_path, summarize)
+    reread = cycle.load_research_promotion_ticket(path)
+    assert summarize.call_count == 0
+    assert second["status"] == "awaiting_human"
+    assert reread.proposed_params == {"a": 99}
+    assert reread.research_summary["ai_explanation"]["status"] == "unavailable"
+    assert "locales" not in reread.research_summary["ai_explanation"]
+    assert reread.state == cycle.ResearchPromotionState.AWAITING_HUMAN
+    assert reread.live_authority_granted is False
+    assert reread.human_decision == ""
+
+
+@pytest.mark.parametrize("payload", [
+    _bilingual_summary(provider="other-model"),
+    _bilingual_summary(model=""),
+    _bilingual_summary(model="   "),
+    _bilingual_summary(locales={"zh-CN": _summary_locale(chinese=True)}),
+    _bilingual_summary(locales={
+        "zh-CN": {key: value for key, value in _summary_locale(chinese=True).items() if key != "limits"},
+        "en": _summary_locale(chinese=False),
+    }),
+    _bilingual_summary(binding={"ticket_id": "forged"}),
+    _bilingual_summary(locales={
+        "zh-CN": {**_summary_locale(chinese=True), "account": "not-an-account"},
+        "en": _summary_locale(chinese=False),
+    }),
+    _bilingual_summary(locales={
+        "zh-CN": _summary_locale(chinese=True),
+        "en": _summary_locale(chinese=False, suggestion="See item 3"),
+    }),
+    _bilingual_summary(locales={
+        "zh-CN": _summary_locale(chinese=True, suggestion="请看第３点"),
+        "en": _summary_locale(chinese=False),
+    }),
+    _bilingual_summary(locales={
+        "zh-CN": _summary_locale(chinese=True, question=1),
+        "en": _summary_locale(chinese=False),
+    }),
+    _bilingual_summary(locales=["zh-CN", "en"]),
+    _bilingual_summary(locales={
+        "zh-CN": _summary_locale(chinese=True, question="问" * 241),
+        "en": _summary_locale(chinese=False),
+    }),
+    _bilingual_summary(locales={
+        "zh-CN": _summary_locale(chinese=True),
+        "en": _summary_locale(chinese=False, question="该候选 is close"),
+    }),
+    _bilingual_summary(locales={
+        "zh-CN": _summary_locale(chinese=True, question="Is this close?"),
+        "en": _summary_locale(chinese=False),
+    }),
+    {**_bilingual_summary(), "text": "候选与基线在固定窗口下接近。"},
+    _bilingual_summary(scope="account"),
+])
+def test_invalid_bilingual_summary_stays_unavailable_and_is_not_retried(tmp_path, payload):
+    summarize = Mock(return_value=payload)
+    result = _candidate_cycle(tmp_path, summarize)
+    _candidate_cycle(tmp_path, summarize)
+    saved = cycle.load_research_promotion_ticket(result["ticket_path"])
+    explanation = saved.research_summary["ai_explanation"]
+    assert summarize.call_count == 1
+    assert explanation["status"] == "unavailable"
+    assert explanation["text"] == "暂无法生成 AI 简述。"
+    assert "locales" not in explanation
+    assert "binding" not in explanation
+    assert "scope" not in explanation
+    assert saved.state == cycle.ResearchPromotionState.AWAITING_HUMAN
+    assert saved.live_authority_granted is False
+    assert saved.human_decision == ""

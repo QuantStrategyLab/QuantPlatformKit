@@ -8,6 +8,7 @@ deployment authority.
 from __future__ import annotations
 
 import calendar
+import copy
 import hashlib
 import json
 import math
@@ -1321,6 +1322,14 @@ def _saved_proposal(raw: Mapping[str, Any]) -> OptimizationProposal:
 _MAX_NO_IMPROVEMENT_ROUNDS = 3
 _MAX_IDLE_DAYS = 30
 _SUMMARY_MAX_TEXT = 2000
+_SUMMARY_SEGMENT_MAX = 240
+_SUMMARY_OLD_KEYS = frozenset({"status", "provider", "model", "text"})
+_SUMMARY_NEW_KEYS = frozenset({"status", "provider", "model", "locales"})
+_SUMMARY_LOCALE_FIELDS = ("question", "basis", "limits", "suggestion")
+_SUMMARY_PROVIDERS = frozenset({"codex", "cursor"})
+_HAN_RE = re.compile(r"[\u4e00-\u9fff]")
+_LATIN_RE = re.compile(r"[A-Za-z]")
+_DIGIT_RE = re.compile(r"[0-9\uff10-\uff19]")
 _RESEARCH_OWNER_FIELDS = frozenset({"repository", "issue_number", "watcher_issue_key"})
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _RESEARCH_OWNER_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -1538,6 +1547,114 @@ def _proposal_comparable(proposal: OptimizationProposal) -> bool:
                for value in current.cost_inputs.values())
 
 
+def _same_ticket_material(left: Any, right: Any) -> bool:
+    try:
+        return _canonical_ticket_value(left) == _canonical_ticket_value(right)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _candidate_summary_binding(
+    ticket: ResearchPromotionTicket,
+    proposal: OptimizationProposal | None,
+    context: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Freeze candidate facts before a summary callback. None means do not call."""
+    identity = context.get("identity")
+    if not isinstance(identity, Mapping):
+        return None
+    if (identity.get("strategy_profile") != ticket.strategy_profile
+            or identity.get("domain") != ticket.domain
+            or not _same_ticket_material(identity.get("proposed_params"), ticket.proposed_params)):
+        return None
+    if proposal is not None and (
+            proposal.strategy_profile != ticket.strategy_profile
+            or proposal.domain != ticket.domain
+            or not _same_ticket_material(proposal.proposed_params, ticket.proposed_params)):
+        return None
+    raw = {
+        "ticket_id": ticket.ticket_id,
+        "strategy_profile": ticket.strategy_profile,
+        "domain": ticket.domain,
+        "proposed_params": dict(ticket.proposed_params),
+        "comparison": context.get("comparison"),
+        "shadow_evidence_kind": ticket.shadow_evidence_kind,
+        "shadow_passed": ticket.shadow_passed,
+        "notes": list(ticket.notes),
+    }
+    try:
+        frozen = json.loads(_canonical_ticket_value(raw))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return frozen if isinstance(frozen, dict) else None
+
+
+def _summary_segment(text: Any, *, chinese: bool) -> str | None:
+    if not isinstance(text, str) or not text.strip() or len(text) > _SUMMARY_SEGMENT_MAX:
+        return None
+    if _DIGIT_RE.search(text):
+        return None
+    has_han = _HAN_RE.search(text) is not None
+    if chinese:
+        return text if has_han else None
+    if has_han or _LATIN_RE.search(text) is None:
+        return None
+    return text
+
+
+def _bilingual_summary_explanation(
+    value: Mapping[str, Any], binding: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    provider = value.get("provider")
+    model = value.get("model")
+    locales = value.get("locales")
+    if (not isinstance(provider, str) or provider not in _SUMMARY_PROVIDERS
+            or not isinstance(model, str) or not model.strip()
+            or not isinstance(locales, Mapping) or frozenset(locales) != {"zh-CN", "en"}):
+        return None
+    saved_locales: dict[str, dict[str, str]] = {}
+    for name, chinese in (("zh-CN", True), ("en", False)):
+        section = locales[name]
+        if not isinstance(section, Mapping) or frozenset(section) != frozenset(_SUMMARY_LOCALE_FIELDS):
+            return None
+        saved: dict[str, str] = {}
+        for field_name in _SUMMARY_LOCALE_FIELDS:
+            segment = _summary_segment(section.get(field_name), chinese=chinese)
+            if segment is None:
+                return None
+            saved[field_name] = segment
+        saved_locales[name] = saved
+    return {
+        "status": "available",
+        "provider": provider,
+        "model": model,
+        "scope": "candidate",
+        "locales": saved_locales,
+        "binding": json.loads(_canonical_ticket_value(binding)),
+    }
+
+
+def _accepted_summary_explanation(
+    value: Any, binding: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping) or value.get("status") != "available":
+        return None
+    keys = frozenset(value)
+    if keys == _SUMMARY_NEW_KEYS:
+        if binding is None:
+            return None
+        return _bilingual_summary_explanation(value, binding)
+    if not keys <= _SUMMARY_OLD_KEYS or "text" not in value:
+        return None
+    text = value.get("text")
+    provider = value.get("provider") or ""
+    model = value.get("model") or ""
+    if (isinstance(text, str) and text.strip() and len(text) <= _SUMMARY_MAX_TEXT
+            and provider == "codex" and isinstance(model, str)):
+        return {"status": "available", "text": text.strip(), "provider": "codex", "model": model}
+    return None
+
+
 def _attach_research_summary(
     ticket: ResearchPromotionTicket,
     proposal: OptimizationProposal | None,
@@ -1560,17 +1677,13 @@ def _attach_research_summary(
     ticket.research_summary = {**context, "ai_explanation": explanation}
     if persist is not None:
         persist()
-    if callable(summarize):
+    binding = _candidate_summary_binding(ticket, proposal, context) if callable(summarize) else None
+    if callable(summarize) and binding is not None:
         try:
-            value = summarize(context)
-            if isinstance(value, Mapping) and value.get("status") == "available":
-                text = value.get("text")
-                provider = value.get("provider") or ""
-                model = value.get("model") or ""
-                if (isinstance(text, str) and text.strip() and len(text) <= _SUMMARY_MAX_TEXT
-                        and provider == "codex" and isinstance(model, str)):
-                    explanation = {"status": "available", "text": text.strip(),
-                                   "provider": "codex", "model": model}
+            value = summarize(copy.deepcopy(context))
+            accepted = _accepted_summary_explanation(value, binding)
+            if accepted is not None:
+                explanation = accepted
         except Exception:
             pass
     ticket.research_summary = {**context, "ai_explanation": explanation}
