@@ -1,6 +1,6 @@
 # 可行动注意力门槛 V1（AttentionLevel）
 
-> 状态：库侧纯函数 + drift Telegram 分发修复（本 PR）；平台周期接线与 mandate 预算表另票。  
+> 状态：库侧已合（#610/#612）；三平台 NEW_RISK 周期已接 `publish_attention_telegram_transition`（pin `bd8d06e`）。  
 > 范围：通知分级 / 人工恢复路由；不授权 live、不抬 RRL、不做 Kelly。
 
 ## 原则
@@ -13,8 +13,10 @@
 ## API
 
 - `evaluate_attention(AttentionAxes | mapping) → AttentionDecision`
+- `resolve_mandate_dd_budget(profile)` — SOXL/TQQQ 默认 `0.35`（非 10%）
 - `attention_transition_key(...)` 去重键
 - `render_attention_compact(locale=...)`（`zh-CN`→`zh`）
+- `publish_attention_telegram_transition` — ACTION/HALT 跃迁才发 TG
 - `build_drift_alert` / `publish_drift_alerts`：WATCH 不建页；Telegram 走真实 `send_telegram_message`；缺配置记 `skipped` 并打日志（不再吞异常）
 
 ## 分级
@@ -28,12 +30,6 @@
 
 ## 复利风控审计对照（同批）
 
-生存层（拒单 / 禁新买 / Policy A / RRL）已能支撑「先活下来」的几何复利。  
-连续最优仓位仍缺：日损事实生产者、`combined_scale` live 缩仓、`assess_with_evidence`。  
+生存层 + 买侧 `combined_scale` 缩仓已接线。  
+仍缺：日损事实生产者、`assess_with_evidence` 全路径。  
 **默认后置** Kelly / 抬 RRL；下一有界工程仅「日损事实→禁买」（材料齐时）。
-
-## 后续（非本 PR）
-
-- 平台在禁买/CRITICAL 首次跃迁时调用 publish + marker store  
-- 为 SOXL/TQQQ 配置 mandate_dd_budget（研究/mandate 口径，非 10%）  
-- 信封 `combined_scale`→目标缩仓另票  
