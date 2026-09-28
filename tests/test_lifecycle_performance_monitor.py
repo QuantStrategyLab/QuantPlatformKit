@@ -436,7 +436,7 @@ class PerformanceMonitorTests(unittest.TestCase):
                         "domain": "crypto",
                         "recorded_at": day,
                         "record_kind": "execution",
-                        "execution_result": {"total_equity": equity},
+                        "execution_result": {"total_equity": equity, "external_cash_flow": 0.0},
                     },
                     stream_id="stream-1",
                 )
@@ -459,6 +459,51 @@ class PerformanceMonitorTests(unittest.TestCase):
             self.assertEqual(snapshots[0].windows[2].periods_per_year, 365.25)
             # Only post-gap contiguous points are usable (not the pre-gap day).
             self.assertLessEqual(snapshots[0].windows[2].observation_count, 3)
+
+    def test_run_monitor_unknown_cash_flow_truncation_is_not_complete(self) -> None:
+        revision = "j" * 40
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root / "store")
+            rows = (
+                ("2026-09-07T20:00:00Z", 100.0, 0.0),
+                ("2026-09-08T20:00:00Z", 200.0, None),
+                ("2026-09-09T20:00:00Z", 200.0, 0.0),
+                ("2026-09-10T20:00:00Z", 202.0, 0.0),
+            )
+            for day, equity, flow in rows:
+                execution_result: dict[str, object] = {"total_equity": equity}
+                if flow is not None:
+                    execution_result["external_cash_flow"] = flow
+                store.save_live_run_record(
+                    "crypto_live_pool_rotation",
+                    "crypto",
+                    {
+                        "strategy_profile": "crypto_live_pool_rotation",
+                        "domain": "crypto",
+                        "recorded_at": day,
+                        "record_kind": "execution",
+                        "execution_result": execution_result,
+                    },
+                    stream_id="stream-1",
+                )
+            snapshots = run_monitor(
+                "crypto",
+                strategy_profile="crypto_live_pool_rotation",
+                collector=ReturnCollector(projects_root=root, store=store),
+                store=store,
+                live_stream_id="stream-1",
+                windows=(2,),
+                min_observations=1,
+                source_revision=revision,
+            )
+            self.assertEqual(len(snapshots), 1)
+            self.assertEqual(
+                snapshots[0].observation_status,
+                "truncated_after_invalid_cash_flow",
+            )
+            self.assertEqual(snapshots[0].windows[2].observation_count, 1)
+            self.assertAlmostEqual(snapshots[0].latest_return or 0.0, 202.0 / 200.0 - 1.0)
 
 
 if __name__ == "__main__":

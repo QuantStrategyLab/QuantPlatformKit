@@ -172,7 +172,14 @@ class ReturnCollector:
             if derived.status == "ok" and not derived.series.empty:
                 series_by_profile[profile] = derived.series
                 continue
-            if derived.status == "truncated_after_observation_gap" and not derived.series.empty:
+            if (
+                derived.status
+                in {
+                    "truncated_after_observation_gap",
+                    "truncated_after_invalid_cash_flow",
+                }
+                and not derived.series.empty
+            ):
                 # Explicit truncation: usable latest segment, not silent full success.
                 series_by_profile[profile] = derived.series
                 incomplete_by_profile[profile] = (
@@ -222,6 +229,8 @@ class ReturnCollector:
         self,
         existing: Mapping[str, pd.Series],
         incoming: Mapping[str, pd.Series],
+        *,
+        incomplete_by_profile: Mapping[str, str] | None = None,
     ) -> dict[str, pd.Series]:
         merged = dict(existing)
         for profile, series in incoming.items():
@@ -230,17 +239,34 @@ class ReturnCollector:
                 continue
             if series.empty:
                 continue
-            # Prefer the observation_status already attached to the higher-priority
-            # (CSV/research) series when both sources contribute.
+            incoming_status = str(getattr(series, "attrs", {}).get("observation_status") or "")
+            if incoming_status == "truncated_after_invalid_cash_flow":
+                # The live segment already stops at the unknown flow. Do not
+                # stitch earlier CSV returns back onto it or relabel it ok.
+                merged[profile] = series
+                continue
             preferred_status = str(
                 getattr(merged[profile], "attrs", {}).get("observation_status")
-                or getattr(series, "attrs", {}).get("observation_status")
+                or incoming_status
                 or "ok"
             )
             combined = pd.concat([merged[profile], series]).sort_index()
             combined = combined[~combined.index.duplicated(keep="last")]
             combined.attrs["observation_status"] = preferred_status
             merged[profile] = combined
+        for profile, reason in (incomplete_by_profile or {}).items():
+            text = str(reason or "")
+            if "invalid_cash_flow" not in text:
+                continue
+            live = incoming.get(profile)
+            if live is not None and not live.empty:
+                continue
+            current = merged.get(profile)
+            if current is None or current.empty:
+                continue
+            stamped = current.copy()
+            stamped.attrs["observation_status"] = "truncated_after_invalid_cash_flow"
+            merged[profile] = stamped
         return merged
 
     def collect(
@@ -300,12 +326,18 @@ class ReturnCollector:
         for profile, series in live_outcome.series_by_profile.items():
             stamped = series.copy()
             reason = str(live_outcome.incomplete_by_profile.get(profile) or "")
-            if reason.startswith("truncated_after_observation_gap"):
+            if reason.startswith("truncated_after_invalid_cash_flow"):
+                stamped.attrs["observation_status"] = "truncated_after_invalid_cash_flow"
+            elif reason.startswith("truncated_after_observation_gap"):
                 stamped.attrs["observation_status"] = "truncated_after_observation_gap"
             else:
                 stamped.attrs["observation_status"] = "ok"
             live_series[profile] = stamped
-        return self._merge_return_series(all_strategies, live_series)
+        return self._merge_return_series(
+            all_strategies,
+            live_series,
+            incomplete_by_profile=live_outcome.incomplete_by_profile,
+        )
 
     def collect_benchmark(
         self,
