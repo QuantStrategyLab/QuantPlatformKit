@@ -164,8 +164,8 @@ class LiveEquityTests(unittest.TestCase):
     def test_live_run_records_to_return_series(self) -> None:
         series = live_run_records_to_return_series(
             [
-                {"recorded_at": "2026-07-07T10:00:00+00:00", "total_equity": 100.0},
-                {"recorded_at": "2026-07-08T10:00:00+00:00", "total_equity": 101.0},
+                {"recorded_at": "2026-07-07T10:00:00+00:00", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-07-08T10:00:00+00:00", "total_equity": 101.0, "external_cash_flow": 0.0},
             ]
         )
         self.assertEqual(len(series), 1)
@@ -178,8 +178,130 @@ class LiveEquityTests(unittest.TestCase):
             ),
             -50.0,
         )
-        self.assertEqual(extract_external_cash_flow({"cash_balance": 500.0}), 0.0)
+        self.assertIsNone(extract_external_cash_flow({"cash_balance": 500.0}))
+        self.assertIsNone(extract_external_cash_flow({"total_equity": 200.0}))
+        self.assertEqual(extract_external_cash_flow({"external_cash_flow": 0}), 0.0)
+        self.assertEqual(extract_external_cash_flow({"net_external_cash_flow": "0.0"}), 0.0)
         self.assertIsNone(extract_external_cash_flow({"net_external_cash_flow": "invalid"}))
+
+    def test_math_helper_default_remains_explicit_zero_flow_assumption(self) -> None:
+        self.assertAlmostEqual(cash_flow_adjusted_return(100.0, 200.0), 1.0)
+
+    def test_missing_cash_flow_from_100_to_200_is_not_a_trusted_return(self) -> None:
+        result = live_run_records_to_return_series_result(
+            [
+                {"recorded_at": "2026-09-08T20:00:00Z", "total_equity": 100.0},
+                {"recorded_at": "2026-09-09T20:00:00Z", "total_equity": 200.0},
+            ]
+        )
+        self.assertEqual(result.status, "insufficient_observations")
+        self.assertNotEqual(result.status, "ok")
+        self.assertTrue(result.series.empty)
+
+    def test_confirmed_zero_flow_reports_the_equity_change(self) -> None:
+        result = live_run_records_to_return_series_result(
+            [
+                {
+                    "recorded_at": "2026-09-08T20:00:00Z",
+                    "total_equity": 100.0,
+                    "external_cash_flow": 0.0,
+                },
+                {
+                    "recorded_at": "2026-09-09T20:00:00Z",
+                    "total_equity": 200.0,
+                    "external_cash_flow": 0.0,
+                },
+            ]
+        )
+        self.assertEqual(result.status, "ok")
+        self.assertAlmostEqual(float(result.series.iloc[0]), 1.0)
+
+    def test_live_deposit_and_withdrawal_are_not_profit_or_loss(self) -> None:
+        deposit = live_run_records_to_return_series_result(
+            [
+                {
+                    "recorded_at": "2026-09-08T20:00:00Z",
+                    "total_equity": 100.0,
+                    "external_cash_flow": 0.0,
+                },
+                {
+                    "recorded_at": "2026-09-09T20:00:00Z",
+                    "total_equity": 200.0,
+                    "external_cash_flow": 100.0,
+                },
+            ]
+        )
+        withdrawal = live_run_records_to_return_series_result(
+            [
+                {
+                    "recorded_at": "2026-09-08T20:00:00Z",
+                    "total_equity": 200.0,
+                    "external_cash_flow": 0.0,
+                },
+                {
+                    "recorded_at": "2026-09-09T20:00:00Z",
+                    "total_equity": 100.0,
+                    "external_cash_flow": -100.0,
+                },
+            ]
+        )
+        self.assertEqual(deposit.status, "ok")
+        self.assertAlmostEqual(float(deposit.series.iloc[0]), 0.0)
+        self.assertEqual(withdrawal.status, "ok")
+        self.assertAlmostEqual(float(withdrawal.series.iloc[0]), 0.0)
+
+    def test_missing_flow_positions_do_not_bridge_or_look_complete(self) -> None:
+        def row(day: str, equity: float, flow: float | None = 0.0, omit: bool = False) -> dict:
+            payload: dict = {"recorded_at": day, "total_equity": equity}
+            if not omit:
+                payload["external_cash_flow"] = flow
+            return payload
+
+        first_missing = live_run_records_to_return_series_result(
+            [
+                row("2026-09-08T20:00:00Z", 100.0, omit=True),
+                row("2026-09-09T20:00:00Z", 110.0, 0.0),
+                row("2026-09-10T20:00:00Z", 121.0, 0.0),
+            ]
+        )
+        self.assertEqual(first_missing.status, "truncated_after_invalid_cash_flow")
+        self.assertEqual(list(first_missing.series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(first_missing.series.iloc[0]), 121.0 / 110.0 - 1.0)
+
+        mixed = live_run_records_to_return_series_result(
+            [
+                row("2026-09-07T20:00:00Z", 100.0, 0.0),
+                row("2026-09-08T09:00:00Z", 150.0, 50.0),
+                row("2026-09-08T20:00:00Z", 200.0, omit=True),
+                row("2026-09-09T20:00:00Z", 200.0, 0.0),
+                row("2026-09-10T20:00:00Z", 202.0, 0.0),
+            ]
+        )
+        self.assertEqual(mixed.status, "truncated_after_invalid_cash_flow")
+        self.assertEqual(list(mixed.series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(mixed.series.iloc[0]), 0.01)
+
+        middle = live_run_records_to_return_series_result(
+            [
+                row("2026-09-07T20:00:00Z", 100.0, 0.0),
+                row("2026-09-08T20:00:00Z", 200.0, omit=True),
+                row("2026-09-09T20:00:00Z", 200.0, 0.0),
+                row("2026-09-10T20:00:00Z", 202.0, 0.0),
+            ]
+        )
+        self.assertEqual(middle.status, "truncated_after_invalid_cash_flow")
+        self.assertEqual(list(middle.series.index), [pd.Timestamp("2026-09-10")])
+        self.assertAlmostEqual(float(middle.series.iloc[0]), 0.01)
+
+        trailing = live_run_records_to_return_series_result(
+            [
+                row("2026-09-08T20:00:00Z", 100.0, 0.0),
+                row("2026-09-09T20:00:00Z", 110.0, 0.0),
+                row("2026-09-10T20:00:00Z", 200.0, omit=True),
+            ]
+        )
+        self.assertEqual(trailing.status, "insufficient_observations")
+        self.assertTrue(trailing.series.empty)
 
     def test_cash_flow_adjusted_return_is_invariant_to_pure_deposits_and_withdrawals(self) -> None:
         self.assertAlmostEqual(
@@ -199,7 +321,7 @@ class LiveEquityTests(unittest.TestCase):
     def test_live_returns_aggregate_same_day_cash_flows_before_adjustment(self) -> None:
         series = live_run_records_to_return_series(
             [
-                {"recorded_at": "2026-07-07T10:00:00+00:00", "total_equity": 100.0},
+                {"recorded_at": "2026-07-07T10:00:00+00:00", "total_equity": 100.0, "external_cash_flow": 0.0},
                 {
                     "recorded_at": "2026-07-08T09:00:00+00:00",
                     "total_equity": 150.0,
@@ -213,6 +335,7 @@ class LiveEquityTests(unittest.TestCase):
                 {
                     "recorded_at": "2026-07-09T10:00:00+00:00",
                     "total_equity": 220.0,
+                    "external_cash_flow": 0.0,
                 },
             ]
         )
@@ -299,12 +422,12 @@ class LiveEquityTests(unittest.TestCase):
     def test_consecutive_losses_from_live_run_records(self) -> None:
         streak = consecutive_losses_from_live_run_records(
             [
-                {"recorded_at": "2026-07-01T10:00:00+00:00", "total_equity": 100.0},
-                {"recorded_at": "2026-07-02T10:00:00+00:00", "total_equity": 99.0},
-                {"recorded_at": "2026-07-03T10:00:00+00:00", "total_equity": 97.0},
-                {"recorded_at": "2026-07-04T10:00:00+00:00", "total_equity": 98.0},
-                {"recorded_at": "2026-07-05T10:00:00+00:00", "total_equity": 96.0},
-                {"recorded_at": "2026-07-06T10:00:00+00:00", "total_equity": 95.0},
+                {"recorded_at": "2026-07-01T10:00:00+00:00", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-07-02T10:00:00+00:00", "total_equity": 99.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-07-03T10:00:00+00:00", "total_equity": 97.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-07-04T10:00:00+00:00", "total_equity": 98.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-07-05T10:00:00+00:00", "total_equity": 96.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-07-06T10:00:00+00:00", "total_equity": 95.0, "external_cash_flow": 0.0},
             ]
         )
         # returns: -1%, -2.02%, +1.03%, -2.04%, -1.04% → trailing streak 2
@@ -326,7 +449,7 @@ class LiveEquityTests(unittest.TestCase):
                         "domain": "us_equity",
                         "recorded_at": day,
                         "record_kind": "execution",
-                        "execution_result": {"total_equity": equity},
+                        "execution_result": {"total_equity": equity, "external_cash_flow": 0.0},
                     },
                 )
             self.assertEqual(
@@ -365,7 +488,7 @@ class LiveEquityTests(unittest.TestCase):
                         "domain": "us_equity",
                         "recorded_at": day,
                         "record_kind": "execution",
-                        "execution_result": {"total_equity": equity},
+                        "execution_result": {"total_equity": equity, "external_cash_flow": 0.0},
                     },
                 )
             snapshot = PortfolioSnapshot(
@@ -542,7 +665,7 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
                         "domain": "us_equity",
                         "recorded_at": day,
                         "record_kind": "execution",
-                        "execution_result": {"total_equity": equity},
+                        "execution_result": {"total_equity": equity, "external_cash_flow": 0.0},
                     },
                     stream_id="schwab",
                 )
@@ -588,20 +711,233 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
                 self.domain = domain
                 return rows
 
-        series = ReturnCollector(store=Store()).collect_from_live_runs(
-            "us_equity",
-            stream_id="offline-account",
-        )["audit_case"]
+        with tempfile.TemporaryDirectory() as tmp:
+            collector = ReturnCollector(store=Store(), projects_root=Path(tmp))
+            outcome = collector.collect_from_live_runs_result(
+                "us_equity",
+                stream_id="offline-account",
+            )
+            series = outcome.series_by_profile["audit_case"]
+            self.assertIn(
+                "truncated_after_invalid_cash_flow",
+                outcome.incomplete_by_profile["audit_case"],
+            )
+            collected = collector.collect(
+                "us_equity",
+                live_stream_id="offline-account",
+            )["audit_case"]
+            self.assertEqual(
+                collected.attrs["observation_status"],
+                "truncated_after_invalid_cash_flow",
+            )
 
-        self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
-        self.assertAlmostEqual(float(series.iloc[0]), 0.01)
-        self.assertAlmostEqual(compute_window_metrics(series).total_return, 0.01)
+            self.assertEqual(list(series.index), [pd.Timestamp("2026-09-10")])
+            self.assertAlmostEqual(float(series.iloc[0]), 0.01)
+            self.assertAlmostEqual(compute_window_metrics(series).total_return, 0.01)
+
+    def test_collect_missing_cash_flow_is_not_ok(self) -> None:
+        rows = [
+            {
+                "recorded_at": "2026-09-08T20:00:00Z",
+                "total_equity": 100.0,
+                "strategy_profile": "missing_flow",
+                "lifecycle_stream_id": "offline-account",
+            },
+            {
+                "recorded_at": "2026-09-09T20:00:00Z",
+                "total_equity": 200.0,
+                "strategy_profile": "missing_flow",
+                "lifecycle_stream_id": "offline-account",
+            },
+        ]
+
+        class Store:
+            def list_live_run_records(self, domain: str) -> list[dict[str, object]]:
+                return rows
+
+        with tempfile.TemporaryDirectory() as tmp:
+            outcome = ReturnCollector(store=Store(), projects_root=Path(tmp)).collect_from_live_runs_result(
+                "us_equity",
+                stream_id="offline-account",
+            )
+        self.assertNotIn("missing_flow", outcome.series_by_profile)
+        self.assertIn("missing_flow", outcome.incomplete_by_profile)
+        self.assertNotIn("ok", outcome.incomplete_by_profile["missing_flow"])
+        self.assertIn("insufficient_observations", outcome.incomplete_by_profile["missing_flow"])
+        self.assertIn("invalid_cash_flow", outcome.incomplete_by_profile["missing_flow"])
+
+    def test_csv_cannot_bridge_or_relabel_unknown_live_cash_flow(self) -> None:
+        bridge = "bridge_case"
+        empty = "empty_case"
+        stream = "offline-account"
+        rows = [
+            {
+                "recorded_at": "2026-09-07T20:00:00Z",
+                "total_equity": 100.0,
+                "external_cash_flow": 0.0,
+                "strategy_profile": bridge,
+                "lifecycle_stream_id": stream,
+            },
+            {
+                "recorded_at": "2026-09-08T20:00:00Z",
+                "total_equity": 200.0,
+                "strategy_profile": bridge,
+                "lifecycle_stream_id": stream,
+            },
+            {
+                "recorded_at": "2026-09-09T20:00:00Z",
+                "total_equity": 200.0,
+                "external_cash_flow": 0.0,
+                "strategy_profile": bridge,
+                "lifecycle_stream_id": stream,
+            },
+            {
+                "recorded_at": "2026-09-10T20:00:00Z",
+                "total_equity": 202.0,
+                "external_cash_flow": 0.0,
+                "strategy_profile": bridge,
+                "lifecycle_stream_id": stream,
+            },
+            {
+                "recorded_at": "2026-09-08T20:00:00Z",
+                "total_equity": 100.0,
+                "strategy_profile": empty,
+                "lifecycle_stream_id": stream,
+            },
+            {
+                "recorded_at": "2026-09-09T20:00:00Z",
+                "total_equity": 200.0,
+                "strategy_profile": empty,
+                "lifecycle_stream_id": stream,
+            },
+        ]
+
+        class Store:
+            def list_live_run_records(self, domain: str) -> list[dict[str, object]]:
+                return rows
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pd.DataFrame(
+                {"as_of": ["2026-09-07"], bridge: [0.01], empty: [0.01]}
+            ).to_csv(root / "portfolio_and_tracker_returns.csv", index=False)
+            collector = ReturnCollector(
+                artifact_roots={"crypto": root},
+                projects_root=root,
+                store=Store(),
+            )
+            outcome = collector.collect_from_live_runs_result("crypto", stream_id=stream)
+            collected = collector.collect("crypto", live_stream_id=stream)
+
+        self.assertIn("truncated_after_invalid_cash_flow", outcome.incomplete_by_profile[bridge])
+        self.assertEqual(list(outcome.series_by_profile[bridge].index), [pd.Timestamp("2026-09-10")])
+        self.assertNotIn(empty, outcome.series_by_profile)
+        self.assertIn("invalid_cash_flow", outcome.incomplete_by_profile[empty])
+
+        bridge_series = collected[bridge]
+        self.assertEqual(list(bridge_series.index), [pd.Timestamp("2026-09-10")])
+        self.assertNotIn(pd.Timestamp("2026-09-07"), list(bridge_series.index))
+        self.assertAlmostEqual(float(bridge_series.iloc[0]), 202.0 / 200.0 - 1.0)
+        self.assertEqual(bridge_series.attrs["observation_status"], "truncated_after_invalid_cash_flow")
+
+        empty_series = collected[empty]
+        self.assertEqual(list(empty_series.index), [pd.Timestamp("2026-09-07")])
+        self.assertAlmostEqual(float(empty_series.iloc[0]), 0.01)
+        self.assertEqual(empty_series.attrs["observation_status"], "truncated_after_invalid_cash_flow")
+        self.assertNotEqual(empty_series.attrs["observation_status"], "ok")
+
+    def test_unknown_cash_flow_survives_gap_and_calendar_rejection(self) -> None:
+        gap_profile = "gap_after_unknown"
+        calendar_profile = "calendar_after_unknown"
+        stream = "offline-account"
+
+        def live_row(day: str, equity: float, profile: str, flow: float | None) -> dict[str, object]:
+            row: dict[str, object] = {
+                "recorded_at": day,
+                "total_equity": equity,
+                "strategy_profile": profile,
+                "lifecycle_stream_id": stream,
+            }
+            if flow is not None:
+                row["external_cash_flow"] = flow
+            return row
+
+        rows = [
+            live_row("2026-09-07T20:00:00Z", 100.0, gap_profile, None),
+            live_row("2026-09-08T20:00:00Z", 200.0, gap_profile, 0.0),
+            live_row("2026-09-10T20:00:00Z", 202.0, gap_profile, 0.0),
+            live_row("2025-12-29T20:00:00Z", 100.0, calendar_profile, None),
+            live_row("2025-12-30T20:00:00Z", 200.0, calendar_profile, 0.0),
+            live_row("2025-12-31T20:00:00Z", 202.0, calendar_profile, 0.0),
+        ]
+
+        class SplitStore:
+            def list_live_run_records(self, domain: str) -> list[dict[str, object]]:
+                profile = gap_profile if domain == "crypto" else calendar_profile
+                return [row for row in rows if row["strategy_profile"] == profile]
+
+        gap_result = live_run_records_to_return_series_result(
+            [row for row in rows if row["strategy_profile"] == gap_profile],
+            domain="crypto",
+        )
+        self.assertEqual(gap_result.status, "incomplete_observation_gap")
+        self.assertIn("no_contiguous_session_pair", gap_result.detail)
+        self.assertIn("invalid_cash_flow", gap_result.detail)
+        self.assertTrue(gap_result.series.empty)
+
+        calendar_result = live_run_records_to_return_series_result(
+            [row for row in rows if row["strategy_profile"] == calendar_profile],
+            domain="us_equity",
+        )
+        self.assertEqual(calendar_result.status, "incomplete_calendar")
+        self.assertIn("coverage_exceeded", calendar_result.detail)
+        self.assertIn("invalid_cash_flow", calendar_result.detail)
+        self.assertTrue(calendar_result.series.empty)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            crypto_root = root / "crypto"
+            us_root = root / "us"
+            crypto_root.mkdir()
+            us_root.mkdir()
+            pd.DataFrame({"as_of": ["2026-09-06"], gap_profile: [0.01]}).to_csv(
+                crypto_root / "portfolio_and_tracker_returns.csv", index=False
+            )
+            pd.DataFrame({"as_of": ["2025-12-28"], calendar_profile: [0.01]}).to_csv(
+                us_root / "portfolio_and_tracker_returns.csv", index=False
+            )
+            collector = ReturnCollector(
+                artifact_roots={"crypto": crypto_root, "us_equity": us_root},
+                projects_root=root,
+                store=SplitStore(),
+            )
+            crypto_outcome = collector.collect_from_live_runs_result("crypto", stream_id=stream)
+            us_outcome = collector.collect_from_live_runs_result("us_equity", stream_id=stream)
+            crypto_collected = collector.collect("crypto", live_stream_id=stream)
+            us_collected = collector.collect("us_equity", live_stream_id=stream)
+
+        self.assertIn("no_contiguous_session_pair", crypto_outcome.incomplete_by_profile[gap_profile])
+        self.assertIn("invalid_cash_flow", crypto_outcome.incomplete_by_profile[gap_profile])
+        self.assertNotIn(gap_profile, crypto_outcome.series_by_profile)
+        gap_series = crypto_collected[gap_profile]
+        self.assertEqual(list(gap_series.index), [pd.Timestamp("2026-09-06")])
+        self.assertEqual(gap_series.attrs["observation_status"], "truncated_after_invalid_cash_flow")
+
+        self.assertIn("coverage_exceeded", us_outcome.incomplete_by_profile[calendar_profile])
+        self.assertIn("invalid_cash_flow", us_outcome.incomplete_by_profile[calendar_profile])
+        self.assertNotIn(calendar_profile, us_outcome.series_by_profile)
+        calendar_series = us_collected[calendar_profile]
+        self.assertEqual(list(calendar_series.index), [pd.Timestamp("2025-12-28")])
+        self.assertEqual(
+            calendar_series.attrs["observation_status"],
+            "truncated_after_invalid_cash_flow",
+        )
 
     def test_missing_us_trading_day_does_not_become_single_day_return(self) -> None:
         result = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 100.0},
-                {"recorded_at": "2026-09-16T20:00:00Z", "total_equity": 102.0},
+                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-09-16T20:00:00Z", "total_equity": 102.0, "external_cash_flow": 0.0},
             ],
             domain="us_equity",
         )
@@ -613,8 +949,8 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
     def test_published_2026_calendars_weekend_holiday_halfday_and_bounds(self) -> None:
         weekend = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2026-09-11T20:00:00Z", "total_equity": 100.0},  # Fri
-                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 101.0},  # Mon
+                {"recorded_at": "2026-09-11T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},  # Fri
+                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 101.0, "external_cash_flow": 0.0},  # Mon
             ],
             domain="us_equity",
         )
@@ -624,8 +960,8 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
         # Labor Day 2026-09-07 is a published full-day closure, not a gap.
         labor = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2026-09-04T20:00:00Z", "total_equity": 100.0},
-                {"recorded_at": "2026-09-08T20:00:00Z", "total_equity": 102.0},
+                {"recorded_at": "2026-09-04T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-09-08T20:00:00Z", "total_equity": 102.0, "external_cash_flow": 0.0},
             ],
             domain="us_equity",
         )
@@ -635,8 +971,8 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
         # Half-day 2026-11-27 remains an expected session after Thanksgiving.
         half_day_gap = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2026-11-25T20:00:00Z", "total_equity": 100.0},
-                {"recorded_at": "2026-11-30T20:00:00Z", "total_equity": 101.0},
+                {"recorded_at": "2026-11-25T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-11-30T20:00:00Z", "total_equity": 101.0, "external_cash_flow": 0.0},
             ],
             domain="us_equity",
         )
@@ -645,8 +981,8 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
 
         half_day_ok = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2026-11-25T20:00:00Z", "total_equity": 100.0},
-                {"recorded_at": "2026-11-27T20:00:00Z", "total_equity": 101.0},
+                {"recorded_at": "2026-11-25T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-11-27T20:00:00Z", "total_equity": 101.0, "external_cash_flow": 0.0},
             ],
             domain="us_equity",
         )
@@ -655,8 +991,8 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
         # HKEX Lunar New Year full closures; 2026-02-16 half-day still required.
         hk_holiday = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2026-02-16T20:00:00Z", "total_equity": 100.0},
-                {"recorded_at": "2026-02-20T20:00:00Z", "total_equity": 101.0},
+                {"recorded_at": "2026-02-16T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-02-20T20:00:00Z", "total_equity": 101.0, "external_cash_flow": 0.0},
             ],
             domain="hk_equity",
         )
@@ -664,8 +1000,8 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
 
         out_of_range = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2025-12-30T20:00:00Z", "total_equity": 100.0},
-                {"recorded_at": "2025-12-31T20:00:00Z", "total_equity": 101.0},
+                {"recorded_at": "2025-12-30T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2025-12-31T20:00:00Z", "total_equity": 101.0, "external_cash_flow": 0.0},
             ],
             domain="us_equity",
         )
@@ -674,8 +1010,8 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
 
         future = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2027-01-04T20:00:00Z", "total_equity": 100.0},
-                {"recorded_at": "2027-01-05T20:00:00Z", "total_equity": 101.0},
+                {"recorded_at": "2027-01-04T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2027-01-05T20:00:00Z", "total_equity": 101.0, "external_cash_flow": 0.0},
             ],
             domain="us_equity",
         )
@@ -683,8 +1019,8 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
 
         synthetic = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2026-09-04T20:00:00Z", "total_equity": 100.0},
-                {"recorded_at": "2026-09-08T20:00:00Z", "total_equity": 102.0},
+                {"recorded_at": "2026-09-04T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-09-08T20:00:00Z", "total_equity": 102.0, "external_cash_flow": 0.0},
             ],
             observation_contract=ReturnObservationContract(
                 calendar_id="XNYS",
@@ -701,8 +1037,8 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
     def test_crypto_weekend_gap_does_not_bridge_natural_days(self) -> None:
         result = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2026-09-12T20:00:00Z", "total_equity": 100.0},  # Sat
-                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 102.0},  # Mon, missing Sun
+                {"recorded_at": "2026-09-12T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},  # Sat
+                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 102.0, "external_cash_flow": 0.0},  # Mon, missing Sun
             ],
             domain="crypto",
         )
@@ -712,9 +1048,9 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
     def test_gap_keeps_only_latest_contiguous_segment(self) -> None:
         result = live_run_records_to_return_series_result(
             [
-                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 100.0},
-                {"recorded_at": "2026-09-16T20:00:00Z", "total_equity": 102.0},
-                {"recorded_at": "2026-09-17T20:00:00Z", "total_equity": 103.0},
+                {"recorded_at": "2026-09-14T20:00:00Z", "total_equity": 100.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-09-16T20:00:00Z", "total_equity": 102.0, "external_cash_flow": 0.0},
+                {"recorded_at": "2026-09-17T20:00:00Z", "total_equity": 103.0, "external_cash_flow": 0.0},
             ],
             domain="us_equity",
         )
@@ -727,12 +1063,14 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
             {
                 "recorded_at": "2026-09-14T20:00:00Z",
                 "total_equity": 100.0,
+                "external_cash_flow": 0.0,
                 "strategy_profile": "gap_case",
                 "lifecycle_stream_id": "offline-account",
             },
             {
                 "recorded_at": "2026-09-16T20:00:00Z",
                 "total_equity": 102.0,
+                "external_cash_flow": 0.0,
                 "strategy_profile": "gap_case",
                 "lifecycle_stream_id": "offline-account",
             },
@@ -756,12 +1094,14 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
             {
                 "recorded_at": "2026-09-04T20:00:00Z",
                 "total_equity": 100.0,
+                "external_cash_flow": 0.0,
                 "strategy_profile": "holiday_case",
                 "lifecycle_stream_id": "offline-account",
             },
             {
                 "recorded_at": "2026-09-08T20:00:00Z",
                 "total_equity": 102.0,
+                "external_cash_flow": 0.0,
                 "strategy_profile": "holiday_case",
                 "lifecycle_stream_id": "offline-account",
             },
@@ -787,12 +1127,14 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
             {
                 "recorded_at": "2026-09-04T20:00:00Z",
                 "total_equity": 100.0,
+                "external_cash_flow": 0.0,
                 "strategy_profile": "holiday_case",
                 "lifecycle_stream_id": "offline-account",
             },
             {
                 "recorded_at": "2026-09-08T20:00:00Z",
                 "total_equity": 102.0,
+                "external_cash_flow": 0.0,
                 "strategy_profile": "holiday_case",
                 "lifecycle_stream_id": "offline-account",
             },
@@ -815,12 +1157,14 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
             {
                 "recorded_at": "2026-09-04T20:00:00Z",
                 "total_equity": 100.0,
+                "external_cash_flow": 0.0,
                 "strategy_profile": "holiday_case",
                 "lifecycle_stream_id": "offline-account",
             },
             {
                 "recorded_at": "2026-09-08T20:00:00Z",
                 "total_equity": 102.0,
+                "external_cash_flow": 0.0,
                 "strategy_profile": "holiday_case",
                 "lifecycle_stream_id": "offline-account",
             },
@@ -858,7 +1202,7 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
                             "domain": "us_equity",
                             "recorded_at": day,
                             "record_kind": "execution",
-                            "execution_result": {"total_equity": equity},
+                            "execution_result": {"total_equity": equity, "external_cash_flow": 0.0},
                         },
                         stream_id=stream_id,
                     )
