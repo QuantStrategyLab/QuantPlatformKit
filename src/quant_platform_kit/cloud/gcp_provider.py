@@ -6,12 +6,39 @@ Google Cloud 实现 — 完全兼容现有代码行为。
 from __future__ import annotations
 
 import os
-
+import re
+from dataclasses import dataclass, field
 
 
 # ══════════════════════════════════════════════════════════════════════
 #  Secret Store — GCP Secret Manager
 # ══════════════════════════════════════════════════════════════════════
+
+_CONCRETE_SECRET_VERSION = re.compile(
+    r"^projects/([^/]+)/secrets/([^/]+)/versions/([1-9][0-9]*)$"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SecretValueWithMetadata:
+    """Payload from one read, plus a concrete version name when the response proves it.
+
+    ``value`` is omitted from repr and this object is not serialized or logged here.
+    """
+
+    value: str = field(repr=False)
+    version_name: str | None
+
+
+def _concrete_version_name(resource_name: object, secret_name: str) -> str | None:
+    """Keep a concrete version resource name; never include a payload in failures."""
+    if not isinstance(resource_name, str):
+        return None
+    match = _CONCRETE_SECRET_VERSION.fullmatch(resource_name)
+    if match is None or match.group(2) != secret_name:
+        return None
+    return resource_name
+
 
 class GcpSecretStore:
     """Read-only secret access via GCP Secret Manager."""
@@ -24,6 +51,20 @@ class GcpSecretStore:
         name = f"projects/{pid}/secrets/{secret_name}/versions/latest"
         response = client.access_secret_version(request={"name": name})
         return response.payload.data.decode("utf-8")
+
+    def get_secret_with_metadata(
+        self, secret_name: str, *, project_id: str | None = None
+    ) -> SecretValueWithMetadata:
+        """Read latest once and keep its concrete version name when the response proves it."""
+        import google.cloud.secretmanager_v1 as secret_manager
+
+        pid = project_id or _resolve_project_id()
+        client = secret_manager.SecretManagerServiceClient()
+        name = f"projects/{pid}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        value = response.payload.data.decode("utf-8")
+        version_name = _concrete_version_name(getattr(response, "name", None), secret_name)
+        return SecretValueWithMetadata(value=value, version_name=version_name)
 
 
 class GcpSecretStoreReadWrite:
