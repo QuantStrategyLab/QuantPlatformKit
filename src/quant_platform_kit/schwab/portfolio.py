@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
 import math
+import re
 from typing import Any, Iterable
 
 from quant_platform_kit.common.models import PortfolioSnapshot, Position
 from .market_data import _request_with_retries, decode_response_json
+
+
+_BROKER_ACCOUNT_TYPE_RE = re.compile(r"[A-Za-z_]{1,32}\Z", re.ASCII)
+_MAX_CASH_BALANCE_RAW_LENGTH = 128
+_MAX_CASH_BALANCE_INTEGER_DIGITS = 15
+_MAX_CASH_BALANCE_FRACTION_DIGITS = 8
 
 
 def _payload_digest(payload: Any) -> str:
@@ -42,6 +50,51 @@ def _optional_finite_balance(balances: dict[str, Any], key: str) -> float | None
     if key not in balances:
         return None
     return _finite_balance(balances, key)
+
+
+def _optional_decimal_text(value: Any) -> str | None:
+    """Preserve a bounded broker decimal fact without routing it through float sizing."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float, str, Decimal)):
+        return None
+    try:
+        raw_text = str(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if len(raw_text) > _MAX_CASH_BALANCE_RAW_LENGTH:
+        return None
+    try:
+        amount = Decimal(raw_text)
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not amount.is_finite():
+        return None
+    sign, digits, exponent = amount.as_tuple()
+    integer_digits = max(1, len(digits) + exponent)
+    fraction_digits = max(0, -exponent)
+    if (
+        integer_digits > _MAX_CASH_BALANCE_INTEGER_DIGITS
+        or fraction_digits > _MAX_CASH_BALANCE_FRACTION_DIGITS
+    ):
+        return None
+    expected_output_length = (
+        sign
+        + integer_digits
+        + (1 + fraction_digits if fraction_digits else 0)
+    )
+    if expected_output_length > (
+        1 + _MAX_CASH_BALANCE_INTEGER_DIGITS + 1 + _MAX_CASH_BALANCE_FRACTION_DIGITS
+    ):
+        return None
+    return format(amount, "f")
+
+
+def _optional_account_type(value: Any) -> str | None:
+    """Keep only a bounded raw provider token; do not classify account type."""
+
+    if not isinstance(value, str) or _BROKER_ACCOUNT_TYPE_RE.fullmatch(value) is None:
+        return None
+    return value
 
 
 def _resolve_buying_power(balances: dict[str, Any], *, cash_available_for_trading: float) -> tuple[float, str]:
@@ -142,18 +195,28 @@ def fetch_account_snapshot(
         total_equity = cash_for_equity + all_position_market_value
         total_equity_source = "cash_available_plus_all_position_market_values"
 
+    metadata: dict[str, Any] = {
+        "account_hash": account_hash,
+        "cash_available_for_trading": cash_for_equity,
+        "cash_available_for_withdrawal": raw_withdrawable,
+        "buying_power_source": buying_power_source,
+        "total_equity_source": total_equity_source,
+        "source_digest_sha256": _payload_digest(account_payload),
+    }
+    broker_account_type = _optional_account_type(account.get("type"))
+    if broker_account_type is not None:
+        metadata["broker_account_type"] = broker_account_type
+        metadata["broker_account_type_source"] = "securitiesAccount.type"
+    broker_cash_balance = _optional_decimal_text(balances.get("cashBalance"))
+    if broker_cash_balance is not None:
+        metadata["broker_cash_balance"] = broker_cash_balance
+        metadata["broker_cash_balance_source"] = "cashBalance"
+
     return PortfolioSnapshot(
         as_of=datetime.now(timezone.utc),
         total_equity=total_equity,
         buying_power=buying_power,
         cash_balance=cash_for_equity,
         positions=tuple(positions),
-        metadata={
-            "account_hash": account_hash,
-            "cash_available_for_trading": cash_for_equity,
-            "cash_available_for_withdrawal": raw_withdrawable,
-            "buying_power_source": buying_power_source,
-            "total_equity_source": total_equity_source,
-            "source_digest_sha256": _payload_digest(account_payload),
-        },
+        metadata=metadata,
     )
