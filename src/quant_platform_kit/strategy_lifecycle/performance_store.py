@@ -5,15 +5,25 @@ Data is organized under partitioned GCS paths:
 
     gs://{bucket}/daily/{domain}/{strategy}/{date}.json
     gs://{bucket}/backtest/{domain}/{strategy}/backtest_v{n}_{stamp}.json
+    gs://{bucket}/backtest/{domain}/{strategy}/runs/{run_digest}/backtest_v{n}.json
+    gs://{bucket}/research_trial/{identity_digest}/started.json
+    gs://{bucket}/research_trial/{identity_digest}/terminal.json
+    gs://{bucket}/research_trial/{identity_digest}/ledger.json
     gs://{bucket}/drift/{domain}/{strategy}/drift_{date}.json
     gs://{bucket}/optimization/{domain}/{strategy}/proposal_v{n}_{stamp}.json
     gs://{bucket}/dashboard/aggregated_health.json
     gs://{bucket}/audit/updates/{strategy}/{entry_id}.json
+
+Research objects use one digest of the original domain, profile, and trial id.
+When cloud_bucket is set, that bucket is the only research authority.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import math
+import os
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -24,8 +34,15 @@ from typing import Any
 from quant_platform_kit.cloud import get_object_store
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
+    BacktestValidationIdentity,
     DriftResult,
     OptimizationProposal,
+    ResearchDailyLedger,
+    ResearchLedgerEvent,
+    ResearchLedgerDay,
+    ResearchPositionMark,
+    ResearchTrialRecord,
+    ResearchTrialStatus,
     StrategyHealthScore,
     StrategyPerformanceSnapshot,
     UpdateLogEntry,
@@ -257,17 +274,90 @@ class PerformanceStore:
     # ── backtest ─────────────────────────────────────────────────
 
     def _backtest_key(self, result: BacktestResult) -> str:
+        raw_run_id = result.run_id if isinstance(result.run_id, str) else ""
+        directory = f"backtest/{_clean_key(result.domain)}/{_clean_key(result.strategy_profile)}"
+        if raw_run_id.strip():
+            digest = hashlib.sha256(raw_run_id.encode("utf-8")).hexdigest()
+            return f"{directory}/runs/{digest}/backtest_v{result.param_version}.json"
         stamp = _clean_key(result.computed_at or result.run_id or result.param_set_id or _now_iso()).replace("/", "_")
-        return (
-            f"backtest/{_clean_key(result.domain)}/{_clean_key(result.strategy_profile)}/"
-            f"backtest_v{result.param_version}_{stamp}.json"
-        )
+        return f"{directory}/backtest_v{result.param_version}_{stamp}.json"
 
     def save_backtest_result(self, result: BacktestResult) -> None:
         self._write(
             self._backtest_key(result),
             {**result.to_dict(), "schema_version": SCHEMA_VERSION},
         )
+
+    def load_backtest_by_run_id(
+        self,
+        domain: str,
+        strategy_profile: str,
+        run_id: str,
+        *,
+        param_version: int | None = None,
+    ) -> BacktestResult | None:
+        raw_run_id = run_id if isinstance(run_id, str) else ""
+        if not raw_run_id.strip():
+            return None
+        prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
+        keys = list(dict.fromkeys([*self._list_cloud_keys(prefix), *self._list_local_json_keys(prefix)]))
+        matches = self._exact_backtest_matches(
+            keys,
+            domain=domain,
+            strategy_profile=strategy_profile,
+            run_id=raw_run_id,
+            param_version=param_version,
+        )
+        if not matches:
+            return None
+        matches.sort(key=lambda item: item[0])
+        return matches[-1][1]
+
+    def _exact_backtest_matches(
+        self,
+        keys: list[str],
+        *,
+        domain: str,
+        strategy_profile: str,
+        run_id: str,
+        param_version: int | None,
+    ) -> list[tuple[tuple[str, int, str], BacktestResult]]:
+        matches: list[tuple[tuple[str, int, str], BacktestResult]] = []
+        for key in keys:
+            item = self._exact_backtest_match(
+                key,
+                domain=domain,
+                strategy_profile=strategy_profile,
+                run_id=run_id,
+                param_version=param_version,
+            )
+            if item is not None:
+                matches.append(item)
+        return matches
+
+    def _exact_backtest_match(
+        self,
+        key: str,
+        *,
+        domain: str,
+        strategy_profile: str,
+        run_id: str,
+        param_version: int | None,
+    ) -> tuple[tuple[str, int, str], BacktestResult] | None:
+        data = self._read(key)
+        if not isinstance(data, Mapping) or data.get("run_id") != run_id:
+            return None
+        result = _backtest_from_dict(data)
+        if (
+            result is None
+            or result.run_id != run_id
+            or result.domain != domain
+            or result.strategy_profile != strategy_profile
+        ):
+            return None
+        if param_version is not None and int(result.param_version) != int(param_version):
+            return None
+        return (_backtest_sort_key(result, key), result)
 
     def load_latest_backtest(self, domain: str, strategy_profile: str) -> BacktestResult | None:
         prefix = f"backtest/{_clean_key(domain)}/{_clean_key(strategy_profile)}/"
@@ -287,6 +377,216 @@ class PerformanceStore:
         selected = baseline_candidates or candidates
         selected.sort(key=lambda item: item[0])
         return selected[-1][1]
+
+    # ── research trials ──────────────────────────────────────────
+    # One backend: cloud when cloud_bucket is set, otherwise local exclusive
+    # create. A cloud or local readback is not proof of the other backend.
+
+    def _research_key(self, domain: str, strategy_profile: str, trial_id: str, name: str) -> str:
+        material = f"{domain}\0{strategy_profile}\0{trial_id}".encode()
+        digest = hashlib.sha256(material).hexdigest()
+        return f"research_trial/{digest}/{name}.json"
+
+    def save_research_ledger(self, ledger: ResearchDailyLedger) -> None:
+        """Create the one ledger for this trial. An existing identical object is kept."""
+
+        if type(ledger) is not ResearchDailyLedger:
+            raise ValueError("research_ledger_malformed")
+        self._create_same(
+            self._research_key(ledger.domain, ledger.strategy_profile, ledger.trial_id, "ledger"),
+            _research_payload(ledger),
+        )
+
+    def load_research_ledger(
+        self,
+        domain: str,
+        strategy_profile: str,
+        trial_id: str,
+        run_id: str,
+        param_version: int,
+    ) -> ResearchDailyLedger | None:
+        if type(param_version) is not int or param_version <= 0:
+            return None
+        ledger = _research_ledger_from_dict(
+            self._read_research_json(self._research_key(domain, strategy_profile, trial_id, "ledger"))
+        )
+        if (
+            ledger is None
+            or ledger.domain != domain
+            or ledger.strategy_profile != strategy_profile
+            or ledger.trial_id != trial_id
+            or ledger.run_id != run_id
+            or ledger.param_version != param_version
+        ):
+            return None
+        return ledger
+
+    def save_research_trial(self, trial: ResearchTrialRecord) -> None:
+        """Create started or one terminal. Succeeded is stored only after result and ledger."""
+
+        if type(trial) is not ResearchTrialRecord:
+            raise ValueError("research_trial_malformed")
+        name = "started" if trial.status is ResearchTrialStatus.STARTED else "terminal"
+        other = "terminal" if name == "started" else "started"
+        self._require_research_pair(trial, other)
+        if trial.status is ResearchTrialStatus.SUCCEEDED:
+            problem = self._research_success_problem(trial)
+            if problem is not None:
+                raise ValueError(problem)
+        self._create_same(
+            self._research_key(trial.domain, trial.strategy_profile, trial.trial_id, name),
+            _research_payload(trial),
+        )
+
+    def load_research_trial(
+        self,
+        domain: str,
+        strategy_profile: str,
+        trial_id: str,
+        *,
+        run_id: str | None = None,
+        param_version: int | None = None,
+    ) -> ResearchTrialRecord | None:
+        started_text = self._research_text(self._research_key(domain, strategy_profile, trial_id, "started"))
+        terminal_text = self._research_text(self._research_key(domain, strategy_profile, trial_id, "terminal"))
+        started = _research_trial_from_dict(_research_object(started_text)) if started_text is not None else None
+        terminal = _research_trial_from_dict(_research_object(terminal_text)) if terminal_text is not None else None
+        if terminal_text is not None:
+            if (
+                terminal is None
+                or terminal.domain != domain
+                or terminal.strategy_profile != strategy_profile
+                or terminal.trial_id != trial_id
+                or (
+                    started_text is not None
+                    and (started is None or not _research_trial_continues(started, terminal))
+                )
+            ):
+                return None
+            record = terminal
+        else:
+            record = started
+        if record is None or record.domain != domain or record.strategy_profile != strategy_profile or record.trial_id != trial_id:
+            return None
+        if record.status is ResearchTrialStatus.SUCCEEDED and self._research_success_problem(record) is not None:
+            return None
+        if run_id is not None and record.run_id != run_id:
+            return None
+        if param_version is not None and (type(param_version) is not int or record.param_version != param_version):
+            return None
+        return record
+
+    def _research_success_problem(self, trial: ResearchTrialRecord) -> str | None:
+        if not isinstance(trial.run_id, str) or type(trial.param_version) is not int:
+            return "research_trial_result_missing"
+        result = self._read_saved_backtest(trial.domain, trial.strategy_profile, trial.run_id, trial.param_version)
+        if result is None:
+            return "research_trial_result_missing"
+        ledger = self.load_research_ledger(
+            trial.domain, trial.strategy_profile, trial.trial_id, trial.run_id, trial.param_version
+        )
+        if ledger is None:
+            if self._research_text(self._research_key(trial.domain, trial.strategy_profile, trial.trial_id, "ledger")) is None:
+                return "research_trial_ledger_missing"
+            return "research_trial_result_mismatch"
+        if not _research_result_matches(result, trial, ledger):
+            return "research_trial_result_mismatch"
+        return None
+
+    def _require_research_pair(self, trial: ResearchTrialRecord, other_name: str) -> None:
+        text = self._research_text(self._research_key(trial.domain, trial.strategy_profile, trial.trial_id, other_name))
+        if text is None:
+            return
+        other = _research_trial_from_dict(_research_object(text))
+        if other is None:
+            raise ValueError("research_trial_malformed")
+        started, terminal = (trial, other) if other_name == "terminal" else (other, trial)
+        if not _research_trial_continues(started, terminal):
+            raise ValueError("research_trial_conflict")
+
+    def _read_saved_backtest(self, domain: str, strategy_profile: str, run_id: str, param_version: int) -> BacktestResult | None:
+        key = self._backtest_key(
+            BacktestResult(
+                strategy_profile=strategy_profile,
+                domain=domain,
+                param_set_id="stored",
+                params={},
+                run_id=run_id,
+                param_version=param_version,
+            )
+        )
+        data = self._read_research_json(key)
+        if data is None:
+            return None
+        return _backtest_from_dict(data)
+
+    def _read_research_json(self, key: str) -> dict[str, Any] | None:
+        return _research_object(self._research_text(key))
+
+    def _research_text(self, key: str) -> str | None:
+        if self.cloud_bucket:
+            store = self._object_store()
+            uri = self._cloud_uri(key)
+            try:
+                present = bool(store.exists(uri))
+            except Exception as exc:
+                raise ValueError("research_store_unavailable") from exc
+            if not present:
+                return None
+            try:
+                return str(store.read_text(uri))
+            except Exception as exc:
+                raise ValueError("research_store_unavailable") from exc
+        path = self._local_path(key)
+        if not path.exists():
+            return None
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValueError("research_store_unavailable") from exc
+
+    def _create_same(self, key: str, payload: Mapping[str, Any]) -> None:
+        text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if self.cloud_bucket:
+            self._cloud_create_same(self._cloud_uri(key), text)
+            return
+        path = self._local_path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            self._require_same_local(path, text)
+            return
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    def _cloud_create_same(self, uri: str, text: str) -> None:
+        store = self._object_store()
+        try:
+            present = bool(store.exists(uri))
+        except Exception as exc:
+            raise ValueError("research_store_unavailable") from exc
+        if not present:
+            try:
+                created = bool(store.create_text(uri, text, content_type="application/json"))
+            except Exception as exc:
+                raise ValueError("research_store_unavailable") from exc
+            if created:
+                return
+        try:
+            current = str(store.read_text(uri))
+        except Exception as exc:
+            raise ValueError("research_store_unavailable") from exc
+        _research_same_text(current, text, ledger=uri.endswith("/ledger.json"))
+
+    def _require_same_local(self, path: Path, text: str) -> None:
+        try:
+            current = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ValueError("research_store_unavailable") from exc
+        _research_same_text(current, text, ledger=path.name == "ledger.json")
 
     # ── optimization ─────────────────────────────────────────────
 
@@ -598,6 +898,91 @@ def _drift_from_dict(data: Mapping[str, Any]) -> DriftResult | None:
         return None
 
 
+def _finite_nonnegative_number(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("cost_inputs")
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise ValueError("cost_inputs")
+    return number
+
+
+def _cost_inputs_from_payload(data: Mapping[str, Any]) -> dict[str, float]:
+    if "cost_inputs" not in data:
+        return {}
+    raw = data["cost_inputs"]
+    if not isinstance(raw, Mapping):
+        raise ValueError("cost_inputs")
+    parsed: dict[str, float] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError("cost_inputs")
+        parsed[key] = _finite_nonnegative_number(value)
+    return parsed
+
+
+def _stored_text(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("validation_identity")
+    return value
+
+
+def _optional_stored_date(value: object) -> date | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError("validation_identity")
+    return date.fromisoformat(value)
+
+
+def _required_stored_date(value: object) -> date:
+    if not isinstance(value, str) or not value:
+        raise ValueError("validation_identity")
+    return date.fromisoformat(value)
+
+
+def _positive_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError("validation_identity")
+    return value
+
+
+def _validation_identity_from_payload(data: Mapping[str, Any]) -> BacktestValidationIdentity | None:
+    if "validation_identity" not in data or data["validation_identity"] is None:
+        return None
+    raw = data["validation_identity"]
+    if not isinstance(raw, Mapping):
+        raise ValueError("validation_identity")
+    required = (
+        "protocol",
+        "fold_id",
+        "fold_role",
+        "train_start",
+        "train_end",
+        "test_start",
+        "test_end",
+        "locked_oos_start",
+        "locked_oos_end",
+        "purge_days",
+        "embargo_days",
+    )
+    if any(name not in raw for name in required):
+        raise ValueError("validation_identity")
+    return BacktestValidationIdentity(
+        protocol=_stored_text(raw["protocol"]),
+        fold_id=_stored_text(raw["fold_id"]),
+        fold_role=_stored_text(raw["fold_role"]),
+        train_start=_optional_stored_date(raw["train_start"]),
+        train_end=_optional_stored_date(raw["train_end"]),
+        test_start=_required_stored_date(raw["test_start"]),
+        test_end=_required_stored_date(raw["test_end"]),
+        locked_oos_start=_required_stored_date(raw["locked_oos_start"]),
+        locked_oos_end=_required_stored_date(raw["locked_oos_end"]),
+        purge_days=_positive_int(raw["purge_days"]),
+        embargo_days=_positive_int(raw["embargo_days"]),
+    )
+
+
 def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
     try:
         return BacktestResult(
@@ -635,8 +1020,8 @@ def _backtest_from_dict(data: Mapping[str, Any]) -> BacktestResult | None:
             computed_at=str(data.get("computed_at", "")),
             source_revision=data.get("source_revision") if isinstance(data.get("source_revision"), str) else "",
             cost_model=data.get("cost_model") if isinstance(data.get("cost_model"), str) else "",
-            validation_identity=None,
-            cost_inputs={},
+            validation_identity=_validation_identity_from_payload(data),
+            cost_inputs=_cost_inputs_from_payload(data),
             periods_per_year=(
                 float(data["periods_per_year"]) if data.get("periods_per_year") is not None else None
             ),
@@ -692,3 +1077,281 @@ def _audit_from_dict(data: Mapping[str, Any]) -> UpdateLogEntry | None:
         )
     except Exception:
         return None
+
+
+
+def _research_payload(record: ResearchTrialRecord | ResearchDailyLedger) -> dict[str, Any]:
+    return {"schema_version": SCHEMA_VERSION, **record.to_dict()}
+
+
+def _research_object(text: str | None) -> dict[str, Any] | None:
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _research_same_text(current: str, expected: str, *, ledger: bool) -> None:
+    if current == expected:
+        return
+    code = "research_ledger_malformed" if ledger else "research_trial_malformed"
+    parsed = (
+        _research_ledger_from_dict(_research_object(current))
+        if ledger
+        else _research_trial_from_dict(_research_object(current))
+    )
+    if parsed is None:
+        raise ValueError(code)
+    raise ValueError("research_trial_conflict")
+
+
+def _research_date(value: object) -> date:
+    if not isinstance(value, str) or not value:
+        raise ValueError("window")
+    parsed = date.fromisoformat(value)
+    if parsed.isoformat() != value:
+        raise ValueError("window")
+    return parsed
+
+
+_POSITION_FIELDS = frozenset({"symbol", "quantity", "valuation"})
+_OPTION_POSITION_FIELDS = _POSITION_FIELDS | {
+    "option_underlying", "option_right", "option_strike", "option_expiration", "option_multiplier",
+    "option_premium_cashflow",
+}
+_DAY_FIELDS = frozenset({"session_date", "cash", "positions", "trade_net_cashflow", "fees", "nav", "daily_return"})
+_DAY_OPTIONAL_FIELDS = _DAY_FIELDS | {
+    "income_cashflow", "external_cashflow", "dividend_receivable", "declared_event_ids", "events",
+    "restricted_cash", "option_settlement_cashflow", "equity_trade_cashflow",
+    "equity_trade_quantities", "equity_trade_phase",
+}
+_LEDGER_FIELDS = frozenset({
+    "schema_version", "trial_id", "domain", "strategy_profile", "run_id", "param_version",
+    "input_id", "calendar_id", "periods_per_year", "cost_source", "cost_inputs",
+    "initial_session_date", "initial_nav", "initial_cash", "initial_positions", "days", "synthetic",
+})
+_LEDGER_COLLATERAL_FIELDS = _LEDGER_FIELDS | {"initial_restricted_cash"}
+_TRIAL_FIELDS = frozenset({
+    "schema_version", "trial_id", "domain", "strategy_profile", "status", "candidate_config_id",
+    "actual_params", "param_set_id", "source_revision", "input_id", "window_start", "window_end",
+    "calendar_id", "periods_per_year", "cost_source", "cost_inputs", "reason_code", "synthetic",
+    "run_id", "param_version",
+})
+_TRIAL_IDENTITY_FIELDS = _TRIAL_FIELDS | {"research_identity"}
+
+
+def _research_positions(value: object) -> tuple[ResearchPositionMark, ...]:
+    if not isinstance(value, list):
+        raise ValueError("position_mark")
+    marks: list[ResearchPositionMark] = []
+    for item in value:
+        if not isinstance(item, dict) or frozenset(item) not in {_POSITION_FIELDS, _OPTION_POSITION_FIELDS}:
+            raise ValueError("position_mark")
+        parsed = dict(item)
+        if "option_expiration" in parsed:
+            parsed["option_expiration"] = _research_date(parsed["option_expiration"])
+        marks.append(ResearchPositionMark(**parsed))
+    return tuple(marks)
+
+
+def _research_days(value: object) -> tuple[ResearchLedgerDay, ...]:
+    if not isinstance(value, list) or not value:
+        raise ValueError("ledger_dates")
+    days: list[ResearchLedgerDay] = []
+    for item in value:
+        if (
+            not isinstance(item, dict)
+            or not _DAY_FIELDS.issubset(item)
+            or not frozenset(item).issubset(_DAY_OPTIONAL_FIELDS)
+        ):
+            raise ValueError("ledger_dates")
+        parsed_events = []
+        for event in item.get("events", []):
+            if not isinstance(event, dict):
+                raise ValueError("ledger_event")
+            event_type = event.get("event_type")
+            event_fields = {
+                "split": {"event_id", "event_type", "symbol", "ratio"},
+                "dividend_accrual": {"event_id", "event_type", "symbol", "per_share"},
+                "dividend_payment": {"event_id", "event_type", "symbol", "amount", "reference_event_id"},
+                "option_trade": {"event_id", "event_type", "symbol", "amount"},
+                "option_settlement": {"event_id", "event_type", "symbol", "settlement_price"},
+                "collateral_change": {"event_id", "event_type", "symbol", "amount"},
+            }.get(event_type)
+            if event_fields is None or frozenset(event) != event_fields:
+                raise ValueError("ledger_event_fields")
+            parsed_events.append(ResearchLedgerEvent(**event))
+        days.append(ResearchLedgerDay(
+            session_date=_research_date(item["session_date"]),
+            cash=item["cash"],
+            positions=_research_positions(item["positions"]),
+            trade_net_cashflow=item["trade_net_cashflow"],
+            fees=item["fees"],
+            nav=item["nav"],
+            daily_return=item["daily_return"],
+            income_cashflow=item.get("income_cashflow", 0.0),
+            external_cashflow=item.get("external_cashflow", 0.0),
+            dividend_receivable=item.get("dividend_receivable", 0.0),
+            declared_event_ids=item.get("declared_event_ids"),
+            events=tuple(parsed_events),
+            restricted_cash=item.get("restricted_cash", 0.0),
+            option_settlement_cashflow=item.get("option_settlement_cashflow", 0.0),
+            equity_trade_cashflow=item.get("equity_trade_cashflow"),
+            equity_trade_quantities=item.get("equity_trade_quantities"),
+            equity_trade_phase=item.get("equity_trade_phase"),
+        ))
+    return tuple(days)
+
+
+def _research_ledger_from_dict(data: Mapping[str, Any] | None) -> ResearchDailyLedger | None:
+    if (
+        not isinstance(data, dict)
+        or frozenset(data) not in {_LEDGER_FIELDS, _LEDGER_COLLATERAL_FIELDS}
+        or data.get("schema_version") != SCHEMA_VERSION
+    ):
+        return None
+    try:
+        return ResearchDailyLedger(
+            trial_id=data["trial_id"],
+            domain=data["domain"],
+            strategy_profile=data["strategy_profile"],
+            run_id=data["run_id"],
+            param_version=data["param_version"],
+            input_id=data["input_id"],
+            calendar_id=data["calendar_id"],
+            periods_per_year=data["periods_per_year"],
+            cost_source=data["cost_source"],
+            cost_inputs=data["cost_inputs"],
+            initial_session_date=_research_date(data["initial_session_date"]),
+            initial_nav=data["initial_nav"],
+            initial_cash=data["initial_cash"],
+            initial_positions=_research_positions(data["initial_positions"]),
+            days=_research_days(data["days"]),
+            synthetic=data["synthetic"],
+            initial_restricted_cash=data.get("initial_restricted_cash", 0.0),
+        )
+    except Exception:
+        return None
+
+
+def _research_trial_from_dict(data: Mapping[str, Any] | None) -> ResearchTrialRecord | None:
+    if (
+        not isinstance(data, dict)
+        or frozenset(data) not in {_TRIAL_FIELDS, _TRIAL_IDENTITY_FIELDS}
+        or data.get("schema_version") != SCHEMA_VERSION
+    ):
+        return None
+    try:
+        return ResearchTrialRecord(
+            trial_id=data["trial_id"],
+            domain=data["domain"],
+            strategy_profile=data["strategy_profile"],
+            status=data["status"],
+            candidate_config_id=data["candidate_config_id"],
+            actual_params=data["actual_params"],
+            param_set_id=data["param_set_id"],
+            source_revision=data["source_revision"],
+            input_id=data["input_id"],
+            window_start=_research_date(data["window_start"]),
+            window_end=_research_date(data["window_end"]),
+            calendar_id=data["calendar_id"],
+            periods_per_year=data["periods_per_year"],
+            cost_source=data["cost_source"],
+            cost_inputs=data["cost_inputs"],
+            reason_code=data["reason_code"],
+            synthetic=data["synthetic"],
+            run_id=data["run_id"],
+            param_version=data["param_version"],
+            research_identity=data.get("research_identity"),
+        )
+    except Exception:
+        return None
+
+
+def _research_trial_continues(started: ResearchTrialRecord, terminal: ResearchTrialRecord) -> bool:
+    if started.status is not ResearchTrialStatus.STARTED or terminal.status is ResearchTrialStatus.STARTED:
+        return False
+    if (
+        started.trial_id != terminal.trial_id
+        or started.domain != terminal.domain
+        or started.strategy_profile != terminal.strategy_profile
+        or started.candidate_config_id != terminal.candidate_config_id
+        or started.input_id != terminal.input_id
+        or started.window_start != terminal.window_start
+        or started.window_end != terminal.window_end
+        or started.calendar_id != terminal.calendar_id
+        or started.periods_per_year != terminal.periods_per_year
+        or started.synthetic is not terminal.synthetic
+        or not _research_json_mapping_equal(started.research_identity, terminal.research_identity)
+    ):
+        return False
+    if started.actual_params is not None and not _research_json_mapping_equal(
+        started.actual_params, terminal.actual_params
+    ):
+        return False
+    if started.param_set_id is not None and started.param_set_id != terminal.param_set_id:
+        return False
+    if started.source_revision is not None and started.source_revision != terminal.source_revision:
+        return False
+    if started.cost_source is not None and started.cost_source != terminal.cost_source:
+        return False
+    if started.cost_inputs and dict(started.cost_inputs) != dict(terminal.cost_inputs):
+        return False
+    return True
+
+
+def _research_json_mapping_equal(left: Mapping[str, Any] | None, right: Mapping[str, Any] | None) -> bool:
+    try:
+        return json.dumps(left, sort_keys=True, separators=(",", ":"), allow_nan=False) == json.dumps(
+            right, sort_keys=True, separators=(",", ":"), allow_nan=False
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _research_result_matches(result: BacktestResult, trial: ResearchTrialRecord, ledger: ResearchDailyLedger) -> bool:
+    if trial.actual_params is None or not trial.param_set_id or not trial.source_revision:
+        return False
+    result_params = dict(result.params)
+    if trial.research_identity is None:
+        if "research_identity" in result_params:
+            return False
+    else:
+        result_identity = result_params.pop("research_identity", None)
+        if not isinstance(result_identity, Mapping) or not _research_json_mapping_equal(
+            result_identity, trial.research_identity
+        ):
+            return False
+    return (
+        _research_json_mapping_equal(result_params, trial.actual_params)
+        and result.param_set_id == trial.param_set_id
+        and result.source_revision == trial.source_revision
+        and result.run_id == trial.run_id
+        and result.param_version == trial.param_version
+        and result.domain == trial.domain
+        and result.strategy_profile == trial.strategy_profile
+        and result.start_date == trial.window_start
+        and result.end_date == trial.window_end
+        and result.calendar_id == trial.calendar_id
+        and result.periods_per_year == trial.periods_per_year
+        and result.cost_model == trial.cost_source
+        and dict(result.cost_inputs) == dict(trial.cost_inputs)
+        and result.observation_count == ledger.observation_count
+        and result.total_return == ledger.total_return
+        and ledger.trial_id == trial.trial_id
+        and ledger.run_id == trial.run_id
+        and ledger.param_version == trial.param_version
+        and ledger.domain == trial.domain
+        and ledger.strategy_profile == trial.strategy_profile
+        and ledger.input_id == trial.input_id
+        and ledger.calendar_id == trial.calendar_id
+        and ledger.periods_per_year == trial.periods_per_year
+        and ledger.cost_source == trial.cost_source
+        and dict(ledger.cost_inputs) == dict(trial.cost_inputs)
+        and ledger.window_start == trial.window_start
+        and ledger.window_end == trial.window_end
+        and ledger.synthetic is trial.synthetic
+    )

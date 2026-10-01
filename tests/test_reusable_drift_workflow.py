@@ -67,7 +67,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
     # Consume AAB main SHA that maps review_unavailable → degraded/exit 3
     # (not disagreement-as-completed-veto). Do not pin older 60bd64a2 / cce4a5c4.
-    assert 'ref: 47cd11136b8375532b4b1aba8d11c09451110777' in workflow
+    assert 'ref: 9fe23596d3722777dfbd28eac1a710ab2b2d6431' in workflow
     assert 'ref: 60bd64a2ae059a082614181eeb845b46df395523' not in workflow
     assert 'ref: cce4a5c454ef9b5bbf3b4cc067af8f4827de63cc' not in workflow
     assert workflow.count('GH_TOKEN: ${{ github.token }}') >= 2

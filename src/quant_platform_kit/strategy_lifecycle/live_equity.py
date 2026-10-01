@@ -234,9 +234,10 @@ def extract_external_cash_flow(payload: Mapping[str, Any] | None) -> float | Non
     Producers should write one of ``net_external_cash_flow`` or
     ``external_cash_flow`` in account currency: deposits are positive and
     withdrawals are negative.  Internal cash sweeps, realized PnL and broker
-    cash balances must not be supplied here.  A missing field means zero; a
-    present but invalid field returns ``None`` so the affected daily return is
-    excluded instead of being misreported.
+    cash balances must not be supplied here.  A missing field is unknown and
+    returns ``None``.  Only an explicit finite value, including zero, is a
+    confirmed flow.  A present but invalid field also returns ``None`` so the
+    affected daily return is excluded instead of being misreported.
     """
     if not isinstance(payload, Mapping):
         return None
@@ -254,7 +255,7 @@ def extract_external_cash_flow(payload: Mapping[str, Any] | None) -> float | Non
         for key in _EXTERNAL_CASH_FLOW_KEYS:
             if key in candidate:
                 return _as_finite_number(candidate.get(key))
-    return 0.0
+    return None
 
 
 def cash_flow_adjusted_return(
@@ -268,9 +269,10 @@ def cash_flow_adjusted_return(
     This is a daily time-weighted-return-compatible calculation:
     ``(ending_equity - signed_external_flow) / previous_equity - 1``.  It is
     exact when flows occur at the end of the observation period, which is the
-    only timing available in persisted daily run records.  ``None`` represents
-    insufficient or impossible evidence and is intentionally not coerced to a
-    zero return.
+    only timing available in persisted daily run records.  The default flow of
+    zero is an explicit research assumption by the caller, not evidence that a
+    live record omitted its cash-flow field.  ``None`` represents insufficient
+    or impossible evidence and is intentionally not coerced to a zero return.
     """
     start = _as_float(previous_equity)
     end = _as_float(ending_equity)
@@ -498,6 +500,13 @@ def _empty_live_return_result(status: str, detail: str = "") -> LiveReturnSeries
     return LiveReturnSeriesResult(series=series, status=status, detail=detail)
 
 
+def _retain_unknown_cash_flow(detail: str, *, unknown: bool) -> str:
+    """Keep the original reason and still name an earlier unknown cash flow."""
+    if not unknown or "invalid_cash_flow" in detail:
+        return detail
+    return f"{detail};invalid_cash_flow" if detail else "invalid_cash_flow"
+
+
 def live_run_records_to_return_series_result(
     records: Sequence[Mapping[str, Any]],
     *,
@@ -574,6 +583,8 @@ def live_run_records_to_return_series_result(
         points.append((recorded_at, equity, cash_flow))
 
     if len(points) < 2:
+        if invalid_cash_flow_dates:
+            return _empty_live_return_result("insufficient_observations", "invalid_cash_flow")
         return _empty_live_return_result("insufficient_observations")
 
     frame = (
@@ -582,18 +593,24 @@ def live_run_records_to_return_series_result(
         .groupby("date", sort=True, as_index=False)
         .agg({"equity": "last", "external_cash_flow": "sum"})
     )
+    unknown_cash_flow = bool(invalid_cash_flow_dates)
     if invalid_cash_flow_dates:
         # A plain return series cannot preserve separate comparable segments.
-        # Keep only the latest segment so downstream metrics cannot compound
-        # valid returns from opposite sides of an unknown cash-flow interval.
+        # Keep only observations after the latest unknown flow so metrics cannot
+        # compound returns from opposite sides of that interval.
         frame = frame[frame["date"] > max(invalid_cash_flow_dates)]
     if len(frame) < 2:
+        if unknown_cash_flow:
+            return _empty_live_return_result("insufficient_observations", "invalid_cash_flow")
         return _empty_live_return_result("insufficient_observations")
 
     span_start = _as_calendar_date(frame["date"].iloc[0])
     span_end = _as_calendar_date(frame["date"].iloc[-1])
     if span_start is None or span_end is None:
-        return _empty_live_return_result("insufficient_observations")
+        return _empty_live_return_result(
+            "insufficient_observations",
+            _retain_unknown_cash_flow("", unknown=unknown_cash_flow),
+        )
     ready, readiness_detail = exchange_holiday_calendar_readiness(
         contract,
         span_start=span_start,
@@ -602,7 +619,10 @@ def live_run_records_to_return_series_result(
     if not ready:
         # Unknown / synthetic / uncovered calendars are not computable. Do not
         # silently return a short weekday-approximated segment as success.
-        return _empty_live_return_result("incomplete_calendar", readiness_detail)
+        return _empty_live_return_result(
+            "incomplete_calendar",
+            _retain_unknown_cash_flow(readiness_detail, unknown=unknown_cash_flow),
+        )
 
     frame = frame.sort_values("date", kind="stable").set_index("date")
     ordered_days = list(frame.index)
@@ -610,7 +630,7 @@ def live_run_records_to_return_series_result(
     if len(latest_days) < 2:
         return _empty_live_return_result(
             "incomplete_observation_gap",
-            "no_contiguous_session_pair",
+            _retain_unknown_cash_flow("no_contiguous_session_pair", unknown=unknown_cash_flow),
         )
     truncated = latest_days != ordered_days
     frame = frame.loc[latest_days]
@@ -628,15 +648,25 @@ def live_run_records_to_return_series_result(
                 return_points.append((as_of, adjusted_return))
         previous_equity = current_equity
     if not return_points:
-        return _empty_live_return_result("insufficient_observations")
+        return _empty_live_return_result(
+            "insufficient_observations",
+            _retain_unknown_cash_flow("", unknown=unknown_cash_flow),
+        )
     returns = pd.Series(
         (value for _, value in return_points),
         index=pd.Index((as_of for as_of, _ in return_points), name="date"),
         dtype=float,
     )
     returns.name = "live_return"
-    status = "truncated_after_observation_gap" if truncated else "ok"
-    detail = "latest_contiguous_segment" if truncated else readiness_detail
+    if unknown_cash_flow:
+        status = "truncated_after_invalid_cash_flow"
+        detail = "latest_contiguous_segment"
+    elif truncated:
+        status = "truncated_after_observation_gap"
+        detail = "latest_contiguous_segment"
+    else:
+        status = "ok"
+        detail = readiness_detail
     return LiveReturnSeriesResult(series=returns.astype(float), status=status, detail=detail)
 
 
@@ -651,9 +681,11 @@ def live_run_records_to_return_series(
     Multiple records from the same day use the final equity observation and
     accumulate their declared external flows.  This prevents a pure deposit or
     withdrawal from becoming a spurious gain or loss in lifecycle monitoring.
-    If a declared flow is invalid, only the latest comparable segment after
-    that date is returned because a plain Series cannot preserve segment
-    boundaries for downstream compounding.
+    A missing external-flow field is unknown, not a confirmed zero.  Invalid or
+    unknown flows keep only the latest comparable segment after that date,
+    with status ``truncated_after_invalid_cash_flow`` when a segment remains.
+    A plain Series cannot preserve segment boundaries for downstream
+    compounding.
 
     For exchange calendars, missing verified holiday source/coverage yields an
     empty series with status ``incomplete_calendar`` (see

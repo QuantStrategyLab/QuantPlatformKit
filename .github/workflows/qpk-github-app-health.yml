@@ -1,0 +1,164 @@
+name: QPK GitHub App Health
+
+# Read-only control-plane self-check for the QSL GitHub App used by QPK pin sync.
+# Does not open PRs, mutate repos, touch Binance secrets, or grant trading authority.
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  app-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      QSL_GITHUB_APP_ID: ${{ secrets.QSL_GITHUB_APP_ID }}
+      QSL_GITHUB_APP_PRIVATE_KEY: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY }}
+      QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
+    steps:
+      - name: Require App credentials
+        run: |
+          set -euo pipefail
+          if [ -z "${QSL_GITHUB_APP_ID:-}" ]; then
+            echo "::error title=QPK GitHub App health::missing_app_id"
+            exit 1
+          fi
+          if [ -z "${QSL_GITHUB_APP_PRIVATE_KEY:-}" ] && [ -z "${QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY:-}" ]; then
+            echo "::error title=QPK GitHub App health::missing_app_private_key"
+            exit 1
+          fi
+
+      # Official create-github-app-token accepts a single private-key input.
+      # Safe failover uses continue-on-error + a conditional secondary mint only
+      # when the primary step did not succeed (failed or skipped). Do not invent
+      # multi-key concatenation or custom JWT minting here.
+      - name: Mint App token (primary)
+        id: app_token_primary
+        continue-on-error: true
+        if: env.QSL_GITHUB_APP_PRIVATE_KEY != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ env.QSL_GITHUB_APP_ID }}
+          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY }}
+          owner: QuantStrategyLab
+          permission-contents: read
+          permission-metadata: read
+          repositories: |
+            QuantPlatformKit
+            CnEquityStrategies
+            HkEquityStrategies
+            UsEquityStrategies
+            CryptoStrategies
+            InteractiveBrokersPlatform
+            LongBridgePlatform
+            CharlesSchwabPlatform
+            FirstradePlatform
+            BinancePlatform
+            QmtPlatform
+            CnEquitySnapshotPipelines
+            HkEquitySnapshotPipelines
+            UsEquitySnapshotPipelines
+            CryptoLivePoolPipelines
+
+      - name: Mint App token (secondary)
+        id: app_token_secondary
+        continue-on-error: true
+        if: env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY != '' && steps.app_token_primary.outcome != 'success'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ env.QSL_GITHUB_APP_ID }}
+          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
+          owner: QuantStrategyLab
+          permission-contents: read
+          permission-metadata: read
+          repositories: |
+            QuantPlatformKit
+            CnEquityStrategies
+            HkEquityStrategies
+            UsEquityStrategies
+            CryptoStrategies
+            InteractiveBrokersPlatform
+            LongBridgePlatform
+            CharlesSchwabPlatform
+            FirstradePlatform
+            BinancePlatform
+            QmtPlatform
+            CnEquitySnapshotPipelines
+            HkEquitySnapshotPipelines
+            UsEquitySnapshotPipelines
+            CryptoLivePoolPipelines
+
+      - name: Select App token source
+        id: select_token
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.app_token_primary.outcome }}" = "success" ]; then
+            echo "source=primary" >> "$GITHUB_OUTPUT"
+          elif [ "${{ steps.app_token_secondary.outcome }}" = "success" ]; then
+            echo "source=secondary" >> "$GITHUB_OUTPUT"
+          else
+            echo "source=none" >> "$GITHUB_OUTPUT"
+            echo "::error title=QPK GitHub App health::app_token_mint_failed"
+            exit 1
+          fi
+
+      - name: Verify repository access and QPK_PIN readback
+        env:
+          GH_TOKEN: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token }}
+          TOKEN_SOURCE: ${{ steps.select_token.outputs.source }}
+        run: |
+          set -euo pipefail
+          repos=(
+            QuantPlatformKit
+            CnEquityStrategies
+            HkEquityStrategies
+            UsEquityStrategies
+            CryptoStrategies
+            InteractiveBrokersPlatform
+            LongBridgePlatform
+            CharlesSchwabPlatform
+            FirstradePlatform
+            BinancePlatform
+            QmtPlatform
+            CnEquitySnapshotPipelines
+            HkEquitySnapshotPipelines
+            UsEquitySnapshotPipelines
+            CryptoLivePoolPipelines
+          )
+          failed=0
+          for repo in "${repos[@]}"; do
+            if ! gh api "repos/QuantStrategyLab/${repo}" --jq .full_name >/dev/null; then
+              echo "::error title=QPK GitHub App health::repo_access_failed:${repo}"
+              failed=1
+            fi
+          done
+          pin="$(
+            gh api repos/QuantStrategyLab/QuantPlatformKit/contents/QPK_PIN \
+              --jq .content | base64 --decode | tr -d '[:space:]'
+          )"
+          if ! [[ "$pin" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error title=QPK GitHub App health::qpk_pin_readback_invalid"
+            failed=1
+          fi
+          {
+            echo "## QPK GitHub App health"
+            echo
+            echo "- token_source: \`${TOKEN_SOURCE}\`"
+            echo "- repositories_checked: ${#repos[@]}"
+            if [ "$failed" -eq 0 ]; then
+              echo "- qpk_pin_readback: ok (40-char sha)"
+              echo "- result: pass"
+            else
+              echo "- result: fail_closed"
+            fi
+            echo
+            echo "Secrets, installation tokens, and private-key material are never written here."
+            echo "Binance authority PATs are out of scope for this App health check."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
