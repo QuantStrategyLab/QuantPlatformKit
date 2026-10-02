@@ -7,25 +7,40 @@ import math
 from typing import Mapping
 
 _DEFAULT_MAX_POSITION_PCT = 0.10
+KELLY_BET_LOSS_RISK_SHARE_VERSION = "kelly.bet_loss_risk_share.v1"
+KELLY_CAPITAL_EXPOSURE_VERSION = "kelly.capital_exposure.v1"
+UNIT_BET_LOSS_RISK_SHARE = "bet_loss_risk_share"
+UNIT_CAPITAL_EXPOSURE = "capital_exposure"
 
 
 @dataclass(frozen=True)
 class KellyResult:
+    """Binary Kelly helper in bet-loss risk-share units.
+
+    ``kelly_fraction`` / ``half_kelly`` are the stake fractions of a bet that
+    is fully lost on a loss.  Legacy ``max_position_pct`` is
+    ``min(half_kelly, 0.10)`` in the same risk-share unit; it is not capital
+    exposure of an asset whose loss is only a fraction of notional.
+    """
+
     win_rate: float
     avg_win: float
     avg_loss: float
     kelly_fraction: float
     half_kelly: float
     max_position_pct: float
+    contract_version: str = KELLY_BET_LOSS_RISK_SHARE_VERSION
+    unit: str = UNIT_BET_LOSS_RISK_SHARE
 
 
 @dataclass(frozen=True)
 class ConstrainedKellyResult:
     """Research-only Kelly recommendation bounded by an existing risk budget.
 
-    ``recommended_position_pct`` is an upper bound for downstream sizing, not
-    an execution instruction or an approval decision.  A ``PARKED`` result
-    always recommends zero.
+    ``recommended_position_pct`` is an upper bound in bet-loss risk-share units
+    for downstream research sizing, not an execution instruction, capital
+    exposure, or an approval decision.  A ``PARKED`` result always recommends
+    zero.
     """
 
     status: str
@@ -36,6 +51,31 @@ class ConstrainedKellyResult:
     fractional_kelly_fraction: float
     recommended_position_pct: float
     reason_codes: tuple[str, ...]
+    contract_version: str = KELLY_BET_LOSS_RISK_SHARE_VERSION
+    unit: str = UNIT_BET_LOSS_RISK_SHARE
+
+
+@dataclass(frozen=True)
+class CapitalExposureKellyResult:
+    """Research-only capital-exposure Kelly bound with an explicit loss fraction.
+
+    Converts a bet-loss risk share through ``loss_fraction_per_unit`` once,
+    applies fractional Kelly once, then clips to risk/position caps.  Never
+    authorizes orders and never invents a loss fraction from average loss.
+    """
+
+    status: str
+    sample_count: int
+    win_count: int
+    loss_count: int
+    bet_loss_risk_share: float
+    loss_fraction_per_unit: float
+    theoretical_capital_exposure: float
+    fractional_capital_exposure: float
+    recommended_capital_exposure: float
+    reason_codes: tuple[str, ...]
+    contract_version: str = KELLY_CAPITAL_EXPOSURE_VERSION
+    unit: str = UNIT_CAPITAL_EXPOSURE
 
 
 _APPROVED_BOOTSTRAP_MANDATE = "bootstrap_small_account_v2"
@@ -317,32 +357,68 @@ def risk_budgeted_target_weight(
     )
 
 
+def _empty_kelly_result() -> KellyResult:
+    return KellyResult(
+        win_rate=0.0,
+        avg_win=0.0,
+        avg_loss=0.0,
+        kelly_fraction=0.0,
+        half_kelly=0.0,
+        max_position_pct=0.0,
+    )
+
+
+def _finite_number(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _stable_mean(values: list[float]) -> float:
+    """Average finite values without overflowing an intermediate sum."""
+    scale = max(abs(value) for value in values)
+    if scale == 0.0:
+        return 0.0
+    return scale * (sum(value / scale for value in values) / len(values))
+
+
 def estimate_kelly(returns: list[float]) -> KellyResult:
-    """Estimate Kelly fraction from a list of per-trade returns."""
+    """Estimate Kelly bet-loss risk share from per-trade returns.
+
+    Zero returns are ignored for win/loss probability and averages; they do not
+    change the binary Kelly solution.  Invalid or non-finite inputs fail closed
+    to a zero recommendation.
+    """
+    if not isinstance(returns, list):
+        return _empty_kelly_result()
     if not returns:
-        return KellyResult(
-            win_rate=0.0,
-            avg_win=0.0,
-            avg_loss=0.0,
-            kelly_fraction=0.0,
-            half_kelly=0.0,
-            max_position_pct=0.0,
-        )
+        return _empty_kelly_result()
+    if any(_finite_number(value) is None for value in returns):
+        return _empty_kelly_result()
 
-    wins = [value for value in returns if value > 0]
-    losses = [value for value in returns if value < 0]
+    values = [float(value) for value in returns]
+    wins = [value for value in values if value > 0.0]
+    losses = [value for value in values if value < 0.0]
+    decisive = len(wins) + len(losses)
+    if decisive == 0:
+        return _empty_kelly_result()
 
-    win_rate = len(wins) / len(returns)
-    avg_win = sum(wins) / len(wins) if wins else 0.0
-    avg_loss = abs(sum(losses) / len(losses)) if losses else 0.0
+    win_rate = len(wins) / decisive
+    avg_win = _stable_mean(wins) if wins else 0.0
+    avg_loss = abs(_stable_mean(losses)) if losses else 0.0
 
     if avg_win <= 0.0:
         kelly_fraction = 0.0
     elif avg_loss <= 0.0:
         kelly_fraction = min(win_rate, 1.0)
     else:
-        payoff_ratio = avg_win / avg_loss
-        kelly_fraction = (win_rate * payoff_ratio - (1.0 - win_rate)) / payoff_ratio
+        kelly_fraction = win_rate - (1.0 - win_rate) * (avg_loss / avg_win)
         kelly_fraction = max(0.0, min(kelly_fraction, 1.0))
 
     half_kelly = kelly_fraction / 2.0
@@ -371,10 +447,11 @@ def constrained_kelly_recommendation(
     """Return a fail-closed, research-only Kelly risk-budget recommendation.
 
     The recommendation is capped by ``risk_budget_cap`` (the authoritative
-    portfolio risk budget), ``position_cap`` and fractional Kelly.  It never
-    allocates, submits orders, or increases a risk budget.  Insufficient
-    samples, missing win/loss sides, invalid inputs, or excessive drawdown are
-    explicitly parked instead of extrapolating from fragile estimates.
+    portfolio risk budget), ``position_cap`` and fractional Kelly.  Values are
+    bet-loss risk shares, not capital exposure.  It never allocates, submits
+    orders, or increases a risk budget.  Insufficient samples, missing
+    win/loss sides, invalid inputs, or excessive/illegal drawdown are parked
+    instead of extrapolating from fragile estimates.
     """
 
     def parked(reason_codes: tuple[str, ...], *, sample_count: int = 0,
@@ -393,14 +470,12 @@ def constrained_kelly_recommendation(
     if not isinstance(returns, list):
         return parked(("invalid_returns",))
     sample_count = len(returns)
-    if any(isinstance(value, bool) or not isinstance(value, (int, float))
-           or not math.isfinite(float(value)) for value in returns):
+    if any(_finite_number(value) is None for value in returns):
         return parked(("invalid_returns",), sample_count=sample_count)
     wins = sum(value > 0.0 for value in returns)
     losses = sum(value < 0.0 for value in returns)
     numeric = (risk_budget_cap, position_cap, fractional_kelly, max_drawdown_limit)
-    if (any(isinstance(value, bool) or not isinstance(value, (int, float))
-            or not math.isfinite(float(value)) for value in numeric)
+    if (any(_finite_number(value) is None for value in numeric)
             or not isinstance(min_samples, int) or isinstance(min_samples, bool)
             or min_samples < 2):
         return parked(("invalid_constraints",), sample_count=sample_count,
@@ -416,11 +491,14 @@ def constrained_kelly_recommendation(
     if not wins or not losses:
         return parked(("insufficient_win_loss_observations",),
                       sample_count=sample_count, win_count=wins, loss_count=losses)
-    if observed_max_drawdown is None or isinstance(observed_max_drawdown, bool):
+    if observed_max_drawdown is None:
         return parked(("missing_drawdown",), sample_count=sample_count,
                       win_count=wins, loss_count=losses)
-    drawdown = float(observed_max_drawdown)
-    if not math.isfinite(drawdown) or drawdown < 0.0 or drawdown > caps[3]:
+    drawdown = _finite_number(observed_max_drawdown)
+    if drawdown is None or drawdown < 0.0:
+        return parked(("invalid_drawdown",), sample_count=sample_count,
+                      win_count=wins, loss_count=losses)
+    if drawdown > caps[3]:
         return parked(("drawdown_limit_exceeded",), sample_count=sample_count,
                       win_count=wins, loss_count=losses)
 
@@ -438,5 +516,139 @@ def constrained_kelly_recommendation(
         raw_kelly_fraction=result.kelly_fraction,
         fractional_kelly_fraction=fractional,
         recommended_position_pct=recommendation,
+        reason_codes=(),
+    )
+
+
+def research_capital_exposure_kelly(
+    returns: list[float],
+    *,
+    loss_fraction_per_unit: float | None,
+    risk_budget_cap: float,
+    position_cap: float = _DEFAULT_MAX_POSITION_PCT,
+    fractional_kelly: float = 0.5,
+    observed_max_drawdown: float | None = None,
+) -> CapitalExposureKellyResult:
+    """Convert bet-loss risk share into research-only capital exposure.
+
+    Requires an explicit trusted ``loss_fraction_per_unit``.  Fractional Kelly
+    is applied once to the theoretical exposure; residual weight is cash and
+    must not be renormalized back to a full book. The constrained Kelly sample,
+    two-sided-return, and drawdown gates also apply. Full Kelly is rejected.
+    """
+
+    def parked(
+        reason_codes: tuple[str, ...],
+        *,
+        sample_count: int = 0,
+        win_count: int = 0,
+        loss_count: int = 0,
+        loss_fraction: float = 0.0,
+    ) -> CapitalExposureKellyResult:
+        return CapitalExposureKellyResult(
+            status="PARKED",
+            sample_count=sample_count,
+            win_count=win_count,
+            loss_count=loss_count,
+            bet_loss_risk_share=0.0,
+            loss_fraction_per_unit=loss_fraction,
+            theoretical_capital_exposure=0.0,
+            fractional_capital_exposure=0.0,
+            recommended_capital_exposure=0.0,
+            reason_codes=reason_codes,
+        )
+
+    if not isinstance(returns, list) or any(_finite_number(value) is None for value in returns):
+        return parked(("invalid_returns",), sample_count=len(returns) if isinstance(returns, list) else 0)
+    sample_count = len(returns)
+    wins = sum(float(value) > 0.0 for value in returns)
+    losses = sum(float(value) < 0.0 for value in returns)
+    loss_fraction = _finite_number(loss_fraction_per_unit)
+    if loss_fraction is None or loss_fraction <= 0.0 or loss_fraction > 1.0:
+        return parked(
+            ("missing_or_invalid_loss_fraction_per_unit",),
+            sample_count=sample_count,
+            win_count=wins,
+            loss_count=losses,
+        )
+    numeric = (risk_budget_cap, position_cap, fractional_kelly)
+    if any(_finite_number(value) is None for value in numeric):
+        return parked(
+            ("invalid_constraints",),
+            sample_count=sample_count,
+            win_count=wins,
+            loss_count=losses,
+            loss_fraction=loss_fraction,
+        )
+    risk_cap, pos_cap, fractional = (float(value) for value in numeric)
+    if (
+        risk_cap <= 0.0
+        or pos_cap <= 0.0
+        or risk_cap > 1.0
+        or pos_cap > 1.0
+        or fractional <= 0.0
+    ):
+        return parked(
+            ("invalid_constraints",),
+            sample_count=sample_count,
+            win_count=wins,
+            loss_count=losses,
+            loss_fraction=loss_fraction,
+        )
+    if fractional >= 1.0:
+        return parked(
+            ("full_kelly_not_allowed",),
+            sample_count=sample_count,
+            win_count=wins,
+            loss_count=losses,
+            loss_fraction=loss_fraction,
+        )
+
+    constrained = constrained_kelly_recommendation(
+        returns,
+        risk_budget_cap=1.0,
+        position_cap=1.0,
+        fractional_kelly=fractional,
+        min_samples=30,
+        observed_max_drawdown=observed_max_drawdown,
+        max_drawdown_limit=0.25,
+    )
+    if constrained.status != "KELLY_READY":
+        return parked(
+            constrained.reason_codes,
+            sample_count=sample_count,
+            win_count=wins,
+            loss_count=losses,
+            loss_fraction=loss_fraction,
+        )
+    risk_share = constrained.raw_kelly_fraction
+    theoretical = risk_share / loss_fraction
+    fractional_exposure = constrained.fractional_kelly_fraction / loss_fraction
+    recommended = min(fractional_exposure, risk_cap, pos_cap)
+    if (
+        not all(
+            math.isfinite(value)
+            for value in (risk_share, theoretical, fractional_exposure, recommended)
+        )
+        or risk_share <= 0.0
+        or recommended <= 0.0
+    ):
+        return parked(
+            ("non_finite_or_non_positive_exposure",),
+            sample_count=sample_count,
+            win_count=wins,
+            loss_count=losses,
+            loss_fraction=loss_fraction,
+        )
+    return CapitalExposureKellyResult(
+        status="KELLY_READY",
+        sample_count=sample_count,
+        win_count=wins,
+        loss_count=losses,
+        bet_loss_risk_share=risk_share,
+        loss_fraction_per_unit=loss_fraction,
+        theoretical_capital_exposure=theoretical,
+        fractional_capital_exposure=fractional_exposure,
+        recommended_capital_exposure=recommended,
         reason_codes=(),
     )

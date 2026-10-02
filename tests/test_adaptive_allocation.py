@@ -183,3 +183,66 @@ def test_selection_digests_are_deterministic_and_bind_the_full_input():
     assert first == second
     assert first["input_digest"] != changed["input_digest"]
     assert first["decision_digest"] != changed["decision_digest"]
+
+
+def test_shadow_selector_ranks_zero_score_above_negative_score():
+    # base_score + momentum*1.0 - vol_penalty*0.2 - cost_penalty*1.0
+    # zero:  -0.8 + 0.8 - 0.1 - 0.01 = -0.11 → raise base to make exact 0 after penalties
+    # Use minimum_score low enough that both are accepted for ranking comparison.
+    decision = select_shadow(
+        decision_id="decision-zero-score",
+        market_context=_context(factors={"momentum": 0.0}),
+        candidates=[
+            _candidate("zero_score", 0.11, estimated_volatility=0.2, factor_exposures={}),
+            _candidate("neg_score", -0.5, estimated_volatility=0.2, factor_exposures={}),
+        ],
+        platform_health=[_health(expected_cost_bps=1.0)],
+        plugin_adjustments=[PluginRiskAdjustment("market_regime_control", 1.0)],
+        policy=_policy(minimum_score=-10.0, volatility_penalty=0.5, cost_penalty=0.01),
+        created_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
+    )
+
+    by_profile = {item.strategy_profile: item for item in decision.candidate_decisions}
+    assert by_profile["zero_score"].score == pytest.approx(0.0)
+    assert by_profile["neg_score"].score < 0.0
+    assert decision.recommended_strategy_profile == "zero_score"
+    assert decision.authority == "shadow_only"
+    assert decision.no_order is True
+    assert all(item.proposed_weight == 0.0 for item in decision.candidate_decisions)
+
+
+def test_shadow_selector_risk_discount_does_not_reward_negative_scores():
+    decision = select_shadow(
+        decision_id="decision-neg-risk",
+        market_context=_context(factors={"momentum": 0.0}),
+        candidates=[
+            _candidate(
+                "full_risk",
+                -1.0,
+                estimated_volatility=0.0,
+                factor_exposures={},
+                required_plugins=("market_regime_control",),
+            ),
+            _candidate(
+                "discounted",
+                -1.0,
+                estimated_volatility=0.0,
+                factor_exposures={},
+                required_plugins=("market_regime_control", "tight_risk"),
+            ),
+        ],
+        platform_health=[_health(expected_cost_bps=0.0)],
+        plugin_adjustments=[
+            PluginRiskAdjustment("market_regime_control", 1.0),
+            PluginRiskAdjustment("tight_risk", 0.5),
+        ],
+        policy=_policy(minimum_score=-100.0, volatility_penalty=0.0, cost_penalty=0.0),
+        created_at=datetime(2026, 8, 28, tzinfo=timezone.utc),
+    )
+
+    by_profile = {item.strategy_profile: item for item in decision.candidate_decisions}
+    assert by_profile["full_risk"].score == pytest.approx(-1.0)
+    assert by_profile["discounted"].score < by_profile["full_risk"].score
+    assert decision.recommended_strategy_profile == "full_risk"
+    assert decision.no_order is True
+    assert all(item.proposed_weight == 0.0 for item in decision.candidate_decisions)
