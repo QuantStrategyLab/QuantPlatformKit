@@ -400,6 +400,88 @@ class StrategyContractMigrationTests(unittest.TestCase):
         self.assertEqual(snapshot.metadata["cash_by_currency"], {"USD": 1500.0, "SGD": 350.0})
         self.assertEqual(snapshot.metadata["sellable_quantities"], {"QQQI": 8, "TQQQ": 2, "QQQ": 99})
 
+    def test_portfolio_account_state_roundtrip_preserves_position_details(self) -> None:
+        source = PortfolioSnapshot(
+            as_of="2026-04-09",
+            total_equity=10000.0,
+            buying_power=2500.0,
+            positions=(
+                Position(
+                    symbol="TQQQ",
+                    quantity=5,
+                    market_value=750.0,
+                    average_cost=125.0,
+                    currency="USD",
+                    account_id="synthetic-account-a",
+                ),
+            ),
+        )
+
+        account_state = build_account_state_from_portfolio_snapshot(
+            source,
+            strategy_symbols=("TQQQ",),
+        )
+        restored = build_portfolio_snapshot_from_account_state(
+            account_state,
+            strategy_symbols=("TQQQ",),
+        )
+
+        self.assertEqual(len(restored.positions), 1)
+        self.assertEqual(restored.positions[0], source.positions[0])
+
+    def test_portfolio_account_state_roundtrip_keeps_short_and_omits_explicit_zero(self) -> None:
+        source = PortfolioSnapshot(
+            as_of="2026-04-09",
+            total_equity=10000.0,
+            positions=(
+                Position(
+                    symbol="SHORT",
+                    quantity=-4,
+                    market_value=-600.0,
+                    average_cost=150.0,
+                    currency="HKD",
+                    account_id="synthetic-account-b",
+                ),
+                Position(symbol="CASHLIKE", quantity=0, market_value=0.0),
+            ),
+        )
+
+        restored = build_portfolio_snapshot_from_account_state(
+            build_account_state_from_portfolio_snapshot(source),
+        )
+
+        self.assertEqual([position.symbol for position in restored.positions], ["SHORT"])
+        self.assertEqual(restored.positions[0], source.positions[0])
+
+    def test_portfolio_roundtrip_rejects_duplicate_symbol_position_metadata(self) -> None:
+        source = PortfolioSnapshot(
+            as_of="2026-04-09",
+            total_equity=10000.0,
+            positions=(
+                Position(
+                    symbol="DUP",
+                    quantity=1,
+                    market_value=100.0,
+                    average_cost=90.0,
+                    currency="USD",
+                    account_id="synthetic-account-a",
+                ),
+                Position(
+                    symbol="DUP",
+                    quantity=2,
+                    market_value=220.0,
+                    average_cost=105.0,
+                    currency="HKD",
+                    account_id="synthetic-account-b",
+                ),
+            ),
+        )
+
+        account_state = build_account_state_from_portfolio_snapshot(source)
+
+        with self.assertRaisesRegex(ValueError, "duplicate symbol"):
+            build_portfolio_snapshot_from_account_state(account_state)
+
     def test_build_strategy_evaluation_inputs_only_keeps_available_inputs(self) -> None:
         snapshot = object()
         evaluation_inputs = build_strategy_evaluation_inputs(

@@ -49,6 +49,14 @@
 - metadata 中的 `unrealized_pnl_pct` override 仍优先，并标记 `unrealized_pnl_source=metadata`。
 - adaptive shadow 排序中合法 `score=0` 高于负分；较小 `risk_multiplier` 不得使负分更有吸引力。`shadow_only` / `no_order` / 零权重不变。
 
+## 策略范围投影与诊断输入
+
+快照转为 account_state 再重建快照时，通过可选 `position_details` 保留每个唯一标的的平均成本、币种和账户标识。空头数量及市值保留；仅数量和市值均为零的仓位省略。缺失成本保持 `None`，不把未知盈亏写成完整覆盖。
+
+按 symbol 索引无法区分重复标的所属账户。新投影会记录此歧义，重建所选标的时明确拒绝；不能把某一账户的成本与另一账户的数量拼接。无侧带字段的旧 account_state 仍按原接口重建。
+
+离线验证已覆盖 IBKR 的实际投影入口及其锁定 UES 现金归一化函数，使用候选 QPK helper 与已安装的 QPK 模型。此验证没有修改消费者的依赖固定版本，实际采用和生产验收仍待后续完成。
+
 ## 非目标
 
 - 不实现分布鲁棒求解器，不新增依赖。

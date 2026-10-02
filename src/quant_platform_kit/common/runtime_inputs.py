@@ -422,6 +422,9 @@ def build_account_state_from_portfolio_snapshot(
         quantities: dict[str, float] = {}
         sellable_quantities: dict[str, float] = {}
 
+    position_details: dict[str, dict[str, Any]] = {}
+    ambiguous_position_symbols: set[str] = set()
+    seen_position_symbols: set[str] = set()
     for position in getattr(snapshot, "positions", ()) or ():
         symbol = str(position.symbol).strip().upper()
         if filter_enabled and symbol not in market_values:
@@ -437,6 +440,18 @@ def build_account_state_from_portfolio_snapshot(
             resolved_sellable_quantities.get(symbol, quantity)
         )
         market_values[symbol] = float(position.market_value)
+        if symbol in seen_position_symbols:
+            # The symbol-keyed account state cannot safely associate details
+            # with one of multiple source rows (often separate accounts).
+            position_details.pop(symbol, None)
+            ambiguous_position_symbols.add(symbol)
+        else:
+            position_details[symbol] = {
+                "average_cost": getattr(position, "average_cost", None),
+                "currency": getattr(position, "currency", "USD"),
+                "account_id": getattr(position, "account_id", None),
+            }
+        seen_position_symbols.add(symbol)
 
     resolved_liquid_cash = liquid_cash
     if resolved_liquid_cash is None:
@@ -460,6 +475,8 @@ def build_account_state_from_portfolio_snapshot(
         "quantities": quantities,
         "sellable_quantities": sellable_quantities,
         "total_strategy_equity": total_strategy_equity,
+        "position_details": position_details,
+        "ambiguous_position_symbols": tuple(sorted(ambiguous_position_symbols)),
     }
     raw_cash_by_currency = (
         metadata.get("cash_by_currency") if isinstance(metadata, Mapping) else None
@@ -486,18 +503,34 @@ def build_portfolio_snapshot_from_account_state(
     symbols = normalized_symbols or tuple(
         sorted(str(symbol) for symbol in market_values)
     )
+    ambiguous_position_symbols = set(account_state.get("ambiguous_position_symbols", ()))
+    ambiguous_selected_symbols = ambiguous_position_symbols.intersection(symbols)
+    if ambiguous_selected_symbols:
+        raise ValueError(
+            "Cannot rebuild portfolio positions with duplicate symbol metadata: "
+            + ", ".join(sorted(ambiguous_selected_symbols))
+        )
+    position_details = account_state.get("position_details")
+    if not isinstance(position_details, Mapping):
+        position_details = {}
 
     positions: list[Position] = []
     for symbol in symbols:
         quantity = float(quantities.get(symbol, 0.0))
         market_value = float(market_values.get(symbol, 0.0))
-        if quantity <= 0 and market_value <= 0.0:
+        if quantity == 0 and market_value == 0.0:
             continue
+        details = position_details.get(symbol)
+        if not isinstance(details, Mapping):
+            details = {}
         positions.append(
             Position(
                 symbol=symbol,
                 quantity=quantity,
                 market_value=market_value,
+                average_cost=details.get("average_cost"),
+                currency=details.get("currency", "USD"),
+                account_id=details.get("account_id"),
             )
         )
 
