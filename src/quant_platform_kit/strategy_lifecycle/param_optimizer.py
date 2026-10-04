@@ -199,22 +199,32 @@ def _run_best_grid(
     start_date: date | None, end_date: date | None,
     max_combinations: int = 500,
 ) -> tuple[BacktestResult | None, dict[str, Any], int]:
-    """Run grid combinations, return (best_result, best_params, iteration_count)."""
+    """Run grid combinations; any failed attempt prevents a survivor-only result.
+
+    Ordinary runner results do not provide the context/ledger needed to claim
+    a complete research-trial history. Fail closed rather than fabricate it.
+    """
     combos = _generate_grid_combinations(space, max_combinations=max_combinations)
     best_result: BacktestResult | None = None
     best_params: dict[str, Any] = {}
     best_score = baseline_score
 
     for idx, params in enumerate(combos):
+        phase = "backtest"  # Includes the orchestrator's result persistence.
         try:
             r = orchestrator.run(strategy_profile, domain=domain, params=params,
                 param_set_id=f"{strategy_profile}_grid_{idx}", param_version=1,
                 start_date=start_date, end_date=end_date)
+            phase = "score"
             s = _score_backtest_result(r)
             if s > best_score:
                 best_score, best_result, best_params = s, r, dict(params)
         except Exception:
-            continue
+            # Raw exceptions can contain credentials, paths or provider data.
+            # Only bounded ordinal/phase information is safe for CLI output.
+            raise RuntimeError(
+                f"research_history_incomplete: candidate_index={idx} phase={phase}"
+            ) from None
     return best_result, best_params, len(combos)
 
 
@@ -277,6 +287,9 @@ def run_grid_search(
     """Run grid search with seen-development segment diagnostics, not OOS.
 
     Pipeline: resolve space → baseline → grid search → development checks → propose.
+    A grid run, result-persistence or score exception raises a sanitized
+    RuntimeError; no proposal or development checks follow a failed candidate.
+    Successful ordinary searches still do not certify complete trial history.
     """
     space = search_space or get_search_space(strategy_profile)
     if space is None:
