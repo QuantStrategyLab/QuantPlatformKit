@@ -1,4 +1,10 @@
-"""Export canonical strategy_performance.v2 payloads from lifecycle storage."""
+"""Export legacy v2, or an isolated coverage envelope pending paired readers.
+
+Coverage-bearing records must not be fed to an old optimization watcher as
+ordinary v2. Their inner v2 metadata retains supplied effective/requested/source
+windows and machine-checkable comparison qualification; it is not native archive
+proof or exact TWR. Strict sanitized P3 artifacts are a separate contract.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +14,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult, StrategyPerformanceSnapshot, WindowPerformance
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    BacktestResult, StrategyPerformanceSnapshot, WindowPerformance,
+    interval_return_coverage_comparison_reason, normalize_interval_return_coverage,
+)
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 PERFORMANCE_SCHEMA_VERSION = "strategy_performance.v2"
+COVERAGE_EXPORT_SCHEMA_VERSION = "strategy_performance.coverage_envelope.v1"
 METRICS_KIND = "performance"
 DEFAULT_WINDOWS: tuple[int, ...] = (126, 252, 63, 21)
 REQUIRED_METRICS = ("sharpe", "cagr", "calmar", "win_rate", "max_dd")
@@ -105,6 +115,7 @@ def export_strategy_performance(
     preferred_windows: Sequence[int] = DEFAULT_WINDOWS,
     store: PerformanceStore | None = None,
     output_path: str | Path | None = None,
+    baseline_coverage_by_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     lifecycle_store = store or PerformanceStore.from_env()
     profiles = list(strategy_profiles or lifecycle_store.list_snapshot_profiles(domain))
@@ -168,6 +179,41 @@ def export_strategy_performance(
                 },
             }
         )
+        coverage = snapshot.interval_return_coverage
+        if coverage is not None:
+            coverage = normalize_interval_return_coverage(coverage)
+            reference_coverage = None
+            try:
+                reference_coverage = normalize_interval_return_coverage(
+                    (baseline_coverage_by_profile or {}).get(profile))
+            except (TypeError, ValueError):
+                pass
+            reason = interval_return_coverage_comparison_reason(
+                coverage, (baseline_coverage_by_profile or {}).get(profile),
+                current_window=window, reference_metrics=backtest,
+            )
+            metadata = snapshots[-1]["metadata"]
+            # Account scope is internal source identity, not a public sanitized
+            # P3 field. Window/method metadata is enough to disclose this view.
+            metadata["interval_return_coverage"] = {k: v for k, v in coverage.items()
+                                                    if k != "account_scope_sha256"}
+            metadata["snapshot_data_timestamp"] = coverage["return_end_at"]
+            metadata["provenance"]["snapshot"]["data_timestamp"] = coverage["return_end_at"]
+            metadata["interval_comparison"] = {
+                "comparable": not bool(reason), "reason": reason,
+                "actual_start_date": window.start_date.isoformat(),
+                "actual_end_date": window.end_date.isoformat(),
+                "actual_observation_count": window.observation_count,
+                "calendar_id": window.calendar_id, "periods_per_year": window.periods_per_year,
+                "reference_coverage": ({k: v for k, v in reference_coverage.items()
+                                        if k != "account_scope_sha256"} if reference_coverage is not None else None),
+                "reference_start_date": backtest.start_date.isoformat() if backtest.start_date else None,
+                "reference_end_date": backtest.end_date.isoformat() if backtest.end_date else None,
+                "reference_observation_count": backtest.observation_count,
+                "reference_calendar_id": backtest.calendar_id,
+                "reference_periods_per_year": backtest.periods_per_year,
+                "scope": "supplied_checkpoint_window",
+            }
 
     payload: dict[str, Any] = {
         "schema_version": PERFORMANCE_SCHEMA_VERSION,
@@ -178,6 +224,14 @@ def export_strategy_performance(
         "source": "strategy_lifecycle_performance_store",
         "snapshots": snapshots,
     }
+    if any("interval_return_coverage" in item["metadata"] for item in snapshots):
+        # Both container and each item use a new schema. Old AAB projection
+        # cannot find ordinary current/baseline metrics at its expected level.
+        payload["schema_version"] = COVERAGE_EXPORT_SCHEMA_VERSION
+        payload["snapshots"] = [
+            {"schema_version": COVERAGE_EXPORT_SCHEMA_VERSION, "metrics_kind": METRICS_KIND,
+             "payload": item} for item in snapshots
+        ]
     if output_path is not None:
         path = Path(output_path)
         path.parent.mkdir(parents=True, exist_ok=True)

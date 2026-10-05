@@ -305,7 +305,7 @@ class ReturnCollector:
             merged[profile] = stamped
         return merged
 
-    def collect(
+    def collect_result(
         self,
         domain: str,
         *,
@@ -319,12 +319,12 @@ class ReturnCollector:
         holiday_coverage_end: date | None = None,
         required_start_at: Any = None,
         required_end_at: Any = None,
-    ) -> Mapping[str, pd.Series]:
+    ) -> LiveReturnCollectionResult:
         """Collect all strategy return series for a domain.
 
-        Returns a mapping of strategy_profile → daily return series.
+        Return merged Series plus authoritative live coverage and status maps.
         If multiple matrices are found (e.g., different portfolios), merges them.
-        Series may carry ``attrs["observation_status"]`` for live completeness.
+        attrs are compatibility copies, not durable coverage qualification.
         """
         paths = self.discover_return_matrices(domain)
         all_strategies: dict[str, pd.Series] = {}
@@ -377,12 +377,38 @@ class ReturnCollector:
             live_series[profile] = stamped
         if required_start_at is not None or required_end_at is not None:
             all_strategies = {}
-        return self._merge_return_series(
+        merged = self._merge_return_series(
             all_strategies,
             live_series,
             incomplete_by_profile=live_outcome.incomplete_by_profile,
             coverage_by_profile=live_outcome.coverage_by_profile,
         )
+        return LiveReturnCollectionResult(merged, live_outcome.incomplete_by_profile,
+                                          live_outcome.coverage_by_profile)
+
+    def collect(
+        self,
+        domain: str,
+        *,
+        date_column: str = "as_of",
+        benchmark_columns: Sequence[str] | None = None,
+        live_stream_id: str | None = None,
+        observation_contract: ReturnObservationContract | None = None,
+        session_holidays: frozenset[str] | Sequence[str] | None = None,
+        holiday_source: str | None = None,
+        holiday_coverage_start: date | None = None,
+        holiday_coverage_end: date | None = None,
+        required_start_at: Any = None,
+        required_end_at: Any = None,
+    ) -> Mapping[str, pd.Series]:
+        """Compatible Series API; collect_result retains authoritative coverage."""
+        return self.collect_result(
+            domain, date_column=date_column, benchmark_columns=benchmark_columns,
+            live_stream_id=live_stream_id, observation_contract=observation_contract,
+            session_holidays=session_holidays, holiday_source=holiday_source,
+            holiday_coverage_start=holiday_coverage_start, holiday_coverage_end=holiday_coverage_end,
+            required_start_at=required_start_at, required_end_at=required_end_at,
+        ).series_by_profile
 
     def collect_benchmark(
         self,

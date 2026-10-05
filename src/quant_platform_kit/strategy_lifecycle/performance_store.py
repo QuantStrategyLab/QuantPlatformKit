@@ -214,7 +214,9 @@ class PerformanceStore:
         return f"daily/{_clean_key(snapshot.domain)}/{_clean_key(snapshot.strategy_profile)}/{snapshot.as_of.isoformat()}.json"
 
     def save_snapshot(self, snapshot: StrategyPerformanceSnapshot) -> None:
-        self._write(self._snapshot_key(snapshot), {**snapshot.to_dict(), "schema_version": SCHEMA_VERSION})
+        payload = snapshot.to_dict()
+        payload.setdefault("schema_version", SCHEMA_VERSION)
+        self._write(self._snapshot_key(snapshot), payload)
 
     def load_snapshot(self, domain: str, strategy_profile: str, as_of: date) -> StrategyPerformanceSnapshot | None:
         key = f"daily/{_clean_key(domain)}/{_clean_key(strategy_profile)}/{as_of.isoformat()}.json"
@@ -800,7 +802,28 @@ def _observation_date(data: Mapping[str, Any]) -> date | None:
 
 def _snapshot_from_dict(data: Mapping[str, Any]) -> StrategyPerformanceSnapshot | None:
     try:
-        from quant_platform_kit.strategy_lifecycle.contracts import WindowPerformance
+        from quant_platform_kit.strategy_lifecycle.contracts import (
+            INTERVAL_SNAPSHOT_SCHEMA_VERSION, WindowPerformance, normalize_interval_return_coverage,
+        )
+
+        coverage = None
+        version = data.get("schema_version")
+        if version == INTERVAL_SNAPSHOT_SCHEMA_VERSION:
+            if set(data) != {"schema_version", "snapshot", "interval_return_coverage"}:
+                return None
+            coverage = normalize_interval_return_coverage(data["interval_return_coverage"])
+            if coverage["coverage_status"] == "unavailable" or not isinstance(data["snapshot"], Mapping):
+                return None
+            data = data["snapshot"]
+            expected = {"strategy_profile", "domain", "platform", "as_of", "windows", "latest_return",
+                        "benchmark_symbol", "drift_score", "drift_status", "data_freshness_days",
+                        "source_artifact_path", "computed_at", "source_revision", "cost_model", "observation_status"}
+            if (set(data) != expected or not data.get("strategy_profile") or not data.get("domain")
+                    or _observation_date(data) is None
+                    or "interval_return_coverage" in data or "schema_version" in data):
+                return None
+        elif version not in (None, SCHEMA_VERSION) or "interval_return_coverage" in data:
+            return None
 
         windows_raw = data.get("windows", {})
         windows: dict[int, WindowPerformance] = {}
@@ -841,13 +864,15 @@ def _snapshot_from_dict(data: Mapping[str, Any]) -> StrategyPerformanceSnapshot 
             latest_return=float(data["latest_return"]) if data.get("latest_return") is not None else None,
             benchmark_symbol=str(data.get("benchmark_symbol", "")),
             drift_score=float(data["drift_score"]) if data.get("drift_score") is not None else None,
-            drift_status=str(data.get("drift_status", "")),
+            drift_status=(None if coverage is not None and data.get("drift_status") is None
+                          else str(data.get("drift_status", ""))),
             data_freshness_days=int(data.get("data_freshness_days", 0)),
             source_artifact_path=str(data.get("source_artifact_path", "")),
             computed_at=str(data.get("computed_at", "")),
             source_revision=data.get("source_revision") if isinstance(data.get("source_revision"), str) else "",
             cost_model=data.get("cost_model") if isinstance(data.get("cost_model"), str) else "",
             observation_status=str(data.get("observation_status", "") or ""),
+            interval_return_coverage=coverage,
         )
     except Exception:
         return None
