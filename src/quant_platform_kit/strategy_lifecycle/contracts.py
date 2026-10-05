@@ -7,7 +7,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping, TypedDict
 
 from quant_platform_kit.common.exchange_full_day_closures_2026 import (
     XHKG_FULL_DAY_CLOSURES_2026,
@@ -134,6 +134,32 @@ def exchange_holiday_calendar_readiness(
     return False, f"unsupported_calendar_id:{calendar_id}"
 
 
+class IntervalReturnCoverage(TypedDict):
+    """Local checkpoint coverage, not proof of native archive completeness."""
+
+    method: str
+    timezone: str
+    currency: str
+    valuation_basis: str
+    account_scope_sha256: str | None
+    source_segment_start_at: str | None
+    source_segment_end_at: str | None
+    available_return_start_at: str | None
+    available_return_end_at: str | None
+    return_start_at: str | None
+    return_end_at: str | None
+    requested_start_at: str | None
+    requested_end_at: str | None
+    requested_window_complete: bool | None
+    coverage_status: Literal[
+        "unavailable", "complete_segment", "truncated_segment", "complete_requested_window"
+    ]
+    normalized_interval_count: int
+    segment_interval_count: int
+    return_count: int
+    truncation_reasons: list[str]
+
+
 @dataclass(frozen=True)
 class LiveReturnSeriesResult:
     """Derivation outcome; incomplete calendars never look like a successful short series."""
@@ -141,6 +167,7 @@ class LiveReturnSeriesResult:
     series: Any  # pd.Series; typed loosely to avoid importing pandas in contracts
     status: str
     detail: str = ""
+    coverage: IntervalReturnCoverage | None = None
 
 
 @dataclass(frozen=True)
@@ -149,6 +176,7 @@ class LiveReturnCollectionResult:
 
     series_by_profile: Mapping[str, Any]
     incomplete_by_profile: Mapping[str, str]
+    coverage_by_profile: Mapping[str, IntervalReturnCoverage] = field(default_factory=dict)
 
 
 _DOMAIN_RETURN_OBSERVATION_CONTRACTS: Mapping[str, ReturnObservationContract] = {
