@@ -15,6 +15,7 @@ from quant_platform_kit.common.cn_equity_calendar import (
     is_cn_equity_trading_day,
 )
 from quant_platform_kit.strategy_lifecycle.contracts import (
+    IntervalReturnCoverage,
     LiveReturnSeriesResult,
     ReturnObservationContract,
     exchange_holiday_calendar_readiness,
@@ -365,15 +366,65 @@ def _interval_record_bad_day(value: Any, recorded_at: Any) -> pd.Timestamp | Non
     return max(candidates).normalize().tz_localize(None)
 
 
-def live_interval_records_to_return_series(
+def live_interval_records_to_return_series_result(
     records: Sequence[Mapping[str, Any]],
-) -> pd.Series:
-    """Derive observation-interval returns under the end-flow convention.
+    *,
+    required_start_at: Any = None,
+    required_end_at: Any = None,
+) -> LiveReturnSeriesResult:
+    """Return the latest legal segment with explicit checkpoint coverage.
 
-    This is not exact TWR and does not represent a midnight-natural-day return.
-    The current Binance producer supports USDT deposits only; signed negative
-    flows remain a contract/test case and do not enable withdrawal handling.
+    Required bounds request a complete return window at retained daily closing
+    checkpoints. The first receipt's end equity is the baseline; its start has
+    no NAV and cannot be advertised as the return start. This is not exact TWR
+    or a midnight-natural-day return, nor native archive completeness evidence.
     """
+    requested = required_start_at is not None or required_end_at is not None
+    requested_start = _parse_interval_timestamp(required_start_at)
+    requested_end = _parse_interval_timestamp(required_end_at)
+    reasons: set[str] = set()
+    coverage: IntervalReturnCoverage = {
+        "method": "end_flow_checkpoint_daily_observations",
+        "timezone": "UTC",
+        "currency": "USDT",
+        "valuation_basis": _EXTERNAL_CASH_FLOW_INTERVAL_BASIS,
+        "account_scope_sha256": None,
+        "source_segment_start_at": None,
+        "source_segment_end_at": None,
+        "available_return_start_at": None,
+        "available_return_end_at": None,
+        "return_start_at": None,
+        "return_end_at": None,
+        "requested_start_at": requested_start.isoformat() if requested_start is not None else None,
+        "requested_end_at": requested_end.isoformat() if requested_end is not None else None,
+        "requested_window_complete": False if requested else None,
+        "coverage_status": "unavailable",
+        "normalized_interval_count": 0,
+        "segment_interval_count": 0,
+        "return_count": 0,
+        "truncation_reasons": [],
+    }
+
+    def finish(status: str, series: pd.Series | None = None) -> LiveReturnSeriesResult:
+        if series is None:
+            series = pd.Series(dtype=float)
+            series.name = "live_return"
+        coverage["truncation_reasons"] = sorted(reasons)
+        coverage["return_count"] = len(series)
+        # The explicit result is authoritative; attrs are a compatibility copy.
+        series.attrs["observation_status"] = status
+        series.attrs["interval_coverage"] = dict(coverage, truncation_reasons=list(coverage["truncation_reasons"]))
+        detail = "interval"
+        if reasons:
+            detail += ":" + ";".join(sorted(reasons))
+        return LiveReturnSeriesResult(series=series, status=status, detail=detail, coverage=coverage)
+
+    if requested and (
+        requested_start is None or requested_end is None or requested_start >= requested_end
+    ):
+        reasons.add("invalid_requested_window")
+        return finish("invalid_requested_window")
+
     by_id: dict[tuple[str, int, int], dict[str, Any]] = {}
     conflicting_ids: set[tuple[str, int, int]] = set()
     scopes: set[str] = set()
@@ -383,14 +434,20 @@ def live_interval_records_to_return_series(
         if isinstance(record, Mapping) and _INTERVAL_RECORD_PAYLOAD_KEY in record:
             raw_interval = record.get(_INTERVAL_RECORD_PAYLOAD_KEY)
             recorded_at = record.get("recorded_at")
+            invalid_reason = str(record.get("_interval_record_reason") or "")
+            if invalid_reason not in {"null_interval", "missing_interval_record"}:
+                invalid_reason = ""
         else:
             raw_interval = record
             recorded_at = None
+            invalid_reason = ""
         interval = _normalize_external_cash_flow_interval(raw_interval)
         if interval is None:
+            reasons.add(invalid_reason or ("null_interval" if raw_interval is None else "invalid_interval"))
             bad_day = _interval_record_bad_day(raw_interval, recorded_at)
             if bad_day is None:
                 invalid_unlocated = True
+                reasons.add("unlocated_invalid_interval")
             else:
                 invalid_days.add(bad_day)
             continue
@@ -400,16 +457,23 @@ def live_interval_records_to_return_series(
         if previous is not None and previous != interval:
             conflicting_ids.add(logical_id)
             invalid_days.add(interval["end_at"].normalize().tz_localize(None))
+            reasons.add("interval_conflict")
             continue
         by_id[logical_id] = interval
-    if len(scopes) != 1 or invalid_unlocated:
-        return pd.Series(dtype=float)
+    coverage["normalized_interval_count"] = len(by_id)
+    if len(scopes) == 1:
+        coverage["account_scope_sha256"] = next(iter(scopes))
+    elif len(scopes) > 1:
+        reasons.add("mixed_account_scope")
+    if len(scopes) > 1 or invalid_unlocated:
+        return finish("incomplete_requested_window" if requested else "incomplete_interval_coverage")
 
     by_end: dict[tuple[str, int], set[int]] = {}
-    for logical_id, interval in by_id.items():
+    for logical_id in by_id:
         by_end.setdefault((logical_id[0], logical_id[2]), set()).add(logical_id[1])
     for (scope, end_ns), starts in by_end.items():
         if len(starts) > 1:
+            reasons.add("same_end_different_start")
             invalid_days.add(pd.Timestamp(end_ns, tz="UTC").normalize().tz_localize(None))
             conflicting_ids.update(
                 logical_id
@@ -427,7 +491,7 @@ def live_interval_records_to_return_series(
         ]
     intervals.sort(key=lambda item: (item["end_at"], item["start_at"]))
     if not intervals:
-        return pd.Series(dtype=float)
+        return finish("incomplete_requested_window" if requested else "insufficient_observations")
 
     components: list[list[dict[str, Any]]] = []
     current_component: list[dict[str, Any]] = []
@@ -435,12 +499,19 @@ def live_interval_records_to_return_series(
         if not current_component or _intervals_are_contiguous(current_component[-1], interval):
             current_component.append(interval)
         else:
+            reasons.add(
+                "missing_interval" if interval["start_at"] > current_component[-1]["end_at"]
+                else "overlapping_interval"
+            )
             components.append(current_component)
             current_component = [interval]
     components.append(current_component)
 
     latest_component = components[-1]
-    daily: dict[pd.Timestamp, dict[str, float]] = {}
+    coverage["source_segment_start_at"] = latest_component[0]["start_at"].isoformat()
+    coverage["source_segment_end_at"] = latest_component[-1]["end_at"].isoformat()
+    coverage["segment_interval_count"] = len(latest_component)
+    daily: dict[pd.Timestamp, dict[str, Any]] = {}
     for interval in latest_component:
         day = interval["end_at"].normalize().tz_localize(None)
         point = daily.setdefault(day, {"equity": 0.0, "flow": 0.0})
@@ -450,12 +521,13 @@ def live_interval_records_to_return_series(
         point["flow"] += interval["net_external_cash_flow"]
     ordered_days = sorted(daily)
     if len(ordered_days) < 2:
-        return pd.Series(dtype=float)
+        return finish("incomplete_requested_window" if requested else "insufficient_observations")
 
     segments: list[list[pd.Timestamp]] = []
     segment = [ordered_days[0]]
     for day in ordered_days[1:]:
         if day - segment[-1] != pd.Timedelta(days=1):
+            reasons.add("observation_day_gap")
             segments.append(segment)
             segment = [day]
         else:
@@ -463,7 +535,7 @@ def live_interval_records_to_return_series(
     segments.append(segment)
     latest_days = segments[-1]
     if len(latest_days) < 2:
-        return pd.Series(dtype=float)
+        return finish("incomplete_requested_window" if requested else "insufficient_observations")
 
     return_points: list[tuple[pd.Timestamp, float]] = []
     for previous_day, current_day in zip(latest_days, latest_days[1:]):
@@ -473,15 +545,57 @@ def live_interval_records_to_return_series(
             net_external_cash_flow=daily[current_day]["flow"],
         )
         if adjusted is None:
-            return pd.Series(dtype=float)
+            reasons.add("invalid_adjusted_return")
+            return finish("incomplete_requested_window" if requested else "incomplete_interval_coverage")
         return_points.append((current_day, adjusted))
-    result = pd.Series(
+    coverage["available_return_start_at"] = daily[latest_days[0]]["end_at"].isoformat()
+    coverage["available_return_end_at"] = daily[latest_days[-1]]["end_at"].isoformat()
+
+    if requested:
+        # Only exact retained checkpoints qualify; never interpolate or borrow
+        # the first receipt's unavailable start NAV to complete a window.
+        checkpoint_days = {daily[day]["end_at"]: day for day in latest_days}
+        if requested_start not in checkpoint_days or requested_end not in checkpoint_days:
+            reasons.add("requested_checkpoint_unavailable")
+            return finish("incomplete_requested_window")
+        start_day = checkpoint_days[requested_start]
+        end_day = checkpoint_days[requested_end]
+        return_points = [(day, value) for day, value in return_points if start_day < day <= end_day]
+        coverage["return_start_at"] = requested_start.isoformat()
+        coverage["return_end_at"] = requested_end.isoformat()
+        coverage["requested_window_complete"] = True
+        coverage["coverage_status"] = "complete_requested_window"
+        status = "ok"
+    else:
+        coverage["return_start_at"] = coverage["available_return_start_at"]
+        coverage["return_end_at"] = coverage["available_return_end_at"]
+        coverage["coverage_status"] = "truncated_segment" if reasons else "complete_segment"
+        status = "truncated_after_interval_gap" if reasons else "ok"
+    series = pd.Series(
         [value for _, value in return_points],
         index=pd.Index([day for day, _ in return_points], name="date"),
         dtype=float,
         name="live_return",
     )
-    return result
+    return finish(status, series)
+
+
+def live_interval_records_to_return_series(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    required_start_at: Any = None,
+    required_end_at: Any = None,
+) -> pd.Series:
+    """Compatibility Series API; use the result API for authoritative coverage.
+
+    End-flow observation returns are not exact TWR or midnight daily returns.
+    Signed negative flows remain a test contract, not Binance withdrawal support.
+    """
+    series = live_interval_records_to_return_series_result(
+        records, required_start_at=required_start_at, required_end_at=required_end_at,
+    ).series
+    # Preserve the direct legacy API's unnamed empty Series.
+    return series.rename(None) if series.empty else series
 
 
 def _parse_recorded_at(value: Any) -> pd.Timestamp | None:
@@ -512,6 +626,8 @@ def live_run_records_to_return_series_result(
     *,
     domain: str | None = None,
     observation_contract: ReturnObservationContract | None = None,
+    required_start_at: Any = None,
+    required_end_at: Any = None,
 ) -> LiveReturnSeriesResult:
     """Derive returns with an explicit status for incomplete calendars / gaps."""
     contract = _resolve_observation_contract(
@@ -558,12 +674,20 @@ def live_run_records_to_return_series_result(
                     if has_interval_key
                     else None,
                     "recorded_at": record.get("recorded_at"),
+                    "_interval_record_reason": (
+                        "missing_interval_record" if not has_interval_key
+                        else "null_interval" if interval_candidate is None else ""
+                    ),
                 }
             )
-        series = live_interval_records_to_return_series(interval_records)
-        if series.empty:
-            return _empty_live_return_result("insufficient_observations")
-        return LiveReturnSeriesResult(series=series, status="ok", detail="interval")
+        return live_interval_records_to_return_series_result(
+            interval_records,
+            required_start_at=required_start_at,
+            required_end_at=required_end_at,
+        )
+
+    if required_start_at is not None or required_end_at is not None:
+        return _empty_live_return_result("incomplete_requested_window", "interval_records_required")
 
     points: list[tuple[pd.Timestamp, float, float]] = []
     invalid_cash_flow_dates: set[pd.Timestamp] = set()
@@ -675,6 +799,8 @@ def live_run_records_to_return_series(
     *,
     domain: str | None = None,
     observation_contract: ReturnObservationContract | None = None,
+    required_start_at: Any = None,
+    required_end_at: Any = None,
 ) -> pd.Series:
     """Convert live run records to cash-flow-adjusted daily returns.
 
@@ -697,6 +823,8 @@ def live_run_records_to_return_series(
         records,
         domain=domain,
         observation_contract=observation_contract,
+        required_start_at=required_start_at,
+        required_end_at=required_end_at,
     ).series
 
 
