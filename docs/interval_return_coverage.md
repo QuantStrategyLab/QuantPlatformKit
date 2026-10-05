@@ -28,8 +28,8 @@ returns. UTC date labels are grouping labels, not NAV timestamps.
   construction remains valid; `coverage_by_profile` defaults to an empty mapping
 - These result types have no existing wire serializer. Generic dataclass
   serialization now has additive coverage fields; strict external allowlists
-  need explicit adoption. Other lifecycle schemas and snapshot serializers are
-  unchanged
+  need explicit adoption. Legacy no-coverage snapshot wire stays unchanged;
+  the opt-in versioned snapshot/export envelopes are described below
 
 Explicit result coverage is authoritative. `Series.attrs["interval_coverage"]`
 and `attrs["observation_status"]` provide compatibility copies; pandas
@@ -151,3 +151,88 @@ Consecutive losses derived from live-run records consume only the retained
 latest continuous segment, so losses on opposite sides of a barrier cannot form
 one streak. No loss controls, trading permissions, strategy signals or runtime
 schedules are changed.
+
+## Opt-in monitor and versioned persistence
+
+`ReturnCollector.collect_result` retains the existing merged Series behavior
+alongside `incomplete_by_profile` and authoritative `coverage_by_profile`.
+`collect` remains the compatible Series mapping API.
+
+`run_monitor` accepts `required_start_at` / `required_end_at` and
+`include_interval_coverage=False`. Explicit bounds also enable coverage mode.
+That mode requires the result API and checks every target profile before any
+snapshot write. The normalized Series' full UTC date set, bounds and count must
+match effective coverage; shifted equal-length dates, duplicates or NaN-induced
+changes cannot qualify. CSV or forged/lost attrs cannot satisfy a missing whole window.
+Without either opt-in, the original monitor behavior and official no-coverage
+snapshot wire remain unchanged.
+
+`StrategyPerformanceSnapshot.interval_return_coverage` defaults to `None`.
+With `None`, `to_dict` keeps the original 15 fields and PerformanceStore writes
+`strategy_lifecycle.v1`. With coverage, the same store and daily key carry:
+
+- `schema_version: strategy_lifecycle.snapshot.coverage.v1`
+- `snapshot`: the original snapshot fields
+- `interval_return_coverage`: validated source, available, effective return and
+  requested windows, calculation method, counts and bounded reasons
+
+The new reader explicitly validates and unwraps this schema. Unknown versions
+or invalid coverage do not downgrade to ordinary successful observations.
+The old reader lacks the required date/profile fields at the envelope root and
+obtains an unavailable observation; its exporter refuses it. Generic dataclass
+serialization is not the official snapshot wire and gains the optional field;
+strict external dataclass allowlists need explicit adoption.
+
+## Coverage export, comparison and paired readers
+
+Coverage-bearing exports use `strategy_performance.coverage_envelope.v1` at
+both container and item-wrapper level. Each item's `payload` is the existing
+v2 snapshot with explicit coverage and comparison evidence in `metadata`.
+Legacy no-coverage exports remain ordinary `strategy_performance.v2`.
+Old watchers reject the new schema and cannot find ordinary metrics at their
+expected level. The AAB coverage-aware paired reader is not yet adopted; do
+not relabel or flatten this envelope to make an old watcher accept it. The
+strict, sanitized 13-field P3 artifact is a separate unchanged contract. Public
+coverage metadata and comparison evidence omit the internal account-scope hash.
+
+`baseline_coverage_by_profile` supplies explicit reference coverage to the
+exporter. A machine-checkable comparison needs the same effective checkpoint
+window, method, timezone, currency, valuation basis, scope and observation
+count, plus matching actual metric dates, calendar and annualization. Required
+performance numbers must be finite. Both sides' sanitized coverage and actual
+comparison dates/counts/bases are disclosed; missing reference coverage is
+incomparable. A trailing metric slice with only date labels cannot invent an
+exact checkpoint anchor. Nominal 126/252-window names do not establish that
+many available observations.
+
+`run_monitor` also accepts `baseline_coverage_by_profile` and applies this gate
+before `compare_with_backtest`. In coverage mode, missing or mismatched baseline
+coverage preserves the measured numbers but leaves `drift_score=None` and sets
+`drift_status=not_comparable_interval_coverage`; it supplies no qualified drift
+or automatic factor-invalidity evidence. Legacy no-coverage comparison behavior
+is unchanged. Snapshot `as_of` remains the run date, distinct from effective
+checkpoint timestamps.
+
+`detect_drift` honors that status before missing-window/baseline fallbacks:
+the fixed unevaluable reason is retained, `baseline_available=False`, alerts
+are suppressed and previous restrictions are not loosened. The existing
+store-backed drift and automatic-dispatch path cannot reopen optimization or
+provider calls from it. A retained REVIEW/previous CRITICAL restriction is not
+a newly measured failure of the unknown observation.
+
+A legal segment after a historical gap remains available for its actual
+effective window. Historical reasons do not invalidate a fully covered new
+requested window, and they are not a blanket rejection of local learning.
+AI review accepts explicit `snapshot` / `comparison_coverage` context, binds
+declared current numerical metrics to the actual snapshot window, and permits
+performance conclusions only for qualified comparisons. Unknown or unmet
+coverage escalates before any provider/verifier call. Its new coverage prompt
+context is allowlisted and contains no account-scope hash or path identifier.
+Calls without snapshot context retain legacy advisory semantics; they do not
+prove the new coverage contract.
+
+Rollback disables the opt-in for future legacy writes; it does not erase the
+meaning of existing envelopes. Keep the coverage-capable reader for those
+records, or have an old reader treat them as unavailable. This change does not
+update consumer dependency pins, deploy a paired reader or qualify a native
+account archive, exact TWR, or live trading authority.

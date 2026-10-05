@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 from quant_platform_kit.strategy_lifecycle.contracts import (
     StrategyPerformanceSnapshot,
+    interval_return_coverage_comparison_reason,
+    normalize_interval_return_coverage,
     resolve_return_observation_contract,
 )
 from quant_platform_kit.strategy_lifecycle.performance_metrics import (
@@ -138,6 +140,10 @@ def run_monitor(
     require_explicit_benchmark: bool = False,
     live_stream_id: str | None = None,
     source_revision: str | None = None,
+    required_start_at: Any = None,
+    required_end_at: Any = None,
+    include_interval_coverage: bool = False,
+    baseline_coverage_by_profile: Mapping[str, Any] | None = None,
 ) -> list[StrategyPerformanceSnapshot]:
     """Run the performance monitor for the given domain.
 
@@ -160,16 +166,81 @@ def run_monitor(
         source_revision: Observation provenance. Required when snapshots would be
             written; resolved from env when omitted (see
             :func:`resolve_monitor_source_revision`).
+        required_start_at, required_end_at: Complete supplied checkpoint window;
+            both bounds are required together. Qualify all targets before writes.
+        include_interval_coverage: Opt into the isolated snapshot coverage wire.
+            Explicit bounds also enable it. Omitted preserves legacy wire exactly.
+        baseline_coverage_by_profile: Explicit checkpoint coverage for backtest
+            references. Missing/incomparable coverage cannot supply a drift score.
 
     Returns:
         List of StrategyPerformanceSnapshot objects generated.
     """
+    requested = required_start_at is not None or required_end_at is not None
+    if requested:
+        from quant_platform_kit.strategy_lifecycle.live_equity import _parse_interval_timestamp
+
+        requested_start = _parse_interval_timestamp(required_start_at)
+        requested_end = _parse_interval_timestamp(required_end_at)
+        if requested_start is None or requested_end is None or requested_start >= requested_end:
+            raise ValueError("invalid_requested_window")
     store = store or PerformanceStore.from_env()
     collector = collector or ReturnCollector()
     observation_contract = resolve_return_observation_contract(domain)
 
     # 1. Collect returns under the domain observation contract.
-    if isinstance(collector, ReturnCollector):
+    coverage_by_profile = {}
+    result_mode = requested or include_interval_coverage
+    if result_mode:
+        collect_result = getattr(collector, "collect_result", None)
+        if not callable(collect_result):
+            raise ValueError("interval_coverage_result_required")
+        outcome = collect_result(
+            domain, live_stream_id=live_stream_id, observation_contract=observation_contract,
+            required_start_at=required_start_at, required_end_at=required_end_at,
+        )
+        all_returns = dict(outcome.series_by_profile)
+        targets = ([strategy_profile] if strategy_profile else sorted(
+            set(all_returns) | set(outcome.coverage_by_profile) | set(outcome.incomplete_by_profile)))
+        # Qualify every target before the first write. CSV/attrs cannot repair
+        # a missing checkpoint outcome or silently waive an explicit request.
+        for profile in targets:
+            raw = outcome.coverage_by_profile.get(profile)
+            series = all_returns.get(profile)
+            normalized = None
+            if series is not None and not series.empty:
+                canonical = series.copy()
+                if raw is not None:
+                    # Interval indexes are UTC observation-date labels. Preserve
+                    # their real dates before the general normalizer drops TZ.
+                    dates = pd.DatetimeIndex(pd.to_datetime(canonical.index, errors="coerce"))
+                    canonical.index = (dates.tz_convert("UTC").tz_localize(None)
+                                       if dates.tz is not None else dates)
+                normalized = normalize_return_series(canonical)
+                normalized.attrs = dict(getattr(series, "attrs", {}))
+                all_returns[profile] = normalized
+            if raw is not None:
+                cov = normalize_interval_return_coverage(raw)
+                if series is not None and not series.empty:
+                    if (cov["coverage_status"] == "unavailable" or cov["return_count"] != len(series)
+                            or cov["return_count"] != len(normalized)):
+                        raise ValueError("interval_coverage_series_mismatch")
+                    expected_dates = pd.date_range(
+                        pd.Timestamp(cov["return_start_at"]).normalize().tz_localize(None) + pd.Timedelta(days=1),
+                        pd.Timestamp(cov["return_end_at"]).normalize().tz_localize(None), freq="D",
+                    )
+                    if not normalized.index.equals(expected_dates):
+                        raise ValueError("interval_coverage_series_dates_mismatch")
+                    coverage_by_profile[profile] = cov
+            if requested:
+                cov = coverage_by_profile.get(profile)
+                if (cov is None or series is None or series.empty
+                        or cov["requested_window_complete"] is not True
+                        or cov["coverage_status"] != "complete_requested_window"
+                        or cov["return_start_at"] != requested_start.isoformat()
+                        or cov["return_end_at"] != requested_end.isoformat()):
+                    raise RuntimeError("incomplete_requested_window:" + str(profile))
+    elif isinstance(collector, ReturnCollector):
         all_returns = collector.collect(
             domain,
             live_stream_id=live_stream_id,
@@ -198,6 +269,10 @@ def run_monitor(
 
         series = normalize_return_series(returns)
         observation_status = str(getattr(returns, "attrs", {}).get("observation_status") or "ok")
+        coverage = coverage_by_profile.get(profile)
+        if coverage is not None:
+            observation_status = ("truncated_after_interval_gap"
+                                  if coverage["coverage_status"] == "truncated_segment" else "ok")
 
         # Resolve benchmark
         benchmark_symbol = resolve_strategy_benchmark(
@@ -231,6 +306,7 @@ def run_monitor(
             computed_at=_now_iso(),
             source_revision=resolved_source_revision,
             observation_status=observation_status,
+            interval_return_coverage=coverage,
         )
 
         # Compute each window with the domain annualization contract.
@@ -270,7 +346,13 @@ def run_monitor(
 
         # Attach drift reference only when annualization bases are comparable.
         ref_window = windows_dict.get(126) or windows_dict.get(252)
-        if ref_window is not None and latest_backtest is not None:
+        if coverage is not None and interval_return_coverage_comparison_reason(
+            coverage, (baseline_coverage_by_profile or {}).get(profile),
+            current_window=ref_window, reference_metrics=latest_backtest,
+        ):
+            snapshot = replace(snapshot, drift_score=None,
+                               drift_status="not_comparable_interval_coverage")
+        elif ref_window is not None and latest_backtest is not None:
             if not annualization_basis_is_comparable(ref_window, latest_backtest):
                 snapshot = replace(
                     snapshot,

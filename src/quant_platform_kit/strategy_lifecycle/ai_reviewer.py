@@ -21,7 +21,7 @@ from numbers import Real
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 
@@ -30,6 +30,8 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     DriftStatus,
     OptimizationProposal,
     StrategyPerformanceSnapshot,
+    interval_return_coverage_comparison_reason,
+    normalize_interval_return_coverage,
 )
 
 
@@ -71,6 +73,12 @@ class AiReviewVerdict:
 _PRIMARY_LLM = "Claude"
 _SECONDARY_LLM = "GPT"
 _CODEX_VPS = "Codex VPS"
+_REVIEW_COVERAGE_FIELDS = frozenset({
+    "method", "timezone", "currency", "valuation_basis", "source_segment_start_at", "source_segment_end_at",
+    "available_return_start_at", "available_return_end_at", "return_start_at", "return_end_at",
+    "requested_start_at", "requested_end_at", "requested_window_complete", "coverage_status",
+    "normalized_interval_count", "segment_interval_count", "return_count", "truncation_reasons",
+})
 
 
 def _finite_number(value: Any) -> bool:
@@ -117,13 +125,64 @@ def _invalid_review_inputs(p: OptimizationProposal) -> list[str]:
 
 # ── Level 1: Rule-based review ───────────────────────────────────────
 
+def _interval_review_issue(
+    proposal: OptimizationProposal, snapshot: StrategyPerformanceSnapshot | None,
+    comparison_coverage: Mapping[str, Any] | None,
+) -> str:
+    if snapshot is None:
+        return ""
+    coverage = snapshot.interval_return_coverage
+    if coverage is None:
+        return ("interval_coverage_unavailable" if snapshot.observation_status not in
+                {"", "ok", "complete", "COMPLETE"} else "")
+    try:
+        coverage = normalize_interval_return_coverage(coverage)
+    except (TypeError, ValueError):
+        return "interval_coverage_unavailable"
+    if coverage["coverage_status"] == "unavailable" or not comparison_coverage:
+        return "interval_comparison_coverage_unavailable"
+    current = proposal.current_metrics
+    chosen = next((w for w in snapshot.windows.values() if current is not None
+                   and w.start_date == current.start_date and w.end_date == current.end_date
+                   and w.observation_count == current.observation_count), None)
+    if chosen is None or current is None:
+        return "interval_current_metrics_not_bound"
+    # The declared baseline must actually be this snapshot's measured values.
+    # Matching date labels/counts is not evidence for an arbitrary Sharpe or DD.
+    for name in ("sharpe_ratio", "volatility", "calmar_ratio", "sortino_ratio", "max_drawdown",
+                 "cagr", "win_rate", "total_return", "benchmark_cagr", "benchmark_max_drawdown", "excess_cagr"):
+        actual, expected = getattr(current, name, None), getattr(chosen, name, None)
+        if actual is None and name not in {"sharpe_ratio", "volatility"}:
+            continue
+        if (not _finite_number(actual) or not _finite_number(expected)
+                or not math.isclose(float(actual), float(expected), rel_tol=1e-12, abs_tol=1e-12)):
+            return "interval_current_metrics_not_bound"
+    if current.benchmark_symbol and current.benchmark_symbol != chosen.benchmark_symbol:
+        return "interval_current_metrics_not_bound"
+    for label, metrics in (("current", current), ("proposed", proposal.proposed_metrics)):
+        reason = interval_return_coverage_comparison_reason(
+            coverage, comparison_coverage.get(label), current_window=chosen, reference_metrics=metrics,
+        )
+        if reason:
+            return reason
+    return ""
+
+
 def review_proposal(
     proposal: OptimizationProposal,
     *, drift: DriftResult | None = None,
     snapshot: StrategyPerformanceSnapshot | None = None,
     min_pass_dimensions: int = 3,
+    comparison_coverage: Mapping[str, Any] | None = None,
 ) -> AiReviewVerdict:
     """Deterministic 5-dimension review. No API call needed."""
+    coverage_issue = _interval_review_issue(proposal, snapshot, comparison_coverage)
+    if coverage_issue:
+        return AiReviewVerdict(
+            proposal=proposal, verdict="escalate", overall_score=0.0, dimensions=(),
+            summary="Interval coverage comparison unavailable: " + coverage_issue,
+            requires_human=True, confidence=0.0, recommended_action="escalate",
+        )
     invalid = _invalid_review_inputs(proposal)
     if invalid:
         return AiReviewVerdict(
@@ -152,6 +211,11 @@ def review_proposal(
 
     if v == "approve" and not dims[1].passed:
         v, h, s = "escalate", True, "Risk profile failed; human review required."
+    if snapshot is not None and snapshot.interval_return_coverage is not None:
+        coverage = snapshot.interval_return_coverage
+        s += (f" Comparison is limited to supplied {coverage['method']} checkpoints "
+              f"{coverage['return_start_at']} through {coverage['return_end_at']}; "
+              "not native archive completeness or exact TWR.")
 
     return AiReviewVerdict(proposal=proposal, verdict=v, overall_score=round(overall, 4),
                            dimensions=tuple(dims), summary=s, requires_human=h)
@@ -216,10 +280,14 @@ def _review_confidence(p: OptimizationProposal) -> ReviewDimension:
 def llm_enhanced_review(
     proposal: OptimizationProposal,
     *, drift: DriftResult | None = None, dry_run: bool = False,
+    snapshot: StrategyPerformanceSnapshot | None = None,
+    comparison_coverage: Mapping[str, Any] | None = None,
 ) -> AiReviewVerdict:
     """Multi-AI review using unified AiServiceClient (SAFETY pattern)."""
-    base = review_proposal(proposal, drift=drift)
-    if (base.verdict != "escalate" or dry_run or _invalid_review_inputs(proposal)
+    base = review_proposal(proposal, drift=drift, snapshot=snapshot,
+                           comparison_coverage=comparison_coverage)
+    if (base.verdict != "escalate" or dry_run or _interval_review_issue(proposal, snapshot, comparison_coverage)
+            or _invalid_review_inputs(proposal)
             or any(d.name == "risk_profile" and not d.passed for d in base.dimensions)):
         return base
 
@@ -228,6 +296,11 @@ def llm_enhanced_review(
     config = AiServiceConfig.from_env()
     client = AiServiceClient(config)
     prompt = _build_review_prompt(proposal, drift)
+    if snapshot is not None and snapshot.interval_return_coverage is not None:
+        context = {k: v for k, v in snapshot.interval_return_coverage.items()
+                   if k in _REVIEW_COVERAGE_FIELDS}
+        prompt += ("\nQualified comparison context: " + json.dumps(context, sort_keys=True)
+                   + "\nThis is a supplied checkpoint window, not complete account history or exact TWR.")
 
     # L2+L3: Run all configured reviewers via AiServiceClient
     results = client.review(prompt)
@@ -238,6 +311,9 @@ def llm_enhanced_review(
     codex = None
     if client.config.verifier is not None:
         vp = _build_codex_verify_prompt(proposal, drift)
+        if snapshot is not None and snapshot.interval_return_coverage is not None:
+            vp += ("\nComparison is limited to the supplied checkpoint window and method. "
+                   "Do not claim complete account history or exact TWR.")
         cr = client.verify(vp)
         if cr and cr.success:
             codex = _parse_codex_result(proposal, cr)

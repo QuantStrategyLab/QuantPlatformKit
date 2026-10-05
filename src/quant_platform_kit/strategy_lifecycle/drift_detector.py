@@ -172,6 +172,15 @@ def detect_drift(
     """
     if snapshot.as_of is None:
         raise ValueError("observation_date_unavailable")
+    if snapshot.drift_status == "not_comparable_interval_coverage":
+        # Honor the monitor's unqualified comparison before legacy missing-
+        # window/baseline fallbacks. Retain prior restrictions, not a measured
+        # failure; this result must not enter automatic issues or AI research.
+        return replace(
+            _unevaluable_result(snapshot, reason="not_comparable_interval_coverage",
+                                previous_status=previous_status, backtest=backtest),
+            baseline_available=False, alert_suppressed=True,
+        )
     policy = policy or DriftPolicy.load_default()
 
     # Resolve thresholds with regime adjustment
