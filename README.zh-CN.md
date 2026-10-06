@@ -1,14 +1,5 @@
 # QuantPlatformKit
 
-
-## QSL 架构角色
-
-- **层级**：`核心共享库`。
-- **职责**：共享 runtime contracts 和平台 adapters。
-- **事实源/归属**：稳定 contracts、broker adapters、runtime helpers、notifications、risk utilities。
-- **消费对象**：platforms、strategies、pipelines、lifecycle tooling。
-- **禁止事项**：决定哪个策略 live 或保存环境 secrets。
-
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
@@ -25,6 +16,14 @@ QuantPlatformKit 是 QuantStrategyLab 的共享运行时库。平台仓库共用
 - 除非有协同迁移计划，否则优先保持向后兼容。
 - 密钥和环境专属配置不要写进共享库代码。
 - 会影响多个平台或策略包的改动，需要在文档中说明。
+
+## QSL 架构角色
+
+- **层级**：`核心共享库`。
+- **职责**：共享 runtime contracts 和平台 adapters。
+- **事实源/归属**：稳定 contracts、broker adapters、runtime helpers、notifications、risk utilities。
+- **消费对象**：platforms、strategies、pipelines、lifecycle tooling。
+- **禁止事项**：决定哪个策略 live 或保存环境 secrets。
 
 ## 仓库结构
 
