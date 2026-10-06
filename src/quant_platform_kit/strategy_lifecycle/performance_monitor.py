@@ -162,7 +162,9 @@ def run_monitor(
             promotion-grade setting for leveraged strategies.
         live_stream_id: Optional stable telemetry stream identity.  When live
             account data is used, this prevents independent broker accounts
-            from being merged into one return series.
+            from being merged into one return series. A nonempty ID requires
+            collect_from_live_runs_result; research collectors cannot satisfy
+            this request through collect/collect_result or CSV fallback.
         source_revision: Observation provenance. Required when snapshots would be
             written; resolved from env when omitted (see
             :func:`resolve_monitor_source_revision`).
@@ -191,21 +193,48 @@ def run_monitor(
     # 1. Collect returns under the domain observation contract.
     coverage_by_profile = {}
     result_mode = requested or include_interval_coverage
-    if result_mode:
-        collect_result = getattr(collector, "collect_result", None)
-        if not callable(collect_result):
-            raise ValueError("interval_coverage_result_required")
-        outcome = collect_result(
-            domain, live_stream_id=live_stream_id, observation_contract=observation_contract,
-            required_start_at=required_start_at, required_end_at=required_end_at,
-        )
+    requested_live_stream = str(live_stream_id or "").strip()
+    if result_mode or requested_live_stream:
+        if requested_live_stream:
+            collect_live_result = getattr(collector, "collect_from_live_runs_result", None)
+            if not callable(collect_live_result):
+                raise ValueError("live_stream_result_required")
+            outcome = collect_live_result(
+                domain, stream_id=requested_live_stream, observation_contract=observation_contract,
+                required_start_at=required_start_at, required_end_at=required_end_at,
+            )
+        else:
+            collect_result = getattr(collector, "collect_result", None)
+            if not callable(collect_result):
+                raise ValueError("interval_coverage_result_required")
+            outcome = collect_result(
+                domain, live_stream_id=live_stream_id, observation_contract=observation_contract,
+                required_start_at=required_start_at, required_end_at=required_end_at,
+            )
         all_returns = dict(outcome.series_by_profile)
+        if requested_live_stream:
+            # Explicit live results and incomplete reasons are authoritative.
+            # Only qualified latest segments may survive a disclosed truncation;
+            # nonempty research values cannot override an unavailable result.
+            usable_truncations = {
+                "truncated_after_observation_gap", "truncated_after_invalid_cash_flow",
+                "truncated_after_interval_gap",
+            }
+            for profile, series in list(all_returns.items()):
+                reason = str(outcome.incomplete_by_profile.get(profile) or "")
+                status = reason.split(":", 1)[0]
+                if reason and status not in usable_truncations:
+                    del all_returns[profile]
+                    continue
+                stamped = series.copy()
+                stamped.attrs["observation_status"] = status or "ok"
+                all_returns[profile] = stamped
         targets = ([strategy_profile] if strategy_profile else sorted(
             set(all_returns) | set(outcome.coverage_by_profile) | set(outcome.incomplete_by_profile)))
         # Qualify every target before the first write. CSV/attrs cannot repair
         # a missing checkpoint outcome or silently waive an explicit request.
         for profile in targets:
-            raw = outcome.coverage_by_profile.get(profile)
+            raw = outcome.coverage_by_profile.get(profile) if result_mode else None
             series = all_returns.get(profile)
             normalized = None
             if series is not None and not series.empty:
