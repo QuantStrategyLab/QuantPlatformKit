@@ -840,11 +840,7 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
         self.assertAlmostEqual(float(bridge_series.iloc[0]), 202.0 / 200.0 - 1.0)
         self.assertEqual(bridge_series.attrs["observation_status"], "truncated_after_invalid_cash_flow")
 
-        empty_series = collected[empty]
-        self.assertEqual(list(empty_series.index), [pd.Timestamp("2026-09-07")])
-        self.assertAlmostEqual(float(empty_series.iloc[0]), 0.01)
-        self.assertEqual(empty_series.attrs["observation_status"], "truncated_after_invalid_cash_flow")
-        self.assertNotEqual(empty_series.attrs["observation_status"], "ok")
+        self.assertNotIn(empty, collected)
 
     def test_unknown_cash_flow_survives_gap_and_calendar_rejection(self) -> None:
         gap_profile = "gap_after_unknown"
@@ -919,19 +915,12 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
         self.assertIn("no_contiguous_session_pair", crypto_outcome.incomplete_by_profile[gap_profile])
         self.assertIn("invalid_cash_flow", crypto_outcome.incomplete_by_profile[gap_profile])
         self.assertNotIn(gap_profile, crypto_outcome.series_by_profile)
-        gap_series = crypto_collected[gap_profile]
-        self.assertEqual(list(gap_series.index), [pd.Timestamp("2026-09-06")])
-        self.assertEqual(gap_series.attrs["observation_status"], "truncated_after_invalid_cash_flow")
+        self.assertNotIn(gap_profile, crypto_collected)
 
         self.assertIn("coverage_exceeded", us_outcome.incomplete_by_profile[calendar_profile])
         self.assertIn("invalid_cash_flow", us_outcome.incomplete_by_profile[calendar_profile])
         self.assertNotIn(calendar_profile, us_outcome.series_by_profile)
-        calendar_series = us_collected[calendar_profile]
-        self.assertEqual(list(calendar_series.index), [pd.Timestamp("2025-12-28")])
-        self.assertEqual(
-            calendar_series.attrs["observation_status"],
-            "truncated_after_invalid_cash_flow",
-        )
+        self.assertNotIn(calendar_profile, us_collected)
 
     def test_missing_us_trading_day_does_not_become_single_day_return(self) -> None:
         result = live_run_records_to_return_series_result(
@@ -1217,6 +1206,74 @@ class ReturnCollectorLiveRunTests(unittest.TestCase):
                 "us_equity", stream_id="account-a"
             )
             self.assertAlmostEqual(float(account_a["soxl_soxx_trend_income"].iloc[0]), 0.02)
+
+
+class ExplicitLiveIsolationTests(unittest.TestCase):
+    profile = "tqqq_growth_income"
+    stream = "fixture-native-account"
+
+    def _setup(self, root, rows=()):
+        matrix = root / "portfolio_and_tracker_returns.csv"
+        pd.DataFrame({"as_of": ["2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10"],
+                      self.profile: [.8, .7, .6, .5]}).to_csv(matrix, index=False)
+        store = PerformanceStore(local_root=root / "store")
+        for stamp, equity, flow, stream in rows:
+            execution = {"total_equity": equity}
+            if flow is not None:
+                execution["external_cash_flow"] = flow
+            store.save_live_run_record(self.profile, "us_equity", {
+                "strategy_profile": self.profile, "domain": "us_equity",
+                "recorded_at": stamp, "record_kind": "execution", "execution_result": execution,
+            }, stream_id=stream)
+        collector = ReturnCollector(artifact_roots={"us_equity": root}, projects_root=root, store=store)
+        return collector
+
+    def test_selected_missing_unknown_calendar_and_gap_do_not_use_csv(self):
+        cases = {
+            "missing_stream": [("2026-09-08T20:00:00Z", 100, 0, "other")],
+            "unknown_flow": [("2026-09-08T20:00:00Z", 100, None, self.stream),
+                             ("2026-09-09T20:00:00Z", 200, None, self.stream)],
+            "outside_calendar": [("2025-12-29T20:00:00Z", 100, 0, self.stream),
+                                 ("2025-12-30T20:00:00Z", 110, 0, self.stream)],
+            "session_gap": [("2026-09-08T20:00:00Z", 100, 0, self.stream),
+                            ("2026-09-10T20:00:00Z", 110, 0, self.stream)],
+            "no_live_records": [],
+        }
+        for reason, rows in cases.items():
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
+                collector = self._setup(Path(tmp), rows)
+                outcome = collector.collect_result("us_equity", live_stream_id="  " + self.stream + "  ")
+                self.assertNotIn(self.profile, outcome.series_by_profile)
+                self.assertEqual(collector.collect("us_equity", live_stream_id=self.stream), {})
+                # Independent research collection retains its prior CSV contract.
+                self.assertIn(self.profile, collector.collect("us_equity", live_stream_id="  "))
+
+    def test_selected_live_only_uses_its_qualified_dates_and_values(self):
+        rows = [("2026-09-08T20:00:00Z", 100, 0, self.stream),
+                ("2026-09-09T20:00:00Z", 110, 0, self.stream),
+                ("2026-09-10T20:00:00Z", 121, 0, self.stream),
+                ("2026-09-08T20:00:00Z", 100, 0, "other"),
+                ("2026-09-09T20:00:00Z", 190, 0, "other")]
+        with tempfile.TemporaryDirectory() as tmp:
+            collector = self._setup(Path(tmp), rows)
+            outcome = collector.collect_result("us_equity", live_stream_id=self.stream)
+            series = outcome.series_by_profile[self.profile]
+            self.assertEqual(list(series.index), [pd.Timestamp("2026-09-09"), pd.Timestamp("2026-09-10")])
+            self.assertEqual(len(series), 2)
+            for value in series:
+                self.assertAlmostEqual(value, .1)
+            self.assertNotIn(self.profile, outcome.incomplete_by_profile)
+
+    def test_selected_live_does_not_discover_or_parse_strategy_csv(self):
+        from unittest.mock import patch
+        rows = [("2026-09-08T20:00:00Z", 100, 0, self.stream),
+                ("2026-09-09T20:00:00Z", 110, 0, self.stream)]
+        with tempfile.TemporaryDirectory() as tmp:
+            collector = self._setup(Path(tmp), rows)
+            with patch.object(collector, "discover_return_matrices", side_effect=AssertionError("strategy CSV forbidden")) as discover:
+                outcome = collector.collect_result("us_equity", live_stream_id=self.stream)
+            discover.assert_not_called()
+            self.assertAlmostEqual(outcome.series_by_profile[self.profile].iloc[0], .1)
 
 
 if __name__ == "__main__":

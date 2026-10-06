@@ -325,8 +325,13 @@ class ReturnCollector:
         Return merged Series plus authoritative live coverage and status maps.
         If multiple matrices are found (e.g., different portfolios), merges them.
         attrs are compatibility copies, not durable coverage qualification.
+
+        A nonempty live_stream_id requests only that live stream. Strategy
+        CSVs are not read and cannot fill unavailable observations or extend
+        its qualified segment. Empty/whitespace IDs retain research behavior.
         """
-        paths = self.discover_return_matrices(domain)
+        requested_live_stream = str(live_stream_id or "").strip()
+        paths = [] if requested_live_stream else self.discover_return_matrices(domain)
         all_strategies: dict[str, pd.Series] = {}
         if paths:
             for path in paths:
@@ -355,9 +360,9 @@ class ReturnCollector:
             "required_start_at": required_start_at,
             "required_end_at": required_end_at,
         }
-        if live_stream_id:
+        if requested_live_stream:
             live_outcome = self.collect_from_live_runs_result(
-                domain, stream_id=live_stream_id, **live_kwargs
+                domain, stream_id=requested_live_stream, **live_kwargs
             )
         else:
             live_outcome = self.collect_from_live_runs_result(domain, **live_kwargs)

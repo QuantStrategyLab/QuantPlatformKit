@@ -506,5 +506,174 @@ class PerformanceMonitorTests(unittest.TestCase):
             self.assertAlmostEqual(snapshots[0].latest_return or 0.0, 202.0 / 200.0 - 1.0)
 
 
+class ExplicitLiveMonitorIsolationTests(unittest.TestCase):
+    profile = "tqqq_growth_income"
+    stream = "fixture-native-account"
+    revision = "b" * 40
+
+    def _setup(self, root, rows=()):
+        pd.DataFrame({"as_of": ["2026-09-08", "2026-09-09", "2026-09-10"],
+                      self.profile: [.8, .7, .6], "buy_hold_QQQ": [.01, -.01, .02]}).to_csv(
+                          root / "portfolio_and_tracker_returns.csv", index=False)
+        store = PerformanceStore(local_root=root / "store")
+        for stamp, equity, flow in rows:
+            execution = {"total_equity": equity}
+            if flow is not None:
+                execution["external_cash_flow"] = flow
+            store.save_live_run_record(self.profile, "us_equity", {
+                "strategy_profile": self.profile, "domain": "us_equity",
+                "recorded_at": stamp, "record_kind": "execution", "execution_result": execution,
+            }, stream_id=self.stream)
+        collector = ReturnCollector(artifact_roots={"us_equity": root}, projects_root=root, store=store)
+        return collector, store
+
+    def _run(self, collector, store, **kwargs):
+        return run_monitor("us_equity", strategy_profile=self.profile, collector=collector,
+                           store=store, live_stream_id="  " + self.stream + "  ",
+                           windows=(2,), min_observations=1, source_revision=self.revision, **kwargs)
+
+    def test_unavailable_selected_live_cannot_write_csv_metrics_or_zero_return(self):
+        for rows in [[], [("2026-09-08T20:00:00Z", 100, None),
+                         ("2026-09-09T20:00:00Z", 200, None)]]:
+            with self.subTest(rows=rows), tempfile.TemporaryDirectory() as tmp:
+                collector, store = self._setup(Path(tmp), rows)
+                with patch.object(collector, "collect_benchmark", side_effect=AssertionError("no live qualification")) as benchmark:
+                    with patch.object(PerformanceStore, "save_snapshot", autospec=True) as save:
+                        self.assertEqual(self._run(collector, store, fail_on_empty=False), [])
+                        with self.assertRaisesRegex(RuntimeError, "No strategy return series found"):
+                            self._run(collector, store)
+                    save.assert_not_called()
+                benchmark.assert_not_called()
+                self.assertEqual(list((Path(tmp) / "store").rglob("daily/**/*.json")), [])
+
+    def test_selected_live_monitor_persists_correct_profile_domain_stream_and_qualification(self):
+        rows = [("2026-09-08T20:00:00Z", 100, 0),
+                ("2026-09-09T20:00:00Z", 110, 0),
+                ("2026-09-10T20:00:00Z", 121, 0)]
+        with tempfile.TemporaryDirectory() as tmp:
+            collector, store = self._setup(Path(tmp), rows)
+            snapshots = self._run(collector, store, strategy_benchmarks={self.profile: "buy_hold_QQQ"},
+                                  require_explicit_benchmark=True)
+            self.assertEqual(len(snapshots), 1)
+            snapshot = snapshots[0]
+            loaded = store.load_latest_snapshot("us_equity", self.profile)
+            self.assertIsNotNone(loaded)
+            for value in (snapshot, loaded):
+                self.assertEqual(value.domain, "us_equity")
+                self.assertEqual(value.strategy_profile, self.profile)
+                self.assertEqual(value.platform, self.stream)
+                self.assertEqual(value.source_revision, self.revision)
+                self.assertEqual(value.observation_status, "ok")
+                self.assertIsNone(value.interval_return_coverage)
+                self.assertEqual(value.windows[2].observation_count, 2)
+                self.assertEqual(value.windows[2].start_date.isoformat(), "2026-09-09")
+                self.assertEqual(value.windows[2].end_date.isoformat(), "2026-09-10")
+                self.assertAlmostEqual(value.windows[2].total_return, .21)
+                self.assertAlmostEqual(value.latest_return, .1)
+                self.assertEqual(value.windows[2].calendar_id, "XNYS")
+                self.assertEqual(value.windows[2].periods_per_year, 252)
+
+    def test_custom_research_only_collectors_cannot_satisfy_explicit_live_request(self):
+        class LegacyCollector:
+            def collect(self, domain):
+                raise AssertionError("legacy CSV collection bypass")
+        class GenericResultCollector(LegacyCollector):
+            def collect_result(self, domain, **kwargs):
+                raise AssertionError("generic result can still include research CSV")
+        for collector in (LegacyCollector(), GenericResultCollector()):
+            with self.subTest(collector=type(collector).__name__), tempfile.TemporaryDirectory() as tmp:
+                store = PerformanceStore(local_root=Path(tmp))
+                with patch.object(PerformanceStore, "save_snapshot", autospec=True) as save:
+                    with self.assertRaisesRegex(ValueError, "live_stream_result_required"):
+                        self._run(collector, store, fail_on_empty=False)
+                save.assert_not_called()
+
+    def test_custom_live_result_api_receives_normalized_source_and_never_falls_back(self):
+        rows = [("2026-09-08T20:00:00Z", 100, 0), ("2026-09-09T20:00:00Z", 110, 0)]
+        with tempfile.TemporaryDirectory() as tmp:
+            native, store = self._setup(Path(tmp), rows)
+            calls = []
+            class LiveCollector:
+                def collect(self, domain):
+                    raise AssertionError("legacy CSV collection bypass")
+                def collect_result(self, domain, **kwargs):
+                    raise AssertionError("generic result collection bypass")
+                def collect_from_live_runs_result(self, domain, **kwargs):
+                    calls.append((domain, kwargs))
+                    return native.collect_from_live_runs_result(domain, **kwargs)
+            snapshots = self._run(LiveCollector(), store)
+            self.assertEqual(len(snapshots), 1)
+            self.assertEqual(calls[0][0], "us_equity")
+            self.assertEqual(calls[0][1]["stream_id"], self.stream)
+            self.assertAlmostEqual(snapshots[0].latest_return, .1)
+
+    def test_custom_incomplete_live_result_cannot_supply_nonempty_research_values(self):
+        from quant_platform_kit.strategy_lifecycle.contracts import LiveReturnCollectionResult
+        profile = self.profile
+        class IncompleteCollector:
+            def collect_from_live_runs_result(self, domain, **kwargs):
+                return LiveReturnCollectionResult(
+                    {profile: pd.Series([.9], index=pd.to_datetime(["2026-09-09"]))},
+                    {profile: "insufficient_observations:invalid_cash_flow"})
+            def collect(self, domain):
+                raise AssertionError("research fallback forbidden")
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            self.assertEqual(self._run(IncompleteCollector(), store, fail_on_empty=False), [])
+            self.assertIsNone(store.load_latest_snapshot("us_equity", self.profile))
+
+
+    def test_explicit_live_interval_keeps_coverage_opt_in_and_required_bounds(self):
+        from quant_platform_kit.strategy_lifecycle.contracts import INTERVAL_SNAPSHOT_SCHEMA_VERSION
+        from quant_platform_kit.strategy_lifecycle.performance_store import SCHEMA_VERSION
+        profile = "crypto_fixture_native_interval"
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            store = PerformanceStore(local_root=root / "store")
+            for day, equity in [(8, 100), (9, 110), (10, 121)]:
+                stamp = f"2026-09-{day:02d}T20:00:00Z"
+                store.save_live_run_record(profile, "crypto", {
+                    "strategy_profile": profile, "domain": "crypto", "recorded_at": stamp,
+                    "execution_result": {"external_cash_flow_interval": {
+                        "account_scope_sha256": "a" * 64,
+                        "start_at": f"2026-09-{day - 1:02d}T20:00:00Z", "end_at": stamp,
+                        "end_equity_usdt": str(equity), "net_external_cash_flow": "0",
+                        "currency": "USDT", "valuation_basis": "checkpoint_quantities_sampled_prices",
+                    }},
+                }, stream_id=self.stream)
+            collector = ReturnCollector(projects_root=root, store=store)
+            kwargs = dict(strategy_profile=profile, collector=collector, store=store,
+                          live_stream_id=self.stream, source_revision=self.revision,
+                          windows=(2,), min_observations=1)
+            legacy = run_monitor("crypto", **kwargs)[0]
+            self.assertIsNone(legacy.interval_return_coverage)
+            daily = store._read(store._snapshot_key(legacy))
+            self.assertEqual(daily["schema_version"], SCHEMA_VERSION)
+            qualified = run_monitor("crypto", include_interval_coverage=True, **kwargs)[0]
+            self.assertEqual(qualified.interval_return_coverage["currency"], "USDT")
+            self.assertEqual(qualified.interval_return_coverage["coverage_status"], "complete_segment")
+            daily = store._read(store._snapshot_key(qualified))
+            self.assertEqual(daily["schema_version"], INTERVAL_SNAPSHOT_SCHEMA_VERSION)
+            with patch.object(PerformanceStore, "save_snapshot", autospec=True) as save:
+                with self.assertRaisesRegex(RuntimeError, "incomplete_requested_window"):
+                    run_monitor("crypto", required_start_at="2026-09-07T20:00:00Z",
+                                required_end_at="2026-09-10T20:00:00Z", **kwargs)
+            save.assert_not_called()
+
+    def test_empty_live_selector_retains_custom_research_contract(self):
+        profile = self.profile
+        class ResearchCollector:
+            def collect(self, domain):
+                return {profile: pd.Series([.03, -.01], index=pd.to_datetime(["2026-09-09", "2026-09-10"]))}
+        with tempfile.TemporaryDirectory() as tmp:
+            store = PerformanceStore(local_root=Path(tmp))
+            snapshots = run_monitor("us_equity", strategy_profile=profile, collector=ResearchCollector(),
+                                    store=store, live_stream_id="  ", windows=(2,),
+                                    min_observations=2, source_revision=self.revision)
+            self.assertEqual(len(snapshots), 1)
+            self.assertEqual(snapshots[0].platform, "")
+            self.assertAlmostEqual(snapshots[0].windows[2].total_return, 1.03 * .99 - 1)
+
+
 if __name__ == "__main__":
     unittest.main()
