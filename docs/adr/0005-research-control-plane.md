@@ -148,3 +148,24 @@ source receipt tampering/licence/injection; plugin no-order invariants; and
 authority-digest mismatch. Research, shadow, and paper receipts must never be
 interpretable as live authorization.
 
+## Implementation references and evidence status as of 2026-10-06
+
+The accepted policy and staged rollout above are unchanged. This register
+links existing implementations; it does not activate a stage or authorize a
+model call, research run, publication, deployment, or account action.
+The AAB links below pin the inspected source baseline; they do not include this
+documentation update or imply that it has been published.
+
+| Design area | Existing implementation | Evidence boundary |
+| --- | --- | --- |
+| Candidate identity and research roles | [`candidate_control.py`](../../src/quant_platform_kit/strategy_lifecycle/candidate_control.py) and [`research_factory`](../../src/quant_platform_kit/research_factory/) | Implemented contracts; capability declarations do not prove deployed process/identity isolation |
+| Frozen experiments and recovery | [Research promotion recovery](../research_promotion_resume.zh-CN.md) | Implemented local persistence and synthetic regression coverage; cross-host admission belongs to the actual scheduler |
+| Paired forward evidence | [Paired shadow evidence](../paired_shadow_evidence.zh-CN.md) | Implemented validation contract; production monitoring alone is not candidate/baseline forward evidence |
+| Network-assisted design and bounded repair | [AAB implementation entry points](https://github.com/QuantStrategyLab/AIAuditBridge/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/README.md) and [bounded research evidence](https://github.com/QuantStrategyLab/AIAuditBridge/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/docs/bounded_research_diagnosis.md) | Specific SOXL, Global ETF, CN and engineering lanes; no general unattended rewrite or open-network factory completion claim |
+
+`implemented`, `synthetic`, and `real` must be recorded separately for each
+entry point. A successful no-pending watcher run proves a safe skip, not an AI
+call, strict backtest, or completed shadow. The current P0–P6 authority and
+champion/challenger boundary remain owned by the
+[QRS current-state policy](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/d35b2f83f4ebb7bc1c78fdad054534b4dfd1d3f9/docs/QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md).
+Historical evidence is not refreshed by adding this register.
