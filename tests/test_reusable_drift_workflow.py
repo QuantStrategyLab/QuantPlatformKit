@@ -16,7 +16,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "snapshot_repository_token:" in workflow
     assert "snapshot_checkout_path:" in workflow
     assert "snapshot_repository_ref:" in workflow
-    assert "ai_gateway_service_url:" in workflow
+    assert "ai_service_url:" in workflow
     assert "quant_platform_kit_ref:" in workflow
     assert "lifecycle_performance_bucket:" in workflow
     assert "caller_event_name:" in workflow
@@ -25,7 +25,8 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "strategy_profile:" in workflow
     assert "live_stream_id:" in workflow
     assert "LIFECYCLE_LIVE_STREAM_ID: ${{ inputs.live_stream_id }}" in workflow
-    assert "codex_audit_service_url:" in workflow
+    assert "ai_service_audience:" in workflow
+    assert "ai_service_reviewers_json:" in workflow
     assert 'python-version: ${{ inputs.python_version }}' in workflow
     assert "LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}" in workflow
     assert "Validate trusted caller" in workflow
@@ -63,42 +64,11 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'os.environ["CODEX_AUDIT_ORG"] = owner' in workflow
     assert 'os.environ["CODEX_AUDIT_ORCHESTRATOR_REPO"] = repository' in workflow
     assert "create_issues_for_domain" in workflow
-    assert 'CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}' in workflow
-    assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
-    # Consume AAB main SHA that maps review_unavailable → degraded/exit 3
-    # (not disagreement-as-completed-veto). Do not pin older 60bd64a2 / cce4a5c4.
-    assert 'ref: 9fe23596d3722777dfbd28eac1a710ab2b2d6431' in workflow
-    assert 'ref: 60bd64a2ae059a082614181eeb845b46df395523' not in workflow
-    assert 'ref: cce4a5c454ef9b5bbf3b4cc067af8f4827de63cc' not in workflow
-    assert workflow.count('GH_TOKEN: ${{ github.token }}') >= 2
-    assert "emit_parked_record" in workflow
-    assert '"schema": "qsl.drift_dual_review_availability.v1"' in workflow
-    assert '"state": "PARKED"' in workflow
-    assert '"next_action": "retry_on_next_drift_cycle"' in workflow
-    assert "review_script_unavailable" in workflow
-    assert "codex_audit_service_unconfigured" in workflow
-    assert "review_output_unavailable" in workflow
-    assert "review_provider_degraded" in workflow
-    assert "review_completed_blocked" in workflow
-    assert 'completed_outcomes = {"fail", "disagreement"}' in workflow
-    assert 'emit_parked_record "review_completed_blocked"' in workflow
-    assert "Dual review completed and blocked promotion" in workflow
-    assert "invalid_review_json" in workflow
-    assert 'if [ ! -f "$review_output" ]; then' in workflow
-    assert workflow.index('if [ ! -f "$review_output" ]; then') < workflow.index('cat "$review_output"')
-    assert 'if [ "$review_rc" -ne 0 ]; then' in workflow
-    # Unavailable/degraded is fail-closed exit 3, not Actions success or
-    # completed substantive veto. Do not blindly re-exit every review_rc.
-    assert 'exit "$review_rc"' not in workflow
-    # Classify degraded before treating fail/disagreement as completed veto.
-    assert workflow.index('if payload.get("degraded") is True:') < workflow.index(
-        'completed_outcomes = {"fail", "disagreement"}'
-    )
-    assert 'emit_parked_record "review_provider_degraded"' in workflow
-    assert 'if [ "$review_state" = "provider_degraded" ]; then' in workflow
-    assert "exit 3" in workflow
-    degraded_handler = workflow.split('if [ "$review_state" = "provider_degraded" ]; then', 1)[1]
-    degraded_handler = degraded_handler.split("fi", 1)[0]
-    assert "exit 3" in degraded_handler
-    assert "exit 0" not in degraded_handler
-    assert "review_completed_blocked" not in degraded_handler
+    assert 'AI_SERVICE_URL: ${{ inputs.ai_service_url }}' in workflow
+    assert 'AI_SERVICE_REVIEWERS_JSON: ${{ inputs.ai_service_reviewers_json }}' in workflow
+    assert 'python -m quant_platform_kit.strategy_lifecycle.drift_review' in workflow
+    assert 'AIAuditBridge' not in workflow
+    assert 'CODEX_AUDIT_SERVICE_URL' not in workflow
+    assert 'approved artifact required' in workflow
+    assert 'artifact digest mismatch' in workflow
+    assert '--no-index' in workflow

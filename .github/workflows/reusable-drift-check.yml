@@ -24,10 +24,18 @@ on:
         required: false
         type: string
         default: "main"
-      ai_gateway_service_url:
+      ai_service_url:
         required: false
         type: string
         default: ""
+      ai_service_audience:
+        required: false
+        type: string
+        default: ""
+      ai_service_reviewers_json:
+        required: false
+        type: string
+        default: "[]"
       lifecycle_performance_bucket:
         required: false
         type: string
@@ -71,8 +79,6 @@ on:
         type: string
         default: ""
     secrets:
-      codex_audit_service_url:
-        required: false
       snapshot_repository_token:
         required: false
 
@@ -83,6 +89,7 @@ permissions:
 
 jobs:
   drift:
+    if: vars.AI_SERVICE_RELEASE_READY == 'true'
     runs-on: ubuntu-latest
     # A critical drift can require up to three sequential primary reviews.  Each
     # service review has a 15-minute budget plus its polling grace period.
@@ -288,6 +295,25 @@ jobs:
           fi
           quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7 "${lifecycle_args[@]}"
 
+      - name: Install approved task-service artifacts
+        env:
+          AI_SERVICE_CLIENT_WHEEL: ${{ vars.AI_SERVICE_CLIENT_WHEEL }}
+          AI_SERVICE_CLIENT_SHA256: ${{ vars.AI_SERVICE_CLIENT_SHA256 }}
+          AI_SERVICE_QPK_WHEEL: ${{ vars.AI_SERVICE_QPK_WHEEL }}
+          AI_SERVICE_QPK_SHA256: ${{ vars.AI_SERVICE_QPK_SHA256 }}
+        run: |
+          python - <<'PYCODE'
+          import hashlib, os, pathlib, re, subprocess, sys
+          for prefix, name in (("CLIENT", "personal_ai_service-2.0.0-"), ("QPK", "quant_platform_kit-1.0.0-")):
+              path = pathlib.Path(os.environ.get("AI_SERVICE_" + prefix + "_WHEEL", ""))
+              digest = os.environ.get("AI_SERVICE_" + prefix + "_SHA256", "")
+              if not re.fullmatch(r"[0-9a-f]{64}", digest) or not path.is_file() or path.is_symlink() or not path.name.startswith(name) or path.suffix != ".whl":
+                  raise SystemExit("approved artifact required")
+              if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                  raise SystemExit("artifact digest mismatch")
+              subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", "--no-index", str(path)], check=True)
+          PYCODE
+
       - name: Run drift detection
         shell: bash
         run: |
@@ -318,110 +344,9 @@ jobs:
           print({"created_issues": len(created), "results": len(results)})
           PY
 
-      - name: Checkout AIAuditBridge
-        uses: actions/checkout@v6
-        with:
-          repository: QuantStrategyLab/AIAuditBridge
-          ref: 9fe23596d3722777dfbd28eac1a710ab2b2d6431
-          path: external/AIAuditBridge
-
-      - name: Dual-review critical drift
+      - name: Review critical drift through task service
         env:
-          AIAUDIT_BRIDGE_ROOT: external/AIAuditBridge
-          CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}
-          AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          emit_parked_record() {
-            python - "$1" "$2" <<'PY'
-          import hashlib
-          import json
-          import os
-          import sys
-
-          reason = sys.argv[1]
-          detail = sys.argv[2]
-          domain = os.environ["STRATEGY_DOMAIN"]
-          dedup_key = hashlib.sha256(f"drift-dual-review/{domain}/{reason}".encode()).hexdigest()
-          print(json.dumps({
-              "schema": "qsl.drift_dual_review_availability.v1",
-              "state": "PARKED",
-              "domain": domain,
-              "reason": reason,
-              "detail": detail[:500],
-              "dedup_key": dedup_key,
-              "next_action": "retry_on_next_drift_cycle",
-          }, sort_keys=True))
-          PY
-          }
-          script="external/AIAuditBridge/scripts/run_drift_dual_review.py"
-          if [ ! -f "$script" ]; then
-            emit_parked_record "review_script_unavailable" "$script"
-            echo "::notice::Dual review parked: the drift detector and issue sync remain active"
-            exit 0
-          fi
-          if [ -z "${CODEX_AUDIT_SERVICE_URL:-}" ]; then
-            emit_parked_record "codex_audit_service_unconfigured" "CODEX_AUDIT_SERVICE_URL is empty"
-            echo "::notice::Dual review parked: the drift detector and issue sync remain active"
-            exit 0
-          fi
-          review_output="${RUNNER_TEMP}/drift-dual-review.json"
-          set +e
-          PYTHONPATH=external/AIAuditBridge python "$script" \
-            --domain "${STRATEGY_DOMAIN}" --dispatch >"$review_output"
-          review_rc=$?
-          set -e
-          if [ ! -f "$review_output" ]; then
-            emit_parked_record "review_output_unavailable" "exit_code=$review_rc output_file_missing"
-            echo "::warning::Dual review parked; no review output was produced"
-            exit 0
-          fi
-          cat "$review_output"
-          if [ "$review_rc" -ne 0 ]; then
-            review_state="$(python - "$review_output" <<'PY'
-          import json
-          import sys
-
-          try:
-              payload = json.load(open(sys.argv[1], encoding="utf-8"))
-          except (OSError, json.JSONDecodeError) as exc:
-              print(f"invalid_review_json:{exc}")
-              raise SystemExit(0)
-          if not isinstance(payload, dict):
-              print("invalid_review_json:top_level_not_object")
-              raise SystemExit(0)
-          if payload.get("degraded") is True:
-              print("provider_degraded")
-              raise SystemExit(0)
-          results = payload.get("results")
-          completed_outcomes = {"fail", "disagreement"}
-          if (
-              isinstance(results, list)
-              and results
-              and all(isinstance(result, dict) for result in results)
-              and all(str(result.get("outcome") or "") in completed_outcomes for result in results)
-          ):
-              print("review_completed_blocked")
-              raise SystemExit(0)
-          print("review_process_failed")
-          PY
-            )"
-            if [ "$review_state" = "review_completed_blocked" ]; then
-              emit_parked_record "review_completed_blocked" "exit_code=$review_rc completed safety review blocked promotion"
-              echo "::notice::Dual review completed and blocked promotion; drift remains parked"
-              exit 0
-            fi
-            if [ "$review_state" = "provider_degraded" ]; then
-              emit_parked_record "review_provider_degraded" "exit_code=$review_rc $review_state"
-              echo "::warning::Dual review unavailable/degraded; fail-closed without treating as completed veto"
-              exit 3
-            fi
-            review_reason="review_process_failed"
-            if [[ "$review_state" == invalid_review_json:* ]]; then
-              review_reason="review_output_invalid_json"
-            fi
-            emit_parked_record "$review_reason" "exit_code=$review_rc $review_state"
-            echo "::warning::Dual review parked; the drift detector and de-duplicated GitHub issue sync remain active"
-            exit 0
-          fi
+          AI_SERVICE_URL: ${{ inputs.ai_service_url }}
+          AI_SERVICE_AUDIENCE: ${{ inputs.ai_service_audience }}
+          AI_SERVICE_REVIEWERS_JSON: ${{ inputs.ai_service_reviewers_json }}
+        run: python -m quant_platform_kit.strategy_lifecycle.drift_review --domain "$STRATEGY_DOMAIN"

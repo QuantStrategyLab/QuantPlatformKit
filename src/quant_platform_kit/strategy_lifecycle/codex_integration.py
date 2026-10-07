@@ -404,8 +404,9 @@ def call_ai_optimization_decision(
     context: AiOptimizationContext,
     *,
     dry_run: bool = False,
+    resume_task_id: str | None = None,
 ) -> dict[str, Any]:
-    """Request a Codex-only research decision, with no paid API fallback.
+    """Request an advisory research decision through a configured task route.
 
     Dry-run decisions are explicitly simulated; unavailable or malformed real
     responses never fall back to simulation or authorize an experiment.
@@ -437,13 +438,20 @@ def call_ai_optimization_decision(
             AiServiceConfig, AiServiceClient, AiProviderConfig,
         )
 
-        config = AiServiceConfig.reliability(primary=AiProviderConfig.codex_vps())
-        result = AiServiceClient(config).execute(build_optimization_prompt(context), timeout=600.0, research_stage="optimization")
+        config = AiServiceConfig.reliability(primary=AiProviderConfig.from_env())
+        prompt = build_optimization_prompt(context)
+        import hashlib
+        operation_id = "optimization:" + hashlib.sha256(prompt.encode()).hexdigest()
+        result = AiServiceClient(config).execute(prompt, timeout=600.0, idempotency_key=operation_id,
+                                                 resume_task_id=resume_task_id)
         raw = getattr(result, "raw", None)
-        if result.success is False and result.provider in {"codex", "Codex VPS"} and isinstance(raw, dict) and raw.get("status") == "deferred":
-            return {"optimization_needed": False, "reason": "codex_research_deferred", "retry_at": raw.get("retry_at")}
-        if result.success is not True or result.provider not in {"codex", "Codex VPS"}:
-            return {"optimization_needed": False, "reason": "codex_unavailable"}
+        if result.success is False and isinstance(raw, dict) and raw.get("status") in {
+            "queued", "submitting", "running", "cancel_requested", "outcome_unknown",
+        }:
+            return {"optimization_needed": False, "reason": "ai_task_pending",
+                    "task_id": raw.get("id"), "task_status": raw.get("status")}
+        if result.success is not True:
+            return {"optimization_needed": False, "reason": "ai_unavailable"}
         decision = json.loads(result.output)
         if not isinstance(decision, dict) or type(decision.get("optimization_needed")) is not bool:
             raise ValueError("invalid decision")
@@ -451,9 +459,9 @@ def call_ai_optimization_decision(
             raise ValueError("unsupported research method")
         return decision
     except (TypeError, ValueError):
-        return {"optimization_needed": False, "reason": "invalid_codex_decision"}
+        return {"optimization_needed": False, "reason": "invalid_ai_decision"}
     except Exception:
-        return {"optimization_needed": False, "reason": "codex_unavailable"}
+        return {"optimization_needed": False, "reason": "ai_unavailable"}
 
 
 # ── Auto-Pilot Orchestration ─────────────────────────────────────────
@@ -527,8 +535,8 @@ def _process_optimization_decision(
     if not isinstance(ticket_dir, (str, Path)) or research_identity is None:
         return {**entry, "reason": "research_identity_unavailable", "research_promotion_state": "parked"}
 
-    def diagnose(*_):
-        decision = call_ai_optimization_decision(context, dry_run=False)
+    def diagnose(*_, resume_task_id=None):
+        decision = call_ai_optimization_decision(context, dry_run=False, resume_task_id=resume_task_id)
         entry["ai_decision"] = decision
         return decision
 
@@ -557,6 +565,7 @@ def _process_optimization_decision(
             record_shadow=record_shadow, sync_console=sync_console,
             research_identity=research_identity, ticket_dir=Path(ticket_dir) / "research_promotion_tickets",
             diagnose=diagnose, pull_console=pull_console,
+            read_pending_diagnosis=lambda task_id: diagnose(resume_task_id=task_id),
             resume_delivery_only=resume_delivery_only,
             admit_new_research=admit_new_research,
             read_pending_shadow=read_pending_shadow,

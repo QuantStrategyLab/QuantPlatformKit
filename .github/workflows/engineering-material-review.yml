@@ -1,0 +1,26 @@
+name: Frozen Engineering Material Review V2
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: engineering-material-review-v2
+  cancel-in-progress: false
+jobs:
+  review:
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.AI_SERVICE_RELEASE_READY == 'true'
+    runs-on: [self-hosted, research-runner]
+    timeout-minutes: 35
+    env:
+      AI_SERVICE_URL: ${{ vars.AI_SERVICE_URL }}
+      AI_SERVICE_AUDIENCE: ${{ vars.AI_SERVICE_AUDIENCE }}
+      AI_SERVICE_REVIEWERS_JSON: ${{ vars.AI_SERVICE_REVIEWERS_JSON }}
+      AUDIT_MATERIAL: ${{ vars.AI_SERVICE_ENGINEERING_MATERIAL_PATH }}
+      AUDIT_ROLES: ${{ vars.AI_SERVICE_ENGINEERING_ROLES_JSON }}
+    steps:
+      - name: Review caller-owned frozen material using the approved runtime
+        run: |
+          set -euo pipefail
+          test -n "$AUDIT_MATERIAL" && test -n "$AUDIT_ROLES"
+          python -m quant_platform_kit.strategy_lifecycle.audit_tasks --material "$AUDIT_MATERIAL" --roles-json "$AUDIT_ROLES"
