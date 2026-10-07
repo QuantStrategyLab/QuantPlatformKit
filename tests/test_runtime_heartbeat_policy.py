@@ -124,6 +124,7 @@ def test_july_29_us_month_end_target_is_due_at_1545_eastern() -> None:
         targets,
         since=dt.datetime(2026, 7, 29, 19, 40, tzinfo=dt.timezone.utc),
         now=dt.datetime(2026, 7, 29, 20, 20, tzinfo=dt.timezone.utc),
+        session_dates_loader=lambda _calendar, **_kwargs: {dt.date(2026, 7, 29)},
     )
 
     assert evaluated is True
