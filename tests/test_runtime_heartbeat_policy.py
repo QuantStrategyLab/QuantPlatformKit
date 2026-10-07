@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import pytest
 
 from quant_platform_kit.common.runtime_heartbeat_policy import filter_due_targets, load_runtime_targets, match_payload_target, runtime_target_configuration_present, target_key, target_latest_due_at
 
@@ -67,6 +68,7 @@ def test_due_targets_use_each_strategy_market_calendar() -> None:
     assert [target["strategy_profile"] for target in due] == ["hk-strategy"]
 
 def test_real_exchange_calendars_distinguish_us_holiday_from_hk_session() -> None:
+    pytest.importorskip("pandas_market_calendars")
     targets = load_runtime_targets(
         {
             "CLOUD_RUN_SERVICE_TARGETS_JSON": json.dumps(
@@ -433,4 +435,3 @@ def test_runtime_target_configuration_presence_is_preserved_when_all_disabled() 
     assert runtime_target_configuration_present(environ) is True
     assert load_runtime_targets(environ) == []
     assert load_runtime_targets(environ, include_disabled=True)[0]["enabled"] is False
-
