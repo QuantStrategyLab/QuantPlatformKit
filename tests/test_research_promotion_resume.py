@@ -1041,3 +1041,34 @@ def test_invalid_bilingual_summary_stays_unavailable_and_is_not_retried(tmp_path
     assert saved.state == cycle.ResearchPromotionState.AWAITING_HUMAN
     assert saved.live_authority_granted is False
     assert saved.human_decision == ""
+
+
+def test_native_pending_is_preserved_without_treating_it_as_a_rejection(tmp_path):
+    diagnose = Mock(return_value={"optimization_needed": False, "reason": "ai_task_pending",
+                                 "task_id": "task-synthetic", "task_status": "outcome_unknown"})
+    optimize = Mock()
+    first = invoke(tmp_path, diagnose=diagnose, optimize=optimize)
+    second = invoke(tmp_path, diagnose=diagnose, optimize=optimize)
+    assert first["status"] == second["status"] == "deferred"
+    assert first["reason"] == "ai_task_pending" and second["task_id"] == "task-synthetic"
+    assert diagnose.call_count == 1
+    optimize.assert_not_called()
+
+
+def test_native_pending_resume_only_reads_the_original_task_before_research(tmp_path):
+    diagnose = Mock(return_value={"optimization_needed": False, "reason": "ai_task_pending",
+                                 "task_id": "task-synthetic", "task_status": "running"})
+    read = Mock(side_effect=[{"optimization_needed": False, "reason": "ai_task_pending",
+                            "task_id": "task-synthetic", "task_status": "outcome_unknown"},
+                           {"optimization_needed": True, "recommended_method": "grid_search"}])
+    optimize = Mock(return_value=_proposal())
+    kwargs = dict(diagnose=diagnose, read_pending_diagnosis=read, optimize=optimize)
+    first = invoke(tmp_path, **kwargs)
+    second = invoke(tmp_path, **kwargs)
+    assert first["status"] == second["status"] == "deferred"
+    optimize.assert_not_called()
+    third = invoke(tmp_path, **kwargs)
+    assert third["status"] == "awaiting_human"
+    assert diagnose.call_count == 1 and read.call_count == 2
+    assert all(call.args == ("task-synthetic",) for call in read.call_args_list)
+    assert optimize.call_count == 1 and third["ticket"]["live_authority_granted"] is False

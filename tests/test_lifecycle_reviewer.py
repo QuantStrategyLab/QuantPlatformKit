@@ -250,48 +250,39 @@ class ReviewBoundaryTests(unittest.TestCase):
     def result(self, provider, **payload):
         import json
         from quant_platform_kit.strategy_lifecycle.ai_provider import AiCallResult
-        return AiCallResult(provider=provider, success=True, output=json.dumps(payload))
+        return AiCallResult(provider="configured-provider", label=provider, success=True, output=json.dumps(payload))
 
     def parse(self, **payload):
         from quant_platform_kit.strategy_lifecycle.ai_reviewer import _parse_reviewer_result
-        return _parse_reviewer_result(self.proposal, [self.result("GPT", **payload)], "GPT")
+        return _parse_reviewer_result(self.proposal, [self.result("reviewer-secondary", **payload)], "reviewer-secondary")
 
-    def test_gateway_aliases_and_legacy_labels(self):
+    def test_review_parser_matches_explicit_role_not_provider_brand(self):
         from quant_platform_kit.strategy_lifecycle.ai_reviewer import _parse_reviewer_result
-        for provider, label in [("openai", "GPT"), ("gpt", "GPT"), ("GPT", "GPT"),
-                                ("anthropic", "Claude"), ("claude", "Claude"), ("Claude", "Claude")]:
-            with self.subTest(provider=provider):
-                parsed = _parse_reviewer_result(self.proposal, [self.result(
-                    provider, verdict="approve", overall_score=0.8)], label)
-                self.assertIsNotNone(parsed)
-                self.assertEqual(parsed.confidence, 0.5)
-                self.assertTrue(parsed.requires_human)
+        parsed = _parse_reviewer_result(self.proposal, [self.result(
+            "reviewer-primary", verdict="approve", overall_score=0.8)], "reviewer-primary")
+        self.assertIsNotNone(parsed)
+        self.assertTrue(parsed.requires_human)
         self.assertIsNone(_parse_reviewer_result(self.proposal, [self.result(
-            "openai", verdict="approve", overall_score=0.8)], "Claude"))
+            "reviewer-secondary", verdict="approve", overall_score=0.8)], "reviewer-primary"))
 
-    def test_gateway_response_flows_through_client_into_dual_review(self):
-        from types import SimpleNamespace
-        from unittest.mock import Mock, patch
+    def test_task_results_flow_into_dual_review_without_execution_authority(self):
+        from unittest.mock import patch
         from quant_platform_kit.strategy_lifecycle import ai_provider
         from quant_platform_kit.strategy_lifecycle.ai_reviewer import _parse_reviewer_result
         config = ai_provider.AiServiceConfig.safety(reviewers=[
-            ai_provider.AiProviderConfig.claude(), ai_provider.AiProviderConfig.gpt(),
+            ai_provider.AiProviderConfig("reviewer-primary", "agent", "dot-model"),
+            ai_provider.AiProviderConfig("reviewer-secondary", "agent", "grok-model", "second-opinion"),
         ])
-        gateway = Mock()
-        gateway.review.return_value = SimpleNamespace(results=[
-            self.result("anthropic", verdict="approve", overall_score=0.8, confidence=0.9),
-            self.result("openai", verdict="approve", overall_score=0.9, confidence=0.9),
-        ])
-        with (patch.object(ai_provider, "_HAS_GATEWAY_CLIENT", True),
-              patch.object(ai_provider, "GatewayConfig", create=True),
-              patch.object(ai_provider, "AiGatewayClient", return_value=gateway, create=True)):
-            results = ai_provider.AiServiceClient(config).review("synthetic review")
-        primary = _parse_reviewer_result(self.proposal, results, "Claude")
-        secondary = _parse_reviewer_result(self.proposal, results, "GPT")
+        responses = [self.result("reviewer-primary", verdict="approve", overall_score=0.8, confidence=0.9),
+                     self.result("reviewer-secondary", verdict="approve", overall_score=0.9, confidence=0.9)]
+        with patch.object(ai_provider.AiServiceClient, "_call_single", side_effect=responses) as call:
+            results = ai_provider.AiServiceClient(config).review("synthetic", idempotency_key="review")
+        primary = _parse_reviewer_result(self.proposal, results, "reviewer-primary")
+        secondary = _parse_reviewer_result(self.proposal, results, "reviewer-secondary")
         verdict = _resolve_multi_consensus(self.proposal, review_proposal(self.proposal), primary, secondary, None)
         self.assertEqual(verdict.recommended_action, "candidate_ready")
         self.assertTrue(verdict.requires_human)
-        gateway.review.assert_called_once()
+        self.assertEqual(call.call_count, 2)
 
     def test_parser_rejects_explicit_invalid_numeric_fields(self):
         for field in ("overall_score", "confidence"):
@@ -305,10 +296,10 @@ class ReviewBoundaryTests(unittest.TestCase):
                 self.assertIsNone(self.parse(verdict=verdict))
 
     def test_codex_claims_are_advisory_not_verification(self):
-        from quant_platform_kit.strategy_lifecycle.ai_reviewer import _parse_codex_result
+        from quant_platform_kit.strategy_lifecycle.ai_reviewer import _parse_verifier_result
         for claim in ("verified", "mismatch"):
             with self.subTest(claim=claim):
-                parsed = _parse_codex_result(self.proposal, self.result("codex", verdict=claim))
+                parsed = _parse_verifier_result(self.proposal, self.result("codex", verdict=claim))
                 self.assertIsNotNone(parsed)
                 self.assertEqual(parsed.verdict, "escalate")
                 self.assertEqual(parsed.recommended_action, "notify" if claim == "verified" else "escalate")
@@ -317,11 +308,11 @@ class ReviewBoundaryTests(unittest.TestCase):
                 self.assertIn(claim, parsed.summary.lower())
 
     def test_codex_advisory_disagreement_is_not_silently_lost(self):
-        from quant_platform_kit.strategy_lifecycle.ai_reviewer import _parse_codex_result
+        from quant_platform_kit.strategy_lifecycle.ai_reviewer import _parse_verifier_result
         primary = self.parse(verdict="approve", overall_score=0.9, confidence=0.9)
         for claim, expected in (("verified", "approve"), ("mismatch", "escalate")):
             with self.subTest(claim=claim):
-                codex = _parse_codex_result(self.proposal, self.result("codex", verdict=claim))
+                codex = _parse_verifier_result(self.proposal, self.result("codex", verdict=claim))
                 verdict = _resolve_multi_consensus(self.proposal, review_proposal(self.proposal), primary, primary, codex)
                 self.assertEqual(verdict.verdict, expected)
                 self.assertTrue(verdict.requires_human)
@@ -330,18 +321,18 @@ class ReviewBoundaryTests(unittest.TestCase):
 
     def test_codex_invalid_values_and_missing_reviewers(self):
         from types import SimpleNamespace
-        from quant_platform_kit.strategy_lifecycle.ai_reviewer import _parse_codex_result
-        self.assertIsNone(_parse_codex_result(self.proposal, SimpleNamespace(output=None)))
+        from quant_platform_kit.strategy_lifecycle.ai_reviewer import _parse_verifier_result
+        self.assertIsNone(_parse_verifier_result(self.proposal, SimpleNamespace(output=None)))
         for field in ("reproduced_sharpe", "reproduced_max_dd", "reproduced_cagr", "confidence", "overall_score"):
             for value in (None, True, "0.1", float("nan"), float("inf")):
                 with self.subTest(field=field, value=value):
                     for claim in ("verified", "mismatch"):
-                        parsed = _parse_codex_result(self.proposal, self.result("codex", verdict=claim, **{field: value}))
+                        parsed = _parse_verifier_result(self.proposal, self.result("codex", verdict=claim, **{field: value}))
                         self.assertEqual(parsed.verdict, "escalate")
                         self.assertEqual(parsed.recommended_action, "escalate")
                         self.assertIn("Invalid numeric", parsed.summary)
                         self.assertTrue(parsed.requires_human)
-        claim = _parse_codex_result(self.proposal, self.result("codex", verdict="mismatch"))
+        claim = _parse_verifier_result(self.proposal, self.result("codex", verdict="mismatch"))
         verdict = _resolve_multi_consensus(self.proposal, review_proposal(self.proposal), None, None, claim)
         self.assertEqual(verdict.verdict, "escalate")
         self.assertIn("mismatch", verdict.summary)

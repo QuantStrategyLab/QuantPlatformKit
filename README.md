@@ -130,3 +130,7 @@ See [LICENSE](LICENSE).
 ## v1 migration
 
 `quant_platform_kit.strategy_contracts` was removed in v1. Import strategy contracts from `quant_platform_kit.common.strategy_contracts`, execution translation from `quant_platform_kit.common.execution_translation`, and runtime inputs from `quant_platform_kit.common.runtime_inputs`. No compatibility facade is provided.
+
+### AI 任务服务升级
+
+生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/TASK-SERVICE-V2.zh-CN.md)。本次版本尚未发布或部署。

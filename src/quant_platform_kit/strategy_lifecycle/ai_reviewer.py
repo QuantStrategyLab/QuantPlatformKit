@@ -1,16 +1,9 @@
-"""Multi-AI adversarial proposal reviewer.
+"""Advisory proposal review with deterministic checks and configured task routes.
 
-Review chain (SAFETY pattern via AiServiceClient):
-  L1: Rule-based (5 dims) — instant, deterministic, always available
-  L2: Claude — adversarial statistical analysis
-  L3: GPT — second opinion from different provider
-  L4: Codex VPS — advisory claims, not independently verified execution
-  L5: Consensus — all must agree, or escalate to human
-
-All LLM/Codex calls delegate to AiServiceClient (ai_provider.py).
-The unified provider supports two patterns:
-  RELIABILITY — Codex primary → API fallback (CodexAuditBridge style)
-  SAFETY — adversarial consensus (strategy_lifecycle style)
+Two explicitly configured reviewer roles may supply opinions. An optional
+verification assistant supplies advisory claims only; reproduced metrics and
+execution still require independent evidence and human approval. Task failure
+has no automatic provider fallback.
 """
 
 from __future__ import annotations
@@ -70,9 +63,8 @@ class AiReviewVerdict:
 
 # ── Provider labels (for consensus display) ──────────────────────────
 
-_PRIMARY_LLM = "Claude"
-_SECONDARY_LLM = "GPT"
-_CODEX_VPS = "Codex VPS"
+_PRIMARY_LLM = "reviewer-primary"
+_SECONDARY_LLM = "reviewer-secondary"
 _REVIEW_COVERAGE_FIELDS = frozenset({
     "method", "timezone", "currency", "valuation_basis", "source_segment_start_at", "source_segment_end_at",
     "available_return_start_at", "available_return_end_at", "return_start_at", "return_end_at",
@@ -272,9 +264,9 @@ def _review_confidence(p: OptimizationProposal) -> ReviewDimension:
 
 # ── Level 2-5: Multi-AI adversarial review (via AiServiceClient) ─────
 #
-# All LLM/Codex calls go through AiServiceClient.
-# This is the "双AI审计 + Codex执行回测" pattern:
-#   Claude + GPT independently review → Codex advisory claims → consensus
+# All AI calls go through the project-scoped task service.
+# The caller owns independent review roles and numerical evidence:
+#   configured review routes → advisory verification → consensus
 
 
 def llm_enhanced_review(
@@ -283,7 +275,7 @@ def llm_enhanced_review(
     snapshot: StrategyPerformanceSnapshot | None = None,
     comparison_coverage: Mapping[str, Any] | None = None,
 ) -> AiReviewVerdict:
-    """Multi-AI review using unified AiServiceClient (SAFETY pattern)."""
+    """Multi-AI review using unified AiServiceClient (configured reviewer roles)."""
     base = review_proposal(proposal, drift=drift, snapshot=snapshot,
                            comparison_coverage=comparison_coverage)
     if (base.verdict != "escalate" or dry_run or _interval_review_issue(proposal, snapshot, comparison_coverage)
@@ -293,8 +285,11 @@ def llm_enhanced_review(
 
     from quant_platform_kit.strategy_lifecycle.ai_provider import AiServiceClient, AiServiceConfig
 
-    config = AiServiceConfig.from_env()
-    client = AiServiceClient(config)
+    try:
+        config = AiServiceConfig.from_env()
+        client = AiServiceClient(config)
+    except (ValueError, TypeError):
+        return base
     prompt = _build_review_prompt(proposal, drift)
     if snapshot is not None and snapshot.interval_return_coverage is not None:
         context = {k: v for k, v in snapshot.interval_return_coverage.items()
@@ -304,41 +299,41 @@ def llm_enhanced_review(
 
     # L2+L3: Run all configured reviewers via AiServiceClient
     results = client.review(prompt)
-    claude = _parse_reviewer_result(proposal, results, _PRIMARY_LLM)
-    gpt = _parse_reviewer_result(proposal, results, _SECONDARY_LLM)
+    primary = _parse_reviewer_result(proposal, results, _PRIMARY_LLM)
+    secondary = _parse_reviewer_result(proposal, results, _SECONDARY_LLM)
 
-    # L4: Codex self-reported claims remain advisory, not execution evidence.
-    codex = None
+    # L4: Assistant self-reported claims remain advisory, not execution evidence.
+    verification = None
     if client.config.verifier is not None:
-        vp = _build_codex_verify_prompt(proposal, drift)
+        vp = _build_verifier_prompt(proposal, drift)
         if snapshot is not None and snapshot.interval_return_coverage is not None:
             vp += ("\nComparison is limited to the supplied checkpoint window and method. "
                    "Do not claim complete account history or exact TWR.")
         cr = client.verify(vp)
         if cr and cr.success:
-            codex = _parse_codex_result(proposal, cr)
+            verification = _parse_verifier_result(proposal, cr)
 
     # L5: Consensus
-    return _resolve_multi_consensus(proposal, base, claude, gpt, codex)
+    return _resolve_multi_consensus(proposal, base, primary, secondary, verification)
 
 
 # ── Consensus resolution ─────────────────────────────────────────────
 
 def _resolve_multi_consensus(
     proposal: OptimizationProposal, base: AiReviewVerdict,
-    claude: AiReviewVerdict | None, gpt: AiReviewVerdict | None,
-    codex: AiReviewVerdict | None,
+    primary: AiReviewVerdict | None, secondary: AiReviewVerdict | None,
+    verification: AiReviewVerdict | None,
 ) -> AiReviewVerdict:
     """Confidence-driven consensus resolution.
 
     Decision logic (ordered):
     Research candidate readiness requires both independent LLM reviewers.
-    Codex self-reports cannot verify execution or replace either reviewer;
+    Assistant self-reports cannot verify execution or replace either reviewer;
     advisory disagreement still requires human inspection.
     """
-    advisory = f" [{codex.summary}]" if codex else ""
+    advisory = f" [{verification.summary}]" if verification else ""
     verdicts: list[tuple[str, AiReviewVerdict]] = []
-    for l, v in [(_PRIMARY_LLM, claude), (_SECONDARY_LLM, gpt)]:
+    for l, v in [(_PRIMARY_LLM, primary), (_SECONDARY_LLM, secondary)]:
         if v: verdicts.append((l, v))
 
     if not verdicts:
@@ -348,7 +343,7 @@ def _resolve_multi_consensus(
 
     missing_independent_reviewers = [
         label
-        for label, verdict in [(_PRIMARY_LLM, claude), (_SECONDARY_LLM, gpt)]
+        for label, verdict in [(_PRIMARY_LLM, primary), (_SECONDARY_LLM, secondary)]
         if verdict is None
     ]
     if missing_independent_reviewers:
@@ -374,10 +369,10 @@ def _resolve_multi_consensus(
             requires_human=True, confidence=0.0, recommended_action="escalate",
         )
 
-    if codex and codex.recommended_action != "notify":
+    if verification and verification.recommended_action != "notify":
         return AiReviewVerdict(
             proposal=proposal, verdict="escalate", overall_score=base.overall_score,
-            dimensions=base.dimensions, summary="Codex advisory disagreement; human inspection required." + advisory,
+            dimensions=base.dimensions, summary="Verification assistant advisory disagreement; human inspection required." + advisory,
             requires_human=True, confidence=0.0, recommended_action="escalate",
         )
     apps = [l for l, v in verdicts if v.verdict == "approve"]
@@ -419,10 +414,8 @@ def _resolve_multi_consensus(
 def _parse_reviewer_result(
     proposal: OptimizationProposal, results: list[Any], label: str,
 ) -> AiReviewVerdict | None:
-    aliases = {"Claude": ("claude", "anthropic"), "GPT": ("gpt", "openai")}
     for r in results:
-        provider = getattr(r, "provider", "")
-        if isinstance(provider, str) and provider.lower() in aliases.get(label, (label.lower(),)) and getattr(r, "success", False):
+        if getattr(r, "label", "") == label and getattr(r, "success", False):
             try:
                 m = re.search(r"\{[\s\S]*\}", getattr(r, "output", ""))
                 if m:
@@ -444,7 +437,7 @@ def _parse_reviewer_result(
     return None
 
 
-def _parse_codex_result(proposal: OptimizationProposal, result: Any) -> AiReviewVerdict | None:
+def _parse_verifier_result(proposal: OptimizationProposal, result: Any) -> AiReviewVerdict | None:
     output = getattr(result, "output", "")
     if not isinstance(output, str): return None
     m = re.search(r"\{[\s\S]*\}", output)
@@ -461,7 +454,7 @@ def _parse_codex_result(proposal: OptimizationProposal, result: Any) -> AiReview
     note = " Invalid numeric claims require human inspection." if invalid else ""
     return AiReviewVerdict(
         proposal=proposal, verdict="escalate", overall_score=0.0, dimensions=(),
-        summary=f"Codex VPS advisory claim: {v}; execution and reproduced metrics are not independently verified." + note,
+        summary=f"Verification assistant advisory claim: {v}; execution and reproduced metrics are not independently verified." + note,
         requires_human=True, confidence=0.0,
         recommended_action="notify" if v == "verified" and not invalid else "escalate",
     )
@@ -489,7 +482,7 @@ def _build_review_prompt(proposal: OptimizationProposal, drift: DriftResult | No
     return "\n".join(lines)
 
 
-def _build_codex_verify_prompt(proposal: OptimizationProposal, drift: DriftResult | None = None) -> str:
+def _build_verifier_prompt(proposal: OptimizationProposal, drift: DriftResult | None = None) -> str:
     lines = [
         "# Role", "", "RUN the backtest with proposed parameters and verify the claimed metrics.", "",
         f"Strategy: {proposal.strategy_profile}", "",

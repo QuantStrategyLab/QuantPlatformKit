@@ -1325,6 +1325,7 @@ _SUMMARY_MAX_TEXT = 2000
 _SUMMARY_SEGMENT_MAX = 240
 _SUMMARY_OLD_KEYS = frozenset({"status", "provider", "model", "text"})
 _SUMMARY_NEW_KEYS = frozenset({"status", "provider", "model", "locales"})
+_SUMMARY_TASK_KEYS = frozenset({"status", "provider", "model_requested", "model_verification", "locales"})
 _SUMMARY_LOCALE_FIELDS = ("question", "basis", "limits", "suggestion")
 _SUMMARY_PROVIDERS = frozenset({"codex", "cursor"})
 _HAN_RE = re.compile(r"[\u4e00-\u9fff]")
@@ -1606,9 +1607,12 @@ def _bilingual_summary_explanation(
     value: Mapping[str, Any], binding: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     provider = value.get("provider")
-    model = value.get("model")
+    task_result = frozenset(value) == _SUMMARY_TASK_KEYS
+    model = value.get("model_requested") if task_result else value.get("model")
     locales = value.get("locales")
-    if (not isinstance(provider, str) or provider not in _SUMMARY_PROVIDERS
+    if (not isinstance(provider, str) or not provider.strip()
+            or not task_result and provider not in _SUMMARY_PROVIDERS
+            or task_result and value.get("model_verification") not in {"unavailable", "provider_reported"}
             or not isinstance(model, str) or not model.strip()
             or not isinstance(locales, Mapping) or frozenset(locales) != {"zh-CN", "en"}):
         return None
@@ -1624,7 +1628,7 @@ def _bilingual_summary_explanation(
                 return None
             saved[field_name] = segment
         saved_locales[name] = saved
-    return {
+    saved = {
         "status": "available",
         "provider": provider,
         "model": model,
@@ -1632,6 +1636,10 @@ def _bilingual_summary_explanation(
         "locales": saved_locales,
         "binding": json.loads(_canonical_ticket_value(binding)),
     }
+    if task_result:
+        saved.pop("model")
+        saved.update(model_requested=model, model_verification=value["model_verification"])
+    return saved
 
 
 def _accepted_summary_explanation(
@@ -1640,7 +1648,7 @@ def _accepted_summary_explanation(
     if not isinstance(value, Mapping) or value.get("status") != "available":
         return None
     keys = frozenset(value)
-    if keys == _SUMMARY_NEW_KEYS:
+    if keys in {_SUMMARY_NEW_KEYS, _SUMMARY_TASK_KEYS}:
         if binding is None:
             return None
         return _bilingual_summary_explanation(value, binding)
@@ -1785,6 +1793,7 @@ def run_saved_research_promotion_cycle(
     enforce_backtest_gates: Callable,
     record_shadow: Callable,
     diagnose: Callable | None = None,
+    read_pending_diagnosis: Callable[[str], Mapping[str, Any]] | None = None,
     sync_console: Callable | None = None,
     pull_console: Callable | None = None,
     budget: ResearchPromotionBudget | None = None,
@@ -2119,13 +2128,22 @@ def run_saved_research_promotion_cycle(
                 if diagnose is None:
                     return output("research_bindings_unavailable", status="parked")
                 old = stages.get("diagnose", {})
+                pending_task_id = None
+                if old.get("status") == "ai_pending":
+                    pending_task_id = old.get("task_id")
+                    if not isinstance(pending_task_id, str) or not pending_task_id:
+                        return output("research_checkpoint_invalid", status="parked")
+                    if not callable(read_pending_diagnosis):
+                        return {**output("ai_task_pending", status="deferred"), "task_id": pending_task_id}
+                    del stages["diagnose"]
                 if old.get("status") == "deferred":
                     retry = old.get("retry_at")
                     if type(retry) not in (int, float) or retry > _clock_now().timestamp():
                         return {**output("codex_research_deferred", status="deferred"), "retry_at": retry}
                     del stages["diagnose"]
                 def checked_diagnosis():
-                    value = dict(diagnose(context, budget))
+                    value = dict(read_pending_diagnosis(pending_task_id) if pending_task_id is not None
+                                 else diagnose(context, budget))
                     if value.get("reason") == "codex_research_deferred":
                         retry = value.get("retry_at")
                         # A reset already in the past is not a usable admission
@@ -2137,6 +2155,14 @@ def run_saved_research_promotion_cycle(
                 decision = stage("diagnose", checked_diagnosis)
                 if not isinstance(decision, Mapping):
                     raise ValueError("research_checkpoint_invalid")
+                if decision.get("reason") == "ai_task_pending":
+                    task_id = decision.get("task_id")
+                    if (not isinstance(task_id, str) or not task_id
+                            or pending_task_id is not None and task_id != pending_task_id):
+                        return output("research_checkpoint_invalid", status="parked")
+                    stages["diagnose"] = {"status": "ai_pending", "task_id": task_id}
+                    save_research_promotion_ticket(ticket, path)
+                    return {**output("ai_task_pending", status="deferred"), "task_id": task_id}
                 if decision.get("reason") == "codex_research_deferred":
                     retry = decision.get("retry_at")
                     stages["diagnose"] = {"status": "deferred", "retry_at": retry}
