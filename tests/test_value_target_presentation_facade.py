@@ -119,5 +119,76 @@ class ValueTargetPresentationFacadeTests(unittest.TestCase):
         )
 
 
+class ValueTargetAnnotationSplitTests(unittest.TestCase):
+    def test_split_parts_then_merge_matches_compat_builder(self) -> None:
+        from quant_platform_kit.common.presentation import (
+            VALUE_TARGET_DISPLAY_FIELD_NAMES,
+            resolve_value_target_execution_annotations,
+            split_value_target_annotation_parts,
+        )
+        from quant_platform_kit.common.strategy_contracts import (
+            build_value_target_execution_annotations,
+        )
+
+        decision = _decision()
+        semantics, display = split_value_target_annotation_parts(decision)
+        self.assertEqual(semantics.trade_threshold_value, 25.0)
+        self.assertEqual(display.signal_display, "risk-on")
+        self.assertEqual(display.dashboard_text, "line-a\nline-b")
+        self.assertTrue({"signal_display", "dashboard_text"} <= VALUE_TARGET_DISPLAY_FIELD_NAMES)
+
+        via_split = resolve_value_target_execution_annotations(
+            semantics=semantics,
+            display=display,
+        )
+        via_compat = build_value_target_execution_annotations(decision)
+        self.assertEqual(via_split, via_compat)
+
+    def test_runtime_plan_prefers_semantics_display_over_mixed_annotations(self) -> None:
+        decision = _decision()
+        inputs = _inputs()
+        via_mixed = build_value_target_execution_runtime_plan(
+            decision,
+            strategy_profile="soxl_soxx_trend_income",
+            portfolio_inputs=inputs,
+            annotations=ValueTargetExecutionAnnotations(
+                trade_threshold_value=25.0,
+                reserved_cash=10.0,
+                signal_display="risk-on",
+                dashboard_text="line-a\nline-b",
+            ),
+        )
+        via_split = build_value_target_execution_runtime_plan(
+            decision,
+            strategy_profile="soxl_soxx_trend_income",
+            portfolio_inputs=inputs,
+            semantics=ValueTargetExecutionSemantics(
+                trade_threshold_value=25.0,
+                reserved_cash=10.0,
+            ),
+            display=ValueTargetDisplayAnnotations(
+                signal_display="risk-on",
+                dashboard_text="line-a\nline-b",
+            ),
+        )
+        self.assertEqual(via_mixed, via_split)
+        self.assertEqual(via_split["execution"]["signal_display"], "risk-on")
+        self.assertEqual(via_split["execution"]["trade_threshold_value"], 25.0)
+
+    def test_rejects_annotations_with_semantics(self) -> None:
+        from quant_platform_kit.common.presentation import (
+            resolve_value_target_execution_annotations,
+        )
+        from quant_platform_kit.common.strategy_contracts import (
+            StrategyContractValidationError,
+        )
+
+        with self.assertRaises(StrategyContractValidationError):
+            resolve_value_target_execution_annotations(
+                annotations=ValueTargetExecutionAnnotations(trade_threshold_value=1.0),
+                semantics=ValueTargetExecutionSemantics(trade_threshold_value=1.0),
+            )
+
+
 if __name__ == "__main__":
     unittest.main()
