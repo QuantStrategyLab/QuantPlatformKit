@@ -4,7 +4,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from .presentation.value_target_plan import ValueTargetPlanPresentation
+from .presentation.value_target_plan import (
+    ValueTargetDisplayAnnotations,
+    ValueTargetExecutionSemantics,
+    ValueTargetPlanPresentation,
+    resolve_value_target_execution_annotations,
+)
 from .strategy_contracts import (
     PositionTarget,
     StrategyContractValidationError,
@@ -228,21 +233,29 @@ def build_value_target_execution_runtime_plan(
     portfolio_inputs: ValueTargetPortfolioInputs,
     strategy_symbols_order: str = "risk_safe_income",
     annotations: ValueTargetExecutionAnnotations | None = None,
+    semantics: ValueTargetExecutionSemantics | None = None,
+    display: ValueTargetDisplayAnnotations | None = None,
     include_sellable_quantities: bool | None = None,
     presentation: ValueTargetPlanPresentation | None = None,
 ) -> dict[str, Any]:
     """Build the value-target runtime plan without dashboard-layout kwargs.
 
+    Prefer ``semantics`` + optional ``display`` for new callers. ``annotations``
+    remains the compatibility aggregate (mixed execution + display fields).
     Presentation knobs (portfolio row layout / field filters) are optional via
-    ``ValueTargetPlanPresentation``. Callers that only need execution semantics
-    should omit ``presentation`` and use the default structural layout.
+    ``ValueTargetPlanPresentation``.
     """
     presentation = presentation or ValueTargetPlanPresentation()
     execution_plan = build_value_target_execution_plan(
         decision,
         strategy_profile=strategy_profile,
     )
-    resolved_annotations = annotations or build_value_target_execution_annotations(decision)
+    resolved_annotations = resolve_value_target_execution_annotations(
+        decision=decision,
+        annotations=annotations,
+        semantics=semantics,
+        display=display,
+    )
     portfolio_plan = build_value_target_portfolio_plan(
         execution_plan,
         market_values=portfolio_inputs.market_values,

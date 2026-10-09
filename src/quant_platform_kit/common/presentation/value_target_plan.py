@@ -1,19 +1,44 @@
 """Split value-target execution semantics from display/layout knobs.
 
 ``ValueTargetExecutionAnnotations`` in ``strategy_contracts`` remains the
-compatibility wire type (all fields). New callers should prefer:
+compatibility wire aggregate (execution + display fields). New callers should
+prefer:
 - ``ValueTargetExecutionSemantics`` for thresholds / timing / numeric gates
 - ``ValueTargetDisplayAnnotations`` for dashboard/signal copy
 - ``ValueTargetPlanPresentation`` for portfolio row layout / field selection
+
+Construct the wire aggregate with ``merge_value_target_execution_annotations``
+(or pass ``semantics`` / ``display`` into
+``build_value_target_execution_runtime_plan``). Mixed-field removal waits on
+consumer adoption evidence (B12).
 """
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from quant_platform_kit.common.strategy_contracts import ValueTargetExecutionAnnotations
+from quant_platform_kit.common.strategy_contracts import (
+    StrategyContractValidationError,
+    StrategyDecision,
+    ValueTargetExecutionAnnotations,
+    validate_strategy_decision,
+)
+
+# Source of truth for which annotation keys are presentation-owned.
+VALUE_TARGET_DISPLAY_FIELD_NAMES: frozenset[str] = frozenset(
+    {
+        "signal_display",
+        "status_display",
+        "dashboard_text",
+        "separator",
+        "deploy_ratio_text",
+        "income_ratio_text",
+        "income_locked_ratio_text",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -97,6 +122,7 @@ def merge_value_target_execution_annotations(
     semantics: ValueTargetExecutionSemantics,
     display: ValueTargetDisplayAnnotations | None = None,
 ) -> ValueTargetExecutionAnnotations:
+    """Build the compatibility wire aggregate from split types."""
     display = display or ValueTargetDisplayAnnotations()
     return ValueTargetExecutionAnnotations(
         trade_threshold_value=float(semantics.trade_threshold_value),
@@ -121,3 +147,162 @@ def merge_value_target_execution_annotations(
         current_min_trade=semantics.current_min_trade,
         investable_cash=semantics.investable_cash,
     )
+
+
+def _pick_annotation_str(
+    annotations: Mapping[str, Any],
+    diagnostics: Mapping[str, Any],
+    *keys: str,
+) -> str | None:
+    for key in keys:
+        value = annotations.get(key, diagnostics.get(key))
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _ensure_finite_annotation_number(value: object, *, field_name: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        raise StrategyContractValidationError(
+            f"{field_name} must be a finite number when provided"
+        )
+
+
+def _pick_annotation_float(
+    annotations: Mapping[str, Any],
+    diagnostics: Mapping[str, Any],
+    *keys: str,
+    default: float | None = None,
+    field_prefix: str = "execution_annotations",
+) -> float | None:
+    for key in keys:
+        value = annotations.get(key, diagnostics.get(key))
+        if value is None:
+            continue
+        _ensure_finite_annotation_number(value, field_name=f"{field_prefix}.{key}")
+        return float(value)
+    return default
+
+
+def split_value_target_annotation_parts(
+    decision: StrategyDecision,
+) -> tuple[ValueTargetExecutionSemantics, ValueTargetDisplayAnnotations]:
+    """Parse decision diagnostics into execution semantics + display copy."""
+    validate_strategy_decision(decision)
+    diagnostics = dict(decision.diagnostics)
+    raw_annotations = diagnostics.get("execution_annotations")
+    annotations = dict(raw_annotations) if isinstance(raw_annotations, Mapping) else {}
+
+    threshold_value = _pick_annotation_float(
+        annotations,
+        diagnostics,
+        "trade_threshold_value",
+        "threshold",
+        "threshold_value",
+    )
+    if threshold_value is None:
+        raise StrategyContractValidationError(
+            "ValueTargetExecutionAnnotations requires trade_threshold_value "
+            "(or legacy threshold/threshold_value)"
+        )
+
+    signal_delay = _pick_annotation_float(
+        annotations,
+        diagnostics,
+        "signal_effective_after_trading_days",
+    )
+    semantics = ValueTargetExecutionSemantics(
+        trade_threshold_value=threshold_value,
+        reserved_cash=float(
+            _pick_annotation_float(
+                annotations,
+                diagnostics,
+                "reserved_cash",
+                "reserved",
+                default=0.0,
+            )
+            or 0.0
+        ),
+        signal_date=_pick_annotation_str(annotations, diagnostics, "signal_date"),
+        effective_date=_pick_annotation_str(annotations, diagnostics, "effective_date"),
+        execution_timing_contract=_pick_annotation_str(
+            annotations, diagnostics, "execution_timing_contract"
+        ),
+        execution_calendar_source=_pick_annotation_str(
+            annotations, diagnostics, "execution_calendar_source"
+        ),
+        signal_effective_after_trading_days=(
+            int(signal_delay) if signal_delay is not None else None
+        ),
+        benchmark_symbol=_pick_annotation_str(annotations, diagnostics, "benchmark_symbol"),
+        benchmark_price=_pick_annotation_float(
+            annotations, diagnostics, "benchmark_price", "qqq_price"
+        ),
+        long_trend_value=_pick_annotation_float(
+            annotations, diagnostics, "long_trend_value", "ma200"
+        ),
+        exit_line=_pick_annotation_float(annotations, diagnostics, "exit_line"),
+        active_risk_asset=_pick_annotation_str(annotations, diagnostics, "active_risk_asset"),
+        current_min_trade=_pick_annotation_float(
+            annotations, diagnostics, "current_min_trade"
+        ),
+        investable_cash=_pick_annotation_float(annotations, diagnostics, "investable_cash"),
+    )
+    display = ValueTargetDisplayAnnotations(
+        signal_display=_pick_annotation_str(
+            annotations, diagnostics, "signal_display", "signal_message"
+        ),
+        status_display=_pick_annotation_str(
+            annotations, diagnostics, "status_display", "market_status"
+        ),
+        dashboard_text=_pick_annotation_str(
+            annotations, diagnostics, "dashboard_text", "dashboard"
+        ),
+        separator=_pick_annotation_str(annotations, diagnostics, "separator"),
+        deploy_ratio_text=_pick_annotation_str(
+            annotations, diagnostics, "deploy_ratio_text"
+        ),
+        income_ratio_text=_pick_annotation_str(
+            annotations, diagnostics, "income_ratio_text"
+        ),
+        income_locked_ratio_text=_pick_annotation_str(
+            annotations, diagnostics, "income_locked_ratio_text"
+        ),
+    )
+    return semantics, display
+
+
+def resolve_value_target_execution_annotations(
+    *,
+    decision: StrategyDecision | None = None,
+    annotations: ValueTargetExecutionAnnotations | None = None,
+    semantics: ValueTargetExecutionSemantics | None = None,
+    display: ValueTargetDisplayAnnotations | None = None,
+) -> ValueTargetExecutionAnnotations:
+    """Resolve wire annotations from preferred split types or legacy aggregate.
+
+    Precedence:
+    1. Explicit ``annotations`` (compat facade)
+    2. ``semantics`` (+ optional ``display``) merged
+    3. Parse ``decision`` diagnostics into split parts then merge
+    """
+    if annotations is not None and (semantics is not None or display is not None):
+        raise StrategyContractValidationError(
+            "Pass either annotations= (compat) or semantics=/display= (preferred), not both"
+        )
+    if annotations is not None:
+        return annotations
+    if semantics is not None:
+        return merge_value_target_execution_annotations(semantics, display)
+    if decision is None:
+        raise StrategyContractValidationError(
+            "resolve_value_target_execution_annotations requires annotations, "
+            "semantics, or decision"
+        )
+    parsed_semantics, parsed_display = split_value_target_annotation_parts(decision)
+    return merge_value_target_execution_annotations(parsed_semantics, parsed_display)
