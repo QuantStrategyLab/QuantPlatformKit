@@ -21,6 +21,7 @@ from quant_platform_kit.common.strategies import (
 )
 from quant_platform_kit.common.execution_translation import (
     ValueTargetPortfolioInputs,
+    build_value_target_execution_runtime_plan,
     build_value_target_portfolio_inputs_from_account_state,
     build_value_target_portfolio_inputs_from_snapshot,
     build_value_target_runtime_plan,
@@ -28,6 +29,12 @@ from quant_platform_kit.common.execution_translation import (
     translate_decision_to_target_mode,
     translate_value_decision_to_weight_targets,
     translate_weight_decision_to_value_targets,
+)
+from quant_platform_kit.common.presentation import (
+    ValueTargetDisplayAnnotations,
+    ValueTargetExecutionSemantics,
+    ValueTargetPlanPresentation,
+    split_value_target_annotation_parts,
 )
 from quant_platform_kit.common.runtime_inputs import (
     build_account_state_from_portfolio_snapshot,
@@ -973,7 +980,25 @@ class StrategyContractMigrationTests(unittest.TestCase):
             }
         )
 
-        payload = build_value_target_runtime_plan(
+        semantics, display = split_value_target_annotation_parts(decision)
+        modern = build_value_target_execution_runtime_plan(
+            decision,
+            strategy_profile="soxl_soxx_trend_income",
+            portfolio_inputs=inputs,
+            semantics=semantics,
+            display=display,
+            presentation=ValueTargetPlanPresentation(
+                portfolio_rows_layout=("risk", "safe"),
+                execution_fields=(
+                    "trade_threshold_value",
+                    "signal_display",
+                    "investable_cash",
+                ),
+                execution_defaults={"investable_cash": 12000.0},
+            ),
+        )
+        # Compat facade must remain behavior-equivalent (B12 keeps facade).
+        legacy = build_value_target_runtime_plan(
             decision,
             strategy_profile="soxl_soxx_trend_income",
             portfolio_inputs=inputs,
@@ -986,9 +1011,12 @@ class StrategyContractMigrationTests(unittest.TestCase):
             execution_defaults={"investable_cash": 12000.0},
         )
 
-        self.assertEqual(payload["allocation"]["target_mode"], "value")
-        self.assertEqual(payload["allocation"]["targets"]["SOXL"], 30000.0)
-        self.assertEqual(payload["portfolio"]["sellable_quantities"]["BOXX"], 5)
-        self.assertEqual(payload["execution"]["trade_threshold_value"], 250.0)
-        self.assertEqual(payload["execution"]["signal_display"], "risk-on")
-        self.assertEqual(payload["execution"]["investable_cash"], 12000.0)
+        self.assertEqual(modern, legacy)
+        self.assertEqual(modern["allocation"]["target_mode"], "value")
+        self.assertEqual(modern["allocation"]["targets"]["SOXL"], 30000.0)
+        self.assertEqual(modern["portfolio"]["sellable_quantities"]["BOXX"], 5)
+        self.assertEqual(modern["execution"]["trade_threshold_value"], 250.0)
+        self.assertEqual(modern["execution"]["signal_display"], "risk-on")
+        self.assertEqual(modern["execution"]["investable_cash"], 12000.0)
+        self.assertIsInstance(semantics, ValueTargetExecutionSemantics)
+        self.assertIsInstance(display, ValueTargetDisplayAnnotations)
