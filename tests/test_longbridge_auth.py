@@ -7,8 +7,14 @@ import time
 import types
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 
-from quant_platform_kit.longbridge.auth import build_contexts, fetch_token_from_secret, refresh_token_if_needed
+from quant_platform_kit.longbridge.auth import (
+    DEFAULT_REFRESHED_TOKEN_LIFETIME_DAYS,
+    build_contexts,
+    fetch_token_from_secret,
+    refresh_token_if_needed,
+)
 
 
 class FakeSecretStore:
@@ -50,9 +56,22 @@ class FakeSecretStoreReadWrite:
         self.destroyed.append(f"projects/{project_id}/secrets/{secret_name}/versions/3")
 
 
-class FakeRequests:
-    @staticmethod
-    def get(url, headers, timeout):
+class RecordingRequests:
+    """Captures the refresh GET URL/headers and returns a successful body."""
+
+    last_url: str | None = None
+    last_headers: dict | None = None
+
+    @classmethod
+    def reset(cls) -> None:
+        cls.last_url = None
+        cls.last_headers = None
+
+    @classmethod
+    def get(cls, url, headers, timeout):
+        cls.last_url = url
+        cls.last_headers = dict(headers)
+
         class Response:
             @staticmethod
             def json():
@@ -103,12 +122,13 @@ class LongBridgeAuthTests(unittest.TestCase):
         self.assertEqual(refreshed, token)
 
     @patch("quant_platform_kit.longbridge.auth.get_secret_store_rw")
-    def test_refresh_token_if_needed_persists_new_token(self, mock_get_store_rw) -> None:
+    def test_refresh_token_if_needed_persists_new_token_with_expired_at(self, mock_get_store_rw) -> None:
         payload = {"exp": 1}
         encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
         token = f"aaa.{encoded}.bbb"
         fake_store = FakeSecretStoreReadWrite(token)
         mock_get_store_rw.return_value = fake_store
+        RecordingRequests.reset()
 
         refreshed = refresh_token_if_needed(
             token,
@@ -116,11 +136,22 @@ class LongBridgeAuthTests(unittest.TestCase):
             secret_name="token",
             app_key="key",
             app_secret="secret",
-            requests_module=FakeRequests,
+            requests_module=RecordingRequests,
+            refreshed_token_lifetime_days=DEFAULT_REFRESHED_TOKEN_LIFETIME_DAYS,
         )
 
         self.assertEqual(refreshed, "new-token")
         self.assertEqual(fake_store.created_parent, "projects/demo/secrets/token")
+        self.assertIsNotNone(RecordingRequests.last_url)
+        parsed = urlparse(RecordingRequests.last_url)
+        self.assertEqual(parsed.path, "/v1/token/refresh")
+        query = parse_qs(parsed.query)
+        self.assertIn("expired_at", query)
+        expired_at = query["expired_at"][0]
+        self.assertTrue(expired_at.endswith("Z"))
+        self.assertRegex(expired_at, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$")
+        # Signature must cover the same encoded query string used in the URL.
+        self.assertIn("Signature=", RecordingRequests.last_headers["X-Api-Signature"])
 
     def test_refresh_token_if_needed_raises_clear_error_when_expired_and_refresh_fails(self) -> None:
         payload = {"exp": 1}
@@ -140,22 +171,26 @@ class LongBridgeAuthTests(unittest.TestCase):
         self.assertIn("longport_token_sg", str(context.exception))
         self.assertIn("refresh failed with code 401003", str(context.exception))
 
-    def test_refresh_token_if_needed_returns_same_token_when_refresh_fails_but_token_not_expired(self) -> None:
+    def test_refresh_token_if_needed_fail_closed_when_refresh_fails_but_token_not_expired(self) -> None:
         payload = {"exp": int(time.time()) + 86400}
         encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("utf-8").rstrip("=")
         token = f"aaa.{encoded}.bbb"
 
-        refreshed = refresh_token_if_needed(
-            token,
-            project_id="demo",
-            secret_name="token",
-            app_key="key",
-            app_secret="secret",
-            refresh_threshold_days=30,
-            requests_module=FakeFailedRequests,
-        )
+        with self.assertRaises(RuntimeError) as context:
+            refresh_token_if_needed(
+                token,
+                project_id="demo",
+                secret_name="longport_token_paper",
+                app_key="key",
+                app_secret="secret",
+                refresh_threshold_days=30,
+                requests_module=FakeFailedRequests,
+            )
 
-        self.assertEqual(refreshed, token)
+        message = str(context.exception)
+        self.assertIn("longport_token_paper", message)
+        self.assertIn("still within expiry window", message)
+        self.assertIn("401003", message)
 
     def test_refresh_token_if_needed_raises_clear_error_when_expired_and_app_credentials_missing(self) -> None:
         payload = {"exp": 1}
