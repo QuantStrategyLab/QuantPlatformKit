@@ -5,7 +5,7 @@ places orders, writes risk policy or grants paper/shadow/live authority.
 Runtime, execution and notification modules must not import it (enforced by
 ``tests/test_research_stats_import_boundary.py``).
 
-``sharpe_inference`` and ``cost_stress`` use only the standard library.
+``sharpe_inference``, ``overfitting`` (PBO/CSCV) and ``cost_stress`` use only the standard library.
 ``bootstrap`` lazily imports numpy from the optional ``research`` extra
 (``pip install 'quant-platform-kit[research]'``).
 """
@@ -38,6 +38,10 @@ from quant_platform_kit.research_stats.cost_stress import (
     CostStressScenario,
     cost_stress_recompute,
 )
+from quant_platform_kit.research_stats.overfitting import (
+    PBO_METRICS,
+    probability_of_backtest_overfitting,
+)
 from quant_platform_kit.research_stats.sharpe_inference import (
     STATUS_COMPUTED,
     STATUS_UNCOMPUTABLE,
@@ -58,6 +62,7 @@ __all__ = [
     "CostStressScenario",
     "DataSpec",
     "MetricEntry",
+    "PBO_METRICS",
     "ReportGates",
     "STATUS_COMPUTED",
     "STATUS_UNCOMPUTABLE",
@@ -73,5 +78,6 @@ __all__ = [
     "expected_max_sharpe",
     "load_backtest_report_schema",
     "probabilistic_sharpe_ratio",
+    "probability_of_backtest_overfitting",
     "stationary_bootstrap_ci",
 ]
