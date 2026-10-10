@@ -23,6 +23,12 @@ dev = [
   "numpy",
   "pandas",
 ]
+# Research-only numerics for quant_platform_kit.research_stats. Never a core
+# runtime dependency; production installs do not need this extra.
+research = [
+  "numpy",
+  "pandas",
+]
 
 [project.scripts]
 quant-lifecycle = "quant_platform_kit.strategy_lifecycle.cli:main"
