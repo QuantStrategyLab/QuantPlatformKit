@@ -4,7 +4,7 @@
 
 安装：`pip install 'quant-platform-kit[research]'`。numpy/pandas 只在 `research` extra（以及原有 `dev` extra）里，核心 `dependencies` 仍为空。PSR/DSR、PBO 与成本压力只用标准库；只有 bootstrap 延迟 import numpy。
 
-本模块与测试只使用合成数据，不包含任何真实回测数字。
+使用规范见 [QSL 回测标准 v1](backtest_standard_v1.zh-CN.md)。本模块与测试只使用合成数据，不包含任何真实回测数字。
 
 ## 组件
 

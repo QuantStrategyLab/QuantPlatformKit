@@ -2,6 +2,8 @@
 
 本文定义策略晋级、插件自动化、AI 自动优化和 Kelly readiness 的统一门槛。
 
+研究回测的报告内容、成本、时点、数据身份与最小观察约定见 [QSL 回测标准 v1](backtest_standard_v1.zh-CN.md)（工具：`research_stats`，模板：`qsl.backtest_report.v1`）；该标准不设数值及格线。
+
 ## 统一原则
 
 - 先满足 `live_ready`，再谈自动化放行和资金影响。
