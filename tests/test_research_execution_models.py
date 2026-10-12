@@ -65,6 +65,14 @@ class CostModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             CostModel().net_return(0, 0, charge_at="unknown")
 
+    def test_end_cost_can_exceed_starting_nav_without_ruin_after_gain(self):
+        model = CostModel(commission_bps=200)
+        self.assertAlmostEqual(model.net_return(99, 100, charge_at="end"), 97)
+        with self.assertRaisesRegex(ValueError, "RUINED"):
+            model.net_return(99, 100, charge_at="start")
+        with self.assertRaisesRegex(ValueError, "RUINED"):
+            model.net_return(.5, 100, charge_at="end")
+
 
 if __name__ == "__main__":
     unittest.main()

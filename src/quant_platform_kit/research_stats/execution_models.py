@@ -92,11 +92,15 @@ class CostModel:
                    *, charge_at: str = "start") -> float:
         gross = _number(gross_return, "RETURN")
         cost = self.fraction(security_turnover)
-        if gross <= -1 or cost >= 1:
+        if gross <= -1:
             raise ValueError("RUINED")
         if charge_at == "start":
+            if cost >= 1:
+                raise ValueError("RUINED")
             net = (1.0 - cost) * (1.0 + gross) - 1.0
         elif charge_at == "end":
+            # End-of-session cost is expressed relative to starting NAV. It
+            # can exceed that NAV after a gain without exhausting ending NAV.
             net = gross - cost
         else:
             raise ValueError("COST_CHARGE_TIMING_INVALID")
