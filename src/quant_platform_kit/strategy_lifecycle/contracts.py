@@ -429,6 +429,20 @@ class WindowPerformance:
     calendar_id: str = ""
     periods_per_year: float = _EQUITY_PERIODS_PER_YEAR
 
+    # Metric semantics metadata (QPK #659). Additive; defaults are neutral so
+    # hand-built and legacy persisted records do not claim v2 semantics.
+    # ``win_rate`` / ``profit_factor`` above are *daily-return* statistics and
+    # ``win_rate`` keeps zero-return days in its denominator; see
+    # ``daily_win_rate_ex_zero`` for the zero-excluded variant. Neither is a
+    # per-trade statistic.
+    metric_semantics_version: str = ""
+    daily_win_rate_ex_zero: float | None = None
+    zero_return_days: int | None = None
+    volatility_ddof: int = 0
+    benchmark_aligned_days: int | None = None
+    benchmark_dropped_strategy_days: int | None = None
+    benchmark_dropped_benchmark_days: int | None = None
+
     def to_dict(self) -> dict[str, object]:
         return {
             "window_name": self.window_name,
@@ -454,6 +468,13 @@ class WindowPerformance:
             "information_ratio": self.information_ratio,
             "calendar_id": self.calendar_id,
             "periods_per_year": self.periods_per_year,
+            "metric_semantics_version": self.metric_semantics_version,
+            "daily_win_rate_ex_zero": self.daily_win_rate_ex_zero,
+            "zero_return_days": self.zero_return_days,
+            "volatility_ddof": self.volatility_ddof,
+            "benchmark_aligned_days": self.benchmark_aligned_days,
+            "benchmark_dropped_strategy_days": self.benchmark_dropped_strategy_days,
+            "benchmark_dropped_benchmark_days": self.benchmark_dropped_benchmark_days,
         }
 
 
