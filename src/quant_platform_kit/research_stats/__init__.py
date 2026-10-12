@@ -38,6 +38,12 @@ from quant_platform_kit.research_stats.cost_stress import (
     CostStressScenario,
     cost_stress_recompute,
 )
+from quant_platform_kit.research_stats.execution_models import (
+    EXECUTION_MODEL_VERSION,
+    CostModel,
+    FillModel,
+    FillPoint,
+)
 from quant_platform_kit.research_stats.overfitting import (
     PBO_METRICS,
     probability_of_backtest_overfitting,
@@ -58,9 +64,13 @@ __all__ = [
     "BootstrapInterval",
     "BootstrapResult",
     "CostModelSpec",
+    "CostModel",
     "CostStressResult",
     "CostStressScenario",
     "DataSpec",
+    "EXECUTION_MODEL_VERSION",
+    "FillModel",
+    "FillPoint",
     "MetricEntry",
     "PBO_METRICS",
     "ReportGates",
