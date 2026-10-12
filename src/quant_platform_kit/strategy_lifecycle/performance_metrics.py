@@ -24,6 +24,21 @@ DEFAULT_RISK_FREE_RATE: float = 0.0
 # pass periods_per_year=365.25 explicitly (see ReturnObservationContract).
 TRADING_DAYS_PER_YEAR: float = 252.0
 CRYPTO_DAYS_PER_YEAR: float = 365.25
+# Stamped on every ``WindowPerformance`` produced by ``compute_window_metrics``.
+# v2 (QPK #659) only *adds* explicit semantics fields; every v1 field keeps its
+# exact numeric value for the same input and default arguments.
+WINDOW_METRICS_SEMANTICS_VERSION: str = "qpk.window_metrics.v2"
+# Default std degrees of freedom for volatility / Sharpe. Kept at 0
+# (population std) for continuity with persisted snapshots and backtest drift
+# baselines; ``research_stats.sharpe_inference`` uses ddof=1 (sample std).
+DEFAULT_VOLATILITY_DDOF: int = 0
+_ALLOWED_VOLATILITY_DDOF: tuple[int, ...] = (0, 1)
+
+
+def _validate_volatility_ddof(volatility_ddof: object) -> int:
+    if type(volatility_ddof) is not int or volatility_ddof not in _ALLOWED_VOLATILITY_DDOF:
+        raise ValueError("volatility_ddof must be 0 (population) or 1 (sample)")
+    return volatility_ddof
 
 
 def _strip_leading_warmup_nans(series: pd.Series) -> pd.Series:
@@ -119,6 +134,7 @@ def compute_window_metrics(
     window_label: str = "",
     periods_per_year: float = TRADING_DAYS_PER_YEAR,
     calendar_id: str = "",
+    volatility_ddof: int = DEFAULT_VOLATILITY_DDOF,
 ) -> WindowPerformance:
     """Compute all performance metrics for a return series.
 
@@ -133,8 +149,40 @@ def compute_window_metrics(
     and variance and is not identifiable for a constant benchmark (alpha=None).
     Information ratio is annualized aligned active mean / population std.
     Zero ratio denominators remain NaN; absent comparisons remain None.
+
+    Metric semantics (``metric_semantics_version`` = "qpk.window_metrics.v2",
+    QPK #659):
+
+    * ``volatility`` / ``sharpe_ratio`` use ``std(ddof=volatility_ddof)``.
+      The default ``volatility_ddof=0`` (population std) is unchanged from v1
+      so persisted snapshots and ``compare_with_backtest`` drift thresholds stay
+      comparable. ``research_stats.sharpe_inference`` (PSR/DSR) uses the sample
+      std (ddof=1); pass ``volatility_ddof=1`` to match it exactly. The two
+      differ by a factor ``sqrt(n / (n - 1))`` (Sharpe_ddof0 is the larger).
+      The applied value is echoed in ``volatility_ddof``. Sortino, beta and the
+      information ratio are not affected by this parameter.
+    * ``win_rate`` is a **daily** statistic: positive-return sessions divided by
+      *all* sessions, so exact-zero sessions (flat / cash / no-position days)
+      count as non-wins. ``daily_win_rate_ex_zero`` divides by positive plus
+      negative sessions only, the convention used by
+      ``position_sizing.estimate_kelly``; it is None when every session is
+      zero. ``zero_return_days`` reports how many sessions were exactly zero.
+    * ``profit_factor`` is the sum of positive daily returns over the absolute
+      sum of negative daily returns (None without losing days). It is not a
+      trade-level profit factor.
+    * Per-trade win rate / profit factor need round-trip trade records, which
+      this function does not receive; it does not and must not infer them from
+      daily returns.
+    * Benchmark alignment: only dates present in both the (windowed) strategy
+      series and the benchmark are used. ``benchmark_aligned_days`` counts
+      them; ``benchmark_dropped_strategy_days`` counts window sessions with no
+      benchmark row; ``benchmark_dropped_benchmark_days`` counts benchmark rows
+      inside ``[start_date, end_date]`` with no strategy row. Benchmark history
+      outside the window is not "dropped". All three are None when no
+      benchmark is supplied.
     """
     annualization_base = validate_periods_per_year(periods_per_year)
+    ddof = _validate_volatility_ddof(volatility_ddof)
     resolved_calendar_id = str(calendar_id or "").strip()
     series = normalize_return_series(returns)
     if window_days and len(series) > window_days:
@@ -148,6 +196,7 @@ def compute_window_metrics(
             benchmark_symbol,
             calendar_id=resolved_calendar_id,
             periods_per_year=annualization_base,
+            volatility_ddof=ddof,
         )
 
     equity = (1.0 + series).cumprod()
@@ -159,7 +208,8 @@ def compute_window_metrics(
     drawdown = equity / equity.cummax().clip(lower=1.0) - 1.0
     max_drawdown = float(drawdown.min())
 
-    vol_daily = float(series.std(ddof=0)) if series.nunique() > 1 else 0.0
+    # ddof=1 needs >= 2 observations; nunique() > 1 already implies that.
+    vol_daily = float(series.std(ddof=ddof)) if series.nunique() > 1 else 0.0
     volatility = float(vol_daily * np.sqrt(annualization_base))
 
     daily_risk_free = risk_free_rate / annualization_base
@@ -172,10 +222,14 @@ def compute_window_metrics(
 
     calmar = float(cagr / abs(max_drawdown)) if max_drawdown < 0.0 else float("nan")
 
-    # Win rate
+    # Daily win rate (v1 semantics: zero-return sessions stay in the denominator)
     wins = int((series > 0).sum())
     total = len(series)
     win_rate = wins / total if total > 0 else 0.0
+    losses = int((series < 0).sum())
+    zero_return_days = total - wins - losses
+    decisive_days = wins + losses
+    daily_win_rate_ex_zero = wins / decisive_days if decisive_days > 0 else None
 
     # Profit factor
     gross_profit = float(series.loc[series > 0].sum()) if wins > 0 else 0.0
@@ -189,9 +243,22 @@ def compute_window_metrics(
     excess_cagr = None
     alpha = None
     ir = None
+    benchmark_aligned_days = None
+    benchmark_dropped_strategy_days = None
+    benchmark_dropped_benchmark_days = None
     if benchmark_returns is not None:
         bench = normalize_return_series(benchmark_returns)
         aligned = pd.concat([series, bench], axis=1, join="inner").dropna()
+        # Report what the inner join removed (normalized inputs have no NaN
+        # after their first observation, so only date mismatches drop rows).
+        bench_in_window = bench.loc[
+            (bench.index >= series.index[0]) & (bench.index <= series.index[-1])
+        ]
+        benchmark_aligned_days = int(len(aligned))
+        benchmark_dropped_strategy_days = int(len(series) - len(aligned))
+        benchmark_dropped_benchmark_days = int(
+            len(bench_in_window.index.difference(aligned.index))
+        )
         if not aligned.empty:
             strategy_aligned = aligned.iloc[:, 0]
             bench_aligned = aligned.iloc[:, 1]
@@ -237,6 +304,13 @@ def compute_window_metrics(
         information_ratio=ir,
         calendar_id=resolved_calendar_id,
         periods_per_year=annualization_base,
+        metric_semantics_version=WINDOW_METRICS_SEMANTICS_VERSION,
+        daily_win_rate_ex_zero=daily_win_rate_ex_zero,
+        zero_return_days=zero_return_days,
+        volatility_ddof=ddof,
+        benchmark_aligned_days=benchmark_aligned_days,
+        benchmark_dropped_strategy_days=benchmark_dropped_strategy_days,
+        benchmark_dropped_benchmark_days=benchmark_dropped_benchmark_days,
     )
 
 
@@ -248,8 +322,9 @@ def compute_windows(
     windows: Sequence[int] = DEFAULT_WINDOWS,
     periods_per_year: float = TRADING_DAYS_PER_YEAR,
     calendar_id: str = "",
+    volatility_ddof: int = DEFAULT_VOLATILITY_DDOF,
 ) -> dict[int, WindowPerformance]:
-    """Compute metrics for multiple rolling windows."""
+    """Compute metrics for multiple rolling windows (see ``compute_window_metrics``)."""
     series = normalize_return_series(returns)
     result: dict[int, WindowPerformance] = {}
     for w in windows:
@@ -263,6 +338,7 @@ def compute_windows(
             window_label=label,
             periods_per_year=periods_per_year,
             calendar_id=calendar_id,
+            volatility_ddof=volatility_ddof,
         )
     return result
 
@@ -272,6 +348,11 @@ def compare_with_backtest(
     backtest: "BacktestResult | None",
 ) -> dict[str, float]:
     """Compute deviation between actual window performance and backtest expectations.
+
+    ``win_rate_deviation_pct`` compares ``actual.win_rate`` (daily, zero days
+    in the denominator) with ``backtest.win_rate`` as recorded; the baseline
+    producer must use the same daily definition. ``sharpe_deviation`` assumes
+    both sides use the same std ddof (``compute_window_metrics`` default 0).
 
     Returns an empty mapping when the baseline lacks an explicit annualization
     basis or the basis disagrees with ``actual.periods_per_year``. Callers must
@@ -331,6 +412,7 @@ def _empty_window(
     *,
     calendar_id: str = "",
     periods_per_year: float = TRADING_DAYS_PER_YEAR,
+    volatility_ddof: int = DEFAULT_VOLATILITY_DDOF,
 ) -> WindowPerformance:
     return WindowPerformance(
         window_name=label or "empty",
@@ -349,4 +431,7 @@ def _empty_window(
         benchmark_symbol=benchmark,
         calendar_id=calendar_id,
         periods_per_year=periods_per_year,
+        metric_semantics_version=WINDOW_METRICS_SEMANTICS_VERSION,
+        zero_return_days=0,
+        volatility_ddof=volatility_ddof,
     )
