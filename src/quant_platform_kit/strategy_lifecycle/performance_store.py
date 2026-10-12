@@ -800,6 +800,10 @@ def _observation_date(data: Mapping[str, Any]) -> date | None:
         return None
 
 
+def _optional_int(value: Any) -> int | None:
+    return int(value) if value is not None else None
+
+
 def _snapshot_from_dict(data: Mapping[str, Any]) -> StrategyPerformanceSnapshot | None:
     try:
         from quant_platform_kit.strategy_lifecycle.contracts import (
@@ -854,6 +858,14 @@ def _snapshot_from_dict(data: Mapping[str, Any]) -> StrategyPerformanceSnapshot 
                 information_ratio=float(v.get("information_ratio")) if v.get("information_ratio") is not None else None,
                 calendar_id=str(v.get("calendar_id", "") or ""),
                 periods_per_year=float(v["periods_per_year"]) if v.get("periods_per_year") is not None else 252.0,
+                metric_semantics_version=str(v.get("metric_semantics_version", "") or ""),
+                daily_win_rate_ex_zero=(float(v["daily_win_rate_ex_zero"])
+                                        if v.get("daily_win_rate_ex_zero") is not None else None),
+                zero_return_days=_optional_int(v.get("zero_return_days")),
+                volatility_ddof=int(v.get("volatility_ddof") or 0),
+                benchmark_aligned_days=_optional_int(v.get("benchmark_aligned_days")),
+                benchmark_dropped_strategy_days=_optional_int(v.get("benchmark_dropped_strategy_days")),
+                benchmark_dropped_benchmark_days=_optional_int(v.get("benchmark_dropped_benchmark_days")),
             )
         return StrategyPerformanceSnapshot(
             strategy_profile=str(data.get("strategy_profile", "")),

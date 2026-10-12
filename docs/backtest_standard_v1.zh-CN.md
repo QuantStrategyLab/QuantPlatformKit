@@ -19,7 +19,7 @@
 | 置信区间（平稳块自助法，固定 seed） | `quant_platform_kit.research_stats.stationary_bootstrap_ci` |
 | 成本压力重算（默认 1×/2×/3×） | `quant_platform_kit.research_stats.cost_stress_recompute` |
 | 报告模板 | `BacktestReportV1` + `schemas/backtest-report.v1.schema.json`（`qsl.backtest_report.v1`） |
-| 共同指标（CAGR、波动、Sharpe、Sortino、Calmar、MDD 等） | `strategy_lifecycle.performance_metrics`（口径差异见 [#659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)） |
+| 共同指标（CAGR、波动、Sharpe、Sortino、Calmar、MDD 等） | `strategy_lifecycle.performance_metrics`（口径见 [窗口指标口径](window_metrics_semantics.zh-CN.md)，[#659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)） |
 | 晋级结构门 | `BacktestOrchestrator.run_promotion`（`purged_walk_forward.v1`） |
 
 函数口径和失败语义见 [research_stats 说明](research_stats.zh-CN.md)。所有工具在数据不足或无定义时返回 `UNCOMPUTABLE` / `PARKED` 且不给数字；**缺失不是 0**。
@@ -124,6 +124,6 @@
 
 ## 9. 已知缺口（登记，不在本文修复）
 
-- 共享指标口径冲突：基准静默取交集、`win_rate` 实为正收益日比例、`profit_factor` 基于日收益 —— [#659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)。
+- 共享指标口径冲突：基准静默取交集、`win_rate` 实为正收益日比例、`profit_factor` 基于日收益 —— [#659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)。已改为显式报告（`qpk.window_metrics.v2`：对齐计数、`daily_win_rate_ex_zero`、`zero_return_days`、`volatility_ddof`），旧字段数值不变，见 [窗口指标口径](window_metrics_semantics.zh-CN.md)；逐笔交易胜率仍未提供。
 - 各模拟器成交时点不一致（当日收盘 / 下一收盘 / 下一开盘）—— [UES #575](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/575)。
 - Binance 研究回测未计手续费与滑点 —— [BinancePlatform #366](https://github.com/QuantStrategyLab/BinancePlatform/issues/366)。
