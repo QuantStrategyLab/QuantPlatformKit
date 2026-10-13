@@ -4,6 +4,8 @@
 
 本文是 [策略晋级与风险标准](strategy_promotion_risk_standard.zh-CN.md) 的补充，规定研究回测「必须报告什么、怎么算、怎么标身份、最少要多少观察」。它不替代、不修改晋级标准的指标清单、`strategy_evidence_package.v2/v3` schema、`BacktestOrchestrator.run_promotion` 结构门或 [Kelly 契约](kelly_contract_v2.zh-CN.md)。
 
+指标定义、成熟系统的重要分组、已实现能力与真实输入缺口见[统一量化指标目录](unified_metric_catalog.zh-CN.md)。平均盈亏比与 Profit Factor 分开，日收益观察与闭合交易分开；B3 可选诊断不替代逐笔记账或增加晋级阈值。
+
 ## 0. 边界
 
 - **本文不设任何及格线。** 不存在全系统统一的 Sharpe、CAGR、回撤、DSR、PBO 或成本门槛。每个候选的报告项、排序项和否决项（含指标、比较符、阈值、窗口、成本档和不可计算处理）必须在读取留出结果**之前**由该候选预先登记，并经人工验收（human acceptance）后才生效。未登记或未验收的阈值不能用来宣称「通过」。
