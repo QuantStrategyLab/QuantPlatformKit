@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
+from fractions import Fraction
 from statistics import NormalDist, stdev
 from typing import Iterable
 
@@ -151,10 +152,56 @@ def _mintrl(psr: StatResult, benchmark: float, confidence: float, floor: int) ->
         return _missing(name, "numerical_failure", **details)
 
 
+def _outcome_diagnostics(net: tuple[float, ...]) -> tuple[StatResult, ...]:
+    """Descriptive period-return outcomes; never reconstruct round-trip trades."""
+    wins = tuple(r for r in net if r > 0)
+    losses = tuple(-r for r in net if r < 0)
+    decisive = len(wins) + len(losses)
+    details = {
+        "aggregation_level": "return_observations_not_trades",
+        "input_basis": "same_period_net_returns",
+        "positive_observations": len(wins),
+        "negative_observations": len(losses),
+        "zero_observations": len(net) - decisive,
+        "descriptive_only": True,
+    }
+    # Exact sums of the supplied binary floats avoid intermediate overflow or
+    # underflow. Convert only the final statistic; unrepresentable ratios are
+    # explicitly missing rather than infinite.
+    gain = sum((Fraction(r) for r in wins), Fraction())
+    loss = sum((Fraction(r) for r in losses), Fraction())
+
+    def value(name: str, ratio: Fraction) -> StatResult:
+        try:
+            number = float(ratio)
+            if number == 0.0 and ratio != 0:
+                return _missing(name, "numerical_failure", **details)
+            return _computed(name, number, **details)
+        except (ArithmeticError, ValueError):
+            return _missing(name, "numerical_failure", **details)
+
+    win_name = "net_win_rate_ex_zero_per_period"
+    win_rate = (value(win_name, Fraction(len(wins), decisive)) if decisive else
+                _missing(win_name, "no_nonzero_observations", **details))
+    payoff_name = "net_payoff_ratio_per_period"
+    if not losses:
+        payoff = _missing(payoff_name, "no_loss_observations", **details)
+    elif not wins:
+        payoff = _missing(payoff_name, "no_win_observations", **details)
+    else:
+        payoff = value(payoff_name, (gain / len(wins)) / (loss / len(losses)))
+    pf_name = "net_profit_factor_per_period"
+    profit_factor = (value(pf_name, gain / loss) if losses else
+                     _missing(pf_name, "no_loss_observations", **details))
+    average = value("mean_net_return_per_period", (gain - loss) / len(net))
+    return win_rate, payoff, profit_factor, average
+
+
 def build_unified_net_report(
     net_returns: Iterable[object], *, gross_returns: Iterable[object] | None = None,
     trials: TrialEvidence | None = None, sr_benchmark: float = 0.0,
     confidence: float = .95, min_observations: int = DEFAULT_MIN_OBSERVATIONS,
+    include_outcome_diagnostics: bool = False,
 ) -> UnifiedNetReport:
     """Summarize validated same-period net returns; never fill/drop observations.
 
@@ -162,8 +209,14 @@ def build_unified_net_report(
     with nonnegative cost deductions apart from a recorded 4-ULP roundoff bound.
     Invalid inputs raise ResearchInputError;
     missing/undefined inference is UNCOMPUTABLE with no numeric placeholder.
+    Optional outcome diagnostics describe the same-period net-return sample,
+    not closed trades or future profit. Zeros are excluded only from win rate;
+    the arithmetic mean includes every observation. Default eight metrics and
+    all existing metric values remain unchanged.
     No files, accounts, ledgers, policy, orders or budgets are read or written.
     """
+    if type(include_outcome_diagnostics) is not bool:
+        raise ResearchInputError("include_outcome_diagnostics must be boolean")
     net = simple_returns(net_returns, "net_returns")
     if not net:
         raise ResearchInputError("net_returns must be nonempty")
@@ -225,6 +278,9 @@ def build_unified_net_report(
                          negative_cost_tolerance_scale="ulp(1+gross)",
                          roundoff_negative_cost_pairs_zeroed=len(roundoff_pairs),
                          max_roundoff_negative_return_delta=max((b - a for a, b in roundoff_pairs), default=0.0))
-    return UnifiedNetReport(len(net), (growth, sharpe, psr, dsr, mintrl, cvar, drawdown, drag),
+    metrics = (growth, sharpe, psr, dsr, mintrl, cvar, drawdown, drag)
+    if include_outcome_diagnostics:
+        metrics += _outcome_diagnostics(net)
+    return UnifiedNetReport(len(net), metrics,
                             trials.cumulative_total if trials else None,
                             trials.ledger_sha256 if trials else None)
