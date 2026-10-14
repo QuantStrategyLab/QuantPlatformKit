@@ -48,6 +48,15 @@ from quant_platform_kit.research_stats.overfitting import (
     PBO_METRICS,
     probability_of_backtest_overfitting,
 )
+from quant_platform_kit.research_stats.security_netting import (
+    CASH_ROLES,
+    SECURITY_NETTING_VERSION,
+    SecurityNettingResult,
+    SecurityNettingSpec,
+    compose_security_targets,
+    drift_inner_weights,
+    net_security_session,
+)
 from quant_platform_kit.research_stats.sharpe_inference import (
     STATUS_COMPUTED,
     STATUS_UNCOMPUTABLE,
@@ -58,6 +67,13 @@ from quant_platform_kit.research_stats.sharpe_inference import (
 )
 
 __all__ = [
+    "CASH_ROLES",
+    "SECURITY_NETTING_VERSION",
+    "SecurityNettingResult",
+    "SecurityNettingSpec",
+    "compose_security_targets",
+    "drift_inner_weights",
+    "net_security_session",
     "BACKTEST_REPORT_SCHEMA_VERSION",
     "BacktestReportV1",
     "BenchmarkSpec",
