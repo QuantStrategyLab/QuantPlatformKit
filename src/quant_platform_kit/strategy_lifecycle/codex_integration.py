@@ -3,7 +3,7 @@
 Integrates with three existing systems:
 - CodexAuditBridge: automated monthly audits + reviewable PR creation
 - ai_audit.py (QuantStrategyPlugins): reusable AI audit client (Codex/OpenAI/Anthropic)
-- TelegramCodexBot: GitHub issue → Codex session bridge + notifications
+- TelegramAgentBot: GitHub issue → Codex session bridge + notifications
 
 This module provides the glue layer that enables unmanned auto-monitoring and
 optimization by:
