@@ -41,7 +41,9 @@ jobs:
           import hashlib, os, stat, zipfile
           from pathlib import Path, PurePosixPath
           archive = Path(os.environ['RUNNER_TEMP']) / 'approved-input' / os.environ['HOSTED_INPUT_ASSET']
-          if hashlib.sha256(archive.read_bytes()).hexdigest() != os.environ['HOSTED_INPUT_SHA256']:
+          with archive.open('rb') as stream:
+              digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+          if digest != os.environ['HOSTED_INPUT_SHA256']:
               raise SystemExit('approved hosted input digest mismatch')
           target = Path('hosted-inputs')
           with zipfile.ZipFile(archive) as bundle:
@@ -50,7 +52,7 @@ jobs:
                   raise SystemExit('hosted input bundle exceeds the staging limit')
               for item in entries:
                   path = PurePosixPath(item.filename)
-                  if path.is_absolute() or '..' in path.parts or '\' in item.filename or stat.S_ISLNK(item.external_attr >> 16):
+                  if path.is_absolute() or '..' in path.parts or chr(92) in item.filename or stat.S_ISLNK(item.external_attr >> 16):
                       raise SystemExit('unsafe hosted input bundle entry')
               bundle.extractall(target)
           PYCODE
