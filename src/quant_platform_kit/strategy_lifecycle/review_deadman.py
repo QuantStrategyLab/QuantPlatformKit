@@ -47,17 +47,8 @@ def check_lane(api, base, lane, threshold, now):
         raise ValueError("invalid monitored workflow")
     runs = api(base + f"/actions/workflows/{workflow}/runs?status=completed&per_page=100")["workflow_runs"]
     runs = [run for run in runs if run.get("event") in {"schedule", "workflow_dispatch", "pull_request"}]
-    # Ask GitHub for the PR state; the workflow-run PR stub omits draft metadata.
-    monitored = []
-    for run in runs:
-        if run.get("event") == "pull_request":
-            prs = run.get("pull_requests", [])
-            if any(api(base + f"/pulls/{pr['number']}").get("draft") is True for pr in prs):
-                continue
-        monitored.append(run)
-        if len(monitored) >= threshold:
-            break
-    runs = monitored
+    # All skipped review jobs count, as required by the owner. No extra PR grant
+    # is needed to distinguish draft metadata or to suppress an operational alert.
     outcomes = []
     for run in runs[:threshold]:
         jobs = api(base + f"/actions/runs/{run['id']}/jobs?per_page=100")
