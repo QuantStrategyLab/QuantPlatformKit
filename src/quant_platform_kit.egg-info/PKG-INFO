@@ -7,18 +7,19 @@ License-Expression: MIT
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Requires-Dist: jsonschema<5,>=4.18; extra == "dev"
+Requires-Dist: numpy; extra == "dev"
+Requires-Dist: pandas; extra == "dev"
+Provides-Extra: research
+Requires-Dist: numpy; extra == "research"
+Requires-Dist: pandas; extra == "research"
 Dynamic: license-file
 
 # QuantPlatformKit
-
-
-## QSL architecture role
-
-- **Layer**: `core`.
-- **Responsibility**: shared runtime contracts and platform adapters.
-- **Owns**: stable contracts, broker adapters, runtime helpers, notifications, risk utilities.
-- **Consumes**: platforms, strategies, pipelines, lifecycle tooling.
-- **Must not**: decide which strategy is live or store environment-specific secrets.
 
 [Chinese README](README.zh-CN.md)
 
@@ -36,6 +37,14 @@ It supports the system but does not decide which strategy should be live. Strate
 - Prefer backward-compatible changes unless a coordinated migration is planned.
 - Keep secrets and environment-specific settings outside the shared library code.
 - Document changes that affect multiple platforms or strategy packages.
+
+## QSL architecture role
+
+- **Layer**: `core`.
+- **Responsibility**: shared runtime contracts and platform adapters.
+- **Owns**: stable contracts, broker adapters, runtime helpers, notifications, risk utilities.
+- **Consumes**: platforms, strategies, pipelines, lifecycle tooling.
+- **Must not**: decide which strategy is live or store environment-specific secrets.
 
 ## Repository layout
 
@@ -116,6 +125,7 @@ rw.update_secret("my-token", "new-token-value")
 
 ## Useful docs
 - [`docs/strategy_lifecycle_policy.md`](docs/strategy_lifecycle_policy.md)
+- [`docs/paper_execution_command_consumer.md`](docs/paper_execution_command_consumer.md)
 - [`docs/strategy_portfolio_action_matrix.md`](docs/strategy_portfolio_action_matrix.md)
 - [`docs/evidence_package_template.md`](docs/evidence_package_template.md)
 
@@ -137,3 +147,11 @@ rw.update_secret("my-token", "new-token-value")
 ## License
 
 See [LICENSE](LICENSE).
+
+## v1 migration
+
+`quant_platform_kit.strategy_contracts` was removed in v1. Import strategy contracts from `quant_platform_kit.common.strategy_contracts`, execution translation from `quant_platform_kit.common.execution_translation`, and runtime inputs from `quant_platform_kit.common.runtime_inputs`. No compatibility facade is provided.
+
+### AI 任务服务升级
+
+生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/TASK-SERVICE-V2.zh-CN.md)。本次版本尚未发布或部署。
