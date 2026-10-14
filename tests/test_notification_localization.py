@@ -293,7 +293,7 @@ class NotificationLocalizationTests(unittest.TestCase):
     def test_attention_reason_codes_are_localized(self):
         self.assertEqual(
             localize_attention_reason_code("zh", "new_risk_prohibited"),
-            "已禁止新增风险",
+            "风控已拦截；调用方未提供具体原因码",
         )
         self.assertEqual(
             localize_attention_reason_code("zh", "drift_critical"),
