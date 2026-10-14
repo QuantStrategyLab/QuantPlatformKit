@@ -72,3 +72,10 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'approved artifact required' in workflow
     assert 'artifact digest mismatch' in workflow
     assert '--no-index' in workflow
+
+
+def test_reusable_drift_runner_defaults_to_hosted_and_accepts_research_runner():
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "reusable-drift-check.yml").read_text(encoding="utf-8")
+    assert "runs-on: ${{ fromJSON(inputs.runner_labels) }}" in workflow
+    assert "default: '\"ubuntu-latest\"'" in workflow
+    assert "runs-on: ubuntu-latest" not in workflow

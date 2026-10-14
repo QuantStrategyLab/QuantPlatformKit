@@ -70,6 +70,14 @@ on:
         required: false
         type: string
         default: ""
+      runner_labels:
+        description: >-
+          JSON runner label(s) for the drift job. Defaults to GitHub-hosted
+          ubuntu-latest; callers that install the approved task-service wheels
+          from a pre-staged host pass '["self-hosted", "research-runner"]'.
+        required: false
+        type: string
+        default: '"ubuntu-latest"'
       live_stream_id:
         description: >-
           Optional PerformanceStore live_runs stream id for monitor. When empty,
@@ -90,7 +98,7 @@ permissions:
 jobs:
   drift:
     if: vars.AI_SERVICE_RELEASE_READY == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
     # A critical drift can require up to three sequential primary reviews.  Each
     # service review has a 15-minute budget plus its polling grace period.
     timeout-minutes: 60
