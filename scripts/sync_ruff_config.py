@@ -2,7 +2,7 @@
 """Sync ruff configuration from QPK to a downstream repository.
 
 Usage:
-  python scripts/sync_ruff_config.py --target ../QuantUsComboStrategies
+  python scripts/sync_ruff_config.py --target ../UsEquityStrategies
 
 Copies ruff-shared.toml from QPK to the target repo and writes a
 local .ruff.toml that extends it (no URL dependency).
