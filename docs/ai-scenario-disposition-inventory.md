@@ -8,7 +8,7 @@ Classification is operational, not a claim that merged source has been deployed 
 | --- | --- | --- | --- |
 | 1 | Gateway dispatch infrastructure | needs loop | Require consumer-owned review disposition and liveness; the gateway itself must not close consumer issues. |
 | 2 | Gateway short structured API tasks | needs loop | Validate frozen outputs and caps; add outcome artifacts and failed/skipped-task monitoring before unattended use. |
-| 3 | Daily briefing and QPK research summaries | needs loop | Review factual summaries against frozen facts; archive/close passes, one Dot escalation for flags; propagate summary unavailability to host-job failure. QPK draft adds the review hook. |
+| 3 | Daily briefing and QPK research summaries | needs loop | Review factual summaries against frozen facts; archive/close passes, one Dot escalation for flags; record summary unavailability for the independent monitor. QPK draft adds the review hook. |
 | 4 | Daily briefing dual review | needs loop | Feed all three role outcomes to disposition; retain strict quorum and existing admission; independent briefing dead-man. |
 | 5 | Health-cycle diagnosis | needs loop | Preserve failure fingerprint deduplication; add one deeper Dot confirmation and notify only confirmed problems; monitor diagnostic job liveness. |
 | 6 | 12345 short complaint rewriting | needs loop | Keep deterministic fact preservation and length checks; archive validation outcomes; review factual flags and monitor rewrite failure without automating identity verification. |
@@ -41,4 +41,4 @@ Classification is operational, not a claim that merged source has been deployed 
 
 Conflicts: harden finished before consumer edits; HK/Crypto drafts are stacked on its role/READY drafts. arc_migrate finished before ARC edits; the ARC draft is stacked on #115. No in-flight job worktree was edited.
 
-Owner decisions/adoption gaps: make existing API secrets available if desired; authorize no new grants in this task; establish admissible monthly/ARC routes through separate approved work; select existing cycle-pause bindings if available; adopt reviewed wheels/references; propagate summary unavailability to host job status; retain human-only flows. No live trading, server, IAM, secret-value or force-push operations were performed.
+Owner decisions/adoption gaps: make existing API secrets available if desired; authorize no new grants in this task; establish admissible monthly/ARC routes through separate approved work; select existing cycle-pause bindings if available; adopt reviewed wheels/references; retain human-only flows. No live trading, server, IAM, secret-value or force-push operations were performed.

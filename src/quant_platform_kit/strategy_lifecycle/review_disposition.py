@@ -15,7 +15,7 @@ STATE_PREFIX = "<!-- advisory-review-loop-v1 "
 
 
 class GitHubReviewStore:
-    def __init__(self, identity, *, env=None, api=None):
+    def __init__(self, identity, *, env=None, api=None, material=None):
         self.env = dict(os.environ if env is None else env)
         self.repository = self.env.get("GITHUB_REPOSITORY", "")
         self.owner = self.env.get("REVIEW_OWNER_LOGIN", "Pigbibi")
@@ -27,6 +27,7 @@ class GitHubReviewStore:
         self.identity = identity
         self.marker = "<!-- advisory-review:" + hashlib.sha256(identity.encode()).hexdigest() + " -->"
         self.issue = None
+        self.material = material or {}
         root = Path(self.env.get("REVIEW_VERDICT_DIR", "data/output/review_verdicts"))
         self.archive = root / (hashlib.sha256(identity.encode()).hexdigest() + ".json")
 
@@ -50,6 +51,25 @@ class GitHubReviewStore:
                         and issue.get("user", {}).get("login") == "github-actions[bot]"):
                     self.issue = issue["number"]
                     return self.issue
+                observation = self.material.get("observation", {})
+                score, profile, domain = observation.get("drift_score"), observation.get("strategy_profile"), observation.get("domain")
+                if type(score) in {float, int} and all(isinstance(v, str) and v for v in (profile, domain)):
+                    title = f"[{domain}] Drift CRITICAL: {profile} (score={score:.2f})"
+                    if (issue.get("title") == title and issue.get("user", {}).get("login") == "github-actions[bot]"
+                            and "pull_request" not in issue and issue.get("state") == "open"
+                            and any(label.get("name") == "drift-alert" for label in issue.get("labels", []))):
+                        # Bind the original alert's frozen observation before closing it.
+                        for block in re.findall(r"```json\s*(.*?)\s*```", issue.get("body") or "", re.DOTALL):
+                            try:
+                                meta = strict_json(block)
+                                if (meta.get("schema") == "strategy_lifecycle_drift_issue.v1"
+                                        and meta.get("domain") == domain and meta.get("strategy_profile") == profile
+                                        and meta.get("drift_score") == score and observation.get("as_of")
+                                        and meta.get("as_of") == observation["as_of"]):
+                                    self.issue = issue["number"]
+                                    return self.issue
+                            except (ValueError, TypeError, AttributeError):
+                                continue
             if len(issues) < 100:
                 return None
         raise ValueError("incomplete issue history")
@@ -153,7 +173,7 @@ def disposition(material, result, *, identity, store=None, dot=None, pause_cycle
     if os.environ.get("AI_REVIEW_CLOSED_LOOP", "").lower() != "true" and store is None:
         return result
     try:
-        store = store or GitHubReviewStore(identity)
+        store = store or GitHubReviewStore(identity, material=material)
         if result.get("status") != "completed":
             store.save({"identity": identity, "disposition": "review_unavailable"})
             return {**result, "loop": {"disposition": "review_unavailable"}}

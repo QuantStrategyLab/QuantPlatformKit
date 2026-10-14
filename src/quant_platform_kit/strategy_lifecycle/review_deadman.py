@@ -5,9 +5,40 @@ from datetime import datetime, timezone
 import json
 import os
 import re
+from urllib.parse import quote
 
 from .review_disposition import GitHubReviewStore
-from .review_loop import deadman
+from .review_loop import deadman, strict_json
+
+
+def archived_failure(api, base, run):
+    """Observe a summary/review failure even when its host job otherwise succeeded."""
+    since = quote(run["created_at"], safe="")
+    for page in range(1, 101):
+        issues = api(base + f"/issues?state=all&since={since}&per_page=100&page={page}")
+        for issue in issues:
+            if (issue.get("user", {}).get("login") != "github-actions[bot]"
+                    or "pull_request" in issue or not (issue.get("body") or "").startswith("<!-- advisory-review:")):
+                continue
+            state = None
+            for comments_page in range(1, 101):
+                comments = api(base + f"/issues/{issue['number']}/comments?per_page=100&page={comments_page}")
+                for item in comments:
+                    body = item.get("body", "")
+                    prefix = "<!-- advisory-review-loop-v1 "
+                    if item.get("user", {}).get("login") == "github-actions[bot]" and body.startswith(prefix):
+                        value = strict_json(body[len(prefix):].split(" -->", 1)[0])
+                        if str(value.get("run_id")) == str(run["id"]):
+                            state = value
+                if len(comments) < 100:
+                    break
+            else:
+                raise ValueError("incomplete archived review state")
+            if state and state.get("disposition") in {"review_unavailable", "escalation_unavailable", "outcome_unknown"}:
+                return True
+        if len(issues) < 100:
+            return False
+    raise ValueError("incomplete archived outcome history")
 
 
 def check_lane(api, base, lane, threshold, now):
@@ -25,7 +56,9 @@ def check_lane(api, base, lane, threshold, now):
         if jobs["total_count"] != len(jobs["jobs"]):
             raise ValueError("incomplete monitored jobs")
         matches = [item for item in jobs["jobs"] if job in item.get("name", "")]
-        outcomes.append("success" if matches and all(item.get("conclusion") == "success" for item in matches)
+        passed = matches and all(item.get("conclusion") == "success" for item in matches)
+        outcomes.append("unavailable" if passed and archived_failure(api, base, run)
+                        else "success" if passed
                         else "skipped" if matches and all(item.get("conclusion") == "skipped" for item in matches)
                         else "failure")
     max_age = lane.get("interval_hours", 0)

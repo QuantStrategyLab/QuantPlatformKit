@@ -76,3 +76,39 @@ def test_summary_is_withheld_unless_its_review_loop_verifies(monkeypatch):
         assert summarize({})["status"] == "unavailable"
     with patch("quant_platform_kit.strategy_lifecycle.task_review.review_material", return_value={"loop": {"disposition": "auto_verified"}}):
         assert summarize({})["status"] == "available"
+
+
+def test_deadman_observes_unavailable_summary_in_successful_host_job():
+    run = {"id": 7, "event": "schedule", "created_at": "2026-11-09T00:00:00Z"}
+    state = {"run_id": "7", "disposition": "review_unavailable"}
+    api = Mock(side_effect=[{"workflow_runs": [run]},
+        {"total_count": 1, "jobs": [{"name": "research", "conclusion": "success"}]},
+        [{"number": 9, "body": "<!-- advisory-review:test -->", "user": {"login": "github-actions[bot]"}}],
+        [{"body": "<!-- advisory-review-loop-v1 " + json.dumps(state) + " -->", "user": {"login": "github-actions[bot]"}}]])
+    unhealthy, outcomes = check_lane(api, "repos/Example/Repo", {"workflow": "research.yml", "job": "research"},
+                                     1, datetime(2026, 11, 10, tzinfo=timezone.utc))
+    assert unhealthy and outcomes == ["unavailable"]
+
+
+def test_original_drift_alert_is_selected_only_for_exact_frozen_observation(tmp_path):
+    observation = {"strategy_profile": "synthetic", "domain": "crypto", "drift_score": .8, "as_of": "2026-11-01"}
+    meta = {"schema": "strategy_lifecycle_drift_issue.v1", **observation}
+    issue = {"number": 12, "state": "open", "title": "[crypto] Drift CRITICAL: synthetic (score=0.80)",
+             "labels": [{"name": "drift-alert"}], "user": {"login": "github-actions[bot]"},
+             "body": "```json\n" + json.dumps(meta) + "\n```"}
+    api = Mock(return_value=[issue])
+    env = {"GITHUB_REPOSITORY": "Example/Repo", "REVIEW_VERDICT_DIR": str(tmp_path)}
+    store = GitHubReviewStore("frozen", env=env, api=api, material={"observation": observation})
+    assert store._find() == 12
+    store = GitHubReviewStore("frozen", env=env, api=api, material={"observation": {**observation, "as_of": "2026-11-02"}})
+    assert store._find() is None
+
+
+def test_invalid_summary_is_recorded_for_independent_monitor(monkeypatch):
+    from test_research_summary_v2 import callback
+    from unittest.mock import patch
+    monkeypatch.setenv("AI_REVIEW_CLOSED_LOOP", "true")
+    summarize, _ = callback({"locales": {}})
+    with patch("quant_platform_kit.strategy_lifecycle.review_disposition.disposition") as record:
+        assert summarize({})["status"] == "unavailable"
+        assert record.call_args.args[1]["status"] == "unavailable"
