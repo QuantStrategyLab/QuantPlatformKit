@@ -179,6 +179,7 @@ def render_attention_compact(
     account_alias: str,
     strategy_profile: str,
     decision: AttentionDecision,
+    guard_reason_codes: tuple[str, ...] = (),
 ) -> str:
     """Four-line operator message: identity / result / reason / next step."""
 
@@ -190,7 +191,12 @@ def render_attention_compact(
 
     lang = resolve_operational_notification_locale(locale)
     level = decision.level
-    reason = decision.reason_codes[0] if decision.reason_codes else "none"
+    # Presentation-only evidence from the guard; never change the decision,
+    # notification transition identity, or permission to submit an order.
+    reasons = tuple(dict.fromkeys((
+        *guard_reason_codes,
+        *(code for code in decision.reason_codes if not guard_reason_codes or code != "new_risk_prohibited"),
+    ))) or ("none",)
     emoji = {
         AttentionLevel.OK: "✅",
         AttentionLevel.WATCH: "👀",
@@ -206,12 +212,24 @@ def render_attention_compact(
     )
     result_key = _result_text_key(level, decision.reason_codes)
     result = operational_notification_text(lang, result_key)
+    descriptions = []
+    for code in reasons:
+        explanation = localize_attention_reason_code(lang, code)
+        if explanation == code:
+            explanation = operational_notification_text(lang, "attention_reason_unknown")
+        descriptions.append(f"{code}: {explanation}")
     reason_line = operational_notification_text(
         lang,
         "attention_reason",
-        code=localize_attention_reason_code(lang, reason),
+        code="; ".join(descriptions),
     )
-    next_step = operational_notification_text(lang, f"attention_next_{decision.next_step_key}")
+    next_key = decision.next_step_key
+    if level is AttentionLevel.ACTION:
+        if "DAILY_LOSS_LIMIT_EXCEEDED" in reasons:
+            next_key = "review_daily_loss"
+        elif "new_risk_prohibited" in reasons:
+            next_key = "inspect_guard_reason"
+    next_step = operational_notification_text(lang, f"attention_next_{next_key}")
     return f"{emoji} {title}\n{result}\n{reason_line}\n{next_step}"
 
 
@@ -360,4 +378,3 @@ def _optional_positive_unit(value: object) -> float | None:
     if number != number or number <= 0.0 or number > 1.0:
         return None
     return number
-

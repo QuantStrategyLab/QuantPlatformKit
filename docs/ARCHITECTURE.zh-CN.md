@@ -14,7 +14,7 @@
 │  策略层 (Strategy Layer)                                  │
 │  UsEquityStrategies / HkEquityStrategies                 │
 │  CnEquityStrategies / CryptoStrategies                   │
-│  QuantUsComboStrategies / QuantHkComboStrategies         │
+│  组合策略位于对应的各域策略仓库                           │
 │  发布: pip wheel, 版本锁定在 requirements.txt             │
 ├──────────────────────────────────────────────────────────┤
 │  快照层 (Snapshot Layer)                                  │
@@ -30,6 +30,8 @@
 ```
 
 ## 2. 数据流
+
+原独立组合策略仓库已并入对应的各域策略仓库，映射见 [ADR 0002](adr/0002-combo-merge-into-strategy-packages.md)。
 
 ```
 策略定义 (pip 包, strategy catalog)

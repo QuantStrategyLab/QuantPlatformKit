@@ -34,7 +34,7 @@ QuantStrategyLab is a multi-broker, multi-market quantitative trading system. It
 │  │                                            │                  │
 │  │  UsEquityStrategies     HkEquityStrategies │  pip wheel       │
 │  │  CnEquityStrategies     CryptoStrategies   │  packages        │
-│  │  QuantUsComboStrategies                    │  (pure logic)    │
+│  │  Combo profiles in domain packages        │  (pure logic)    │
 │  │                                            │                  │
 │  │  ┌─ Catalog & Manifest ──┐                 │                  │
 │  │  │ StrategyContracts     │                 │                  │
@@ -116,7 +116,9 @@ QSL_CLOUD_PROVIDER=env       # Environment variables only
 
 ### 2.2 Strategy Layer
 
-**Owner:** UsEquityStrategies, HkEquityStrategies, CnEquityStrategies, CryptoStrategies, QuantUsComboStrategies, (QuantHkComboStrategies)
+**Owner:** UsEquityStrategies, HkEquityStrategies, CnEquityStrategies, CryptoStrategies
+
+Combo profiles live in the corresponding domain strategy package. The former standalone combo repositories were merged as recorded in [ADR 0002](adr/0002-combo-merge-into-strategy-packages.md).
 
 **Purpose:** Pure strategy logic and metadata. Each package is a reusable wheel published to PyPI (or installed via pip from GitHub SHA pins). They do NOT import broker SDKs, do NOT branch on platform identity, and do NOT hold credentials.
 
@@ -502,7 +504,7 @@ Notifications are dispatched through a shared `NotificationPublisher` that wraps
 | **Infrastructure** | PascalCase + no suffix | `QuantPlatformKit`, `QuantRuntimeSettings`, `QuantStrategyPlugins` |
 | **Execution Platform** | `<BrokerName>Platform` | `CharlesSchwabPlatform`, `InteractiveBrokersPlatform`, `LongBridgePlatform`, `BinancePlatform`, `FirstradePlatform` |
 | **Strategy Package** | `<Market>Strategies` | `UsEquityStrategies`, `HkEquityStrategies`, `CnEquityStrategies`, `CryptoStrategies` |
-| **Combo Strategy** | `Quant<Market>ComboStrategies` | `QuantUsComboStrategies`, `QuantHkComboStrategies` |
+| **Combo Strategy** | Profile in `<Market>Strategies` | `UsEquityStrategies`, `HkEquityStrategies` |
 | **Snapshot Pipeline** | `<Market>SnapshotPipelines` | `UsEquitySnapshotPipelines`, `HkEquitySnapshotPipelines` |
 | **Crypto Pipeline** | `<Domain>LivePoolPipelines` | `CryptoLivePoolPipelines` |
 | **Strategy Signals** | PascalCase | `MarketSignalSources` |
@@ -585,7 +587,7 @@ MarketSignalSources ─────┘                                          
                     └────┬────┘   └──────┬───────┘   └───────┬───────┘ │
                          │               │                    │         │
                     ┌────▼───────────────▼────────────────────▼───────┐ │
-                    │              QuantUsComboStrategies              │ │
+                    │        Combo profiles in domain packages        │ │
                     └────┬────────────────────────────────────────────┘ │
                          │                                              │
               ┌──────────┼──────────┬─────────────┬──────────┐          │
@@ -614,7 +616,6 @@ Strategy packages and QuantPlatformKit are pinned via commit SHA in platform `re
 # CharlesSchwabPlatform/requirements.txt
 git+https://github.com/QuantStrategyLab/QuantPlatformKit@dfdbef6
 git+https://github.com/QuantStrategyLab/UsEquityStrategies@0463457a
-git+https://github.com/QuantStrategyLab/QuantUsComboStrategies@c9e290c
 ```
 
 **Important:** All downstream platforms must pin to the same SHA for consistency. When upgrading a shared package, update all platform repos in sequence (shared libs first, platform repos after).
@@ -682,11 +683,10 @@ Each platform service is a single-process Flask app behind Gunicorn WSGI:
 | **QuantPlatformKit** | Infrastructure | Shared runtime infrastructure, broker adapters, cloud abstraction, notifications, strategy lifecycle | Active |
 | **QuantRuntimeSettings** | Infrastructure | Runtime target configuration (single source of truth for which strategy runs where) | Active |
 | **QuantStrategyPlugins** | Infrastructure | Plugin signal definitions and pipeline orchestration | Active |
-| **UsEquityStrategies** | Strategy | US equity strategy catalog, implementations, runtime adapters | Active |
+| **UsEquityStrategies** | Strategy | US equity and combo strategy catalog, implementations, runtime adapters | Active |
 | **HkEquityStrategies** | Strategy | HK equity strategy catalog and runtime adapters | Active |
 | **CnEquityStrategies** | Strategy | A-share strategy catalog, adapters (targeting QMT) | Active |
 | **CryptoStrategies** | Strategy | Crypto strategy catalog (rotation, DCA, trend) | Active |
-| **QuantUsComboStrategies** | Strategy | US combo strategies (Russell+IBIT, leveraged) | Active |
 | **UsEquitySnapshotPipelines** | Snapshot | US equity feature snapshots, rankings, promotion evidence | Active |
 | **HkEquitySnapshotPipelines** | Snapshot | HK equity feature snapshots and manifests | Active |
 | **CryptoLivePoolPipelines** | Snapshot | Crypto live pool artifacts for rotation strategies | Active |
