@@ -4,6 +4,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  issues: write
 concurrency:
   group: engineering-material-review-v2
   cancel-in-progress: false
@@ -13,6 +14,8 @@ jobs:
     runs-on: [self-hosted, research-runner]
     timeout-minutes: 35
     env:
+      AI_REVIEW_CLOSED_LOOP: 'true'
+      GH_TOKEN: ${{ github.token }}
       AI_SERVICE_URL: ${{ vars.AI_SERVICE_URL }}
       AI_SERVICE_AUDIENCE: ${{ vars.AI_SERVICE_AUDIENCE }}
       AI_SERVICE_REVIEWERS_JSON: ${{ vars.AI_SERVICE_REVIEWERS_JSON }}
@@ -24,3 +27,11 @@ jobs:
           set -euo pipefail
           test -n "$AUDIT_MATERIAL" && test -n "$AUDIT_ROLES"
           python -m quant_platform_kit.strategy_lifecycle.audit_tasks --material "$AUDIT_MATERIAL" --roles-json "$AUDIT_ROLES"
+      - name: Archive advisory verdicts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: engineering-review-verdicts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: data/output/review_verdicts
+          if-no-files-found: warn
+          retention-days: 90

@@ -95,6 +95,17 @@ def make_summary_callback(*, revision: str, repository: str, local_facts: Mappin
             locales = _locales(json.loads(result.output))
             if locales is None:
                 return unavailable()
+            if os.environ.get("AI_REVIEW_CLOSED_LOOP", "").lower() == "true":
+                from .task_review import review_material
+                roles = [route.label for route in AiServiceConfig.from_env().reviewers]
+                review = review_material(
+                    {"repository": repository, "revision": revision, "facts": dict(local_facts),
+                     "context": context, "summary": locales, "advisory_only": True},
+                    operation_id="research-summary-review:" + identity, required_roles=roles,
+                )
+                # A summary never changes an investment decision or promotion gate.
+                if review.get("loop", {}).get("disposition") not in {"auto_verified", "dismissed"}:
+                    return unavailable()
             return {"status": "available", "provider": result.provider,
                     "model_requested": raw["model_requested"],
                     "model_verification": raw["model_verification"], "locales": locales}

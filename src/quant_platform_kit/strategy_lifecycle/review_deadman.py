@@ -1,0 +1,67 @@
+"""Independent Actions review-job liveness monitor; alerts only, no reruns."""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import json
+import os
+import re
+
+from .review_disposition import GitHubReviewStore
+from .review_loop import deadman
+
+
+def check_lane(api, base, lane, threshold, now):
+    workflow, job = lane["workflow"], lane["job"]
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+\.ya?ml", workflow) or not isinstance(job, str) or not job:
+        raise ValueError("invalid monitored workflow")
+    runs = api(base + f"/actions/workflows/{workflow}/runs?status=completed&per_page=100")["workflow_runs"]
+    runs = [run for run in runs if run.get("event") in {"schedule", "workflow_dispatch", "pull_request"}]
+    # Draft PR skips are intentional human-only preparation, not failed review jobs.
+    # They are ignored only when GitHub explicitly reports draft on the attached PR.
+    runs = [run for run in runs if not any(pr.get("draft") is True for pr in run.get("pull_requests", []))]
+    outcomes = []
+    for run in runs[:threshold]:
+        jobs = api(base + f"/actions/runs/{run['id']}/jobs?per_page=100")
+        if jobs["total_count"] != len(jobs["jobs"]):
+            raise ValueError("incomplete monitored jobs")
+        matches = [item for item in jobs["jobs"] if job in item.get("name", "")]
+        outcomes.append("success" if matches and all(item.get("conclusion") == "success" for item in matches)
+                        else "skipped" if matches and all(item.get("conclusion") == "skipped" for item in matches)
+                        else "failure")
+    max_age = lane.get("interval_hours", 0)
+    if type(max_age) is not int or not 0 <= max_age <= 8760:
+        raise ValueError("invalid review interval")
+    stale = False
+    if max_age:
+        # Adoption time is explicit; absence before adoption is not a failed cycle.
+        timestamp = runs[0]["created_at"] if runs else lane["enabled_at"]
+        latest = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        stale = (now - latest).total_seconds() >= max_age * 3600 * threshold
+    return deadman(outcomes, threshold) or stale, outcomes
+
+
+def main():
+    try:
+        lanes = json.loads(os.environ["REVIEW_MONITOR_LANES_JSON"])
+        threshold = int(os.environ.get("REVIEW_DEADMAN_THRESHOLD", "3"))
+        if not isinstance(lanes, list) or not 1 <= len(lanes) <= 20:
+            raise ValueError("explicit review lanes required")
+        for lane in lanes:
+            identity = "deadman:" + lane["workflow"] + ":" + lane["job"]
+            store = GitHubReviewStore(identity)
+            unhealthy, outcomes = check_lane(store.api, store.base, lane, threshold, datetime.now(timezone.utc))
+            prior = store.load(identity) or {}
+            if unhealthy and not prior.get("alerted"):
+                store.notify(f"Review dead-man: {lane['workflow']} / {lane['job']} failed, skipped or was missing "
+                             f"for {threshold} cycles. Operational alert only; no rerun or live change.")
+                store.save({"identity": identity, "alerted": True, "outcomes": outcomes})
+            elif not unhealthy and prior.get("alerted"):
+                store.save({"identity": identity, "alerted": False, "outcomes": outcomes})
+        return 0
+    except Exception:
+        print("Review dead-man unavailable; no live changes or retries performed.")
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
