@@ -26,4 +26,3 @@
 `pytest tests/test_strategy_contracts.py tests/test_value_target_presentation_facade.py`
 
 ## B12
-见 `docs/b12_consumer_adoption.zh-CN.md`（消费者采用矩阵；LB/Firstrade 剩余）。
