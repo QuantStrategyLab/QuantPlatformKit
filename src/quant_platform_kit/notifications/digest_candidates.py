@@ -20,7 +20,7 @@ def cycle_evidence(execution: Mapping, orders: Sequence[Mapping], *, dry_run: bo
     healthy = defer_routine_cycle_to_digest(execution, submitted_order_count=count,
         submitted_orders=orders, mode="daily_digest", include_orders=True)
     fill_ids = []
-    fills_known = confirmed
+    fills_known = confirmed and healthy
     for order in orders:
         records = order.get("fills") if isinstance(order, Mapping) else None
         if not isinstance(records, (list, tuple)) or not records:
