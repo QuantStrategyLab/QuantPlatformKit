@@ -39,6 +39,19 @@ python -m pip install -e .
 python -m pytest -q
 ```
 
+## Configuration
+
+Set these environment variables before running `scripts/sync_strategy_config.py`. Missing values stop the command before cloud access.
+
+| Variable | Purpose | Required | Default |
+|---|---|---|---|
+| `IBKR_GCP_PROJECT_ID` | IBKR Cloud Run and Scheduler project | For IBKR sync | none |
+| `IBKR_SCHEDULER_SERVICE_ACCOUNT` | IBKR Scheduler OIDC identity | For IBKR sync | none |
+| `SCHWAB_GCP_PROJECT_ID` | Schwab Cloud Run and Scheduler project | For Schwab sync | none |
+| `SCHWAB_SCHEDULER_SERVICE_ACCOUNT` | Schwab Scheduler OIDC identity | For Schwab sync | none |
+| `LONGBRIDGE_GCP_PROJECT_ID` | LongBridge Cloud Run and Scheduler project | For LongBridge sync | none |
+| `LONGBRIDGE_SCHEDULER_SERVICE_ACCOUNT` | LongBridge Scheduler OIDC identity | For LongBridge sync | none |
+
 ## Strategy lifecycle CLI
 
 `quant-lifecycle` provides the shared lifecycle entrypoint for strategy monitoring, drift detection, optimization, updates, and dashboards.
