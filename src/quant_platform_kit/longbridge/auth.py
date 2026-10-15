@@ -5,10 +5,15 @@ import hashlib
 import hmac
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
+from urllib.parse import urlencode
 
 from quant_platform_kit.cloud import get_secret_store, get_secret_store_rw
+
+# Vendor default for Legacy Access Token lifetime when requesting a refresh.
+# https://open.longportapp.com/docs/refresh-token-api.md
+DEFAULT_REFRESHED_TOKEN_LIFETIME_DAYS = 90
 
 
 def fetch_token_from_secret(
@@ -54,6 +59,25 @@ def _format_expiry(expiry_timestamp: float) -> str:
     return datetime.fromtimestamp(expiry_timestamp, timezone.utc).isoformat()
 
 
+def _format_refresh_expired_at(
+    *,
+    now: datetime | None = None,
+    lifetime_days: int = DEFAULT_REFRESHED_TOKEN_LIFETIME_DAYS,
+) -> str:
+    """ISO-8601/RFC3339 timestamp for the *new* token's expiry (vendor-required query param)."""
+    base = now if now is not None else datetime.now(timezone.utc)
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=timezone.utc)
+    expiry = base + timedelta(days=int(lifetime_days))
+    # Match vendor docs example (...Z) and official SDK Rfc3339 output.
+    return expiry.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def _refresh_query_params(*, expired_at: str) -> str:
+    """Query string used both in the request URL and in the HMAC params slot."""
+    return urlencode({"expired_at": expired_at})
+
+
 def refresh_token_if_needed(
     current_token: str,
     *,
@@ -62,6 +86,7 @@ def refresh_token_if_needed(
     app_key: str | None,
     app_secret: str | None,
     refresh_threshold_days: int = 30,
+    refreshed_token_lifetime_days: int = DEFAULT_REFRESHED_TOKEN_LIFETIME_DAYS,
     requests_module: Any | None = None,
     secret_client_factory: Callable[[], Any] | None = None,
 ) -> str:
@@ -83,29 +108,41 @@ def refresh_token_if_needed(
     if requests_module is None:
         import requests as requests_module
 
+    expired_at = _format_refresh_expired_at(lifetime_days=refreshed_token_lifetime_days)
+    params = _refresh_query_params(expired_at=expired_at)
     headers = {
         "X-Api-Key": app_key,
         "Authorization": current_token,
         "X-Timestamp": str(int(time.time())),
         "Content-Type": "application/json; charset=utf-8",
     }
-    headers["X-Api-Signature"] = _longport_sign("GET", "/v1/token/refresh", headers, "", "", app_secret)
+    headers["X-Api-Signature"] = _longport_sign("GET", "/v1/token/refresh", headers, params, "", app_secret)
     response = requests_module.get(
-        "https://openapi.longportapp.com/v1/token/refresh",
+        f"https://openapi.longportapp.com/v1/token/refresh?{params}",
         headers=headers,
         timeout=15,
     ).json()
     if response.get("code") != 0:
+        code = response.get("code")
+        message = response.get("message") or "unknown error"
         if expiry_timestamp is not None and expiry_timestamp <= now:
-            code = response.get("code")
-            message = response.get("message") or "unknown error"
             raise RuntimeError(
                 f"LongPort token in secret '{secret_name}' expired at {_format_expiry(expiry_timestamp)}; "
                 f"refresh failed with code {code}: {message}"
             )
-        return current_token
+        # Fail closed while still pre-expiry so broken refresh cannot sit silent until 401003.
+        raise RuntimeError(
+            f"LongPort token refresh failed for secret '{secret_name}' "
+            f"(token still within expiry window); code {code}: {message}"
+        )
 
-    new_token = response["data"]["token"]
+    data = response.get("data") or {}
+    new_token = data.get("token")
+    if not isinstance(new_token, str) or not new_token.strip():
+        raise RuntimeError(
+            f"LongPort token refresh for secret '{secret_name}' returned an empty token payload"
+        )
+    new_token = new_token.strip()
     get_secret_store_rw().update_secret(secret_name, new_token, project_id=project_id)
 
     return new_token

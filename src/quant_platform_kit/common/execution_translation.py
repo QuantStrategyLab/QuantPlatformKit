@@ -4,6 +4,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from .presentation.value_target_plan import (
+    ValueTargetDisplayAnnotations,
+    ValueTargetExecutionSemantics,
+    ValueTargetPlanPresentation,
+    resolve_value_target_execution_annotations,
+)
 from .strategy_contracts import (
     PositionTarget,
     StrategyContractValidationError,
@@ -220,6 +226,60 @@ def translate_decision_to_target_mode(
     )
 
 
+def build_value_target_execution_runtime_plan(
+    decision: StrategyDecision,
+    *,
+    strategy_profile: str,
+    portfolio_inputs: ValueTargetPortfolioInputs,
+    strategy_symbols_order: str = "risk_safe_income",
+    annotations: ValueTargetExecutionAnnotations | None = None,
+    semantics: ValueTargetExecutionSemantics | None = None,
+    display: ValueTargetDisplayAnnotations | None = None,
+    include_sellable_quantities: bool | None = None,
+    presentation: ValueTargetPlanPresentation | None = None,
+) -> dict[str, Any]:
+    """Build the value-target runtime plan without dashboard-layout kwargs.
+
+    Prefer ``semantics`` + optional ``display`` for new callers. ``annotations``
+    remains the compatibility aggregate (mixed execution + display fields).
+    Presentation knobs (portfolio row layout / field filters) are optional via
+    ``ValueTargetPlanPresentation``.
+    """
+    presentation = presentation or ValueTargetPlanPresentation()
+    execution_plan = build_value_target_execution_plan(
+        decision,
+        strategy_profile=strategy_profile,
+    )
+    resolved_annotations = resolve_value_target_execution_annotations(
+        decision=decision,
+        annotations=annotations,
+        semantics=semantics,
+        display=display,
+    )
+    portfolio_plan = build_value_target_portfolio_plan(
+        execution_plan,
+        market_values=portfolio_inputs.market_values,
+        quantities=portfolio_inputs.quantities,
+        sellable_quantities=portfolio_inputs.sellable_quantities,
+        total_equity=float(portfolio_inputs.total_equity),
+        liquid_cash=float(portfolio_inputs.liquid_cash),
+        strategy_symbols_order=strategy_symbols_order,
+        portfolio_rows_layout=presentation.portfolio_rows_layout,
+    )
+    return build_value_target_plan_payload(
+        strategy_profile=strategy_profile,
+        portfolio_plan=portfolio_plan,
+        annotations=resolved_annotations,
+        include_sellable_quantities=(
+            portfolio_inputs.sellable_quantities is not None
+            if include_sellable_quantities is None
+            else bool(include_sellable_quantities)
+        ),
+        execution_fields=presentation.execution_fields,
+        execution_defaults=presentation.execution_defaults,
+    )
+
+
 def build_value_target_runtime_plan(
     decision: StrategyDecision,
     *,
@@ -232,30 +292,21 @@ def build_value_target_runtime_plan(
     annotations: ValueTargetExecutionAnnotations | None = None,
     include_sellable_quantities: bool | None = None,
 ) -> dict[str, Any]:
-    execution_plan = build_value_target_execution_plan(
+    """Compatibility facade: same kwargs/payload as before B06.
+
+    Prefer ``build_value_target_execution_runtime_plan`` for new code so layout
+    and field filters are not mixed into the execution API surface.
+    """
+    return build_value_target_execution_runtime_plan(
         decision,
         strategy_profile=strategy_profile,
-    )
-    resolved_annotations = annotations or build_value_target_execution_annotations(decision)
-    portfolio_plan = build_value_target_portfolio_plan(
-        execution_plan,
-        market_values=portfolio_inputs.market_values,
-        quantities=portfolio_inputs.quantities,
-        sellable_quantities=portfolio_inputs.sellable_quantities,
-        total_equity=float(portfolio_inputs.total_equity),
-        liquid_cash=float(portfolio_inputs.liquid_cash),
+        portfolio_inputs=portfolio_inputs,
         strategy_symbols_order=strategy_symbols_order,
-        portfolio_rows_layout=portfolio_rows_layout,
-    )
-    return build_value_target_plan_payload(
-        strategy_profile=strategy_profile,
-        portfolio_plan=portfolio_plan,
-        annotations=resolved_annotations,
-        include_sellable_quantities=(
-            portfolio_inputs.sellable_quantities is not None
-            if include_sellable_quantities is None
-            else bool(include_sellable_quantities)
+        annotations=annotations,
+        include_sellable_quantities=include_sellable_quantities,
+        presentation=ValueTargetPlanPresentation(
+            portfolio_rows_layout=portfolio_rows_layout,
+            execution_fields=execution_fields,
+            execution_defaults=execution_defaults,
         ),
-        execution_fields=execution_fields,
-        execution_defaults=execution_defaults,
     )

@@ -176,7 +176,11 @@ def select_shadow(
         if platform is not None:
             raw_score -= policy.volatility_penalty * candidate.estimated_volatility
             raw_score -= policy.cost_penalty * platform.expected_cost_bps
-        score = raw_score * risk_multiplier
+        # Risk discounts must not improve negative scores (0.5 * -1 = -0.5 ranks higher).
+        if raw_score >= 0.0:
+            score = raw_score * risk_multiplier
+        else:
+            score = raw_score * (2.0 - risk_multiplier)
         if score < policy.minimum_score:
             reasons.append("score_below_policy")
 
@@ -194,7 +198,11 @@ def select_shadow(
 
     accepted = sorted(
         (item for item in decisions if item.accepted),
-        key=lambda item: (-(item.score or float("-inf")), item.strategy_profile, item.selected_platform_id or ""),
+        key=lambda item: (
+            -(item.score if item.score is not None else float("-inf")),
+            item.strategy_profile,
+            item.selected_platform_id or "",
+        ),
     )[: policy.max_recommendations]
     recommended = accepted[0] if accepted else None
     return SelectionDecision(

@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -29,21 +30,26 @@ CONFIG_PATH = Path(__file__).resolve().parent.parent / "strategy_platform_config
 # ── Platform → GCP project & region mapping ──
 PLATFORM_DEPLOY_TARGETS: dict[str, dict[str, str]] = {
     "schwab": {
-        "project": "charlesschwabquant",
         "region": "us-central1",
-        "scheduler_sa": "schwab-platform-scheduler@charlesschwabquant.iam.gserviceaccount.com",
     },
     "ibkr": {
-        "project": "interactivebrokersquant",
         "region": "us-central1",
-        "scheduler_sa": "ibkr-platform-scheduler@interactivebrokersquant.iam.gserviceaccount.com",
     },
     "longbridge": {
-        "project": "longbridgequant",
         "region": "asia-east2",
-        "scheduler_sa": "longbridge-platform-scheduler@longbridgequant.iam.gserviceaccount.com",
     },
 }
+
+
+def resolve_deploy_target(platform_id: str) -> dict[str, str]:
+    target = dict(PLATFORM_DEPLOY_TARGETS[platform_id])
+    for key, suffix in (("project", "GCP_PROJECT_ID"), ("scheduler_sa", "SCHEDULER_SERVICE_ACCOUNT")):
+        name = f"{platform_id.upper()}_{suffix}"
+        value = os.environ.get(name, "").strip()
+        if not value:
+            raise ValueError(f"{name} is required")
+        target[key] = value
+    return target
 
 # ── Platform → enabled profiles (cached from strategy_registry) ──
 def _load_enabled_profiles() -> dict[str, frozenset[str]]:
@@ -122,7 +128,7 @@ def build_runtime_target_json(strategy_id: str, cfg: dict, platform_id: str) -> 
 
 def get_service_url(platform_id: str, account_scope: str = "default") -> str:
     """Get the Cloud Run service URL for a platform+account."""
-    target = PLATFORM_DEPLOY_TARGETS[platform_id]
+    target = resolve_deploy_target(platform_id)
     result = subprocess.run(
         ["gcloud", "run", "services", "describe",
          "charles-schwab-quant-service" if platform_id == "schwab"
@@ -143,7 +149,7 @@ def sync_scheduler_jobs(
 ) -> DiffReport:
     """Create or update Cloud Scheduler jobs for a strategy on a platform."""
     report = DiffReport()
-    target = PLATFORM_DEPLOY_TARGETS[platform_id]
+    target = resolve_deploy_target(platform_id)
     execution = cfg.get("execution", {})
     service_url = get_service_url(platform_id,
                                    cfg.get("accounts", {}).get(platform_id, {}).get("account_scope", "default"))

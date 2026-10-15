@@ -693,3 +693,113 @@ class GcpDocumentOwnershipTests(unittest.TestCase):
         self.store.delete("items", "one")
         self.document.delete.assert_called_once_with()
         self.client.transaction.assert_not_called()
+
+
+class GcpSecretMetadataTests(unittest.TestCase):
+    """Mock SDK checks for one-shot read-only secret version metadata."""
+
+    SYNTHETIC = "synthetic-r10-snapshot-value"
+
+    def _response(self, name, payload=None):
+        from types import SimpleNamespace
+
+        data = self.SYNTHETIC.encode("utf-8") if payload is None else payload
+        return SimpleNamespace(payload=SimpleNamespace(data=data), name=name)
+
+    def _read(
+        self,
+        response,
+        *,
+        secret_name="lb-read-token",
+        project_id="my-project",
+        reader="metadata",
+        responses=None,
+    ):
+        import sys
+        from types import ModuleType
+        from unittest.mock import MagicMock, patch
+
+        client = MagicMock()
+        client.access_secret_version.side_effect = list(responses) if responses is not None else [response]
+        google = ModuleType("google")
+        google_cloud = ModuleType("google.cloud")
+        secret_manager = ModuleType("google.cloud.secretmanager_v1")
+        secret_manager.SecretManagerServiceClient = MagicMock(return_value=client)
+        google.cloud = google_cloud
+        google_cloud.secretmanager_v1 = secret_manager
+        modules = {
+            "google": google,
+            "google.cloud": google_cloud,
+            "google.cloud.secretmanager_v1": secret_manager,
+        }
+        from quant_platform_kit.cloud.gcp_provider import GcpSecretStore
+
+        with patch.dict(sys.modules, modules):
+            store = GcpSecretStore()
+            if reader == "get":
+                result = store.get_secret(secret_name, project_id=project_id)
+            else:
+                result = store.get_secret_with_metadata(secret_name, project_id=project_id)
+        request_name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        client.access_secret_version.assert_called_once_with(request={"name": request_name})
+        return result
+
+    def test_one_access_keeps_payload_and_concrete_version(self):
+        from quant_platform_kit.cloud.gcp_provider import SecretValueWithMetadata
+
+        version_name = "projects/987654321/secrets/lb-read-token/versions/7"
+        result = self._read(self._response(version_name))
+        self.assertIsInstance(result, SecretValueWithMetadata)
+        self.assertEqual(result.value, self.SYNTHETIC)
+        self.assertEqual(result.version_name, version_name)
+        self.assertNotIn(self.SYNTHETIC, repr(result))
+
+    def test_later_latest_change_is_not_read(self):
+        first = self._response("projects/987654321/secrets/lb-read-token/versions/7")
+        rotated = self._response(
+            "projects/987654321/secrets/lb-read-token/versions/8",
+            payload=b"synthetic-r10-rotated-value",
+        )
+        result = self._read(first, responses=(first, rotated))
+        self.assertEqual(result.version_name, "projects/987654321/secrets/lb-read-token/versions/7")
+        self.assertEqual(result.value, self.SYNTHETIC)
+        self.assertNotEqual(result.value, "synthetic-r10-rotated-value")
+
+    def test_missing_alias_or_wrong_secret_keeps_payload_without_version(self):
+        names = (
+            None,
+            "",
+            "projects/987654321/secrets/lb-read-token/versions/latest",
+            "projects/987654321/secrets/other-secret/versions/7",
+            "projects/987654321/secrets/lb-read-token/versions/0",
+            "projects/987654321/secrets/lb-read-token/versions/01",
+            "not-a-resource-name",
+        )
+        for name in names:
+            with self.subTest(name=name):
+                result = self._read(self._response(name))
+                self.assertEqual(result.value, self.SYNTHETIC)
+                self.assertIsNone(result.version_name)
+                self.assertNotIn(self.SYNTHETIC, repr(result))
+
+    def test_decode_error_stays_unicode_error_without_added_wrapper(self):
+        response = self._response(
+            "projects/987654321/secrets/lb-read-token/versions/7",
+            payload=b"\xff",
+        )
+        with self.assertRaises(UnicodeDecodeError) as caught:
+            self._read(response)
+        self.assertNotIn(self.SYNTHETIC, str(caught.exception))
+
+    def test_get_secret_still_returns_plaintext_from_latest(self):
+        result = self._read(
+            self._response("projects/987654321/secrets/lb-read-token/versions/7"),
+            reader="get",
+        )
+        self.assertEqual(result, self.SYNTHETIC)
+        self.assertIsInstance(result, str)
+
+    def test_read_write_store_has_no_metadata_method(self):
+        from quant_platform_kit.cloud.gcp_provider import GcpSecretStoreReadWrite
+
+        self.assertFalse(hasattr(GcpSecretStoreReadWrite, "get_secret_with_metadata"))

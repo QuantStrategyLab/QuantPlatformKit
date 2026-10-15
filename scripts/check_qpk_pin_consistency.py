@@ -122,7 +122,12 @@ def find_dep_files(root: Path) -> list[Path]:
 
 def check_qsl_cross_file_consistency(root: Path) -> list[str]:
     qsl_refs: dict[str, list[tuple[Path, int, str]]] = {}
+    workflow_dir = root / ".github" / "workflows"
     for path in find_dep_files(root):
+        # Workflows can deliberately install an immutable replay dependency that
+        # differs from the repository's runtime dependency declaration.
+        if path.parent == workflow_dir:
+            continue
         for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             for repo, ref in QSL_REF_RE.findall(line):
                 qsl_refs.setdefault(repo, []).append((path, line_no, ref))

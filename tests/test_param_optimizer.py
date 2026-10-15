@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import io
+import traceback
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import replace
 from datetime import date, timedelta
 from types import SimpleNamespace
@@ -252,6 +255,188 @@ class DevelopmentCompletenessTests(unittest.TestCase):
                 self.assertEqual(len(segments), 2 if failed_segment else 3)
                 self.assertEqual(proposal.confidence, 0.0 if failed_segment else 1.0)
                 self.assertEqual(proposal.recommendation, "needs_review" if failed_segment else "research_candidate")
+
+
+class GridFailureAccountingTests(unittest.TestCase):
+    """Offline synthetic attempts must not become a survivor-only proposal."""
+
+    def setUp(self) -> None:
+        self.start = date(2020, 1, 1)
+        self.end = date(2023, 1, 1)
+        self.profile = "synthetic_grid"
+        self.space = ParamSearchSpace(
+            strategy_profile=self.profile, domain="us_equity",
+            dimensions={"mode": ParamDimension(
+                name="mode", param_type="choice", choices=("first", "middle", "last"),
+                current_value="baseline",
+            )},
+        )
+        self.result = BacktestResult(
+            strategy_profile=self.profile, domain="us_equity", param_set_id="",
+            params={}, sharpe_ratio=2.0, calmar_ratio=1.0, cagr=0.2,
+            max_drawdown=-0.1, sortino_ratio=1.0,
+            start_date=self.start, end_date=self.end, observation_count=252,
+        )
+        self.store = Mock()
+        self.runner = Mock()
+        self.attempts = []
+
+    def orchestrator(self, failed_index=None, baseline_error=None):
+        def run(_profile, params, *, start_date=None, end_date=None):
+            mode = params["mode"]
+            self.attempts.append(mode)
+            if mode == "baseline" and baseline_error is not None:
+                raise baseline_error
+            if failed_index is not None and mode == self.space.dimensions["mode"].choices[failed_index]:
+                raise RuntimeError("SYNTHETIC_SECRET_TOKEN https://invalid.example/private")
+            return replace(
+                self.result, params=dict(params), start_date=start_date, end_date=end_date,
+                sharpe_ratio=0.5 if mode == "baseline" else 2.0,
+            )
+
+        self.runner.run.side_effect = run
+        orchestrator = BacktestOrchestrator(store=self.store)
+        orchestrator.register_runner("us_equity", self.runner)
+        return orchestrator
+
+    def search(self, orchestrator):
+        return run_grid_search(
+            self.profile, domain="us_equity", orchestrator=orchestrator,
+            search_space=self.space, current_params={"mode": "baseline"},
+            start_date=self.start, end_date=self.end, max_combinations=3,
+        )
+
+    def assert_sanitized_incomplete(self, error, index, phase):
+        self.assertEqual(
+            str(error), f"research_history_incomplete: candidate_index={index} phase={phase}",
+        )
+        self.assertTrue(error.__suppress_context__)
+        self.assertIsNone(error.__cause__)
+        self.assertNotIn("SYNTHETIC_SECRET_TOKEN", "".join(traceback.format_exception(error)))
+        self.assertNotIn("invalid.example", "".join(traceback.format_exception(error)))
+        self.store.save_proposal.assert_not_called()
+        self.store.save_research_trial.assert_not_called()
+        self.store.save_research_ledger.assert_not_called()
+
+    def test_first_middle_or_last_runner_failure_stops_without_a_survivor_proposal(self):
+        for index in range(3):
+            with self.subTest(index=index):
+                self.setUp()
+                with self.assertRaises(RuntimeError) as caught:
+                    self.search(self.orchestrator(failed_index=index))
+                self.assert_sanitized_incomplete(caught.exception, index, "backtest")
+                self.assertEqual(self.attempts, ["baseline", "first", "middle", "last"][:index + 2])
+                self.assertEqual(self.store.save_backtest_result.call_count, index + 1)
+
+    def test_candidate_persistence_failure_is_incomplete_and_does_not_retry_or_continue(self):
+        def save(result):
+            if result.param_set_id.endswith("_grid_1"):
+                raise OSError("SYNTHETIC_SECRET_TOKEN https://invalid.example/private")
+
+        self.store.save_backtest_result.side_effect = save
+        with self.assertRaises(RuntimeError) as caught:
+            self.search(self.orchestrator())
+        self.assert_sanitized_incomplete(caught.exception, 1, "backtest")
+        self.assertEqual(self.attempts, ["baseline", "first", "middle"])
+        self.assertEqual(self.store.save_backtest_result.call_count, 3)
+
+    def test_failure_output_does_not_include_strategy_or_parameter_values(self):
+        self.profile = "SYNTHETIC_SECRET_TOKEN"
+        self.space = replace(self.space, strategy_profile=self.profile, dimensions={
+            **self.space.dimensions,
+            "api_token": ParamDimension(
+                name="api_token", param_type="choice", choices=("SYNTHETIC_SECRET_TOKEN",),
+                current_value="SYNTHETIC_SECRET_TOKEN",
+            ),
+        })
+        with self.assertRaises(RuntimeError) as caught:
+            self.search(self.orchestrator(failed_index=1))
+        self.assert_sanitized_incomplete(caught.exception, 1, "backtest")
+        self.assertEqual(vars(caught.exception), {})
+        self.assertEqual(self.attempts, ["baseline", "first", "middle"])
+
+    def test_candidate_score_failure_is_incomplete_after_result_persistence(self):
+        from quant_platform_kit.strategy_lifecycle import param_optimizer
+
+        score = param_optimizer._score_backtest_result
+
+        def fail_score(result):
+            if result.param_set_id.endswith("_grid_1"):
+                raise ValueError("SYNTHETIC_SECRET_TOKEN https://invalid.example/private")
+            return score(result)
+
+        with patch.object(param_optimizer, "_score_backtest_result", side_effect=fail_score):
+            with self.assertRaises(RuntimeError) as caught:
+                self.search(self.orchestrator())
+        self.assert_sanitized_incomplete(caught.exception, 1, "score")
+        self.assertEqual(self.attempts, ["baseline", "first", "middle"])
+        self.assertEqual(self.store.save_backtest_result.call_count, 3)
+
+    def test_baseline_failure_retains_existing_exception_and_never_starts_grid(self):
+        original = ValueError("synthetic baseline failure")
+        with self.assertRaises(ValueError) as caught:
+            self.search(self.orchestrator(baseline_error=original))
+        self.assertIs(caught.exception, original)
+        self.assertEqual(self.attempts, ["baseline"])
+        self.store.save_backtest_result.assert_not_called()
+        self.store.save_proposal.assert_not_called()
+
+    def test_failed_grid_cannot_reach_promotion_gates_shadow_or_console(self):
+        from quant_platform_kit.strategy_lifecycle.contracts import DriftResult, DriftStatus
+        from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import run_research_promotion_cycle
+
+        drift = DriftResult(
+            strategy_profile=self.profile, domain="us_equity", as_of=self.end,
+            drift_score=0.8, status=DriftStatus.REVIEW,
+        )
+        gates, shadow, console = Mock(), Mock(), Mock()
+        orchestrator = self.orchestrator(failed_index=1)
+        with self.assertRaises(RuntimeError) as caught:
+            run_research_promotion_cycle(
+                drift, optimize=lambda *_: self.search(orchestrator),
+                enforce_backtest_gates=gates, record_shadow=shadow, sync_console=console,
+            )
+        self.assert_sanitized_incomplete(caught.exception, 1, "backtest")
+        gates.assert_not_called()
+        shadow.assert_not_called()
+        console.assert_not_called()
+
+    def test_successful_search_retains_development_only_proposal_without_fabricated_trials(self):
+        proposal = self.search(self.orchestrator())
+        self.assertEqual(proposal.search_iterations, 3)
+        self.assertEqual(proposal.recommendation, "research_candidate")
+        self.assertEqual(proposal.optimization_method, "grid_search_seen_development")
+        self.assertIs(proposal.walk_forward_passed, False)
+        for result in (proposal.current_metrics, proposal.proposed_metrics):
+            self.assertIsNone(result.oos_sharpe)
+            self.assertIsNone(result.oos_calmar)
+            self.assertIsNone(result.oos_max_drawdown)
+            self.assertIsNone(result.walk_forward_stability)
+        self.store.save_research_trial.assert_not_called()
+        self.store.save_research_ledger.assert_not_called()
+
+    def test_cli_reports_sanitized_nonzero_exit_and_entry_point_saves_no_proposal(self):
+        from quant_platform_kit.strategy_lifecycle import cli, param_optimizer
+
+        orchestrator = self.orchestrator(failed_index=1)
+
+        def register(target, domain):
+            target.register_runner(domain, orchestrator.get_runner(domain))
+
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with (
+            patch.object(param_optimizer, "get_search_space", return_value=self.space),
+            patch.object(param_optimizer, "_auto_register_runner", side_effect=register),
+            patch.object(param_optimizer.PerformanceStore, "from_env", return_value=self.store),
+            redirect_stdout(stdout), redirect_stderr(stderr),
+        ):
+            exit_code = cli.main(["optimize", "--strategy", self.profile])
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stderr.getvalue(), "[optimize] Error: research_history_incomplete: candidate_index=1 phase=backtest\n")
+        self.assertNotIn("Recommendation:", stdout.getvalue())
+        self.assertNotIn("SYNTHETIC_SECRET_TOKEN", stdout.getvalue() + stderr.getvalue())
+        self.assertEqual(self.attempts, ["baseline", "first", "middle"])
+        self.store.save_proposal.assert_not_called()
 
 
 class ParamOptimizerRunnerRegistrationTests(unittest.TestCase):

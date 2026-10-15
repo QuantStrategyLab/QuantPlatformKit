@@ -179,39 +179,30 @@ def test_autopilot_non_actionable_has_zero_ai_or_research(status):
     (True, 'not json', False),
     (True, '[]', False),
 ])
-def test_optimization_decision_is_codex_only_with_no_paid_fallback(success, output, needed):
+def test_optimization_decision_uses_configured_task_route_with_no_fallback(success, output, needed):
     from quant_platform_kit.strategy_lifecycle.codex_integration import AiOptimizationContext, call_ai_optimization_decision
-    from quant_platform_kit.strategy_lifecycle.ai_provider import AiProviderId
-    with patch("quant_platform_kit.strategy_lifecycle.ai_provider.AiServiceClient") as factory:
+    with patch.dict("os.environ", {"AI_SERVICE_MODEL": "configured-dot"}), patch("quant_platform_kit.strategy_lifecycle.ai_provider.AiServiceClient") as factory:
         client = factory.return_value
-        client.execute.return_value = SimpleNamespace(success=success, output=output, provider="codex")
+        client.execute.return_value = SimpleNamespace(success=success, output=output, provider="dot")
         result = call_ai_optimization_decision(AiOptimizationContext("demo_strategy", "us_equity", drift=_critical()))
     config = factory.call_args.args[0]
-    assert config.primary.provider is AiProviderId.CODEX_VPS
-    assert config.fallback == ()
+    assert config.primary.mode == "agent"
+    assert config.primary.model == "configured-dot"
     assert config.reviewers == ()
     client.execute.assert_called_once()
-    assert client.execute.call_args.kwargs["research_stage"] == "optimization"
+    assert client.execute.call_args.kwargs["idempotency_key"].startswith("optimization:")
     client.review.assert_not_called()
     assert result["optimization_needed"] is needed
 
 
-def test_codex_deferral_is_pending_instead_of_a_negative_research_recommendation(tmp_path):
-    from datetime import datetime, timezone
-    from quant_platform_kit.strategy_lifecycle.codex_integration import _process_optimization_decision
-    retry_at = datetime.now(timezone.utc).timestamp() + 3600
-    store = Mock(local_root=tmp_path)
-    store.load_latest_snapshot.return_value = StrategyPerformanceSnapshot(
-        strategy_profile="demo_strategy", domain="us_equity", platform="test", as_of=date(2026, 9, 7), source_revision="source-v1")
-    optimize = Mock()
-    with patch("quant_platform_kit.strategy_lifecycle.ai_provider.AiServiceClient") as factory:
-        factory.return_value.execute.return_value = SimpleNamespace(success=False, provider="codex", output="",
-            raw={"status": "deferred", "retry_at": retry_at})
-        result = _process_optimization_decision(_critical(), store, False,
-            optimize=optimize, enforce_backtest_gates=Mock(), record_shadow=Mock(), research_identity=IDENTITY)
-    assert result["research_promotion_state"] == "deferred"
-    assert result["retry_at"] == retry_at
-    optimize.assert_not_called()
+def test_native_unknown_stays_pending_without_issuing_an_optimization_recommendation():
+    from quant_platform_kit.strategy_lifecycle.codex_integration import AiOptimizationContext, call_ai_optimization_decision
+    with patch.dict("os.environ", {"AI_SERVICE_MODEL": "configured-dot"}), patch("quant_platform_kit.strategy_lifecycle.ai_provider.AiServiceClient") as factory:
+        factory.return_value.execute.return_value = SimpleNamespace(success=False, provider="dot", output="",
+            raw={"status": "outcome_unknown", "id": "task-synthetic"})
+        result = call_ai_optimization_decision(AiOptimizationContext("demo_strategy", "us_equity", drift=_critical()))
+    assert result == {"optimization_needed": False, "reason": "ai_task_pending",
+                      "task_id": "task-synthetic", "task_status": "outcome_unknown"}
 
 
 def test_codex_failure_never_simulates_success_or_leaks_error():

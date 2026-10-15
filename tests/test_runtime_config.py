@@ -231,5 +231,25 @@ class RuntimeConfigTests(unittest.TestCase):
             self.assertFalse(resolve_optional_bool_env("FLAG", default=True))
 
 
+
+class StrictSafetyFlagParsingTest(unittest.TestCase):
+    def test_dry_run_typo_raises_instead_of_live(self) -> None:
+        for raw in ("ture", "enabled", "2"):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                resolve_dry_run_env({"X_DRY_RUN_ONLY": raw}, "X_DRY_RUN_ONLY")
+
+    def test_dry_run_known_values_unchanged(self) -> None:
+        self.assertTrue(resolve_dry_run_env({"X": " TRUE "}, "X"))
+        self.assertFalse(resolve_dry_run_env({"X": "off"}, "X"))
+        self.assertTrue(resolve_dry_run_env({"X": ""}, "X"))
+
+    def test_cash_only_typo_raises_instead_of_margin(self) -> None:
+        with self.assertRaises(ValueError):
+            resolve_cash_only_execution_env({"IBKR_CASH_ONLY_EXECUTION": "flase"}, platform_env_prefix="IBKR")
+        self.assertFalse(
+            resolve_cash_only_execution_env({"IBKR_CASH_ONLY_EXECUTION": "false"}, platform_env_prefix="IBKR")
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

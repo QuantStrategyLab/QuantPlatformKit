@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    IntervalReturnCoverage,
+    LiveReturnCollectionResult,
+    ReturnObservationContract,
+    merge_return_observation_contract,
+    resolve_return_observation_contract,
+)
 from quant_platform_kit.strategy_lifecycle.live_equity import (
     group_live_run_records_by_profile,
-    live_run_records_to_return_series,
+    live_run_records_to_return_series_result,
 )
 from quant_platform_kit.strategy_lifecycle.performance_metrics import normalize_return_matrix
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
@@ -98,8 +106,10 @@ class ReturnCollector:
             col_str = str(column or "").strip()
             if not col_str or col_str in ignored or col_str.startswith("buy_hold_"):
                 continue
-            series = frame[column].dropna()
-            if not series.empty:
+            # Keep mid-series gaps for normalize/metrics to reject; only drop
+            # all-null columns. Never fill zeros to beautify incomplete series.
+            series = pd.to_numeric(frame[column], errors="coerce")
+            if series.notna().any():
                 strategies[col_str] = series
         return strategies
 
@@ -108,30 +118,59 @@ class ReturnCollector:
             return self._store
         return PerformanceStore.from_env()
 
-    def collect_from_live_runs(
+    def collect_from_live_runs_result(
         self,
         domain: str,
         *,
         stream_id: str | None = None,
-    ) -> Mapping[str, pd.Series]:
-        """Build per-strategy returns without merging independent account streams.
+        observation_contract: ReturnObservationContract | None = None,
+        session_holidays: frozenset[str] | Sequence[str] | None = None,
+        holiday_source: str | None = None,
+        holiday_coverage_start: date | None = None,
+        holiday_coverage_end: date | None = None,
+        required_start_at: Any = None,
+        required_end_at: Any = None,
+    ) -> LiveReturnCollectionResult:
+        """Collect live returns and report incomplete calendars/gaps explicitly.
 
-        A caller that needs live monitoring must supply a specific stream when
-        more than one stream has reported the same strategy profile.  Skipping
-        that ambiguous profile is safer than deriving a false equity curve
-        from separate broker accounts.
+        Callers that need XNYS/XHKG holiday semantics must supply a non-synthetic
+        ``holiday_source`` plus inclusive coverage bounds (and the holiday dates).
+        Synthetic sources are never treated as real exchange evidence.
         """
+        base = observation_contract or resolve_return_observation_contract(domain)
+        holidays: frozenset[str] | None = None
+        if session_holidays is not None:
+            holidays = frozenset(str(day).strip() for day in session_holidays if str(day).strip())
+        contract = merge_return_observation_contract(
+            base,
+            session_holidays=holidays,
+            holiday_source=holiday_source,
+            holiday_coverage_start=holiday_coverage_start,
+            holiday_coverage_end=holiday_coverage_end,
+        )
         records = self._store_instance().list_live_run_records(domain)
         grouped = group_live_run_records_by_profile(records)
-        result: dict[str, pd.Series] = {}
+        series_by_profile: dict[str, pd.Series] = {}
+        incomplete_by_profile: dict[str, str] = {}
+        coverage_by_profile: dict[str, IntervalReturnCoverage] = {}
         requested_stream = str(stream_id or "").strip()
         for profile, profile_records in grouped.items():
+            has_intervals = any(
+                "external_cash_flow_interval" in record
+                or (
+                    isinstance(record.get("execution_result"), Mapping)
+                    and "external_cash_flow_interval" in record["execution_result"]
+                )
+                for record in profile_records
+            )
             streams = {
                 str(record.get("lifecycle_stream_id") or "").strip()
                 for record in profile_records
             }
             if requested_stream:
                 if requested_stream not in streams:
+                    if has_intervals:
+                        incomplete_by_profile[profile] = "incomplete_interval_coverage:requested_stream_unavailable"
                     continue
                 profile_records = [
                     record
@@ -139,16 +178,86 @@ class ReturnCollector:
                     if str(record.get("lifecycle_stream_id") or "").strip() == requested_stream
                 ]
             elif len(streams) > 1:
+                if has_intervals:
+                    incomplete_by_profile[profile] = "incomplete_interval_coverage:ambiguous_lifecycle_stream"
                 continue
-            series = live_run_records_to_return_series(profile_records)
-            if not series.empty:
-                result[profile] = series
-        return result
+            derived = live_run_records_to_return_series_result(
+                profile_records,
+                observation_contract=contract,
+                required_start_at=required_start_at,
+                required_end_at=required_end_at,
+            )
+            if derived.coverage is not None:
+                coverage_by_profile[profile] = derived.coverage
+            if derived.status == "ok" and not derived.series.empty:
+                series_by_profile[profile] = derived.series
+                continue
+            if (
+                derived.status
+                in {
+                    "truncated_after_observation_gap",
+                    "truncated_after_invalid_cash_flow",
+                    "truncated_after_interval_gap",
+                }
+                and not derived.series.empty
+            ):
+                # Explicit truncation: usable latest segment, not silent full success.
+                series_by_profile[profile] = derived.series
+                incomplete_by_profile[profile] = (
+                    f"{derived.status}:{derived.detail or 'latest_contiguous_segment'}"
+                )
+                continue
+            incomplete_by_profile[profile] = (
+                f"{derived.status}:{derived.detail}" if derived.detail else derived.status
+            )
+        return LiveReturnCollectionResult(
+            series_by_profile=series_by_profile,
+            incomplete_by_profile=incomplete_by_profile,
+            coverage_by_profile=coverage_by_profile,
+        )
+
+    def collect_from_live_runs(
+        self,
+        domain: str,
+        *,
+        stream_id: str | None = None,
+        observation_contract: ReturnObservationContract | None = None,
+        session_holidays: frozenset[str] | Sequence[str] | None = None,
+        holiday_source: str | None = None,
+        holiday_coverage_start: date | None = None,
+        holiday_coverage_end: date | None = None,
+        required_start_at: Any = None,
+        required_end_at: Any = None,
+    ) -> Mapping[str, pd.Series]:
+        """Build per-strategy returns without merging independent account streams.
+
+        A caller that needs live monitoring must supply a specific stream when
+        more than one stream has reported the same strategy profile.  Skipping
+        that ambiguous profile is safer than deriving a false equity curve
+        from separate broker accounts.
+
+        Incomplete calendars are omitted from the returned mapping; use
+        ``collect_from_live_runs_result`` to inspect ``incomplete_by_profile``.
+        """
+        return self.collect_from_live_runs_result(
+            domain,
+            stream_id=stream_id,
+            observation_contract=observation_contract,
+            session_holidays=session_holidays,
+            holiday_source=holiday_source,
+            holiday_coverage_start=holiday_coverage_start,
+            holiday_coverage_end=holiday_coverage_end,
+            required_start_at=required_start_at,
+            required_end_at=required_end_at,
+        ).series_by_profile
 
     def _merge_return_series(
         self,
         existing: Mapping[str, pd.Series],
         incoming: Mapping[str, pd.Series],
+        *,
+        incomplete_by_profile: Mapping[str, str] | None = None,
+        coverage_by_profile: Mapping[str, IntervalReturnCoverage] | None = None,
     ) -> dict[str, pd.Series]:
         merged = dict(existing)
         for profile, series in incoming.items():
@@ -157,9 +266,130 @@ class ReturnCollector:
                 continue
             if series.empty:
                 continue
+            incoming_status = str(getattr(series, "attrs", {}).get("observation_status") or "")
+            if profile in (coverage_by_profile or {}) or incoming_status == "truncated_after_invalid_cash_flow":
+                # Interval checkpoints have their own scope, method and exact
+                # bounds. CSV returns cannot extend or repair that live segment.
+                # The scalar unknown-flow barrier also remains authoritative.
+                merged[profile] = series
+                continue
+            preferred_status = str(
+                getattr(merged[profile], "attrs", {}).get("observation_status")
+                or incoming_status
+                or "ok"
+            )
             combined = pd.concat([merged[profile], series]).sort_index()
-            merged[profile] = combined[~combined.index.duplicated(keep="last")]
+            combined = combined[~combined.index.duplicated(keep="last")]
+            combined.attrs["observation_status"] = preferred_status
+            merged[profile] = combined
+        for profile in (coverage_by_profile or {}):
+            if profile not in incoming or incoming[profile].empty:
+                # No qualified live interval return exists. Do not silently
+                # substitute a CSV series for unavailable checkpoint coverage.
+                merged.pop(profile, None)
+        for profile, reason in (incomplete_by_profile or {}).items():
+            text = str(reason or "")
+            if text.startswith("incomplete_interval_coverage:"):
+                merged.pop(profile, None)
+                continue
+            if "invalid_cash_flow" not in text:
+                continue
+            live = incoming.get(profile)
+            if live is not None and not live.empty:
+                continue
+            current = merged.get(profile)
+            if current is None or current.empty:
+                continue
+            stamped = current.copy()
+            stamped.attrs["observation_status"] = "truncated_after_invalid_cash_flow"
+            merged[profile] = stamped
         return merged
+
+    def collect_result(
+        self,
+        domain: str,
+        *,
+        date_column: str = "as_of",
+        benchmark_columns: Sequence[str] | None = None,
+        live_stream_id: str | None = None,
+        observation_contract: ReturnObservationContract | None = None,
+        session_holidays: frozenset[str] | Sequence[str] | None = None,
+        holiday_source: str | None = None,
+        holiday_coverage_start: date | None = None,
+        holiday_coverage_end: date | None = None,
+        required_start_at: Any = None,
+        required_end_at: Any = None,
+    ) -> LiveReturnCollectionResult:
+        """Collect all strategy return series for a domain.
+
+        Return merged Series plus authoritative live coverage and status maps.
+        If multiple matrices are found (e.g., different portfolios), merges them.
+        attrs are compatibility copies, not durable coverage qualification.
+
+        A nonempty live_stream_id requests only that live stream. Strategy
+        CSVs are not read and cannot fill unavailable observations or extend
+        its qualified segment. Empty/whitespace IDs retain research behavior.
+        """
+        requested_live_stream = str(live_stream_id or "").strip()
+        paths = [] if requested_live_stream else self.discover_return_matrices(domain)
+        all_strategies: dict[str, pd.Series] = {}
+        if paths:
+            for path in paths:
+                try:
+                    frame = self.read_return_matrix(path, date_column=date_column)
+                except Exception as exc:
+                    raise ValueError(f"invalid return matrix at {path}: {exc}") from exc
+                strategies = self.extract_strategy_columns(
+                    frame, domain=domain, benchmark_columns=benchmark_columns
+                )
+                for name, series in strategies.items():
+                    stamped = series.copy()
+                    stamped.attrs["observation_status"] = "ok"
+                    if name in all_strategies:
+                        if len(stamped) > len(all_strategies[name]):
+                            all_strategies[name] = stamped
+                    else:
+                        all_strategies[name] = stamped
+
+        live_kwargs = {
+            "observation_contract": observation_contract,
+            "session_holidays": session_holidays,
+            "holiday_source": holiday_source,
+            "holiday_coverage_start": holiday_coverage_start,
+            "holiday_coverage_end": holiday_coverage_end,
+            "required_start_at": required_start_at,
+            "required_end_at": required_end_at,
+        }
+        if requested_live_stream:
+            live_outcome = self.collect_from_live_runs_result(
+                domain, stream_id=requested_live_stream, **live_kwargs
+            )
+        else:
+            live_outcome = self.collect_from_live_runs_result(domain, **live_kwargs)
+
+        live_series: dict[str, pd.Series] = {}
+        for profile, series in live_outcome.series_by_profile.items():
+            stamped = series.copy()
+            reason = str(live_outcome.incomplete_by_profile.get(profile) or "")
+            if reason.startswith("truncated_after_invalid_cash_flow"):
+                stamped.attrs["observation_status"] = "truncated_after_invalid_cash_flow"
+            elif reason.startswith("truncated_after_observation_gap"):
+                stamped.attrs["observation_status"] = "truncated_after_observation_gap"
+            elif reason.startswith("truncated_after_interval_gap"):
+                stamped.attrs["observation_status"] = "truncated_after_interval_gap"
+            else:
+                stamped.attrs["observation_status"] = "ok"
+            live_series[profile] = stamped
+        if required_start_at is not None or required_end_at is not None:
+            all_strategies = {}
+        merged = self._merge_return_series(
+            all_strategies,
+            live_series,
+            incomplete_by_profile=live_outcome.incomplete_by_profile,
+            coverage_by_profile=live_outcome.coverage_by_profile,
+        )
+        return LiveReturnCollectionResult(merged, live_outcome.incomplete_by_profile,
+                                          live_outcome.coverage_by_profile)
 
     def collect(
         self,
@@ -168,37 +398,22 @@ class ReturnCollector:
         date_column: str = "as_of",
         benchmark_columns: Sequence[str] | None = None,
         live_stream_id: str | None = None,
+        observation_contract: ReturnObservationContract | None = None,
+        session_holidays: frozenset[str] | Sequence[str] | None = None,
+        holiday_source: str | None = None,
+        holiday_coverage_start: date | None = None,
+        holiday_coverage_end: date | None = None,
+        required_start_at: Any = None,
+        required_end_at: Any = None,
     ) -> Mapping[str, pd.Series]:
-        """Collect all strategy return series for a domain.
-
-        Returns a mapping of strategy_profile → daily return series.
-        If multiple matrices are found (e.g., different portfolios), merges them.
-        """
-        paths = self.discover_return_matrices(domain)
-        all_strategies: dict[str, pd.Series] = {}
-        if paths:
-            for path in paths:
-                try:
-                    frame = self.read_return_matrix(path, date_column=date_column)
-                except Exception:
-                    continue
-                strategies = self.extract_strategy_columns(
-                    frame, domain=domain, benchmark_columns=benchmark_columns
-                )
-                for name, series in strategies.items():
-                    if name in all_strategies:
-                        if len(series) > len(all_strategies[name]):
-                            all_strategies[name] = series
-                    else:
-                        all_strategies[name] = series
-
-        if live_stream_id:
-            live_series = self.collect_from_live_runs(domain, stream_id=live_stream_id)
-        else:
-            # Keep the original call shape for integrations that replace this
-            # best-effort collector with a compatible one-argument adapter.
-            live_series = self.collect_from_live_runs(domain)
-        return self._merge_return_series(all_strategies, live_series)
+        """Compatible Series API; collect_result retains authoritative coverage."""
+        return self.collect_result(
+            domain, date_column=date_column, benchmark_columns=benchmark_columns,
+            live_stream_id=live_stream_id, observation_contract=observation_contract,
+            session_holidays=session_holidays, holiday_source=holiday_source,
+            holiday_coverage_start=holiday_coverage_start, holiday_coverage_end=holiday_coverage_end,
+            required_start_at=required_start_at, required_end_at=required_end_at,
+        ).series_by_profile
 
     def collect_benchmark(
         self,
@@ -207,17 +422,24 @@ class ReturnCollector:
         *,
         date_column: str = "as_of",
     ) -> pd.Series | None:
-        """Collect the benchmark return series for a domain."""
+        """Collect the benchmark return series for a domain.
+
+        Normalizes every discovered matrix before returning so an earlier match
+        cannot hide a later invalid file. Returns None when the symbol is absent.
+        """
         paths = self.discover_return_matrices(domain)
+        matched: pd.Series | None = None
         for path in paths:
             try:
                 frame = self.read_return_matrix(path, date_column=date_column)
-            except Exception:
-                continue
-            for column in frame.columns:
-                if str(column or "").strip() == benchmark_symbol:
-                    return frame[column].dropna()
-        return None
+            except Exception as exc:
+                raise ValueError(f"invalid return matrix at {path}: {exc}") from exc
+            if matched is None:
+                for column in frame.columns:
+                    if str(column or "").strip() == benchmark_symbol:
+                        matched = frame[column].dropna()
+                        break
+        return matched
 
 
 def resolve_strategy_benchmark(

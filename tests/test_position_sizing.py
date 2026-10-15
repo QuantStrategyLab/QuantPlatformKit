@@ -5,9 +5,14 @@ from __future__ import annotations
 import unittest
 
 from quant_platform_kit.position_sizing import (
-    constrained_kelly_recommendation,
+    UNIT_BET_LOSS_RISK_SHARE,
+    UNIT_CAPITAL_EXPOSURE,
+    CapitalExposureKellyResult,
+    ConstrainedKellyResult,
     KellyResult,
+    constrained_kelly_recommendation,
     estimate_kelly,
+    research_capital_exposure_kelly,
     risk_budgeted_target_weight,
     risk_budgeted_target_weights,
     validate_reduce_only_normalization,
@@ -148,6 +153,186 @@ class PositionSizingTests(unittest.TestCase):
                 )
                 self.assertEqual(result.status, "PARKED")
                 self.assertEqual(result.reason_codes, (reason,))
+
+    def test_mixed_zero_return_does_not_change_kelly_risk_share(self) -> None:
+        baseline = estimate_kelly([0.20, -0.10])
+        with_zero = estimate_kelly([0.20, -0.10, 0.0])
+
+        self.assertAlmostEqual(baseline.kelly_fraction, 0.25)
+        self.assertAlmostEqual(with_zero.kelly_fraction, baseline.kelly_fraction)
+        self.assertAlmostEqual(with_zero.win_rate, baseline.win_rate)
+        self.assertAlmostEqual(with_zero.avg_win, baseline.avg_win)
+        self.assertAlmostEqual(with_zero.avg_loss, baseline.avg_loss)
+
+    def test_positive_edge_risk_share_is_half_not_capital_exposure(self) -> None:
+        result = estimate_kelly([0.20, 0.20, -0.10])
+
+        self.assertAlmostEqual(result.kelly_fraction, 0.5)
+        self.assertEqual(result.unit, UNIT_BET_LOSS_RISK_SHARE)
+        self.assertTrue(result.contract_version.startswith("kelly.bet_loss_risk_share."))
+        # Legacy field keeps risk-share semantics; it is not capital exposure.
+        self.assertAlmostEqual(result.max_position_pct, 0.10)
+        self.assertLess(result.max_position_pct, 1.0)
+
+    def test_estimate_kelly_fail_closed_on_non_finite_bool_or_bad_type(self) -> None:
+        for returns in (
+            [0.1, float("nan")],
+            [0.1, float("inf")],
+            [0.1, True],
+            [0.1, "0.2"],  # type: ignore[list-item]
+            "not-a-list",  # type: ignore[arg-type]
+        ):
+            with self.subTest(returns=returns):
+                result = estimate_kelly(returns)  # type: ignore[arg-type]
+                self.assertEqual(result.kelly_fraction, 0.0)
+                self.assertEqual(result.half_kelly, 0.0)
+                self.assertEqual(result.max_position_pct, 0.0)
+
+    def test_estimate_kelly_rejects_unrepresentable_integers_and_stable_means(self) -> None:
+        rejected = estimate_kelly([10**1000, -0.1])
+        self.assertEqual(rejected.kelly_fraction, 0.0)
+
+        finite = estimate_kelly([1.7e308, 1.7e308, -1.7e308])
+        self.assertTrue(all(
+            value == value and abs(value) != float("inf")
+            for value in (finite.avg_win, finite.avg_loss, finite.kelly_fraction)
+        ))
+
+    def test_constrained_kelly_illegal_drawdown_parks_without_raising(self) -> None:
+        returns = [0.05, -0.02] * 20
+        for drawdown in ("bad", object(), True, float("nan"), float("inf")):
+            with self.subTest(drawdown=drawdown):
+                result = constrained_kelly_recommendation(
+                    returns,
+                    risk_budget_cap=0.04,
+                    observed_max_drawdown=drawdown,  # type: ignore[arg-type]
+                )
+                self.assertIsInstance(result, ConstrainedKellyResult)
+                self.assertEqual(result.status, "PARKED")
+                self.assertEqual(result.recommended_position_pct, 0.0)
+                self.assertTrue(result.reason_codes)
+
+    def test_research_capital_exposure_converts_risk_share_with_explicit_loss_fraction(
+        self,
+    ) -> None:
+        result = research_capital_exposure_kelly(
+            [0.20, 0.20, -0.10] * 10,
+            loss_fraction_per_unit=0.10,
+            risk_budget_cap=0.10,
+            position_cap=0.10,
+            fractional_kelly=0.5,
+            observed_max_drawdown=0.10,
+        )
+
+        self.assertEqual(result.status, "KELLY_READY")
+        self.assertEqual(result.unit, UNIT_CAPITAL_EXPOSURE)
+        self.assertTrue(result.contract_version.startswith("kelly.capital_exposure."))
+        self.assertAlmostEqual(result.bet_loss_risk_share, 0.5)
+        self.assertAlmostEqual(result.theoretical_capital_exposure, 5.0)
+        self.assertAlmostEqual(result.fractional_capital_exposure, 2.5)
+        self.assertAlmostEqual(result.recommended_capital_exposure, 0.10)
+
+    def test_research_capital_exposure_zero_mix_and_half_do_not_renormalize(
+        self,
+    ) -> None:
+        baseline = research_capital_exposure_kelly(
+            [0.20, 0.20, -0.10] * 10,
+            loss_fraction_per_unit=0.10,
+            risk_budget_cap=1.0,
+            position_cap=1.0,
+            fractional_kelly=0.5,
+            observed_max_drawdown=0.10,
+        )
+        with_zero = research_capital_exposure_kelly(
+            [0.20, 0.20, -0.10] * 10 + [0.0],
+            loss_fraction_per_unit=0.10,
+            risk_budget_cap=1.0,
+            position_cap=1.0,
+            fractional_kelly=0.5,
+            observed_max_drawdown=0.10,
+        )
+
+        self.assertAlmostEqual(baseline.theoretical_capital_exposure, 5.0)
+        self.assertAlmostEqual(
+            with_zero.theoretical_capital_exposure,
+            baseline.theoretical_capital_exposure,
+        )
+        # Half scales the same theoretical solution once; cash residual is implicit.
+        self.assertAlmostEqual(baseline.fractional_capital_exposure, 2.5)
+        self.assertLess(baseline.fractional_capital_exposure, baseline.theoretical_capital_exposure)
+        self.assertNotAlmostEqual(baseline.fractional_capital_exposure, 1.0)
+
+    def test_research_capital_exposure_parks_without_trusted_loss_fraction(self) -> None:
+        for loss_fraction in (None, 0.0, -0.1, float("nan"), True, "0.1"):
+            with self.subTest(loss_fraction=loss_fraction):
+                result = research_capital_exposure_kelly(
+                    [0.20, 0.20, -0.10] * 10,
+                    loss_fraction_per_unit=loss_fraction,  # type: ignore[arg-type]
+                    risk_budget_cap=0.10,
+                    position_cap=0.10,
+                    fractional_kelly=0.5,
+                    observed_max_drawdown=0.10,
+                )
+                self.assertEqual(result.status, "PARKED")
+                self.assertEqual(result.recommended_capital_exposure, 0.0)
+                self.assertIn("missing_or_invalid_loss_fraction_per_unit", result.reason_codes)
+
+    def test_research_capital_exposure_rejects_full_kelly(self) -> None:
+        result = research_capital_exposure_kelly(
+            [0.20, 0.20, -0.10] * 10,
+            loss_fraction_per_unit=0.10,
+            risk_budget_cap=0.10,
+            fractional_kelly=1.0,
+            observed_max_drawdown=0.10,
+        )
+        self.assertEqual(result.status, "PARKED")
+        self.assertIn("full_kelly_not_allowed", result.reason_codes)
+
+    def test_research_capital_exposure_preserves_sample_and_drawdown_gates(self) -> None:
+        small_sample = research_capital_exposure_kelly(
+            [0.20, 0.20, -0.10],
+            loss_fraction_per_unit=0.10,
+            risk_budget_cap=0.10,
+            observed_max_drawdown=0.10,
+        )
+        missing_drawdown = research_capital_exposure_kelly(
+            [0.20, 0.20, -0.10] * 10,
+            loss_fraction_per_unit=0.10,
+            risk_budget_cap=0.10,
+        )
+        excessive_drawdown = research_capital_exposure_kelly(
+            [0.20, 0.20, -0.10] * 10,
+            loss_fraction_per_unit=0.10,
+            risk_budget_cap=0.10,
+            observed_max_drawdown=0.30,
+        )
+        for result, reason in (
+            (small_sample, "insufficient_samples"),
+            (missing_drawdown, "missing_drawdown"),
+            (excessive_drawdown, "drawdown_limit_exceeded"),
+        ):
+            with self.subTest(reason=reason):
+                self.assertEqual(result.status, "PARKED")
+                self.assertEqual(result.recommended_capital_exposure, 0.0)
+                self.assertIn(reason, result.reason_codes)
+
+    def test_research_capital_exposure_parks_on_exposure_overflow_and_leverage_cap(self) -> None:
+        common = {
+            "returns": [0.20, 0.20, -0.10] * 10,
+            "loss_fraction_per_unit": 1e-309,
+            "risk_budget_cap": 1.0,
+            "position_cap": 1.0,
+            "observed_max_drawdown": 0.10,
+        }
+        overflow = research_capital_exposure_kelly(**common)
+        leveraged_cap = research_capital_exposure_kelly(
+            **(common | {"loss_fraction_per_unit": 0.10, "risk_budget_cap": 1.01})
+        )
+        self.assertEqual(overflow.status, "PARKED")
+        self.assertEqual(overflow.recommended_capital_exposure, 0.0)
+        self.assertIn("non_finite_or_non_positive_exposure", overflow.reason_codes)
+        self.assertEqual(leveraged_cap.status, "PARKED")
+        self.assertIn("invalid_constraints", leveraged_cap.reason_codes)
 
 
 class RiskBudgetedTargetWeightTests(unittest.TestCase):

@@ -21,6 +21,7 @@ from quant_platform_kit.common.strategies import (
 )
 from quant_platform_kit.common.execution_translation import (
     ValueTargetPortfolioInputs,
+    build_value_target_execution_runtime_plan,
     build_value_target_portfolio_inputs_from_account_state,
     build_value_target_portfolio_inputs_from_snapshot,
     build_value_target_runtime_plan,
@@ -28,6 +29,12 @@ from quant_platform_kit.common.execution_translation import (
     translate_decision_to_target_mode,
     translate_value_decision_to_weight_targets,
     translate_weight_decision_to_value_targets,
+)
+from quant_platform_kit.common.presentation import (
+    ValueTargetDisplayAnnotations,
+    ValueTargetExecutionSemantics,
+    ValueTargetPlanPresentation,
+    split_value_target_annotation_parts,
 )
 from quant_platform_kit.common.runtime_inputs import (
     build_account_state_from_portfolio_snapshot,
@@ -399,6 +406,88 @@ class StrategyContractMigrationTests(unittest.TestCase):
         self.assertEqual(snapshot.metadata["cash_available_for_trading"], 1500.0)
         self.assertEqual(snapshot.metadata["cash_by_currency"], {"USD": 1500.0, "SGD": 350.0})
         self.assertEqual(snapshot.metadata["sellable_quantities"], {"QQQI": 8, "TQQQ": 2, "QQQ": 99})
+
+    def test_portfolio_account_state_roundtrip_preserves_position_details(self) -> None:
+        source = PortfolioSnapshot(
+            as_of="2026-04-09",
+            total_equity=10000.0,
+            buying_power=2500.0,
+            positions=(
+                Position(
+                    symbol="TQQQ",
+                    quantity=5,
+                    market_value=750.0,
+                    average_cost=125.0,
+                    currency="USD",
+                    account_id="synthetic-account-a",
+                ),
+            ),
+        )
+
+        account_state = build_account_state_from_portfolio_snapshot(
+            source,
+            strategy_symbols=("TQQQ",),
+        )
+        restored = build_portfolio_snapshot_from_account_state(
+            account_state,
+            strategy_symbols=("TQQQ",),
+        )
+
+        self.assertEqual(len(restored.positions), 1)
+        self.assertEqual(restored.positions[0], source.positions[0])
+
+    def test_portfolio_account_state_roundtrip_keeps_short_and_omits_explicit_zero(self) -> None:
+        source = PortfolioSnapshot(
+            as_of="2026-04-09",
+            total_equity=10000.0,
+            positions=(
+                Position(
+                    symbol="SHORT",
+                    quantity=-4,
+                    market_value=-600.0,
+                    average_cost=150.0,
+                    currency="HKD",
+                    account_id="synthetic-account-b",
+                ),
+                Position(symbol="CASHLIKE", quantity=0, market_value=0.0),
+            ),
+        )
+
+        restored = build_portfolio_snapshot_from_account_state(
+            build_account_state_from_portfolio_snapshot(source),
+        )
+
+        self.assertEqual([position.symbol for position in restored.positions], ["SHORT"])
+        self.assertEqual(restored.positions[0], source.positions[0])
+
+    def test_portfolio_roundtrip_rejects_duplicate_symbol_position_metadata(self) -> None:
+        source = PortfolioSnapshot(
+            as_of="2026-04-09",
+            total_equity=10000.0,
+            positions=(
+                Position(
+                    symbol="DUP",
+                    quantity=1,
+                    market_value=100.0,
+                    average_cost=90.0,
+                    currency="USD",
+                    account_id="synthetic-account-a",
+                ),
+                Position(
+                    symbol="DUP",
+                    quantity=2,
+                    market_value=220.0,
+                    average_cost=105.0,
+                    currency="HKD",
+                    account_id="synthetic-account-b",
+                ),
+            ),
+        )
+
+        account_state = build_account_state_from_portfolio_snapshot(source)
+
+        with self.assertRaisesRegex(ValueError, "duplicate symbol"):
+            build_portfolio_snapshot_from_account_state(account_state)
 
     def test_build_strategy_evaluation_inputs_only_keeps_available_inputs(self) -> None:
         snapshot = object()
@@ -891,7 +980,25 @@ class StrategyContractMigrationTests(unittest.TestCase):
             }
         )
 
-        payload = build_value_target_runtime_plan(
+        semantics, display = split_value_target_annotation_parts(decision)
+        modern = build_value_target_execution_runtime_plan(
+            decision,
+            strategy_profile="soxl_soxx_trend_income",
+            portfolio_inputs=inputs,
+            semantics=semantics,
+            display=display,
+            presentation=ValueTargetPlanPresentation(
+                portfolio_rows_layout=("risk", "safe"),
+                execution_fields=(
+                    "trade_threshold_value",
+                    "signal_display",
+                    "investable_cash",
+                ),
+                execution_defaults={"investable_cash": 12000.0},
+            ),
+        )
+        # Compat facade must remain behavior-equivalent (B12 keeps facade).
+        legacy = build_value_target_runtime_plan(
             decision,
             strategy_profile="soxl_soxx_trend_income",
             portfolio_inputs=inputs,
@@ -904,9 +1011,12 @@ class StrategyContractMigrationTests(unittest.TestCase):
             execution_defaults={"investable_cash": 12000.0},
         )
 
-        self.assertEqual(payload["allocation"]["target_mode"], "value")
-        self.assertEqual(payload["allocation"]["targets"]["SOXL"], 30000.0)
-        self.assertEqual(payload["portfolio"]["sellable_quantities"]["BOXX"], 5)
-        self.assertEqual(payload["execution"]["trade_threshold_value"], 250.0)
-        self.assertEqual(payload["execution"]["signal_display"], "risk-on")
-        self.assertEqual(payload["execution"]["investable_cash"], 12000.0)
+        self.assertEqual(modern, legacy)
+        self.assertEqual(modern["allocation"]["target_mode"], "value")
+        self.assertEqual(modern["allocation"]["targets"]["SOXL"], 30000.0)
+        self.assertEqual(modern["portfolio"]["sellable_quantities"]["BOXX"], 5)
+        self.assertEqual(modern["execution"]["trade_threshold_value"], 250.0)
+        self.assertEqual(modern["execution"]["signal_display"], "risk-on")
+        self.assertEqual(modern["execution"]["investable_cash"], 12000.0)
+        self.assertIsInstance(semantics, ValueTargetExecutionSemantics)
+        self.assertIsInstance(display, ValueTargetDisplayAnnotations)

@@ -25,6 +25,7 @@ def publish_attention_telegram_transition(
     account_alias: str,
     strategy_profile: str,
     locale: object | None = None,
+    guard_reason_codes: tuple[str, ...] = (),
     previous_level: AttentionLevel | str | None = None,
     previous_reason_codes: Sequence[str] | None = None,
     already_sent_keys: Sequence[str] | None = None,
@@ -66,6 +67,7 @@ def publish_attention_telegram_transition(
         account_alias=account_alias,
         strategy_profile=strategy_profile,
         decision=decision,
+        guard_reason_codes=guard_reason_codes,
     )
     sender = telegram_sender or _default_telegram_sender
     try:

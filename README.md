@@ -1,14 +1,5 @@
 # QuantPlatformKit
 
-
-## QSL architecture role
-
-- **Layer**: `core`.
-- **Responsibility**: shared runtime contracts and platform adapters.
-- **Owns**: stable contracts, broker adapters, runtime helpers, notifications, risk utilities.
-- **Consumes**: platforms, strategies, pipelines, lifecycle tooling.
-- **Must not**: decide which strategy is live or store environment-specific secrets.
-
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
@@ -26,6 +17,14 @@ It supports the system but does not decide which strategy should be live. Strate
 - Keep secrets and environment-specific settings outside the shared library code.
 - Document changes that affect multiple platforms or strategy packages.
 
+## QSL architecture role
+
+- **Layer**: `core`.
+- **Responsibility**: shared runtime contracts and platform adapters.
+- **Owns**: stable contracts, broker adapters, runtime helpers, notifications, risk utilities.
+- **Consumes**: platforms, strategies, pipelines, lifecycle tooling.
+- **Must not**: decide which strategy is live or store environment-specific secrets.
+
 ## Repository layout
 
 - `src/`: library and runtime code.
@@ -39,6 +38,19 @@ It supports the system but does not decide which strategy should be live. Strate
 python -m pip install -e .
 python -m pytest -q
 ```
+
+## Configuration
+
+Set these environment variables before running `scripts/sync_strategy_config.py`. Missing values stop the command before cloud access.
+
+| Variable | Purpose | Required | Default |
+|---|---|---|---|
+| `IBKR_GCP_PROJECT_ID` | IBKR Cloud Run and Scheduler project | For IBKR sync | none |
+| `IBKR_SCHEDULER_SERVICE_ACCOUNT` | IBKR Scheduler OIDC identity | For IBKR sync | none |
+| `SCHWAB_GCP_PROJECT_ID` | Schwab Cloud Run and Scheduler project | For Schwab sync | none |
+| `SCHWAB_SCHEDULER_SERVICE_ACCOUNT` | Schwab Scheduler OIDC identity | For Schwab sync | none |
+| `LONGBRIDGE_GCP_PROJECT_ID` | LongBridge Cloud Run and Scheduler project | For LongBridge sync | none |
+| `LONGBRIDGE_SCHEDULER_SERVICE_ACCOUNT` | LongBridge Scheduler OIDC identity | For LongBridge sync | none |
 
 ## Strategy lifecycle CLI
 
@@ -131,3 +143,7 @@ See [LICENSE](LICENSE).
 ## v1 migration
 
 `quant_platform_kit.strategy_contracts` was removed in v1. Import strategy contracts from `quant_platform_kit.common.strategy_contracts`, execution translation from `quant_platform_kit.common.execution_translation`, and runtime inputs from `quant_platform_kit.common.runtime_inputs`. No compatibility facade is provided.
+
+### AI 任务服务升级
+
+生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/TASK-SERVICE-V2.zh-CN.md)。本次版本尚未发布或部署。

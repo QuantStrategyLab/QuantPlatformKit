@@ -7,6 +7,9 @@ and persists StrategyPerformanceSnapshot records to the performance store.
 from __future__ import annotations
 
 import logging
+import os
+import re
+from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -15,9 +18,15 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-from quant_platform_kit.strategy_lifecycle.contracts import StrategyPerformanceSnapshot
+from quant_platform_kit.strategy_lifecycle.contracts import (
+    StrategyPerformanceSnapshot,
+    interval_return_coverage_comparison_reason,
+    normalize_interval_return_coverage,
+    resolve_return_observation_contract,
+)
 from quant_platform_kit.strategy_lifecycle.performance_metrics import (
     DEFAULT_WINDOWS,
+    annualization_basis_is_comparable,
     compare_with_backtest,
     compute_window_metrics,
     normalize_return_series,
@@ -28,9 +37,58 @@ from quant_platform_kit.strategy_lifecycle.return_collector import (
     resolve_strategy_benchmark,
 )
 
+_SOURCE_REVISION_SHA = re.compile(r"^[0-9a-f]{40}$")
+_SOURCE_REVISION_SENTINELS = frozenset(
+    {"", "unavailable", "not_available", "legacy_missing", "unknown", "none", "null"}
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def resolve_monitor_source_revision(
+    explicit: str | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Resolve a real observation ``source_revision`` for daily snapshots.
+
+    Order: explicit argument, ``LIFECYCLE_SOURCE_REVISION``, then ``GITHUB_SHA``.
+    Full 40-character lowercase git SHAs are always accepted. Non-SHA labels are
+    allowed only from the explicit argument or ``LIFECYCLE_SOURCE_REVISION``
+    (existing probe/contract non-empty provenance). ``GITHUB_SHA`` must be a
+    full 40-character SHA. Missing or sentinel values raise instead of writing
+    an empty string that would look like a complete observation.
+    """
+    env = os.environ if environ is None else environ
+    candidates: list[tuple[str, bool]] = []
+    if explicit is not None:
+        candidates.append((str(explicit), False))
+    for key, sha_only in (
+        ("LIFECYCLE_SOURCE_REVISION", False),
+        ("GITHUB_SHA", True),
+    ):
+        raw = env.get(key)
+        if raw is None:
+            continue
+        candidates.append((str(raw), sha_only))
+
+    for raw, sha_only in candidates:
+        value = raw.strip()
+        if not value or value.lower() in _SOURCE_REVISION_SENTINELS:
+            continue
+        lowered = value.lower()
+        if _SOURCE_REVISION_SHA.fullmatch(lowered):
+            return lowered
+        if sha_only:
+            continue
+        return value
+
+    raise RuntimeError(
+        "monitor source_revision is required; pass source_revision=..., "
+        "set LIFECYCLE_SOURCE_REVISION, or provide GITHUB_SHA (40-char)"
+    )
 
 
 def resolve_lifecycle_stream_id(
@@ -45,8 +103,6 @@ def resolve_lifecycle_stream_id(
     synthetic equity curve.  ``LIFECYCLE_STREAM_ID`` is available for
     non-Cloud-Run runtimes that need a stable explicit identity.
     """
-    import os
-
     for candidate in (
         explicit_stream_id,
         os.environ.get("LIFECYCLE_STREAM_ID"),
@@ -83,6 +139,11 @@ def run_monitor(
     strategy_benchmarks: Mapping[str, str] | None = None,
     require_explicit_benchmark: bool = False,
     live_stream_id: str | None = None,
+    source_revision: str | None = None,
+    required_start_at: Any = None,
+    required_end_at: Any = None,
+    include_interval_coverage: bool = False,
+    baseline_coverage_by_profile: Mapping[str, Any] | None = None,
 ) -> list[StrategyPerformanceSnapshot]:
     """Run the performance monitor for the given domain.
 
@@ -101,17 +162,119 @@ def run_monitor(
             promotion-grade setting for leveraged strategies.
         live_stream_id: Optional stable telemetry stream identity.  When live
             account data is used, this prevents independent broker accounts
-            from being merged into one return series.
+            from being merged into one return series. A nonempty ID requires
+            collect_from_live_runs_result; research collectors cannot satisfy
+            this request through collect/collect_result or CSV fallback.
+        source_revision: Observation provenance. Required when snapshots would be
+            written; resolved from env when omitted (see
+            :func:`resolve_monitor_source_revision`).
+        required_start_at, required_end_at: Complete supplied checkpoint window;
+            both bounds are required together. Qualify all targets before writes.
+        include_interval_coverage: Opt into the isolated snapshot coverage wire.
+            Explicit bounds also enable it. Omitted preserves legacy wire exactly.
+        baseline_coverage_by_profile: Explicit checkpoint coverage for backtest
+            references. Missing/incomparable coverage cannot supply a drift score.
 
     Returns:
         List of StrategyPerformanceSnapshot objects generated.
     """
+    requested = required_start_at is not None or required_end_at is not None
+    if requested:
+        from quant_platform_kit.strategy_lifecycle.live_equity import _parse_interval_timestamp
+
+        requested_start = _parse_interval_timestamp(required_start_at)
+        requested_end = _parse_interval_timestamp(required_end_at)
+        if requested_start is None or requested_end is None or requested_start >= requested_end:
+            raise ValueError("invalid_requested_window")
     store = store or PerformanceStore.from_env()
     collector = collector or ReturnCollector()
+    observation_contract = resolve_return_observation_contract(domain)
 
-    # 1. Collect returns
-    if isinstance(collector, ReturnCollector):
-        all_returns = collector.collect(domain, live_stream_id=live_stream_id)
+    # 1. Collect returns under the domain observation contract.
+    coverage_by_profile = {}
+    result_mode = requested or include_interval_coverage
+    requested_live_stream = str(live_stream_id or "").strip()
+    if result_mode or requested_live_stream:
+        if requested_live_stream:
+            collect_live_result = getattr(collector, "collect_from_live_runs_result", None)
+            if not callable(collect_live_result):
+                raise ValueError("live_stream_result_required")
+            outcome = collect_live_result(
+                domain, stream_id=requested_live_stream, observation_contract=observation_contract,
+                required_start_at=required_start_at, required_end_at=required_end_at,
+            )
+        else:
+            collect_result = getattr(collector, "collect_result", None)
+            if not callable(collect_result):
+                raise ValueError("interval_coverage_result_required")
+            outcome = collect_result(
+                domain, live_stream_id=live_stream_id, observation_contract=observation_contract,
+                required_start_at=required_start_at, required_end_at=required_end_at,
+            )
+        all_returns = dict(outcome.series_by_profile)
+        if requested_live_stream:
+            # Explicit live results and incomplete reasons are authoritative.
+            # Only qualified latest segments may survive a disclosed truncation;
+            # nonempty research values cannot override an unavailable result.
+            usable_truncations = {
+                "truncated_after_observation_gap", "truncated_after_invalid_cash_flow",
+                "truncated_after_interval_gap",
+            }
+            for profile, series in list(all_returns.items()):
+                reason = str(outcome.incomplete_by_profile.get(profile) or "")
+                status = reason.split(":", 1)[0]
+                if reason and status not in usable_truncations:
+                    del all_returns[profile]
+                    continue
+                stamped = series.copy()
+                stamped.attrs["observation_status"] = status or "ok"
+                all_returns[profile] = stamped
+        targets = ([strategy_profile] if strategy_profile else sorted(
+            set(all_returns) | set(outcome.coverage_by_profile) | set(outcome.incomplete_by_profile)))
+        # Qualify every target before the first write. CSV/attrs cannot repair
+        # a missing checkpoint outcome or silently waive an explicit request.
+        for profile in targets:
+            raw = outcome.coverage_by_profile.get(profile) if result_mode else None
+            series = all_returns.get(profile)
+            normalized = None
+            if series is not None and not series.empty:
+                canonical = series.copy()
+                if raw is not None:
+                    # Interval indexes are UTC observation-date labels. Preserve
+                    # their real dates before the general normalizer drops TZ.
+                    dates = pd.DatetimeIndex(pd.to_datetime(canonical.index, errors="coerce"))
+                    canonical.index = (dates.tz_convert("UTC").tz_localize(None)
+                                       if dates.tz is not None else dates)
+                normalized = normalize_return_series(canonical)
+                normalized.attrs = dict(getattr(series, "attrs", {}))
+                all_returns[profile] = normalized
+            if raw is not None:
+                cov = normalize_interval_return_coverage(raw)
+                if series is not None and not series.empty:
+                    if (cov["coverage_status"] == "unavailable" or cov["return_count"] != len(series)
+                            or cov["return_count"] != len(normalized)):
+                        raise ValueError("interval_coverage_series_mismatch")
+                    expected_dates = pd.date_range(
+                        pd.Timestamp(cov["return_start_at"]).normalize().tz_localize(None) + pd.Timedelta(days=1),
+                        pd.Timestamp(cov["return_end_at"]).normalize().tz_localize(None), freq="D",
+                    )
+                    if not normalized.index.equals(expected_dates):
+                        raise ValueError("interval_coverage_series_dates_mismatch")
+                    coverage_by_profile[profile] = cov
+            if requested:
+                cov = coverage_by_profile.get(profile)
+                if (cov is None or series is None or series.empty
+                        or cov["requested_window_complete"] is not True
+                        or cov["coverage_status"] != "complete_requested_window"
+                        or cov["return_start_at"] != requested_start.isoformat()
+                        or cov["return_end_at"] != requested_end.isoformat()):
+                    raise RuntimeError("incomplete_requested_window:" + str(profile))
+    elif isinstance(collector, ReturnCollector):
+        all_returns = collector.collect(
+            domain,
+            live_stream_id=live_stream_id,
+            observation_contract=observation_contract,
+        )
     else:
         all_returns = collector.collect(domain)
     if not all_returns:
@@ -122,6 +285,9 @@ def run_monitor(
             )
         return []
 
+    # Fail closed before any snapshot write when provenance is missing.
+    resolved_source_revision = resolve_monitor_source_revision(source_revision)
+
     profiles = [strategy_profile] if strategy_profile else sorted(all_returns.keys())
     snapshots: list[StrategyPerformanceSnapshot] = []
 
@@ -131,6 +297,11 @@ def run_monitor(
             continue
 
         series = normalize_return_series(returns)
+        observation_status = str(getattr(returns, "attrs", {}).get("observation_status") or "ok")
+        coverage = coverage_by_profile.get(profile)
+        if coverage is not None:
+            observation_status = ("truncated_after_interval_gap"
+                                  if coverage["coverage_status"] == "truncated_segment" else "ok")
 
         # Resolve benchmark
         benchmark_symbol = resolve_strategy_benchmark(
@@ -139,7 +310,9 @@ def run_monitor(
             catalog_benchmarks=strategy_benchmarks,
             require_explicit=require_explicit_benchmark,
         )
-        benchmark_series = collector.collect_benchmark(domain, benchmark_symbol)
+        benchmark_series = None
+        if hasattr(collector, "collect_benchmark"):
+            benchmark_series = collector.collect_benchmark(domain, benchmark_symbol)
         if require_explicit_benchmark and not _is_valid_series(
             benchmark_series, min_observations=min_observations
         ):
@@ -160,65 +333,66 @@ def run_monitor(
             as_of=date.today(),
             benchmark_symbol=benchmark_symbol,
             computed_at=_now_iso(),
+            source_revision=resolved_source_revision,
+            observation_status=observation_status,
+            interval_return_coverage=coverage,
         )
 
-        # Compute each window
+        # Compute each window with the domain annualization contract.
         windows_dict = dict(snapshot.windows)
         for w in windows:
             sliced = series if w >= len(series) else series.iloc[-w:]
-            bench_sliced = benchmark_returns.iloc[-w:] if benchmark_returns is not None and len(benchmark_returns) >= w else None
+            bench_sliced = (
+                benchmark_returns.iloc[-w:]
+                if benchmark_returns is not None and len(benchmark_returns) >= w
+                else None
+            )
             wp = compute_window_metrics(
                 sliced,
                 benchmark_returns=bench_sliced,
                 benchmark_symbol=benchmark_symbol,
                 window_days=w,
+                periods_per_year=observation_contract.periods_per_year,
+                calendar_id=observation_contract.calendar_id,
             )
             windows_dict[w] = wp
 
         # Latest return
         if len(series) > 0:
-            snapshot = StrategyPerformanceSnapshot(
-                strategy_profile=snapshot.strategy_profile,
-                domain=snapshot.domain,
-                platform=snapshot.platform,
-                as_of=snapshot.as_of,
+            snapshot = replace(
+                snapshot,
                 windows=windows_dict,
                 latest_return=float(series.iloc[-1]),
-                benchmark_symbol=snapshot.benchmark_symbol,
-                data_freshness_days=(date.today() - series.index[-1].date()).days if hasattr(series.index[-1], "date") else 0,
+                data_freshness_days=(
+                    (date.today() - series.index[-1].date()).days
+                    if hasattr(series.index[-1], "date")
+                    else 0
+                ),
                 source_artifact_path="",
-                computed_at=snapshot.computed_at,
             )
         else:
-            snapshot = StrategyPerformanceSnapshot(
-                strategy_profile=snapshot.strategy_profile,
-                domain=snapshot.domain,
-                platform=snapshot.platform,
-                as_of=snapshot.as_of,
-                windows=windows_dict,
-                benchmark_symbol=snapshot.benchmark_symbol,
-                computed_at=snapshot.computed_at,
-            )
+            snapshot = replace(snapshot, windows=windows_dict)
 
-        # Attach drift reference: use 126-day window to compare against backtest
+        # Attach drift reference only when annualization bases are comparable.
         ref_window = windows_dict.get(126) or windows_dict.get(252)
-        if ref_window is not None and latest_backtest is not None:
-            deviations = compare_with_backtest(ref_window, latest_backtest)
-            if deviations:
-                max_dev = max(deviations.values())
-                snapshot = StrategyPerformanceSnapshot(
-                    strategy_profile=snapshot.strategy_profile,
-                    domain=snapshot.domain,
-                    platform=snapshot.platform,
-                    as_of=snapshot.as_of,
-                    windows=snapshot.windows,
-                    latest_return=snapshot.latest_return,
-                    benchmark_symbol=snapshot.benchmark_symbol,
-                    drift_score=min(max_dev, 1.0),
-                    data_freshness_days=snapshot.data_freshness_days,
-                    source_artifact_path=snapshot.source_artifact_path,
-                    computed_at=snapshot.computed_at,
+        if coverage is not None and interval_return_coverage_comparison_reason(
+            coverage, (baseline_coverage_by_profile or {}).get(profile),
+            current_window=ref_window, reference_metrics=latest_backtest,
+        ):
+            snapshot = replace(snapshot, drift_score=None,
+                               drift_status="not_comparable_interval_coverage")
+        elif ref_window is not None and latest_backtest is not None:
+            if not annualization_basis_is_comparable(ref_window, latest_backtest):
+                snapshot = replace(
+                    snapshot,
+                    drift_score=None,
+                    drift_status="not_comparable_annualization",
                 )
+            else:
+                deviations = compare_with_backtest(ref_window, latest_backtest)
+                if deviations:
+                    max_dev = max(deviations.values())
+                    snapshot = replace(snapshot, drift_score=min(max_dev, 1.0))
 
         # Persist
         store.save_snapshot(snapshot)

@@ -80,11 +80,7 @@ Local verification (2026-09-08): 133 QPK tests and 83 subtests passed with outbo
 
 `DriftResult`、`StrategyPerformanceSnapshot` 的 `as_of` 缺失/非法时保留 `None`，不替换成今天或哨兵。研究状态可以 unavailable，而已知的 REVIEW/CRITICAL 通过严格 `risk_status` 保持风险禁令。**必须成套发布/安装 probe 与 risk mapper，不能把新 probe 单文件复制给旧 mapper。** 默认 7 个自然日是按日期预算，不声称交易日或精确168小时时效；历史回放必须显式提供 `evaluation_date`，不能覆盖来源 `as_of`。
 
-精确解释器、命令和实际日志：
-[本轮完整验证配置](/Users/lisiyi/Projects/.worktrees/aab-hitl-codex-only-20260908/docs/validation/2026-09-08-monitor-drift/qpk-final.json)、
-[实际测试输出](/Users/lisiyi/Projects/.worktrees/aab-hitl-codex-only-20260908/docs/validation/2026-09-08-monitor-drift/qpk-final.log)。
-完整修改/consumer 清单、RED/GREEN、AAB源码镜像修复及真实恢复前最小步骤见
-[本轮交接](/Users/lisiyi/Projects/.worktrees/aab-hitl-codex-only-20260908/docs/monitor-drift-repair-2026-09-08.md)。
+完整验证配置、测试输出与交接记录保存在维护者本地，未纳入本仓库。
 本轮未发布 Git、部署、重启、触发模型或券商任务，线上采用和业务恢复仍须分别取证。
 
 ## 2026-09-08 候选读回与人工决定回收

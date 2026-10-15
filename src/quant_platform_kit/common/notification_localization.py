@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
@@ -8,6 +9,34 @@ if TYPE_CHECKING:
 
 NotificationTranslator = Callable[..., str]
 NotificationReplacement = tuple[str, str]
+
+DEFAULT_NOTIFICATION_LOCALE = "en"
+SUPPORTED_NOTIFICATION_LOCALES = frozenset({"en", "zh"})
+
+_LONG_ACCOUNT_LABEL_RE = re.compile(r"^[A-Za-z0-9_-]{16,}$")
+_NEW_RISK_GATE_RE = re.compile(
+    r"\[Account new-risk gate\]\s+"
+    r"disposition=(?P<disposition>\S+)\s+"
+    r"observation=(?P<observation>\S+)\s+"
+    r"reconciliation=(?P<reconciliation>\S+)\s+"
+    r"breaker=(?P<breaker>\S+)\s+"
+    r"reasons=(?P<reasons>.*)$"
+)
+_ATTENTION_NOTIFY_RE = re.compile(
+    r"\[Attention notify\]\s+sent=(?P<sent>\d+)\s+"
+    r"skipped=(?P<skipped>\d+)\s+failed=(?P<failed>\d+)"
+)
+_ENVELOPE_SCALE_RE = re.compile(
+    r"\[Envelope scale\]\s+combined_scale=(?P<scale>\S+)\s+"
+    r"applied_to_allocation_targets"
+)
+# Exact full-line no-trade copy only — never prefix-guess 状态:/Status:/reason=.
+_EXACT_NO_TRADE_STATUS_LINES = frozenset(
+    {
+        "状态：本轮无新增提醒",
+        "Status: no new alerts this round",
+    }
+)
 
 
 PRICE_SOURCE_LABELS: dict[str, tuple[str, str]] = {
@@ -321,6 +350,18 @@ def translator_uses_zh(translator: NotificationTranslator) -> bool:
     return any("\u4e00" <= ch <= "\u9fff" for ch in sample)
 
 
+def resolve_notification_locale(value: object | None) -> str:
+    """Normalize the one operator-facing notification locale.
+
+    ``QSL_NOTIFY_LANG`` is the canonical runtime setting.  Platform-specific
+    environment readers may keep their legacy fallback, but all translators
+    should consume this normalized ``en``/``zh`` value.
+    """
+    normalized = str(value or "").strip().lower().replace("_", "-")
+    candidate = "zh" if normalized.startswith("zh") else DEFAULT_NOTIFICATION_LOCALE
+    return candidate if candidate in SUPPORTED_NOTIFICATION_LOCALES else DEFAULT_NOTIFICATION_LOCALE
+
+
 def locale_uses_zh(locale: str | None) -> bool:
     return str(locale or "").strip().lower().startswith("zh")
 
@@ -355,6 +396,143 @@ def localize_notification_text(
     for source, target in (*tuple(extra_replacements), *COMMON_ZH_NOTIFICATION_REPLACEMENTS):
         localized = localized.replace(source, target)
     return localized
+
+
+def format_notification_account_label(value: object, *, translator: NotificationTranslator) -> str:
+    """Keep human notifications from exposing raw account identifiers.
+
+    Callers may still pass a short, operator-chosen alias. Long opaque labels
+    (including account hashes) are intentionally replaced with a generic
+    hidden marker; execution reports retain the authoritative technical data.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if _LONG_ACCOUNT_LABEL_RE.fullmatch(text):
+        return "已隐藏" if translator_uses_zh(translator) else "hidden"
+    return text
+
+
+def humanize_notification_line(
+    text: object,
+    *,
+    translator: NotificationTranslator,
+    extra_replacements: Sequence[NotificationReplacement] = (),
+) -> str | None:
+    """Turn known control-plane diagnostics into short operator-facing lines.
+
+    Unknown lines remain available (with normal localization) so this helper
+    cannot silently discard an unrecognised risk or execution warning.
+    """
+    value = str(text or "").strip()
+    if not value:
+        return None
+    use_zh = translator_uses_zh(translator)
+
+    match = _NEW_RISK_GATE_RE.fullmatch(value)
+    if match:
+        disposition = match.group("disposition").upper()
+        observation = match.group("observation").upper()
+        reconciliation = match.group("reconciliation").upper()
+        breaker = match.group("breaker").upper()
+        reasons = match.group("reasons").strip()
+        allowed = disposition == "ALLOW_NEW_RISK"
+        if use_zh:
+            if allowed:
+                if (observation, reconciliation, breaker) != ("COMPLETE", "VERIFIED", "CLOSED"):
+                    return (
+                        "⚠️ 账户风险检查：允许新增风险，但验证状态未完成"
+                        f"（观测={observation}，对账={reconciliation}，熔断={breaker}）"
+                    )
+                return "✅ 账户风险检查通过：允许新增风险"
+            detail = reasons if reasons and reasons != "-" else "新增风险已限制"
+            return f"⚠️ 账户风险检查：禁止新增风险（{detail}）"
+        if allowed:
+            if (observation, reconciliation, breaker) != ("COMPLETE", "VERIFIED", "CLOSED"):
+                return (
+                    "⚠️ Account risk check: new risk is allowed, but verification is incomplete"
+                    f" (observation={observation}, reconciliation={reconciliation}, breaker={breaker})"
+                )
+            return "✅ Account risk check passed: new risk allowed"
+        detail = reasons if reasons and reasons != "-" else "new risk restricted"
+        return f"⚠️ Account risk check: new risk blocked ({detail})"
+
+    match = _ATTENTION_NOTIFY_RE.fullmatch(value)
+    if match:
+        sent = int(match.group("sent"))
+        failed = int(match.group("failed"))
+        if failed:
+            return (
+                f"⚠️ 人工提醒发送失败：{failed} 条"
+                if use_zh
+                else f"⚠️ Manual alerts failed: {failed}"
+            )
+        if sent:
+            return (
+                f"🔔 已发送人工提醒：{sent} 条"
+                if use_zh
+                else f"🔔 Manual alerts sent: {sent}"
+            )
+        return None
+
+    match = _ENVELOPE_SCALE_RE.fullmatch(value)
+    if match:
+        scale = match.group("scale")
+        try:
+            is_unit_scale = float(scale) == 1.0
+        except ValueError:
+            is_unit_scale = False
+        if is_unit_scale:
+            return None
+        return (
+            f"⚠️ 风险缩放：目标仓位按 {scale} 倍执行"
+            if use_zh
+            else f"⚠️ Risk scaling: allocation targets applied at {scale}x"
+        )
+
+    return localize_notification_text(
+        value,
+        translator=translator,
+        extra_replacements=extra_replacements,
+    )
+
+
+def _is_parsed_control_plane_status(raw: str) -> bool:
+    """True only when a dedicated control-plane parser fully matched the line."""
+    return bool(
+        _NEW_RISK_GATE_RE.fullmatch(raw)
+        or _ATTENTION_NOTIFY_RE.fullmatch(raw)
+        or _ENVELOPE_SCALE_RE.fullmatch(raw)
+    )
+
+
+def humanize_notification_lines(
+    values: Sequence[object] | None,
+    *,
+    translator: NotificationTranslator,
+    extra_replacements: Sequence[NotificationReplacement] = (),
+) -> list[str]:
+    """Humanize lines; compact only known control-plane or exact no-trade copy.
+
+    Do not infer meaning from generic prefixes such as ``状态:`` / ``Status:`` /
+    ``reason=``. Order/fill lines and unrecognised alerts keep count and order
+    even when their display text is identical.
+    """
+    result: list[str] = []
+    for value in values or ():
+        raw = str(value or "").strip()
+        line = humanize_notification_line(
+            value,
+            translator=translator,
+            extra_replacements=extra_replacements,
+        )
+        if not line:
+            continue
+        may_compact = _is_parsed_control_plane_status(raw) or raw in _EXACT_NO_TRADE_STATUS_LINES
+        if may_compact and line in result:
+            continue
+        result.append(line)
+    return result
 
 
 # ──────────────────────────────────────────────────────────────────────

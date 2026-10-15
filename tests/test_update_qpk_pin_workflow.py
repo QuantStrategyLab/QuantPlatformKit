@@ -281,6 +281,13 @@ def test_downstream_rollout_is_scheduled_and_phase_gated() -> None:
     assert "merge_verified_strategy_qpk_pin_prs.py" in workflow
     assert "--wait-for-ci-seconds 900" in workflow
     assert "--poll-interval-seconds 30" in workflow
+    assert "Mint App token (primary)" in workflow
+    assert "QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY" in workflow
+    assert (
+        "steps.app_token_primary.outputs.token || "
+        "steps.app_token_secondary.outputs.token || "
+        "secrets.QSL_REPO_SYNC_TOKEN"
+    ) in workflow
 
 
 def test_staged_pin_auto_advance_is_limited_to_verified_machine_prs() -> None:

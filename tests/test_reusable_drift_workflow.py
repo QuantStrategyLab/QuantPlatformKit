@@ -16,7 +16,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "snapshot_repository_token:" in workflow
     assert "snapshot_checkout_path:" in workflow
     assert "snapshot_repository_ref:" in workflow
-    assert "ai_gateway_service_url:" in workflow
+    assert "ai_service_url:" in workflow
     assert "quant_platform_kit_ref:" in workflow
     assert "lifecycle_performance_bucket:" in workflow
     assert "caller_event_name:" in workflow
@@ -25,7 +25,8 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "strategy_profile:" in workflow
     assert "live_stream_id:" in workflow
     assert "LIFECYCLE_LIVE_STREAM_ID: ${{ inputs.live_stream_id }}" in workflow
-    assert "codex_audit_service_url:" in workflow
+    assert "ai_service_audience:" in workflow
+    assert "ai_service_reviewers_json:" in workflow
     assert 'python-version: ${{ inputs.python_version }}' in workflow
     assert "LIFECYCLE_PERFORMANCE_BUCKET: ${{ inputs.lifecycle_performance_bucket || vars.LIFECYCLE_PERFORMANCE_BUCKET || '' }}" in workflow
     assert "Validate trusted caller" in workflow
@@ -40,7 +41,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'lifecycle_args+=(--strategy "${LIFECYCLE_STRATEGY_PROFILE}")' in workflow
     assert 'lifecycle_args+=(--live-stream-id "${LIFECYCLE_LIVE_STREAM_ID}")' in workflow
     assert "not paper/live account PnL" in workflow
-    assert 'quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} "${lifecycle_args[@]}"' in workflow
+    assert 'quant-lifecycle monitor --domain ${{ inputs.strategy_domain }} --source-revision "${GITHUB_SHA}" "${lifecycle_args[@]}"' in workflow
     assert 'quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7 "${lifecycle_args[@]}"' in workflow
     assert 'quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts "${lifecycle_args[@]}"' in workflow
     assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
@@ -63,24 +64,18 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'os.environ["CODEX_AUDIT_ORG"] = owner' in workflow
     assert 'os.environ["CODEX_AUDIT_ORCHESTRATOR_REPO"] = repository' in workflow
     assert "create_issues_for_domain" in workflow
-    assert 'CODEX_AUDIT_SERVICE_URL: ${{ secrets.codex_audit_service_url }}' in workflow
-    assert 'AI_GATEWAY_SERVICE_URL: ${{ inputs.ai_gateway_service_url }}' in workflow
-    assert 'ref: 60bd64a2ae059a082614181eeb845b46df395523' in workflow
-    assert workflow.count('GH_TOKEN: ${{ github.token }}') >= 2
-    assert "emit_parked_record" in workflow
-    assert '"schema": "qsl.drift_dual_review_availability.v1"' in workflow
-    assert '"state": "PARKED"' in workflow
-    assert '"next_action": "retry_on_next_drift_cycle"' in workflow
-    assert "review_script_unavailable" in workflow
-    assert "codex_audit_service_unconfigured" in workflow
-    assert "review_output_unavailable" in workflow
-    assert "review_provider_degraded" in workflow
-    assert "review_completed_blocked" in workflow
-    assert 'completed_outcomes = {"fail", "disagreement"}' in workflow
-    assert 'emit_parked_record "review_completed_blocked"' in workflow
-    assert "Dual review completed and blocked promotion" in workflow
-    assert "invalid_review_json" in workflow
-    assert 'if [ ! -f "$review_output" ]; then' in workflow
-    assert workflow.index('if [ ! -f "$review_output" ]; then') < workflow.index('cat "$review_output"')
-    assert 'if [ "$review_rc" -ne 0 ]; then' in workflow
-    assert 'exit "$review_rc"' not in workflow
+    assert 'AI_SERVICE_URL: ${{ inputs.ai_service_url }}' in workflow
+    assert 'AI_SERVICE_REVIEWERS_JSON: ${{ inputs.ai_service_reviewers_json }}' in workflow
+    assert 'python -m quant_platform_kit.strategy_lifecycle.drift_review' in workflow
+    assert 'AIAuditBridge' not in workflow
+    assert 'CODEX_AUDIT_SERVICE_URL' not in workflow
+    assert 'approved artifact required' in workflow
+    assert 'artifact digest mismatch' in workflow
+    assert '--no-index' in workflow
+
+
+def test_reusable_drift_runner_defaults_to_hosted_and_accepts_research_runner():
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "reusable-drift-check.yml").read_text(encoding="utf-8")
+    assert "runs-on: ${{ fromJSON(inputs.runner_labels) }}" in workflow
+    assert "default: '\"ubuntu-latest\"'" in workflow
+    assert "runs-on: ubuntu-latest" not in workflow

@@ -75,6 +75,7 @@ def run_actionable_research_promotion(
     research_identity: Mapping[str, str] | None = None,
     ticket_dir: str | Path | None = None,
     diagnose: Callable | None = None,
+    read_pending_diagnosis: Callable | None = None,
     resume_delivery_only: bool = False,
     admit_new_research: Callable[[Path, str], bool] | None = None,
     read_pending_shadow: Callable | None = None,
@@ -189,6 +190,7 @@ def run_actionable_research_promotion(
 
     if (ticket_dir is not None or research_identity is not None or diagnose is not None
             or resume_delivery_only or admit_new_research is not None or read_pending_shadow is not None
+            or read_pending_diagnosis is not None
             or research_owner is not None):
         if ticket_dir is None or research_identity is None or cycle is not None:
             return {**health, "status": "parked", "reason": "research_identity_unavailable",
@@ -202,6 +204,7 @@ def run_actionable_research_promotion(
             resume_delivery_only=resume_delivery_only,
             admit_new_research=admit_new_research,
             read_pending_shadow=read_pending_shadow,
+            read_pending_diagnosis=read_pending_diagnosis,
             summarize=summarize,
             research_owner=research_owner,
         )

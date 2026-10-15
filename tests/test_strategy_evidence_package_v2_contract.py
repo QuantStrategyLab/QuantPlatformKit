@@ -860,6 +860,33 @@ def test_backtest_result_identity_is_cross_checked(tmp_path: Path) -> None:
     assert _issues(payload, base_dir=tmp_path)
 
 
+def test_backtest_result_accepts_lifecycle_calendar_metadata(tmp_path: Path) -> None:
+    payload = _payload(tmp_path)
+    for result in [
+        *payload["backtest"]["promotion_run"]["fold_results"],
+        payload["backtest"]["promotion_run"]["locked_oos_result"],
+    ]:
+        result["calendar_id"] = "US_EQUITY_TRADING_DAYS"
+        result["periods_per_year"] = 252.0
+    _refresh_digests(payload)
+
+    assert _issues(payload, base_dir=tmp_path) == ()
+
+
+def test_backtest_result_rejects_invalid_lifecycle_calendar_metadata(
+    tmp_path: Path,
+) -> None:
+    payload = _payload(tmp_path)
+    result = payload["backtest"]["promotion_run"]["fold_results"][0]
+    result["calendar_id"] = 123
+    result["periods_per_year"] = 0
+    _refresh_digests(payload)
+
+    issues = _issues(payload, base_dir=tmp_path)
+    assert any("calendar_id" in issue for issue in issues)
+    assert any("periods_per_year" in issue for issue in issues)
+
+
 def test_canonical_bytes_are_stable_and_reject_non_finite_values(
     tmp_path: Path,
 ) -> None:

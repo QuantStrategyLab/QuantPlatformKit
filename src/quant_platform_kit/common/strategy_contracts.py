@@ -106,24 +106,44 @@ class ValueTargetPortfolioPlan:
 
 @dataclass(frozen=True)
 class ValueTargetExecutionAnnotations:
+    """Compatibility wire aggregate for value-target runtime payloads.
+
+    Execution-relevant fields belong on
+    ``quant_platform_kit.common.presentation.ValueTargetExecutionSemantics``.
+    Dashboard/copy fields belong on ``ValueTargetDisplayAnnotations``.
+
+    Prefer constructing via
+    ``merge_value_target_execution_annotations(semantics, display)`` (or the
+    ``semantics`` / ``display`` kwargs on
+    ``build_value_target_execution_runtime_plan``). Direct construction with
+    mixed display kwargs remains supported until consumers finish batch upgrade
+    (B06/N05); field removal waits on adoption evidence (B12).
+    """
+
     trade_threshold_value: float
     reserved_cash: float = 0.0
+    # --- presentation-owned (compat dual-write on wire) ---
     signal_display: str | None = None
     status_display: str | None = None
     dashboard_text: str | None = None
+    # --- execution semantics ---
     signal_date: str | None = None
     effective_date: str | None = None
     execution_timing_contract: str | None = None
     execution_calendar_source: str | None = None
     signal_effective_after_trading_days: int | None = None
+    # --- presentation-owned (compat) ---
     separator: str | None = None
+    # --- execution semantics ---
     benchmark_symbol: str | None = None
     benchmark_price: float | None = None
     long_trend_value: float | None = None
     exit_line: float | None = None
+    # --- presentation-owned (compat) ---
     deploy_ratio_text: str | None = None
     income_ratio_text: str | None = None
     income_locked_ratio_text: str | None = None
+    # --- execution semantics ---
     active_risk_asset: str | None = None
     current_min_trade: float | None = None
     investable_cash: float | None = None
@@ -959,64 +979,18 @@ def build_value_target_plan_payload(
 def build_value_target_execution_annotations(
     decision: StrategyDecision,
 ) -> ValueTargetExecutionAnnotations:
-    validate_strategy_decision(decision)
-    diagnostics = dict(decision.diagnostics)
-    raw_annotations = diagnostics.get("execution_annotations")
-    annotations = dict(raw_annotations) if isinstance(raw_annotations, Mapping) else {}
+    """Parse diagnostics into the compatibility wire aggregate.
 
-    def _pick_str(*keys: str) -> str | None:
-        for key in keys:
-            value = annotations.get(key, diagnostics.get(key))
-            if value is None:
-                continue
-            text = str(value).strip()
-            if text:
-                return text
-        return None
-
-    def _pick_float(*keys: str, default: float | None = None) -> float | None:
-        for key in keys:
-            value = annotations.get(key, diagnostics.get(key))
-            if value is None:
-                continue
-            _ensure_finite_number(value, field_name=f"execution_annotations.{key}")
-            return float(value)
-        return default
-
-    threshold_value = _pick_float("trade_threshold_value", "threshold", "threshold_value")
-    if threshold_value is None:
-        raise StrategyContractValidationError(
-            "ValueTargetExecutionAnnotations requires trade_threshold_value "
-            "(or legacy threshold/threshold_value)"
-        )
-
-    return ValueTargetExecutionAnnotations(
-        trade_threshold_value=threshold_value,
-        reserved_cash=float(_pick_float("reserved_cash", "reserved", default=0.0) or 0.0),
-        signal_display=_pick_str("signal_display", "signal_message"),
-        status_display=_pick_str("status_display", "market_status"),
-        dashboard_text=_pick_str("dashboard_text", "dashboard"),
-        signal_date=_pick_str("signal_date"),
-        effective_date=_pick_str("effective_date"),
-        execution_timing_contract=_pick_str("execution_timing_contract"),
-        execution_calendar_source=_pick_str("execution_calendar_source"),
-        signal_effective_after_trading_days=(
-            int(signal_delay)
-            if (signal_delay := _pick_float("signal_effective_after_trading_days")) is not None
-            else None
-        ),
-        separator=_pick_str("separator"),
-        benchmark_symbol=_pick_str("benchmark_symbol"),
-        benchmark_price=_pick_float("benchmark_price", "qqq_price"),
-        long_trend_value=_pick_float("long_trend_value", "ma200"),
-        exit_line=_pick_float("exit_line"),
-        deploy_ratio_text=_pick_str("deploy_ratio_text"),
-        income_ratio_text=_pick_str("income_ratio_text"),
-        income_locked_ratio_text=_pick_str("income_locked_ratio_text"),
-        active_risk_asset=_pick_str("active_risk_asset"),
-        current_min_trade=_pick_float("current_min_trade"),
-        investable_cash=_pick_float("investable_cash"),
+    Internally splits presentation-owned fields from execution semantics, then
+    merges them so legacy callers keep a single annotations object.
+    """
+    # Local import keeps presentation -> strategy_contracts one-way for types,
+    # while this facade uses the split helpers for construction.
+    from quant_platform_kit.common.presentation.value_target_plan import (
+        resolve_value_target_execution_annotations,
     )
+
+    return resolve_value_target_execution_annotations(decision=decision)
 
 
 # Note: load_strategy_entrypoint is in common/strategies.py (v0.9.0+).

@@ -1,14 +1,5 @@
 # QuantPlatformKit
 
-
-## QSL 架构角色
-
-- **层级**：`核心共享库`。
-- **职责**：共享 runtime contracts 和平台 adapters。
-- **事实源/归属**：稳定 contracts、broker adapters、runtime helpers、notifications、risk utilities。
-- **消费对象**：platforms、strategies、pipelines、lifecycle tooling。
-- **禁止事项**：决定哪个策略 live 或保存环境 secrets。
-
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
@@ -26,6 +17,14 @@ QuantPlatformKit 是 QuantStrategyLab 的共享运行时库。平台仓库共用
 - 密钥和环境专属配置不要写进共享库代码。
 - 会影响多个平台或策略包的改动，需要在文档中说明。
 
+## QSL 架构角色
+
+- **层级**：`核心共享库`。
+- **职责**：共享 runtime contracts 和平台 adapters。
+- **事实源/归属**：稳定 contracts、broker adapters、runtime helpers、notifications、risk utilities。
+- **消费对象**：platforms、strategies、pipelines、lifecycle tooling。
+- **禁止事项**：决定哪个策略 live 或保存环境 secrets。
+
 ## 仓库结构
 
 - `src/`：库代码和运行时代码。
@@ -39,6 +38,19 @@ QuantPlatformKit 是 QuantStrategyLab 的共享运行时库。平台仓库共用
 python -m pip install -e .
 python -m pytest -q
 ```
+
+## 配置
+
+Set these environment variables before running `scripts/sync_strategy_config.py`. Missing values stop the command before cloud access.
+
+| Variable | Purpose | Required | Default |
+|---|---|---|---|
+| `IBKR_GCP_PROJECT_ID` | IBKR Cloud Run and Scheduler project | For IBKR sync | none |
+| `IBKR_SCHEDULER_SERVICE_ACCOUNT` | IBKR Scheduler OIDC identity | For IBKR sync | none |
+| `SCHWAB_GCP_PROJECT_ID` | Schwab Cloud Run and Scheduler project | For Schwab sync | none |
+| `SCHWAB_SCHEDULER_SERVICE_ACCOUNT` | Schwab Scheduler OIDC identity | For Schwab sync | none |
+| `LONGBRIDGE_GCP_PROJECT_ID` | LongBridge Cloud Run and Scheduler project | For LongBridge sync | none |
+| `LONGBRIDGE_SCHEDULER_SERVICE_ACCOUNT` | LongBridge Scheduler OIDC identity | For LongBridge sync | none |
 
 ## 策略生命周期 CLI
 
