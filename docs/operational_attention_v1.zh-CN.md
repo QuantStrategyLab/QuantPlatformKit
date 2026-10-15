@@ -1,6 +1,5 @@
 # 可行动注意力门槛 V1（AttentionLevel）
 
-> 状态：库侧已合（#610/#612）；三平台 NEW_RISK 周期已接 `publish_attention_telegram_transition`（pin `bd8d06e`）。  
 > 范围：通知分级 / 人工恢复路由；不授权 live、不抬 RRL、不做 Kelly。
 
 ## 原则
@@ -28,8 +27,8 @@
 | ACTION | NEW_RISK 禁买；drift review；dd 打穿 mandate | 是（跃迁） |
 | HALT | drift critical；对账不确定；hard PARK | 是（跃迁） |
 
-## 复利风控审计对照（同批）
+## 运行验收
 
-生存层 + 买侧 `combined_scale` 缩仓已接线。  
-仍缺：日损事实生产者、`assess_with_evidence` 全路径。  
-**默认后置** Kelly / 抬 RRL；下一有界工程仅「日损事实→禁买」（材料齐时）。
+Attention 消息只说明通知分类与投递结果。核验拒单、禁买或买侧缩仓是否生效，须检查
+对应平台的部署版本、风险输入和实际周期结果；库内 API 可用不能替代这些证据。
+日损事实缺失或 `assess_with_evidence` 调用未确认时，保留相应未知状态。
