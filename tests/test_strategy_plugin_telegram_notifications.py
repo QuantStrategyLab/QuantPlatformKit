@@ -291,3 +291,16 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_daily_digest_suppresses_only_classified_routine_observations(monkeypatch):
+    from quant_platform_kit.notifications.strategy_plugin_telegram import _routine_observation_to_digest
+    signal = _alert_signal()
+    monkeypatch.delenv("QSL_ROUTINE_NOTIFICATION_MODE", raising=False)
+    assert not _routine_observation_to_digest(signal)
+    monkeypatch.setenv("QSL_ROUTINE_NOTIFICATION_MODE", "daily_digest")
+    assert _routine_observation_to_digest(signal)
+    signal.canonical_route = "risk_off"
+    assert not _routine_observation_to_digest(signal)
+    signal.canonical_route = "unknown"
+    assert not _routine_observation_to_digest(signal)
