@@ -81,7 +81,9 @@ def emit(env, *, now=None, read=_read, upload=None):
         if stamp < start or stamp > current:
             continue
         source = read(["cat", uri])
-        if source.get("runtime_target") != target:
+        source_target = source.get("runtime_target") or {}
+        keys = ("platform_id", "strategy_profile", "service_name", "account_scope", "account_selector", "deployment_selector", "dry_run_only")
+        if not isinstance(source_target, dict) or any(source_target.get(key) != target.get(key) for key in keys):
             continue
         source_stamp = datetime.fromisoformat(str(source.get("started_at", "")).replace("Z", "+00:00"))
         if source_stamp.tzinfo is None:

@@ -84,3 +84,24 @@ def test_archive_aggregates_window_and_uploads_once_without_private_output():
         raise RuntimeError("unknown write outcome")
     with pytest.raises(RuntimeError): emit(env, now=NOW, read=read, upload=failed_upload)
     assert len(calls) == 1
+
+
+def test_configured_closed_session_proves_idle_without_inventing_runs(monkeypatch):
+    import json
+    import quant_platform_kit.common.runtime_heartbeat_policy as policy
+    from quant_platform_kit.notifications.digest_archive import emit
+    env = dict(QSL_ROUTINE_NOTIFICATION_MODE="daily_digest", RUNTIME_TARGET_ENABLED="true",
+        RUNTIME_TARGET_JSON=json.dumps(TARGET), DIGEST_STORE_TARGET="synthetic-slot",
+        DIGEST_OPAQUE_ACCOUNT_UID="synthetic-uid", DIGEST_TARGET_ID="synthetic-target",
+        EXECUTION_REPORT_GCS_URI="gs://synthetic-reports/archive",
+        DIGEST_CANDIDATES_GCS_URI="gs://synthetic-reports/candidates",
+        DIGEST_NOTIFICATION_SCHEDULE_JSON=json.dumps({"scheduler": {"main_time": "0 20 * * 1-5", "timezone": "UTC"}}))
+    monkeypatch.setattr(policy, "filter_due_targets", lambda *args, **kwargs: ([], True))
+    uploads = []
+    emit(env, now=NOW, read=lambda args: [], upload=lambda *args: uploads.append(args))
+    row = json.loads(uploads[0][1])["runs"][0]
+    assert row["actually_ran"] is False and "order_count" not in row and "fill_count" not in row
+    monkeypatch.setattr(policy, "filter_due_targets", lambda *args, **kwargs: ([{}], True))
+    with pytest.raises(ValueError, match="candidate_due_source_absent"):
+        emit(env, now=NOW, read=lambda args: [], upload=lambda *args: uploads.append(args))
+    assert len(uploads) == 1

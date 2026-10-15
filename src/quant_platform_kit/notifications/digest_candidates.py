@@ -31,10 +31,15 @@ def cycle_evidence(execution: Mapping, orders: Sequence[Mapping], *, dry_run: bo
 def project_reports(reports: Sequence[Mapping], *, expected_target: Mapping,
                     opaque_account_uid: str, target_id: str, now: datetime) -> dict:
     """Aggregate each unique persisted cycle for the same target and source day."""
-    if not opaque_account_uid or not target_id or now.tzinfo is None:
+    if any(not isinstance(v, str) or not v.strip() for v in (opaque_account_uid, target_id)) or now.tzinfo is None:
         raise ValueError("candidate_identity_or_time_missing")
     required = {"platform_id", "strategy_profile", "service_name", "account_scope", "account_selector", "deployment_selector", "dry_run_only"}
     if not required.issubset(expected_target) or expected_target.get("dry_run_only") is not False:
+        raise ValueError("candidate_target_invalid")
+    if (any(not isinstance(expected_target[k], str) or not expected_target[k].strip()
+            for k in required - {"account_selector", "dry_run_only"})
+            or not isinstance(expected_target["account_selector"], list) or not expected_target["account_selector"]
+            or any(not isinstance(v, str) or not v.strip() for v in expected_target["account_selector"])):
         raise ValueError("candidate_target_invalid")
     rows, seen = {}, set()
     for report in reports:
