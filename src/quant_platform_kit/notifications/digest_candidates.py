@@ -57,7 +57,7 @@ def project_reports(reports: Sequence[Mapping], *, expected_target: Mapping,
         if run_id in seen:
             raise ValueError("candidate_duplicate_run")
         seen.add(run_id)
-        day = stamp.astimezone(ZoneInfo("America/New_York")).date().isoformat()
+        day = (stamp.astimezone(ZoneInfo("Asia/Singapore")) - timedelta(hours=6)).date().isoformat()
         facts = (report.get("summary") or {}).get("notification_digest") or {}
         known = (facts.get("schema_version") == "qsl.notification_cycle.v1" and facts.get("dry_run") is False
                  and all(type(facts.get(k)) is int and facts[k] >= 0 for k in ("order_count", "fill_count"))
@@ -80,3 +80,21 @@ def project_reports(reports: Sequence[Mapping], *, expected_target: Mapping,
             row.update(status="alert", reason_code="source_cycle_alert" if error else "execution_evidence_missing_or_attention",
                        execution_status="execution_alert" if error else "execution_unknown")
     return {"schema_version": "qsl.digest_candidates.v1", "producer_status": "projected", "runs": list(rows.values())}
+
+
+def summary_evidence(summary: Mapping, *, dry_run: bool = False) -> dict:
+    """IBKR named order collections are broker facts, unlike formatted logs."""
+    if not isinstance(summary.get("orders_submitted"), (list, tuple)):
+        return {"schema_version": "qsl.notification_cycle.v1", "order_count": None,
+                "fill_count": None, "routine": False, "dry_run": dry_run}
+    orders = list(summary.get("orders_submitted") or ()) + list(summary.get("option_orders_submitted") or ())
+    filled = list(summary.get("orders_filled") or ()) + list(summary.get("option_orders_filled") or ())
+    evidence = dict(summary)
+    if (orders and len(orders) == len(filled) and not summary.get("orders_pending")
+            and not summary.get("option_orders_pending") and not summary.get("orders_partially_filled")
+            and not summary.get("option_orders_partially_filled")):
+        # These collections are populated by the existing broker reconciliation.
+        facts = [{"status": "filled"} for _ in filled]
+    else:
+        facts = orders
+    return cycle_evidence(evidence, facts, dry_run=dry_run)

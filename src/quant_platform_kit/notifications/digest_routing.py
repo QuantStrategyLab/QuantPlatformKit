@@ -47,6 +47,8 @@ def defer_routine_cycle_to_digest(
         "account_new_risk_buy_blocked", "small_account_buy_blocked", "risk_flags",
         "execution_blocked", "execution_blocking_skips", "strategy_run_persistence_error",
         "strategy_plugin_error", "strategy_plugin_alert_error", "auth_expired",
+        "strategy_plugin_alert_failed_count", "strategy_plugin_alert_telegram_failed_count",
+        "data_error", "blocked_reason", "failed_order_count",
     )):
         # Only an explicit healthy no-order fact is eligible. Even a failed
         # routine notification or unclassified no-op reason stays immediate.
@@ -65,3 +67,26 @@ def defer_routine_cycle_to_digest(
     elif execution.get("broker_submission_done"):
         return False
     return True
+
+
+def immediate_plugin_signals(signals):
+    """Filter notification inputs only; callers retain original strategy signals."""
+    if not daily_digest_enabled():
+        return signals
+    return tuple(signal for signal in signals if not (
+        str(getattr(signal, "canonical_route", "") or "").lower() in {"watch", "opportunity_watch", "panic_reversal", "taco_rebound"}
+        and str(getattr(signal, "suggested_action", "") or "").lower() in {"notify_manual_review", "watch", "observe"}
+        and not any(getattr(signal, key, None) for key in ("error", "errors", "risk_halt", "auth_expired"))
+    ))
+
+
+def routine_notification(sender, runtime, report, text, *, routine_order=True):
+    """Route only explicitly classified routine call sites, never message text."""
+    orders_enabled = os.getenv("QSL_DIGEST_ROUTINE_ORDERS", "true") == "true"
+    if daily_digest_enabled() and (not routine_order or orders_enabled):
+        report.setdefault("notifications", []).append({
+            "delivery_status": "deferred_digest", "transport_acknowledged": False,
+            "sink": "telegram", "routine_order": routine_order,
+        })
+        return False
+    return sender(runtime, report, text)

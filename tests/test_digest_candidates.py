@@ -47,3 +47,40 @@ def test_bad_source_stays_visible_or_rejects(mutation):
     if mutation == "future": source["started_at"] = "2026-10-17T00:00:00Z"
     with pytest.raises(ValueError):
         project([source, deepcopy(source)] if mutation == "duplicate" else [source])
+
+
+def test_archive_default_off_and_disabled_target_never_read_or_upload():
+    from quant_platform_kit.notifications.digest_archive import emit
+    def forbidden(*args): raise AssertionError("unexpected I/O")
+    assert emit({}, read=forbidden, upload=forbidden)["status"] == "disabled"
+    assert emit({"QSL_ROUTINE_NOTIFICATION_MODE": "daily_digest", "RUNTIME_TARGET_ENABLED": "false"},
+        read=forbidden, upload=forbidden)["status"] == "target_disabled"
+
+
+def test_archive_aggregates_window_and_uploads_once_without_private_output():
+    import json
+    from quant_platform_kit.notifications.digest_archive import emit
+    env = dict(QSL_ROUTINE_NOTIFICATION_MODE="daily_digest", RUNTIME_TARGET_ENABLED="true",
+        RUNTIME_TARGET_JSON=json.dumps(TARGET), DIGEST_STORE_TARGET="synthetic-slot",
+        DIGEST_OPAQUE_ACCOUNT_UID="synthetic-uid", DIGEST_TARGET_ID="synthetic-target",
+        EXECUTION_REPORT_GCS_URI="gs://synthetic-reports/archive",
+        DIGEST_CANDIDATES_GCS_URI="gs://synthetic-reports/candidates")
+    reports = [report("first", [{"status": "filled"}]), report("second")]
+    for source in reports: source["started_at"] = "2026-10-15T20:00:00Z"
+    def read(args):
+        if args[0] == "ls":
+            return [{"url": f"gs://synthetic-reports/archive/synthetic/core/2026-10/{i}.json",
+                     "metadata": {"updated": "2026-10-15T20:01:00Z"}} for i in range(2)]
+        return reports[int(args[1].rsplit("/", 1)[-1].split(".")[0])]
+    uploads = []
+    result = emit(env, now=NOW, read=read, upload=lambda *args: uploads.append(args))
+    assert result["runs"] == 2 and len(uploads) == 1
+    assert "/2026-10-15/" in uploads[0][0]
+    row = json.loads(uploads[0][1])["runs"][0]
+    assert (row["order_count"], row["fill_count"], row["cycle_count"]) == (1, 1, 2)
+    calls = []
+    def failed_upload(*args):
+        calls.append(args)
+        raise RuntimeError("unknown write outcome")
+    with pytest.raises(RuntimeError): emit(env, now=NOW, read=read, upload=failed_upload)
+    assert len(calls) == 1
