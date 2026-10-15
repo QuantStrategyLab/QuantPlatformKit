@@ -14,6 +14,7 @@ from quant_platform_kit.common.strategy_plugins import (
 
 from .alert_marker import CloudAlertMarkerStore, _clean_relative_key
 from ._redaction import redact_sensitive_text
+from .digest_routing import daily_digest_enabled
 from .telegram import (
     DEFAULT_TELEGRAM_BOT_API_BASE_URL,
     parse_telegram_chat_ids,
@@ -170,6 +171,7 @@ def publish_strategy_plugin_telegram_alerts(
     del context_label  # The plugin Telegram bot is a unified manual-review channel.
     manual_review_signals = tuple(
         signal for signal in signals if _is_manual_review_telegram_signal(signal)
+        and not _routine_observation_to_digest(signal)
     )
     messages = build_strategy_plugin_alert_messages(
         manual_review_signals,
@@ -215,6 +217,17 @@ def publish_strategy_plugin_telegram_alerts(
     result = StrategyPluginTelegramAlertPublishResult(tuple(deliveries))
     _log_publish_result(result, log_message=log_message)
     return result
+
+
+def _routine_observation_to_digest(signal: object) -> bool:
+    """Routine observations remain in the persisted signal report, without a push."""
+    if not daily_digest_enabled():
+        return False
+    route = str(getattr(signal, "canonical_route", "") or "").lower()
+    action = str(getattr(signal, "suggested_action", "") or "").lower()
+    if route not in {"watch", "opportunity_watch", "panic_reversal", "taco_rebound"} or action not in {"notify_manual_review", "watch", "observe"}:
+        return False
+    return not any(getattr(signal, key, None) for key in ("error", "errors", "risk_halt", "auth_expired"))
 
 
 def _is_manual_review_telegram_signal(signal: object) -> bool:

@@ -55,3 +55,21 @@ def test_below_threshold_is_routine_but_an_unclassified_reason_stays_immediate()
     assert defer_routine_cycle_to_digest(evidence, submitted_order_count=0, mode="daily_digest")
     evidence["no_op_reason"] = "unknown_order_result"
     assert not defer_routine_cycle_to_digest(evidence, submitted_order_count=0, mode="daily_digest")
+
+
+def test_confirmed_routine_orders_are_configurable_and_do_not_mutate(monkeypatch):
+    evidence = {"execution_status": "completed", "broker_submission_done": True}
+    orders = [{"status": "filled"}]
+    original = copy.deepcopy((evidence, orders))
+    assert defer_routine_cycle_to_digest(evidence, submitted_order_count=1,
+        submitted_orders=orders, mode="daily_digest")
+    monkeypatch.setenv("QSL_DIGEST_ROUTINE_ORDERS", "false")
+    assert not defer_routine_cycle_to_digest(evidence, submitted_order_count=1,
+        submitted_orders=orders, mode="daily_digest")
+    assert (evidence, orders) == original
+
+
+@pytest.mark.parametrize("status", ["pending", "submitted", "rejected", "unknown", "partially_filled", ""])
+def test_unresolved_orders_never_become_routine(status):
+    assert not defer_routine_cycle_to_digest({"execution_status": "completed"},
+        submitted_order_count=1, submitted_orders=[{"status": status}], mode="daily_digest")
