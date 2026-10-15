@@ -6,7 +6,7 @@ The standalone job `inventory.csv` contains the same per-consumer fields. This M
 
 ## Scope and coverage
 
-- 25 repositories; 1783 allowlisted source files scanned; 391 identified consumer/contract/acquisition boundaries; 527 keyword candidates excluded as non-consumers/control-only. Files under credential/token/secret names, `.env`, raw data, fixtures, generated artifacts and dependency trees were excluded before content reads. Selected workflows were inspected as source because they embed acquisition or invoke collectors.
+- 25 repositories; 1783 allowlisted source files scanned; 393 identified consumer/contract/acquisition boundaries; 525 keyword candidates excluded as non-consumers/control-only. Files under credential/token/secret names, `.env`, raw data, fixtures, generated artifacts and dependency trees were excluded before content reads. Selected workflows were inspected as source because they embed acquisition or invoke collectors.
 - Tests/fixtures were not counted as market-data consumers. Submodule/dependency code is represented by its owning repository snapshot, not recounted as copied code. No runtime branch or other job's worktree was edited. Static inventory cannot establish dynamic custom-plugin coverage, production versions, effective overrides or paid entitlements; those remain explicit adoption checks.
 - `Inherited/unknown_legacy` is an evidence limit, not an assertion that the actual runtime has no metadata. Package/data contracts and quote boundaries are included because losing basis/time semantics there affects downstream consumers. A provider family in a row may be selectable rather than always active.
 
@@ -23,7 +23,7 @@ The standalone job `inventory.csv` contains the same per-consumer fields. This M
 | [CryptoLivePoolPipelines](https://github.com/QuantStrategyLab/CryptoLivePoolPipelines/tree/deb2298b31fd2516dba9ac3e65e85137b3e54d09) | `deb2298b31fd2516dba9ac3e65e85137b3e54d09` | 10 | Source consumers below; runtime adoption not inspected |
 | [CryptoStrategies](https://github.com/QuantStrategyLab/CryptoStrategies/tree/15ae4ba01b4e9b2c2de78a1bd46d92691098ee5a) | `15ae4ba01b4e9b2c2de78a1bd46d92691098ee5a` | 13 | Source consumers below; runtime adoption not inspected |
 | [FirstradePlatform](https://github.com/QuantStrategyLab/FirstradePlatform/tree/537ab80bb76dfc6b29591a5951152b905ffbf813) | `537ab80bb76dfc6b29591a5951152b905ffbf813` | 4 | Source consumers below; runtime adoption not inspected |
-| [HkEquitySnapshotPipelines](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/tree/27490948fb83d121d864cfc426483a5ba0122410) | `27490948fb83d121d864cfc426483a5ba0122410` | 4 | Source consumers below; runtime adoption not inspected |
+| [HkEquitySnapshotPipelines](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/tree/27490948fb83d121d864cfc426483a5ba0122410) | `27490948fb83d121d864cfc426483a5ba0122410` | 5 | Source consumers below; runtime adoption not inspected |
 | [HkEquityStrategies](https://github.com/QuantStrategyLab/HkEquityStrategies/tree/838b8d826ccdaed40ab19bed0ec64e201499836d) | `838b8d826ccdaed40ab19bed0ec64e201499836d` | 16 | Source consumers below; runtime adoption not inspected |
 | [IBKRGatewayManager](https://github.com/QuantStrategyLab/IBKRGatewayManager/tree/6531b80dda707430e804d067e5417cf7794040e8) | `6531b80dda707430e804d067e5417cf7794040e8` | 0 | No market-price consumer established; infrastructure/auth/control-only source matches were excluded |
 | [InteractiveBrokersPlatform](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/tree/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a) | `8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a` | 11 | Source consumers below; runtime adoption not inspected |
@@ -38,7 +38,7 @@ The standalone job `inventory.csv` contains the same per-consumer fields. This M
 | [ResearchSignalContextPipelines](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/tree/a41745a925c2d676df00c3111f6f75f5bb236288) | `a41745a925c2d676df00c3111f6f75f5bb236288` | 9 | Source consumers below; runtime adoption not inspected |
 | [SchwabTokenAutoRefresher](https://github.com/QuantStrategyLab/SchwabTokenAutoRefresher/tree/1e29d5ab5ed71ceb79491b7a20ea218e9f044efe) | `1e29d5ab5ed71ceb79491b7a20ea218e9f044efe` | 0 | No market-price consumer established; infrastructure/auth/control-only source matches were excluded |
 | [UsEquitySnapshotPipelines](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/tree/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb) | `d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb` | 116 | Source consumers below; runtime adoption not inspected |
-| [UsEquityStrategies](https://github.com/QuantStrategyLab/UsEquityStrategies/tree/76e04b18180f21f7e04bd1f6e116a3206e2c30fc) | `76e04b18180f21f7e04bd1f6e116a3206e2c30fc` | 61 | Source consumers below; runtime adoption not inspected |
+| [UsEquityStrategies](https://github.com/QuantStrategyLab/UsEquityStrategies/tree/76e04b18180f21f7e04bd1f6e116a3206e2c30fc) | `76e04b18180f21f7e04bd1f6e116a3206e2c30fc` | 62 | Source consumers below; runtime adoption not inspected |
 
 ## Data configuration resolution index
 
@@ -1503,7 +1503,18 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/crypto_strategies/strategies/crypto_trend_rotation.py:43](https://github.com/QuantStrategyLab/CryptoStrategies/blob/15ae4ba01b4e9b2c2de78a1bd46d92691098ee5a/src/crypto_strategies/strategies/crypto_trend_rotation.py#L43).
 
-### MD-115 — HkEquitySnapshotPipelines: src/hk_equity_snapshot_pipelines/low_vol_dividend_quality.py
+### MD-115 — HkEquitySnapshotPipelines: src/hk_equity_snapshot_pipelines/input_sources.py
+
+- Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
+- Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
+- Price basis: Inherited/unknown_legacy; inspect the upstream binding, no automatic canonical mapping. Adjustment: No local adjustment established; numeric values inherit caller semantics.
+- Time / session / calendar: Inherited/undeclared at this boundary; Inherited; no local completed-session proof established; Inherited/undeclared; not inferred from weekday dates.
+- Corporate actions: Inherited; no complete local action ledger established.
+- Cache/storage: Caller-supplied input/in-memory result; no private location inspected.
+- Config/env keys (names only): data parameters/schema fields: source.
+- Evidence: [src/hk_equity_snapshot_pipelines/input_sources.py:140](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/blob/27490948fb83d121d864cfc426483a5ba0122410/src/hk_equity_snapshot_pipelines/input_sources.py#L140).
+
+### MD-116 — HkEquitySnapshotPipelines: src/hk_equity_snapshot_pipelines/low_vol_dividend_quality.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1514,7 +1525,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/hk_equity_snapshot_pipelines/low_vol_dividend_quality.py:13](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/blob/27490948fb83d121d864cfc426483a5ba0122410/src/hk_equity_snapshot_pipelines/low_vol_dividend_quality.py#L13).
 
-### MD-116 — HkEquitySnapshotPipelines: src/hk_equity_snapshot_pipelines/snapshot_proxy_backtest.py
+### MD-117 — HkEquitySnapshotPipelines: src/hk_equity_snapshot_pipelines/snapshot_proxy_backtest.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1525,7 +1536,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, source.
 - Evidence: [src/hk_equity_snapshot_pipelines/snapshot_proxy_backtest.py:40](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/blob/27490948fb83d121d864cfc426483a5ba0122410/src/hk_equity_snapshot_pipelines/snapshot_proxy_backtest.py#L40); [src/hk_equity_snapshot_pipelines/snapshot_proxy_backtest.py:223](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/blob/27490948fb83d121d864cfc426483a5ba0122410/src/hk_equity_snapshot_pipelines/snapshot_proxy_backtest.py#L223); [src/hk_equity_snapshot_pipelines/snapshot_proxy_backtest.py:226](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/blob/27490948fb83d121d864cfc426483a5ba0122410/src/hk_equity_snapshot_pipelines/snapshot_proxy_backtest.py#L226).
 
-### MD-117 — HkEquityStrategies: scripts/build_lifecycle_preflight.py
+### MD-118 — HkEquityStrategies: scripts/build_lifecycle_preflight.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1536,7 +1547,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: output_dir, output_path, timezone.
 - Evidence: [scripts/build_lifecycle_preflight.py:11](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/scripts/build_lifecycle_preflight.py#L11); [scripts/build_lifecycle_preflight.py:26](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/scripts/build_lifecycle_preflight.py#L26).
 
-### MD-118 — HkEquityStrategies: scripts/research_hk_equity_combo_backtest.py
+### MD-119 — HkEquityStrategies: scripts/research_hk_equity_combo_backtest.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1547,7 +1558,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [scripts/research_hk_equity_combo_backtest.py:47](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/scripts/research_hk_equity_combo_backtest.py#L47).
 
-### MD-119 — HkEquityStrategies: scripts/research_hk_global_etf_tactical_rotation_backtest.py
+### MD-120 — HkEquityStrategies: scripts/research_hk_global_etf_tactical_rotation_backtest.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1558,7 +1569,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [scripts/research_hk_global_etf_tactical_rotation_backtest.py:17](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/scripts/research_hk_global_etf_tactical_rotation_backtest.py#L17).
 
-### MD-120 — HkEquityStrategies: src/hk_equity_strategies/backtest/combo_simulator.py
+### MD-121 — HkEquityStrategies: src/hk_equity_strategies/backtest/combo_simulator.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1569,7 +1580,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, source.
 - Evidence: [src/hk_equity_strategies/backtest/combo_simulator.py:71](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/backtest/combo_simulator.py#L71); [src/hk_equity_strategies/backtest/combo_simulator.py:227](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/backtest/combo_simulator.py#L227).
 
-### MD-121 — HkEquityStrategies: src/hk_equity_strategies/backtest/etf_rotation_simulator.py
+### MD-122 — HkEquityStrategies: src/hk_equity_strategies/backtest/etf_rotation_simulator.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1580,7 +1591,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/hk_equity_strategies/backtest/etf_rotation_simulator.py:29](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/backtest/etf_rotation_simulator.py#L29); [src/hk_equity_strategies/backtest/etf_rotation_simulator.py:35](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/backtest/etf_rotation_simulator.py#L35).
 
-### MD-122 — HkEquityStrategies: src/hk_equity_strategies/backtest/orchestrator_runner.py
+### MD-123 — HkEquityStrategies: src/hk_equity_strategies/backtest/orchestrator_runner.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1591,7 +1602,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: lookback_days, timezone.
 - Evidence: [src/hk_equity_strategies/backtest/orchestrator_runner.py:8](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/backtest/orchestrator_runner.py#L8); [src/hk_equity_strategies/backtest/orchestrator_runner.py:52](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/backtest/orchestrator_runner.py#L52).
 
-### MD-123 — HkEquityStrategies: src/hk_equity_strategies/catalog.py
+### MD-124 — HkEquityStrategies: src/hk_equity_strategies/catalog.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1602,7 +1613,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/hk_equity_strategies/catalog.py:19](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/catalog.py#L19).
 
-### MD-124 — HkEquityStrategies: src/hk_equity_strategies/combo_entrypoints.py
+### MD-125 — HkEquityStrategies: src/hk_equity_strategies/combo_entrypoints.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1613,7 +1624,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/hk_equity_strategies/combo_entrypoints.py:27](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/combo_entrypoints.py#L27).
 
-### MD-125 — HkEquityStrategies: src/hk_equity_strategies/combo_manifests.py
+### MD-126 — HkEquityStrategies: src/hk_equity_strategies/combo_manifests.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1624,7 +1635,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/hk_equity_strategies/combo_manifests.py:24](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/combo_manifests.py#L24).
 
-### MD-126 — HkEquityStrategies: src/hk_equity_strategies/runtime_adapters.py
+### MD-127 — HkEquityStrategies: src/hk_equity_strategies/runtime_adapters.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1635,7 +1646,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/hk_equity_strategies/runtime_adapters.py:12](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/runtime_adapters.py#L12).
 
-### MD-127 — HkEquityStrategies: src/hk_equity_strategies/runtime_market_data_policy.py
+### MD-128 — HkEquityStrategies: src/hk_equity_strategies/runtime_market_data_policy.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1646,7 +1657,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [src/hk_equity_strategies/runtime_market_data_policy.py:19](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/runtime_market_data_policy.py#L19); [src/hk_equity_strategies/runtime_market_data_policy.py:24](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/runtime_market_data_policy.py#L24).
 
-### MD-128 — HkEquityStrategies: src/hk_equity_strategies/strategies/etf_rotation_core.py
+### MD-129 — HkEquityStrategies: src/hk_equity_strategies/strategies/etf_rotation_core.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1657,7 +1668,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/hk_equity_strategies/strategies/etf_rotation_core.py:41](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/strategies/etf_rotation_core.py#L41); [src/hk_equity_strategies/strategies/etf_rotation_core.py:87](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/strategies/etf_rotation_core.py#L87).
 
-### MD-129 — HkEquityStrategies: src/hk_equity_strategies/strategies/hk_equity_combo.py
+### MD-130 — HkEquityStrategies: src/hk_equity_strategies/strategies/hk_equity_combo.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1668,7 +1679,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment.
 - Evidence: [src/hk_equity_strategies/strategies/hk_equity_combo.py:34](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/strategies/hk_equity_combo.py#L34); [src/hk_equity_strategies/strategies/hk_equity_combo.py:72](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/strategies/hk_equity_combo.py#L72).
 
-### MD-130 — HkEquityStrategies: src/hk_equity_strategies/strategies/hk_global_etf_tactical_rotation.py
+### MD-131 — HkEquityStrategies: src/hk_equity_strategies/strategies/hk_global_etf_tactical_rotation.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1679,7 +1690,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/hk_equity_strategies/strategies/hk_global_etf_tactical_rotation.py:45](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/strategies/hk_global_etf_tactical_rotation.py#L45).
 
-### MD-131 — HkEquityStrategies: src/hk_equity_strategies/strategies/hk_low_vol_dividend_quality_snapshot.py
+### MD-132 — HkEquityStrategies: src/hk_equity_strategies/strategies/hk_low_vol_dividend_quality_snapshot.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1690,7 +1701,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/hk_equity_strategies/strategies/hk_low_vol_dividend_quality_snapshot.py:39](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/strategies/hk_low_vol_dividend_quality_snapshot.py#L39); [src/hk_equity_strategies/strategies/hk_low_vol_dividend_quality_snapshot.py:122](https://github.com/QuantStrategyLab/HkEquityStrategies/blob/838b8d826ccdaed40ab19bed0ec64e201499836d/src/hk_equity_strategies/strategies/hk_low_vol_dividend_quality_snapshot.py#L122).
 
-### MD-132 — InteractiveBrokersPlatform: scripts/release_evidence_parity_check.py
+### MD-133 — InteractiveBrokersPlatform: scripts/release_evidence_parity_check.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1701,7 +1712,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/release_evidence_parity_check.py:112](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/scripts/release_evidence_parity_check.py#L112); [scripts/release_evidence_parity_check.py:207](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/scripts/release_evidence_parity_check.py#L207); [scripts/release_evidence_parity_check.py:227](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/scripts/release_evidence_parity_check.py#L227).
 
-### MD-133 — InteractiveBrokersPlatform: scripts/strategy_parity_check.py
+### MD-134 — InteractiveBrokersPlatform: scripts/strategy_parity_check.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: IBKR TRADES for signals; yfinance history fallback/probe. Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1712,7 +1723,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/strategy_parity_check.py:72](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/scripts/strategy_parity_check.py#L72); [scripts/strategy_parity_check.py:79](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/scripts/strategy_parity_check.py#L79).
 
-### MD-134 — MarketSignalSources: scripts/publish_ibit_btc_platform_handoff.py
+### MD-135 — MarketSignalSources: scripts/publish_ibit_btc_platform_handoff.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1723,7 +1734,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/publish_ibit_btc_platform_handoff.py:34](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/scripts/publish_ibit_btc_platform_handoff.py#L34).
 
-### MD-135 — MarketSignalSources: src/market_signal_sources/artifacts/quality_report.py
+### MD-136 — MarketSignalSources: src/market_signal_sources/artifacts/quality_report.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1734,7 +1745,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/market_signal_sources/artifacts/quality_report.py:47](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/artifacts/quality_report.py#L47).
 
-### MD-136 — MarketSignalSources: src/market_signal_sources/cli/export_us_equity_context_research_csv.py
+### MD-137 — MarketSignalSources: src/market_signal_sources/cli/export_us_equity_context_research_csv.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1745,7 +1756,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/market_signal_sources/cli/export_us_equity_context_research_csv.py:29](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/cli/export_us_equity_context_research_csv.py#L29).
 
-### MD-137 — MarketSignalSources: src/market_signal_sources/cli/export_us_equity_price_proxy_research_csv.py
+### MD-138 — MarketSignalSources: src/market_signal_sources/cli/export_us_equity_price_proxy_research_csv.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1756,7 +1767,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/market_signal_sources/cli/export_us_equity_price_proxy_research_csv.py:42](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/cli/export_us_equity_price_proxy_research_csv.py#L42).
 
-### MD-138 — MarketSignalSources: src/market_signal_sources/derived/us_equity/nasdaq_sp500_context.py
+### MD-139 — MarketSignalSources: src/market_signal_sources/derived/us_equity/nasdaq_sp500_context.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1767,7 +1778,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/market_signal_sources/derived/us_equity/nasdaq_sp500_context.py:229](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/derived/us_equity/nasdaq_sp500_context.py#L229); [src/market_signal_sources/derived/us_equity/nasdaq_sp500_context.py:832](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/derived/us_equity/nasdaq_sp500_context.py#L832).
 
-### MD-139 — MarketSignalSources: src/market_signal_sources/providers/local_csv.py
+### MD-140 — MarketSignalSources: src/market_signal_sources/providers/local_csv.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1778,7 +1789,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, source.
 - Evidence: [src/market_signal_sources/providers/local_csv.py:58](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/providers/local_csv.py#L58); [src/market_signal_sources/providers/local_csv.py:70](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/providers/local_csv.py#L70).
 
-### MD-140 — MarketSignalSources: src/market_signal_sources/artifacts/historical_combo_p1_input.py
+### MD-141 — MarketSignalSources: src/market_signal_sources/artifacts/historical_combo_p1_input.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1789,7 +1800,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/market_signal_sources/artifacts/historical_combo_p1_input.py:4](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/artifacts/historical_combo_p1_input.py#L4).
 
-### MD-141 — MarketSignalSources: src/market_signal_sources/artifacts/historical_price_panel.py
+### MD-142 — MarketSignalSources: src/market_signal_sources/artifacts/historical_price_panel.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1800,7 +1811,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment, calendar_id, source.
 - Evidence: [src/market_signal_sources/artifacts/historical_price_panel.py:4](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/artifacts/historical_price_panel.py#L4); [src/market_signal_sources/artifacts/historical_price_panel.py:25](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/artifacts/historical_price_panel.py#L25); [src/market_signal_sources/artifacts/historical_price_panel.py:35](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/artifacts/historical_price_panel.py#L35).
 
-### MD-142 — MarketSignalSources: src/market_signal_sources/derived/crypto/btc_cycle.py
+### MD-143 — MarketSignalSources: src/market_signal_sources/derived/crypto/btc_cycle.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1811,7 +1822,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/market_signal_sources/derived/crypto/btc_cycle.py:30](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/derived/crypto/btc_cycle.py#L30); [src/market_signal_sources/derived/crypto/btc_cycle.py:91](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/derived/crypto/btc_cycle.py#L91).
 
-### MD-143 — MarketSignalSources: src/market_signal_sources/derived/technical_indicators.py
+### MD-144 — MarketSignalSources: src/market_signal_sources/derived/technical_indicators.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1822,7 +1833,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/market_signal_sources/derived/technical_indicators.py:40](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/derived/technical_indicators.py#L40); [src/market_signal_sources/derived/technical_indicators.py:84](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/derived/technical_indicators.py#L84).
 
-### MD-144 — MarketSignalSources: src/market_signal_sources/derived/us_equity/semiconductor_rotation.py
+### MD-145 — MarketSignalSources: src/market_signal_sources/derived/us_equity/semiconductor_rotation.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1833,7 +1844,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/market_signal_sources/derived/us_equity/semiconductor_rotation.py:66](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/derived/us_equity/semiconductor_rotation.py#L66); [src/market_signal_sources/derived/us_equity/semiconductor_rotation.py:71](https://github.com/QuantStrategyLab/MarketSignalSources/blob/dd204e2b637d6ec389fe75f94c027372d28b471a/src/market_signal_sources/derived/us_equity/semiconductor_rotation.py#L71).
 
-### MD-145 — PoliticalEventTrackingResearch: src/political_event_tracking_research/event_study.py
+### MD-146 — PoliticalEventTrackingResearch: src/political_event_tracking_research/event_study.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected research price history. Inherited source entitlement/retention; no account/subscription query.
@@ -1844,7 +1855,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/political_event_tracking_research/event_study.py:8](https://github.com/QuantStrategyLab/PoliticalEventTrackingResearch/blob/6f43c401fdac817506f70a8ef936e8c6c7402f63/src/political_event_tracking_research/event_study.py#L8).
 
-### MD-146 — PoliticalEventTrackingResearch: src/political_event_tracking_research/tracker.py
+### MD-147 — PoliticalEventTrackingResearch: src/political_event_tracking_research/tracker.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1855,7 +1866,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/political_event_tracking_research/tracker.py:8](https://github.com/QuantStrategyLab/PoliticalEventTrackingResearch/blob/6f43c401fdac817506f70a8ef936e8c6c7402f63/src/political_event_tracking_research/tracker.py#L8).
 
-### MD-147 — QuantAdvisorResearch: src/quant_advisor_research/advisory_report.py
+### MD-148 — QuantAdvisorResearch: src/quant_advisor_research/advisory_report.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1866,7 +1877,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/quant_advisor_research/advisory_report.py:18](https://github.com/QuantStrategyLab/QuantAdvisorResearch/blob/eac68deafc46e77befa019b9670f1cd96e1d41b1/src/quant_advisor_research/advisory_report.py#L18); [src/quant_advisor_research/advisory_report.py:291](https://github.com/QuantStrategyLab/QuantAdvisorResearch/blob/eac68deafc46e77befa019b9670f1cd96e1d41b1/src/quant_advisor_research/advisory_report.py#L291).
 
-### MD-148 — QuantAdvisorResearch: src/quant_advisor_research/recommendation_review.py
+### MD-149 — QuantAdvisorResearch: src/quant_advisor_research/recommendation_review.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1877,7 +1888,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, start_date.
 - Evidence: [src/quant_advisor_research/recommendation_review.py:13](https://github.com/QuantStrategyLab/QuantAdvisorResearch/blob/eac68deafc46e77befa019b9670f1cd96e1d41b1/src/quant_advisor_research/recommendation_review.py#L13); [src/quant_advisor_research/recommendation_review.py:195](https://github.com/QuantStrategyLab/QuantAdvisorResearch/blob/eac68deafc46e77befa019b9670f1cd96e1d41b1/src/quant_advisor_research/recommendation_review.py#L195).
 
-### MD-149 — QuantStrategyPlugins: src/quant_strategy_plugins/macro_external_context.py
+### MD-150 — QuantStrategyPlugins: src/quant_strategy_plugins/macro_external_context.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1888,7 +1899,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone.
 - Evidence: [src/quant_strategy_plugins/macro_external_context.py:7](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/macro_external_context.py#L7); [src/quant_strategy_plugins/macro_external_context.py:14](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/macro_external_context.py#L14).
 
-### MD-150 — QuantStrategyPlugins: src/quant_strategy_plugins/russell_1000_multi_factor_defensive_snapshot.py
+### MD-151 — QuantStrategyPlugins: src/quant_strategy_plugins/russell_1000_multi_factor_defensive_snapshot.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1899,7 +1910,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, lookback_days.
 - Evidence: [src/quant_strategy_plugins/russell_1000_multi_factor_defensive_snapshot.py:9](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/russell_1000_multi_factor_defensive_snapshot.py#L9); [src/quant_strategy_plugins/russell_1000_multi_factor_defensive_snapshot.py:83](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/russell_1000_multi_factor_defensive_snapshot.py#L83).
 
-### MD-151 — QuantStrategyPlugins: scripts/backtest_macro_risk_governor_params.py
+### MD-152 — QuantStrategyPlugins: scripts/backtest_macro_risk_governor_params.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1910,7 +1921,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/backtest_macro_risk_governor_params.py:33](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/scripts/backtest_macro_risk_governor_params.py#L33); [scripts/backtest_macro_risk_governor_params.py:51](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/scripts/backtest_macro_risk_governor_params.py#L51).
 
-### MD-152 — QuantStrategyPlugins: scripts/backtest_volatility_delever_thresholds.py
+### MD-153 — QuantStrategyPlugins: scripts/backtest_volatility_delever_thresholds.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1921,7 +1932,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/backtest_volatility_delever_thresholds.py:43](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/scripts/backtest_volatility_delever_thresholds.py#L43); [scripts/backtest_volatility_delever_thresholds.py:44](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/scripts/backtest_volatility_delever_thresholds.py#L44).
 
-### MD-153 — QuantStrategyPlugins: src/quant_strategy_plugins/ai_audit.py
+### MD-154 — QuantStrategyPlugins: src/quant_strategy_plugins/ai_audit.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1932,7 +1943,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): AI_GATEWAY_SOURCE_REPO; data parameters/schema fields: base_url, source.
 - Evidence: [src/quant_strategy_plugins/ai_audit.py:469](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/ai_audit.py#L469).
 
-### MD-154 — QuantStrategyPlugins: src/quant_strategy_plugins/benchmark_drawdown_guard.py
+### MD-155 — QuantStrategyPlugins: src/quant_strategy_plugins/benchmark_drawdown_guard.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -1943,7 +1954,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/quant_strategy_plugins/benchmark_drawdown_guard.py:85](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/benchmark_drawdown_guard.py#L85).
 
-### MD-155 — QuantStrategyPlugins: src/quant_strategy_plugins/crisis_context_research.py
+### MD-156 — QuantStrategyPlugins: src/quant_strategy_plugins/crisis_context_research.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1954,7 +1965,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, output_dir, start_date.
 - Evidence: [src/quant_strategy_plugins/crisis_context_research.py:19](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/crisis_context_research.py#L19); [src/quant_strategy_plugins/crisis_context_research.py:212](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/crisis_context_research.py#L212).
 
-### MD-156 — QuantStrategyPlugins: src/quant_strategy_plugins/crisis_regime_guard_research.py
+### MD-157 — QuantStrategyPlugins: src/quant_strategy_plugins/crisis_regime_guard_research.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1965,7 +1976,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, output_dir, start_date.
 - Evidence: [src/quant_strategy_plugins/crisis_regime_guard_research.py:23](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/crisis_regime_guard_research.py#L23); [src/quant_strategy_plugins/crisis_regime_guard_research.py:100](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/crisis_regime_guard_research.py#L100).
 
-### MD-157 — QuantStrategyPlugins: src/quant_strategy_plugins/crisis_response_research.py
+### MD-158 — QuantStrategyPlugins: src/quant_strategy_plugins/crisis_response_research.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1976,7 +1987,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, output_dir, start_date.
 - Evidence: [src/quant_strategy_plugins/crisis_response_research.py:35](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/crisis_response_research.py#L35); [src/quant_strategy_plugins/crisis_response_research.py:189](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/crisis_response_research.py#L189).
 
-### MD-158 — QuantStrategyPlugins: src/quant_strategy_plugins/crisis_response_shadow_plugin.py
+### MD-159 — QuantStrategyPlugins: src/quant_strategy_plugins/crisis_response_shadow_plugin.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1987,7 +1998,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, start_date, timezone.
 - Evidence: [src/quant_strategy_plugins/crisis_response_shadow_plugin.py:4](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/crisis_response_shadow_plugin.py#L4); [src/quant_strategy_plugins/crisis_response_shadow_plugin.py:70](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/crisis_response_shadow_plugin.py#L70).
 
-### MD-159 — QuantStrategyPlugins: src/quant_strategy_plugins/macro_risk_governor_plugin.py
+### MD-160 — QuantStrategyPlugins: src/quant_strategy_plugins/macro_risk_governor_plugin.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -1998,7 +2009,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone.
 - Evidence: [src/quant_strategy_plugins/macro_risk_governor_plugin.py:4](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/macro_risk_governor_plugin.py#L4); [src/quant_strategy_plugins/macro_risk_governor_plugin.py:13](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/macro_risk_governor_plugin.py#L13).
 
-### MD-160 — QuantStrategyPlugins: src/quant_strategy_plugins/panic_reversal_shadow_plugin.py
+### MD-161 — QuantStrategyPlugins: src/quant_strategy_plugins/panic_reversal_shadow_plugin.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2009,7 +2020,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, start_date, timezone.
 - Evidence: [src/quant_strategy_plugins/panic_reversal_shadow_plugin.py:4](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/panic_reversal_shadow_plugin.py#L4); [src/quant_strategy_plugins/panic_reversal_shadow_plugin.py:21](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/panic_reversal_shadow_plugin.py#L21).
 
-### MD-161 — QuantStrategyPlugins: src/quant_strategy_plugins/plugin_lineage.py
+### MD-162 — QuantStrategyPlugins: src/quant_strategy_plugins/plugin_lineage.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2020,7 +2031,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: output_dir.
 - Evidence: [src/quant_strategy_plugins/plugin_lineage.py:40](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/plugin_lineage.py#L40).
 
-### MD-162 — QuantStrategyPlugins: src/quant_strategy_plugins/plugin_signal_utils.py
+### MD-163 — QuantStrategyPlugins: src/quant_strategy_plugins/plugin_signal_utils.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2031,7 +2042,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/quant_strategy_plugins/plugin_signal_utils.py:11](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/plugin_signal_utils.py#L11); [src/quant_strategy_plugins/plugin_signal_utils.py:18](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/plugin_signal_utils.py#L18).
 
-### MD-163 — QuantStrategyPlugins: src/quant_strategy_plugins/qqq_price_regime_observer_v2.py
+### MD-164 — QuantStrategyPlugins: src/quant_strategy_plugins/qqq_price_regime_observer_v2.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2042,7 +2053,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/quant_strategy_plugins/qqq_price_regime_observer_v2.py:93](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/qqq_price_regime_observer_v2.py#L93).
 
-### MD-164 — QuantStrategyPlugins: src/quant_strategy_plugins/rates_context_observer_research.py
+### MD-165 — QuantStrategyPlugins: src/quant_strategy_plugins/rates_context_observer_research.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2053,7 +2064,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone.
 - Evidence: [src/quant_strategy_plugins/rates_context_observer_research.py:9](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/rates_context_observer_research.py#L9).
 
-### MD-165 — QuantStrategyPlugins: src/quant_strategy_plugins/semiconductor_regime_observer_research.py
+### MD-166 — QuantStrategyPlugins: src/quant_strategy_plugins/semiconductor_regime_observer_research.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2064,7 +2075,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment, calendar_id, date_cutoff, timezone.
 - Evidence: [src/quant_strategy_plugins/semiconductor_regime_observer_research.py:3](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/semiconductor_regime_observer_research.py#L3); [src/quant_strategy_plugins/semiconductor_regime_observer_research.py:14](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/semiconductor_regime_observer_research.py#L14); [src/quant_strategy_plugins/semiconductor_regime_observer_research.py:34](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/semiconductor_regime_observer_research.py#L34).
 
-### MD-166 — QuantStrategyPlugins: src/quant_strategy_plugins/strategy_plugin_runner.py
+### MD-167 — QuantStrategyPlugins: src/quant_strategy_plugins/strategy_plugin_runner.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2075,7 +2086,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/quant_strategy_plugins/strategy_plugin_runner.py:1433](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/strategy_plugin_runner.py#L1433).
 
-### MD-167 — QuantStrategyPlugins: src/quant_strategy_plugins/taco_panic_rebound_backtest.py
+### MD-168 — QuantStrategyPlugins: src/quant_strategy_plugins/taco_panic_rebound_backtest.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2086,7 +2097,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, output_dir, start_date.
 - Evidence: [src/quant_strategy_plugins/taco_panic_rebound_backtest.py:22](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/taco_panic_rebound_backtest.py#L22); [src/quant_strategy_plugins/taco_panic_rebound_backtest.py:145](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/taco_panic_rebound_backtest.py#L145).
 
-### MD-168 — QuantStrategyPlugins: src/quant_strategy_plugins/taco_panic_rebound_overlay_compare.py
+### MD-169 — QuantStrategyPlugins: src/quant_strategy_plugins/taco_panic_rebound_overlay_compare.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2097,7 +2108,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, output_dir, source, start_date.
 - Evidence: [src/quant_strategy_plugins/taco_panic_rebound_overlay_compare.py:19](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/taco_panic_rebound_overlay_compare.py#L19); [src/quant_strategy_plugins/taco_panic_rebound_overlay_compare.py:108](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/taco_panic_rebound_overlay_compare.py#L108).
 
-### MD-169 — QuantStrategyPlugins: src/quant_strategy_plugins/taco_panic_rebound_research.py
+### MD-170 — QuantStrategyPlugins: src/quant_strategy_plugins/taco_panic_rebound_research.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2108,7 +2119,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, output_dir.
 - Evidence: [src/quant_strategy_plugins/taco_panic_rebound_research.py:11](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/taco_panic_rebound_research.py#L11); [src/quant_strategy_plugins/taco_panic_rebound_research.py:450](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/taco_panic_rebound_research.py#L450).
 
-### MD-170 — QuantStrategyPlugins: src/quant_strategy_plugins/taco_rebound_shadow_plugin.py
+### MD-171 — QuantStrategyPlugins: src/quant_strategy_plugins/taco_rebound_shadow_plugin.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2119,7 +2130,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, timezone.
 - Evidence: [src/quant_strategy_plugins/taco_rebound_shadow_plugin.py:4](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/taco_rebound_shadow_plugin.py#L4); [src/quant_strategy_plugins/taco_rebound_shadow_plugin.py:31](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/taco_rebound_shadow_plugin.py#L31).
 
-### MD-171 — QuantStrategyPlugins: src/quant_strategy_plugins/tqqq_market_regime_control_present.py
+### MD-172 — QuantStrategyPlugins: src/quant_strategy_plugins/tqqq_market_regime_control_present.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2130,7 +2141,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/quant_strategy_plugins/tqqq_market_regime_control_present.py:406](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/tqqq_market_regime_control_present.py#L406).
 
-### MD-172 — QuantStrategyPlugins: src/quant_strategy_plugins/tqqq_research_input_bundle.py
+### MD-173 — QuantStrategyPlugins: src/quant_strategy_plugins/tqqq_research_input_bundle.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2141,7 +2152,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/quant_strategy_plugins/tqqq_research_input_bundle.py:27](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/tqqq_research_input_bundle.py#L27); [src/quant_strategy_plugins/tqqq_research_input_bundle.py:336](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/tqqq_research_input_bundle.py#L336).
 
-### MD-173 — QuantStrategyPlugins: src/quant_strategy_plugins/volatility_delever_price_rebound.py
+### MD-174 — QuantStrategyPlugins: src/quant_strategy_plugins/volatility_delever_price_rebound.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2152,7 +2163,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, lookback_days.
 - Evidence: [src/quant_strategy_plugins/volatility_delever_price_rebound.py:125](https://github.com/QuantStrategyLab/QuantStrategyPlugins/blob/e2fe5a7734dd7915b3ba6e93cfd1cdb21207002a/src/quant_strategy_plugins/volatility_delever_price_rebound.py#L125).
 
-### MD-174 — ResearchSignalContextPipelines: scripts/backtest_signal_overlay.py
+### MD-175 — ResearchSignalContextPipelines: scripts/backtest_signal_overlay.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2163,7 +2174,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [scripts/backtest_signal_overlay.py:15](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/scripts/backtest_signal_overlay.py#L15).
 
-### MD-175 — ResearchSignalContextPipelines: scripts/build_context_bundle.py
+### MD-176 — ResearchSignalContextPipelines: scripts/build_context_bundle.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo chart or explicitly supplied price CSV. Inherited source entitlement/retention; no account/subscription query.
@@ -2174,7 +2185,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, timezone.
 - Evidence: [scripts/build_context_bundle.py:23](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/scripts/build_context_bundle.py#L23); [scripts/build_context_bundle.py:62](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/scripts/build_context_bundle.py#L62).
 
-### MD-176 — ResearchSignalContextPipelines: scripts/extract_price_history.py
+### MD-177 — ResearchSignalContextPipelines: scripts/extract_price_history.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2185,7 +2196,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, source.
 - Evidence: [scripts/extract_price_history.py:12](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/scripts/extract_price_history.py#L12).
 
-### MD-177 — ResearchSignalContextPipelines: scripts/publish_theme_snapshot_pr.py
+### MD-178 — ResearchSignalContextPipelines: scripts/publish_theme_snapshot_pr.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2196,7 +2207,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/publish_theme_snapshot_pr.py:45](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/scripts/publish_theme_snapshot_pr.py#L45).
 
-### MD-178 — ResearchSignalContextPipelines: src/research_signal_context_pipelines/context_bundle.py
+### MD-179 — ResearchSignalContextPipelines: src/research_signal_context_pipelines/context_bundle.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo chart or explicitly supplied price CSV. Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2207,7 +2218,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, lookback_days, source, start_date, timezone.
 - Evidence: [src/research_signal_context_pipelines/context_bundle.py:15](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/src/research_signal_context_pipelines/context_bundle.py#L15); [src/research_signal_context_pipelines/context_bundle.py:91](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/src/research_signal_context_pipelines/context_bundle.py#L91); [src/research_signal_context_pipelines/context_bundle.py:130](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/src/research_signal_context_pipelines/context_bundle.py#L130).
 
-### MD-179 — ResearchSignalContextPipelines: src/research_signal_context_pipelines/overlay_backtest.py
+### MD-180 — ResearchSignalContextPipelines: src/research_signal_context_pipelines/overlay_backtest.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2218,7 +2229,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: end_date, start_date, timezone.
 - Evidence: [src/research_signal_context_pipelines/overlay_backtest.py:9](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/src/research_signal_context_pipelines/overlay_backtest.py#L9); [src/research_signal_context_pipelines/overlay_backtest.py:45](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/src/research_signal_context_pipelines/overlay_backtest.py#L45).
 
-### MD-180 — ResearchSignalContextPipelines: src/research_signal_context_pipelines/price_history.py
+### MD-181 — ResearchSignalContextPipelines: src/research_signal_context_pipelines/price_history.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2229,7 +2240,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: end_date, start_date.
 - Evidence: [src/research_signal_context_pipelines/price_history.py:48](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/src/research_signal_context_pipelines/price_history.py#L48).
 
-### MD-181 — ResearchSignalContextPipelines: src/research_signal_context_pipelines/theme_momentum.py
+### MD-182 — ResearchSignalContextPipelines: src/research_signal_context_pipelines/theme_momentum.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2240,7 +2251,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/research_signal_context_pipelines/theme_momentum.py:11](https://github.com/QuantStrategyLab/ResearchSignalContextPipelines/blob/a41745a925c2d676df00c3111f6f75f5bb236288/src/research_signal_context_pipelines/theme_momentum.py#L11).
 
-### MD-182 — UsEquitySnapshotPipelines: scripts/build_scheduled_ibit_dca_research.py
+### MD-183 — UsEquitySnapshotPipelines: scripts/build_scheduled_ibit_dca_research.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2251,7 +2262,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: price_field.
 - Evidence: [scripts/build_scheduled_ibit_dca_research.py:19](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/build_scheduled_ibit_dca_research.py#L19).
 
-### MD-183 — UsEquitySnapshotPipelines: scripts/diagnose_multisource_daily_assurance.py
+### MD-184 — UsEquitySnapshotPipelines: scripts/diagnose_multisource_daily_assurance.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Twelve Data split-only source + Yahoo independent verifier (per frozen contract). Provider tier not queried; existing license/rate and two-source gates remain.
@@ -2262,7 +2273,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): TWELVE_DATA_API_KEY; data parameters/schema fields: adjustment, source.
 - Evidence: [scripts/diagnose_multisource_daily_assurance.py:17](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/diagnose_multisource_daily_assurance.py#L17); [scripts/diagnose_multisource_daily_assurance.py:45](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/diagnose_multisource_daily_assurance.py#L45); [scripts/diagnose_multisource_daily_assurance.py:46](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/diagnose_multisource_daily_assurance.py#L46).
 
-### MD-184 — UsEquitySnapshotPipelines: scripts/read_research_input_archive_metadata.py
+### MD-185 — UsEquitySnapshotPipelines: scripts/read_research_input_archive_metadata.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Alpaca (SIP unless this row explicitly says otherwise). Owner Basic/free: recent SIP excluded; require end <= now-16min; IEX recent is a distinct feed.
@@ -2273,7 +2284,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): SOURCE_COMMIT_ENV, SOURCE_DIR_ENV; data parameters/schema fields: adjustment, binding_sha256, feed, timezone.
 - Evidence: [scripts/read_research_input_archive_metadata.py:10](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/read_research_input_archive_metadata.py#L10); [scripts/read_research_input_archive_metadata.py:24](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/read_research_input_archive_metadata.py#L24); [scripts/read_research_input_archive_metadata.py:47](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/read_research_input_archive_metadata.py#L47).
 
-### MD-185 — UsEquitySnapshotPipelines: scripts/research_levered_overlay_guards.py
+### MD-186 — UsEquitySnapshotPipelines: scripts/research_levered_overlay_guards.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2284,7 +2295,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, start_date.
 - Evidence: [scripts/research_levered_overlay_guards.py:29](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/research_levered_overlay_guards.py#L29).
 
-### MD-186 — UsEquitySnapshotPipelines: scripts/research_soxl_dynamic_volatility_delever_thresholds.py
+### MD-187 — UsEquitySnapshotPipelines: scripts/research_soxl_dynamic_volatility_delever_thresholds.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2295,7 +2306,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, output_dir.
 - Evidence: [scripts/research_soxl_dynamic_volatility_delever_thresholds.py:22](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/research_soxl_dynamic_volatility_delever_thresholds.py#L22); [scripts/research_soxl_dynamic_volatility_delever_thresholds.py:44](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/research_soxl_dynamic_volatility_delever_thresholds.py#L44).
 
-### MD-187 — UsEquitySnapshotPipelines: scripts/research_tqqq_volatility_delever_thresholds.py
+### MD-188 — UsEquitySnapshotPipelines: scripts/research_tqqq_volatility_delever_thresholds.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2306,7 +2317,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: output_dir.
 - Evidence: [scripts/research_tqqq_volatility_delever_thresholds.py:20](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/research_tqqq_volatility_delever_thresholds.py#L20).
 
-### MD-188 — UsEquitySnapshotPipelines: scripts/run_russell_core_case.py
+### MD-189 — UsEquitySnapshotPipelines: scripts/run_russell_core_case.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Alpaca (SIP unless this row explicitly says otherwise). Owner Basic/free: recent SIP excluded; require end <= now-16min; IEX recent is a distinct feed.
@@ -2317,7 +2328,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY; data parameters/schema fields: adjustment, feed, source.
 - Evidence: [scripts/run_russell_core_case.py:16](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/run_russell_core_case.py#L16); [scripts/run_russell_core_case.py:38](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/run_russell_core_case.py#L38); [scripts/run_russell_core_case.py:98](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/run_russell_core_case.py#L98).
 
-### MD-189 — UsEquitySnapshotPipelines: scripts/run_soxl_core_only_free_split_close_p3_evidence.py
+### MD-190 — UsEquitySnapshotPipelines: scripts/run_soxl_core_only_free_split_close_p3_evidence.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2328,7 +2339,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [scripts/run_soxl_core_only_free_split_close_p3_evidence.py:5](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/run_soxl_core_only_free_split_close_p3_evidence.py#L5).
 
-### MD-190 — UsEquitySnapshotPipelines: scripts/run_soxl_three_asset_learning.py
+### MD-191 — UsEquitySnapshotPipelines: scripts/run_soxl_three_asset_learning.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2339,7 +2350,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: price_basis.
 - Evidence: [scripts/run_soxl_three_asset_learning.py:119](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/run_soxl_three_asset_learning.py#L119); [scripts/run_soxl_three_asset_learning.py:627](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/run_soxl_three_asset_learning.py#L627); [scripts/run_soxl_three_asset_learning.py:1355](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/run_soxl_three_asset_learning.py#L1355).
 
-### MD-191 — UsEquitySnapshotPipelines: scripts/run_soxl_v7_nonlive_forward_observation.py
+### MD-192 — UsEquitySnapshotPipelines: scripts/run_soxl_v7_nonlive_forward_observation.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2350,7 +2361,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/run_soxl_v7_nonlive_forward_observation.py:17](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/run_soxl_v7_nonlive_forward_observation.py#L17).
 
-### MD-192 — UsEquitySnapshotPipelines: scripts/sweep_levered_income_layer.py
+### MD-193 — UsEquitySnapshotPipelines: scripts/sweep_levered_income_layer.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2361,7 +2372,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: output_dir.
 - Evidence: [scripts/sweep_levered_income_layer.py:27](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/sweep_levered_income_layer.py#L27).
 
-### MD-193 — UsEquitySnapshotPipelines: scripts/sweep_tecl_xlk_trend_income.py
+### MD-194 — UsEquitySnapshotPipelines: scripts/sweep_tecl_xlk_trend_income.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2372,7 +2383,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: output_dir.
 - Evidence: [scripts/sweep_tecl_xlk_trend_income.py:16](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/scripts/sweep_tecl_xlk_trend_income.py#L16).
 
-### MD-194 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/input_sources.py
+### MD-195 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/input_sources.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2383,7 +2394,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [src/us_equity_snapshot_pipelines/input_sources.py:208](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/input_sources.py#L208).
 
-### MD-195 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/intraday_crash_circuit_breaker_research.py
+### MD-196 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/intraday_crash_circuit_breaker_research.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2394,7 +2405,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, output_path, start_date.
 - Evidence: [src/us_equity_snapshot_pipelines/intraday_crash_circuit_breaker_research.py:17](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/intraday_crash_circuit_breaker_research.py#L17); [src/us_equity_snapshot_pipelines/intraday_crash_circuit_breaker_research.py:61](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/intraday_crash_circuit_breaker_research.py#L61).
 
-### MD-196 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/intraday_scheme_validation.py
+### MD-197 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/intraday_scheme_validation.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2405,7 +2416,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, output_path.
 - Evidence: [src/us_equity_snapshot_pipelines/intraday_scheme_validation.py:35](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/intraday_scheme_validation.py#L35); [src/us_equity_snapshot_pipelines/intraday_scheme_validation.py:44](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/intraday_scheme_validation.py#L44).
 
-### MD-197 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/russell_research_runner.py
+### MD-198 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/russell_research_runner.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2416,7 +2427,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone.
 - Evidence: [src/us_equity_snapshot_pipelines/lifecycle/russell_research_runner.py:69](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/russell_research_runner.py#L69); [src/us_equity_snapshot_pipelines/lifecycle/russell_research_runner.py:108](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/russell_research_runner.py#L108).
 
-### MD-198 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p1.py
+### MD-199 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p1.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Twelve Data split-only source + Yahoo independent verifier (per frozen contract). Provider tier not queried; existing license/rate and two-source gates remain.
@@ -2427,7 +2438,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment, calendar_id, date_cutoff, source, timezone.
 - Evidence: [src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p1.py:28](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p1.py#L28); [src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p1.py:51](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p1.py#L51); [src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p1.py:56](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p1.py#L56).
 
-### MD-199 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p3_input_materializer.py
+### MD-200 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p3_input_materializer.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Twelve Data split-only source + Yahoo independent verifier (per frozen contract). Provider tier not queried; existing license/rate and two-source gates remain.
@@ -2438,7 +2449,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: binding_sha256, date_cutoff, price_field, source.
 - Evidence: [src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p3_input_materializer.py:1](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_free_split_close_p3_input_materializer.py#L1).
 
-### MD-200 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_p3_input_materializer.py
+### MD-201 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_p3_input_materializer.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Alpaca (SIP unless this row explicitly says otherwise). Owner Basic/free: recent SIP excluded; require end <= now-16min; IEX recent is a distinct feed.
@@ -2449,7 +2460,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: binding_sha256, price_field, source.
 - Evidence: [src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_p3_input_materializer.py:201](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_p3_input_materializer.py#L201); [src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_p3_input_materializer.py:340](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_p3_input_materializer.py#L340).
 
-### MD-201 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_v7_forward_confirmation_p4_evidence.py
+### MD-202 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_v7_forward_confirmation_p4_evidence.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2460,7 +2471,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_v7_forward_confirmation_p4_evidence.py:94](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_core_only_v7_forward_confirmation_p4_evidence.py#L94).
 
-### MD-202 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_v7_twelve_single_source_r6.py
+### MD-203 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/lifecycle/soxl_v7_twelve_single_source_r6.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Twelve Data split-only source + Yahoo independent verifier (per frozen contract). Provider tier not queried; existing license/rate and two-source gates remain.
@@ -2471,7 +2482,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment, binding_sha256, calendar_id, date_cutoff, price_field, source, timezone.
 - Evidence: [src/us_equity_snapshot_pipelines/lifecycle/soxl_v7_twelve_single_source_r6.py:38](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_v7_twelve_single_source_r6.py#L38); [src/us_equity_snapshot_pipelines/lifecycle/soxl_v7_twelve_single_source_r6.py:69](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_v7_twelve_single_source_r6.py#L69); [src/us_equity_snapshot_pipelines/lifecycle/soxl_v7_twelve_single_source_r6.py:70](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/lifecycle/soxl_v7_twelve_single_source_r6.py#L70).
 
-### MD-203 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/monthly_publish_window.py
+### MD-204 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/monthly_publish_window.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2482,7 +2493,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/us_equity_snapshot_pipelines/monthly_publish_window.py:4](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/monthly_publish_window.py#L4); [src/us_equity_snapshot_pipelines/monthly_publish_window.py:41](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/monthly_publish_window.py#L41).
 
-### MD-204 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/pipelines/russell_1000_multi_factor_defensive_snapshot.py
+### MD-205 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/pipelines/russell_1000_multi_factor_defensive_snapshot.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2493,7 +2504,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, lookback_days.
 - Evidence: [src/us_equity_snapshot_pipelines/pipelines/russell_1000_multi_factor_defensive_snapshot.py:9](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/pipelines/russell_1000_multi_factor_defensive_snapshot.py#L9); [src/us_equity_snapshot_pipelines/pipelines/russell_1000_multi_factor_defensive_snapshot.py:83](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/pipelines/russell_1000_multi_factor_defensive_snapshot.py#L83).
 
-### MD-205 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/pipelines/soxl_soxx_trend_income_backtest.py
+### MD-206 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/pipelines/soxl_soxx_trend_income_backtest.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2504,7 +2515,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, output_dir, start_date.
 - Evidence: [src/us_equity_snapshot_pipelines/pipelines/soxl_soxx_trend_income_backtest.py:15](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/pipelines/soxl_soxx_trend_income_backtest.py#L15); [src/us_equity_snapshot_pipelines/pipelines/soxl_soxx_trend_income_backtest.py:85](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/pipelines/soxl_soxx_trend_income_backtest.py#L85).
 
-### MD-206 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/pipelines/tecl_xlk_trend_income_backtest.py
+### MD-207 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/pipelines/tecl_xlk_trend_income_backtest.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2515,7 +2526,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, output_dir.
 - Evidence: [src/us_equity_snapshot_pipelines/pipelines/tecl_xlk_trend_income_backtest.py:15](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/pipelines/tecl_xlk_trend_income_backtest.py#L15); [src/us_equity_snapshot_pipelines/pipelines/tecl_xlk_trend_income_backtest.py:85](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/pipelines/tecl_xlk_trend_income_backtest.py#L85).
 
-### MD-207 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/publish.py
+### MD-208 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/publish.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -2526,7 +2537,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [src/us_equity_snapshot_pipelines/publish.py:86](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/publish.py#L86); [src/us_equity_snapshot_pipelines/publish.py:99](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/publish.py#L99).
 
-### MD-208 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/research/ibit_smart_dca_research.py
+### MD-209 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/research/ibit_smart_dca_research.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2537,7 +2548,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, price_field.
 - Evidence: [src/us_equity_snapshot_pipelines/research/ibit_smart_dca_research.py:17](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/research/ibit_smart_dca_research.py#L17); [src/us_equity_snapshot_pipelines/research/ibit_smart_dca_research.py:108](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/research/ibit_smart_dca_research.py#L108).
 
-### MD-209 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/soxl_soxx_trend_income_archive.py
+### MD-210 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/soxl_soxx_trend_income_archive.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2548,7 +2559,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, output_dir, output_path, timezone.
 - Evidence: [src/us_equity_snapshot_pipelines/soxl_soxx_trend_income_archive.py:8](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/soxl_soxx_trend_income_archive.py#L8); [src/us_equity_snapshot_pipelines/soxl_soxx_trend_income_archive.py:31](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/soxl_soxx_trend_income_archive.py#L31); [src/us_equity_snapshot_pipelines/soxl_soxx_trend_income_archive.py:350](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/soxl_soxx_trend_income_archive.py#L350).
 
-### MD-210 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/tqqq_growth_income_archive.py
+### MD-211 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/tqqq_growth_income_archive.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -2558,17 +2569,6 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Cache/storage: Caller/config-selected CSV or artifact root in approved cloud; local-capable path is source capability, not authorization to use the Mac.
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, output_dir, output_path, timezone.
 - Evidence: [src/us_equity_snapshot_pipelines/tqqq_growth_income_archive.py:8](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_growth_income_archive.py#L8); [src/us_equity_snapshot_pipelines/tqqq_growth_income_archive.py:35](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_growth_income_archive.py#L35); [src/us_equity_snapshot_pipelines/tqqq_growth_income_archive.py:516](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_growth_income_archive.py#L516).
-
-### MD-211 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py
-
-- Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
-- Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
-- Price basis: Inherited/unknown_legacy; inspect the upstream binding, no automatic canonical mapping. Adjustment: No local adjustment established; numeric values inherit caller semantics.
-- Time / session / calendar: America/New_York; Inherited; no local completed-session proof established; Inherited/undeclared; not inferred from weekday dates.
-- Corporate actions: Inherited; no complete local action ledger established.
-- Cache/storage: Configured approved cloud object root and immutable manifest/generation; private names omitted.
-- Config/env keys (names only): data parameters/schema fields: adjustment, calendar_id, output_dir, price_field, source, timezone.
-- Evidence: [src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py:35](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py#L35); [src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py:142](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py#L142); [src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py:656](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py#L656).
 
 ### MD-212 — UsEquitySnapshotPipelines: scripts/build_monthly_russell_crash_brake_research.py
 
@@ -3243,11 +3243,11 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 
 ### MD-273 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/russell_1000_history.py
 
-- Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
-- Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
-- Price basis: Inherited/unknown_legacy; inspect the upstream binding, no automatic canonical mapping. Adjustment: No local adjustment established; numeric values inherit caller semantics.
+- Role: historical universe/membership input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
+- Provider / plan: Injected/versioned Russell membership snapshots. Inherited source entitlement/retention; no account/subscription query.
+- Price basis: Not a price series; price basis belongs to the joined price input. Adjustment: Membership inclusion/removal availability, not price adjustment.
 - Time / session / calendar: UTC; Inherited; no local completed-session proof established; Inherited/undeclared; not inferred from weekday dates.
-- Corporate actions: Inherited; no complete local action ledger established.
+- Corporate actions: Historical membership/symbol identity coverage must remain explicit.
 - Cache/storage: Caller/config-selected CSV or artifact root in approved cloud; local-capable path is source capability, not authorization to use the Mac.
 - Config/env keys (names only): data parameters/schema fields: end_date, feed, output_path, source, start_date, timezone.
 - Evidence: [src/us_equity_snapshot_pipelines/russell_1000_history.py:6](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/russell_1000_history.py#L6); [src/us_equity_snapshot_pipelines/russell_1000_history.py:178](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/russell_1000_history.py#L178).
@@ -3318,7 +3318,18 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/us_equity_snapshot_pipelines/tqqq_local_no_order_runner.py:287](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_local_no_order_runner.py#L287).
 
-### MD-280 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/universe_audit_contracts.py
+### MD-280 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py
+
+- Role: price artifact and synthetic-fixture contract. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
+- Provider / plan: Injected price-series artifact / source-module synthetic fixture contract. Inherited source entitlement/retention; no account/subscription query.
+- Price basis: Legacy adjusted_close / total_return_adjusted schema; synthetic fixture manifest is not real market evidence. Adjustment: No local adjustment established; numeric values inherit caller semantics.
+- Time / session / calendar: America/New_York; Inherited; no local completed-session proof established; Inherited/undeclared; not inferred from weekday dates.
+- Corporate actions: Inherited; no complete local action ledger established.
+- Cache/storage: Configured approved cloud object root and immutable manifest/generation; private names omitted.
+- Config/env keys (names only): data parameters/schema fields: adjustment, calendar_id, output_dir, price_field, source, timezone.
+- Evidence: [src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py:35](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py#L35); [src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py:142](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py#L142); [src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py:656](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/tqqq_r1_snapshot.py#L656).
+
+### MD-281 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/universe_audit_contracts.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3329,7 +3340,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_snapshot_pipelines/universe_audit_contracts.py:116](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/universe_audit_contracts.py#L116).
 
-### MD-281 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/universe_audit_engine.py
+### MD-282 — UsEquitySnapshotPipelines: src/us_equity_snapshot_pipelines/universe_audit_engine.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3340,7 +3351,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/us_equity_snapshot_pipelines/universe_audit_engine.py:56](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/universe_audit_engine.py#L56); [src/us_equity_snapshot_pipelines/universe_audit_engine.py:63](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/d3217b2297dbde7c3ce7f56ff6b9ef2c99ea2fbb/src/us_equity_snapshot_pipelines/universe_audit_engine.py#L63).
 
-### MD-282 — UsEquityStrategies: docs/research/first_compounding_20260925/r7_joint_account_compare.py
+### MD-283 — UsEquityStrategies: docs/research/first_compounding_20260925/r7_joint_account_compare.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3351,7 +3362,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: calendar_id, source.
 - Evidence: [docs/research/first_compounding_20260925/r7_joint_account_compare.py:95](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/r7_joint_account_compare.py#L95); [docs/research/first_compounding_20260925/r7_joint_account_compare.py:267](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/r7_joint_account_compare.py#L267).
 
-### MD-283 — UsEquityStrategies: scripts/research_us_equity_combo_backtest.py
+### MD-284 — UsEquityStrategies: scripts/research_us_equity_combo_backtest.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -3362,7 +3373,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: end_date, start_date.
 - Evidence: [scripts/research_us_equity_combo_backtest.py:8](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/scripts/research_us_equity_combo_backtest.py#L8); [scripts/research_us_equity_combo_backtest.py:149](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/scripts/research_us_equity_combo_backtest.py#L149); [scripts/research_us_equity_combo_backtest.py:625](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/scripts/research_us_equity_combo_backtest.py#L625).
 
-### MD-284 — UsEquityStrategies: scripts/run_ux1_async_job.py
+### MD-285 — UsEquityStrategies: scripts/run_ux1_async_job.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3373,7 +3384,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/run_ux1_async_job.py:424](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/scripts/run_ux1_async_job.py#L424).
 
-### MD-285 — UsEquityStrategies: scripts/run_walk_forward_backtest.py
+### MD-286 — UsEquityStrategies: scripts/run_walk_forward_backtest.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3384,7 +3395,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, output_path, timezone.
 - Evidence: [scripts/run_walk_forward_backtest.py:12](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/scripts/run_walk_forward_backtest.py#L12); [scripts/run_walk_forward_backtest.py:419](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/scripts/run_walk_forward_backtest.py#L419).
 
-### MD-286 — UsEquityStrategies: src/us_equity_strategies/backtests/smart_dca_research_cli.py
+### MD-287 — UsEquityStrategies: src/us_equity_strategies/backtests/smart_dca_research_cli.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3395,7 +3406,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [src/us_equity_strategies/backtests/smart_dca_research_cli.py:422](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtests/smart_dca_research_cli.py#L422); [src/us_equity_strategies/backtests/smart_dca_research_cli.py:1899](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtests/smart_dca_research_cli.py#L1899).
 
-### MD-287 — UsEquityStrategies: src/us_equity_strategies/research/batch_a_member_pack.py
+### MD-288 — UsEquityStrategies: src/us_equity_strategies/research/batch_a_member_pack.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3406,7 +3417,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/research/batch_a_member_pack.py:1](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/batch_a_member_pack.py#L1).
 
-### MD-288 — UsEquityStrategies: src/us_equity_strategies/research/soxl_alpaca_input_adapter.py
+### MD-289 — UsEquityStrategies: src/us_equity_strategies/research/soxl_alpaca_input_adapter.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Alpaca (SIP unless this row explicitly says otherwise). Owner Basic/free: recent SIP excluded; require end <= now-16min; IEX recent is a distinct feed.
@@ -3417,7 +3428,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment, as_of, binding_sha256, calendar_id, date_cutoff, feed, price_field, source, timezone.
 - Evidence: [src/us_equity_strategies/research/soxl_alpaca_input_adapter.py:5](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_alpaca_input_adapter.py#L5); [src/us_equity_strategies/research/soxl_alpaca_input_adapter.py:138](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_alpaca_input_adapter.py#L138); [src/us_equity_strategies/research/soxl_alpaca_input_adapter.py:238](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_alpaca_input_adapter.py#L238).
 
-### MD-289 — UsEquityStrategies: docs/research/first_compounding_20260925/boxx_outer_cash_attribution.py
+### MD-290 — UsEquityStrategies: docs/research/first_compounding_20260925/boxx_outer_cash_attribution.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3428,7 +3439,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [docs/research/first_compounding_20260925/boxx_outer_cash_attribution.py:1](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/boxx_outer_cash_attribution.py#L1).
 
-### MD-290 — UsEquityStrategies: docs/research/first_compounding_20260925/boxx_outer_cash_compare.py
+### MD-291 — UsEquityStrategies: docs/research/first_compounding_20260925/boxx_outer_cash_compare.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3439,7 +3450,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source, timezone.
 - Evidence: [docs/research/first_compounding_20260925/boxx_outer_cash_compare.py:10](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/boxx_outer_cash_compare.py#L10); [docs/research/first_compounding_20260925/boxx_outer_cash_compare.py:41](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/boxx_outer_cash_compare.py#L41).
 
-### MD-291 — UsEquityStrategies: docs/research/first_compounding_20260925/phase4_qqqm_tqqq_boxx_compare.py
+### MD-292 — UsEquityStrategies: docs/research/first_compounding_20260925/phase4_qqqm_tqqq_boxx_compare.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3450,7 +3461,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [docs/research/first_compounding_20260925/phase4_qqqm_tqqq_boxx_compare.py:47](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/phase4_qqqm_tqqq_boxx_compare.py#L47); [docs/research/first_compounding_20260925/phase4_qqqm_tqqq_boxx_compare.py:209](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/phase4_qqqm_tqqq_boxx_compare.py#L209).
 
-### MD-292 — UsEquityStrategies: docs/research/first_compounding_20260925/phase5_capital_scale_compare.py
+### MD-293 — UsEquityStrategies: docs/research/first_compounding_20260925/phase5_capital_scale_compare.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3461,7 +3472,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [docs/research/first_compounding_20260925/phase5_capital_scale_compare.py:50](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/phase5_capital_scale_compare.py#L50).
 
-### MD-293 — UsEquityStrategies: docs/research/first_compounding_20260925/phase5_schwab_first_open_contract.py
+### MD-294 — UsEquityStrategies: docs/research/first_compounding_20260925/phase5_schwab_first_open_contract.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3472,7 +3483,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [docs/research/first_compounding_20260925/phase5_schwab_first_open_contract.py:30](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/phase5_schwab_first_open_contract.py#L30).
 
-### MD-294 — UsEquityStrategies: docs/research/first_compounding_20260925/phase5_schwab_first_open_dry_run.py
+### MD-295 — UsEquityStrategies: docs/research/first_compounding_20260925/phase5_schwab_first_open_dry_run.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3483,7 +3494,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [docs/research/first_compounding_20260925/phase5_schwab_first_open_dry_run.py:36](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/phase5_schwab_first_open_dry_run.py#L36).
 
-### MD-295 — UsEquityStrategies: docs/research/first_compounding_20260925/r8_promotion_runner.py
+### MD-296 — UsEquityStrategies: docs/research/first_compounding_20260925/r8_promotion_runner.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3494,7 +3505,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: calendar_id, source, timezone.
 - Evidence: [docs/research/first_compounding_20260925/r8_promotion_runner.py:15](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/r8_promotion_runner.py#L15); [docs/research/first_compounding_20260925/r8_promotion_runner.py:40](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/r8_promotion_runner.py#L40).
 
-### MD-296 — UsEquityStrategies: docs/research/first_compounding_20260925/small_account_demo.py
+### MD-297 — UsEquityStrategies: docs/research/first_compounding_20260925/small_account_demo.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3505,7 +3516,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: calendar_id, source.
 - Evidence: [docs/research/first_compounding_20260925/small_account_demo.py:46](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/small_account_demo.py#L46); [docs/research/first_compounding_20260925/small_account_demo.py:56](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/small_account_demo.py#L56).
 
-### MD-297 — UsEquityStrategies: docs/research/first_compounding_20260925/tqqq_cash_budget_compare.py
+### MD-298 — UsEquityStrategies: docs/research/first_compounding_20260925/tqqq_cash_budget_compare.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3516,7 +3527,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [docs/research/first_compounding_20260925/tqqq_cash_budget_compare.py:4](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/docs/research/first_compounding_20260925/tqqq_cash_budget_compare.py#L4).
 
-### MD-298 — UsEquityStrategies: scripts/run_batch_a_from_gcs.py
+### MD-299 — UsEquityStrategies: scripts/run_batch_a_from_gcs.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3527,7 +3538,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/run_batch_a_from_gcs.py:24](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/scripts/run_batch_a_from_gcs.py#L24).
 
-### MD-299 — UsEquityStrategies: scripts/run_c3_batch_a_existing_member_baseline.py
+### MD-300 — UsEquityStrategies: scripts/run_c3_batch_a_existing_member_baseline.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3538,7 +3549,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/run_c3_batch_a_existing_member_baseline.py:184](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/scripts/run_c3_batch_a_existing_member_baseline.py#L184).
 
-### MD-300 — UsEquityStrategies: src/us_equity_strategies/backtest/combo_simulator.py
+### MD-301 — UsEquityStrategies: src/us_equity_strategies/backtest/combo_simulator.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3549,7 +3560,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/us_equity_strategies/backtest/combo_simulator.py:73](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtest/combo_simulator.py#L73).
 
-### MD-301 — UsEquityStrategies: src/us_equity_strategies/backtest/etf_rotation_simulator.py
+### MD-302 — UsEquityStrategies: src/us_equity_strategies/backtest/etf_rotation_simulator.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3560,7 +3571,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/us_equity_strategies/backtest/etf_rotation_simulator.py:34](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtest/etf_rotation_simulator.py#L34); [src/us_equity_strategies/backtest/etf_rotation_simulator.py:130](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtest/etf_rotation_simulator.py#L130).
 
-### MD-302 — UsEquityStrategies: src/us_equity_strategies/backtest/orchestrator_runner.py
+### MD-303 — UsEquityStrategies: src/us_equity_strategies/backtest/orchestrator_runner.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3571,7 +3582,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: lookback_days, timezone.
 - Evidence: [src/us_equity_strategies/backtest/orchestrator_runner.py:5](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtest/orchestrator_runner.py#L5); [src/us_equity_strategies/backtest/orchestrator_runner.py:75](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtest/orchestrator_runner.py#L75).
 
-### MD-303 — UsEquityStrategies: src/us_equity_strategies/backtest/soxl_trend_simulator.py
+### MD-304 — UsEquityStrategies: src/us_equity_strategies/backtest/soxl_trend_simulator.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3582,7 +3593,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/us_equity_strategies/backtest/soxl_trend_simulator.py:36](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtest/soxl_trend_simulator.py#L36); [src/us_equity_strategies/backtest/soxl_trend_simulator.py:116](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtest/soxl_trend_simulator.py#L116).
 
-### MD-304 — UsEquityStrategies: src/us_equity_strategies/backtest/spy_boxx_monthly_trend_learning.py
+### MD-305 — UsEquityStrategies: src/us_equity_strategies/backtest/spy_boxx_monthly_trend_learning.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3593,7 +3604,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone.
 - Evidence: [src/us_equity_strategies/backtest/spy_boxx_monthly_trend_learning.py:6](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtest/spy_boxx_monthly_trend_learning.py#L6); [src/us_equity_strategies/backtest/spy_boxx_monthly_trend_learning.py:350](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtest/spy_boxx_monthly_trend_learning.py#L350).
 
-### MD-305 — UsEquityStrategies: src/us_equity_strategies/backtests/ibit_smart_dca.py
+### MD-306 — UsEquityStrategies: src/us_equity_strategies/backtests/ibit_smart_dca.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3604,7 +3615,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/us_equity_strategies/backtests/ibit_smart_dca.py:34](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtests/ibit_smart_dca.py#L34); [src/us_equity_strategies/backtests/ibit_smart_dca.py:93](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtests/ibit_smart_dca.py#L93).
 
-### MD-306 — UsEquityStrategies: src/us_equity_strategies/backtests/smart_dca_research.py
+### MD-307 — UsEquityStrategies: src/us_equity_strategies/backtests/smart_dca_research.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3615,7 +3626,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, start_date.
 - Evidence: [src/us_equity_strategies/backtests/smart_dca_research.py:523](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtests/smart_dca_research.py#L523); [src/us_equity_strategies/backtests/smart_dca_research.py:544](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/backtests/smart_dca_research.py#L544).
 
-### MD-307 — UsEquityStrategies: src/us_equity_strategies/research/batch_a_dataset.py
+### MD-308 — UsEquityStrategies: src/us_equity_strategies/research/batch_a_dataset.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3626,7 +3637,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment, as_of, feed, price_field, timezone.
 - Evidence: [src/us_equity_strategies/research/batch_a_dataset.py:29](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/batch_a_dataset.py#L29); [src/us_equity_strategies/research/batch_a_dataset.py:30](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/batch_a_dataset.py#L30); [src/us_equity_strategies/research/batch_a_dataset.py:388](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/batch_a_dataset.py#L388).
 
-### MD-308 — UsEquityStrategies: src/us_equity_strategies/research/c3_batch_a_existing_member_baseline.py
+### MD-309 — UsEquityStrategies: src/us_equity_strategies/research/c3_batch_a_existing_member_baseline.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3637,7 +3648,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone.
 - Evidence: [src/us_equity_strategies/research/c3_batch_a_existing_member_baseline.py:610](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/c3_batch_a_existing_member_baseline.py#L610); [src/us_equity_strategies/research/c3_batch_a_existing_member_baseline.py:631](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/c3_batch_a_existing_member_baseline.py#L631).
 
-### MD-309 — UsEquityStrategies: src/us_equity_strategies/research/execution_model_adapter.py
+### MD-310 — UsEquityStrategies: src/us_equity_strategies/research/execution_model_adapter.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3648,7 +3659,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: feed, price_basis.
 - Evidence: [src/us_equity_strategies/research/execution_model_adapter.py:5](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/execution_model_adapter.py#L5); [src/us_equity_strategies/research/execution_model_adapter.py:39](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/execution_model_adapter.py#L39).
 
-### MD-310 — UsEquityStrategies: src/us_equity_strategies/research/global_etf_absolute_volatility.py
+### MD-311 — UsEquityStrategies: src/us_equity_strategies/research/global_etf_absolute_volatility.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3659,7 +3670,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/research/global_etf_absolute_volatility.py:28](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/global_etf_absolute_volatility.py#L28); [src/us_equity_strategies/research/global_etf_absolute_volatility.py:47](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/global_etf_absolute_volatility.py#L47).
 
-### MD-311 — UsEquityStrategies: src/us_equity_strategies/research/kelly_core_return_generator.py
+### MD-312 — UsEquityStrategies: src/us_equity_strategies/research/kelly_core_return_generator.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3670,7 +3681,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/research/kelly_core_return_generator.py:18](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/kelly_core_return_generator.py#L18); [src/us_equity_strategies/research/kelly_core_return_generator.py:175](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/kelly_core_return_generator.py#L175).
 
-### MD-312 — UsEquityStrategies: src/us_equity_strategies/research/kelly_private_runner.py
+### MD-313 — UsEquityStrategies: src/us_equity_strategies/research/kelly_private_runner.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Alpaca (SIP unless this row explicitly says otherwise). Owner Basic/free: recent SIP excluded; require end <= now-16min; IEX recent is a distinct feed.
@@ -3681,7 +3692,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [src/us_equity_strategies/research/kelly_private_runner.py:70](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/kelly_private_runner.py#L70); [src/us_equity_strategies/research/kelly_private_runner.py:131](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/kelly_private_runner.py#L131); [src/us_equity_strategies/research/kelly_private_runner.py:171](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/kelly_private_runner.py#L171).
 
-### MD-313 — UsEquityStrategies: src/us_equity_strategies/research/local_member_replay_input.py
+### MD-314 — UsEquityStrategies: src/us_equity_strategies/research/local_member_replay_input.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3692,7 +3703,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: calendar_id, source.
 - Evidence: [src/us_equity_strategies/research/local_member_replay_input.py:65](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/local_member_replay_input.py#L65).
 
-### MD-314 — UsEquityStrategies: src/us_equity_strategies/research/optimized_member_identity.py
+### MD-315 — UsEquityStrategies: src/us_equity_strategies/research/optimized_member_identity.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3703,7 +3714,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment, calendar_id.
 - Evidence: [src/us_equity_strategies/research/optimized_member_identity.py:78](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/optimized_member_identity.py#L78); [src/us_equity_strategies/research/optimized_member_identity.py:88](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/optimized_member_identity.py#L88); [src/us_equity_strategies/research/optimized_member_identity.py:466](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/optimized_member_identity.py#L466).
 
-### MD-315 — UsEquityStrategies: src/us_equity_strategies/research/optimized_strategy_replay.py
+### MD-316 — UsEquityStrategies: src/us_equity_strategies/research/optimized_strategy_replay.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3714,7 +3725,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: calendar_id, end_date, source, start_date, timezone.
 - Evidence: [src/us_equity_strategies/research/optimized_strategy_replay.py:172](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/optimized_strategy_replay.py#L172); [src/us_equity_strategies/research/optimized_strategy_replay.py:1073](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/optimized_strategy_replay.py#L1073).
 
-### MD-316 — UsEquityStrategies: src/us_equity_strategies/research/portfolio_candidate_adapter.py
+### MD-317 — UsEquityStrategies: src/us_equity_strategies/research/portfolio_candidate_adapter.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3725,7 +3736,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/research/portfolio_candidate_adapter.py:108](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/portfolio_candidate_adapter.py#L108).
 
-### MD-317 — UsEquityStrategies: src/us_equity_strategies/research/r3_joint_evidence.py
+### MD-318 — UsEquityStrategies: src/us_equity_strategies/research/r3_joint_evidence.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -3736,7 +3747,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: price_field.
 - Evidence: [src/us_equity_strategies/research/r3_joint_evidence.py:1326](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/r3_joint_evidence.py#L1326); [src/us_equity_strategies/research/r3_joint_evidence.py:1418](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/r3_joint_evidence.py#L1418).
 
-### MD-318 — UsEquityStrategies: src/us_equity_strategies/research/rs04_b3.py
+### MD-319 — UsEquityStrategies: src/us_equity_strategies/research/rs04_b3.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3747,7 +3758,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment.
 - Evidence: [src/us_equity_strategies/research/rs04_b3.py:3](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/rs04_b3.py#L3); [src/us_equity_strategies/research/rs04_b3.py:4](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/rs04_b3.py#L4).
 
-### MD-319 — UsEquityStrategies: src/us_equity_strategies/research/rs04_b3_live.py
+### MD-320 — UsEquityStrategies: src/us_equity_strategies/research/rs04_b3_live.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3758,7 +3769,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [src/us_equity_strategies/research/rs04_b3_live.py:103](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/rs04_b3_live.py#L103).
 
-### MD-320 — UsEquityStrategies: src/us_equity_strategies/research/rs04_b3_runner.py
+### MD-321 — UsEquityStrategies: src/us_equity_strategies/research/rs04_b3_runner.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3769,7 +3780,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/research/rs04_b3_runner.py:4](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/rs04_b3_runner.py#L4); [src/us_equity_strategies/research/rs04_b3_runner.py:349](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/rs04_b3_runner.py#L349).
 
-### MD-321 — UsEquityStrategies: src/us_equity_strategies/research/soxl_core_optimization.py
+### MD-322 — UsEquityStrategies: src/us_equity_strategies/research/soxl_core_optimization.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3780,7 +3791,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, calendar_id, source.
 - Evidence: [src/us_equity_strategies/research/soxl_core_optimization.py:167](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_core_optimization.py#L167); [src/us_equity_strategies/research/soxl_core_optimization.py:343](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_core_optimization.py#L343).
 
-### MD-322 — UsEquityStrategies: src/us_equity_strategies/research/soxl_manual_learning.py
+### MD-323 — UsEquityStrategies: src/us_equity_strategies/research/soxl_manual_learning.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3791,7 +3802,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, source, start_date, timezone.
 - Evidence: [src/us_equity_strategies/research/soxl_manual_learning.py:16](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_manual_learning.py#L16); [src/us_equity_strategies/research/soxl_manual_learning.py:780](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_manual_learning.py#L780).
 
-### MD-323 — UsEquityStrategies: src/us_equity_strategies/research/soxl_soxx_offline_input_contract.py
+### MD-324 — UsEquityStrategies: src/us_equity_strategies/research/soxl_soxx_offline_input_contract.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -3802,7 +3813,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, price_field.
 - Evidence: [src/us_equity_strategies/research/soxl_soxx_offline_input_contract.py:111](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_soxx_offline_input_contract.py#L111); [src/us_equity_strategies/research/soxl_soxx_offline_input_contract.py:129](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_soxx_offline_input_contract.py#L129).
 
-### MD-324 — UsEquityStrategies: src/us_equity_strategies/research/soxl_soxx_typed_baseline_result.py
+### MD-325 — UsEquityStrategies: src/us_equity_strategies/research/soxl_soxx_typed_baseline_result.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3813,7 +3824,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [src/us_equity_strategies/research/soxl_soxx_typed_baseline_result.py:13](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_soxx_typed_baseline_result.py#L13).
 
-### MD-325 — UsEquityStrategies: src/us_equity_strategies/research/soxl_v7_derisk.py
+### MD-326 — UsEquityStrategies: src/us_equity_strategies/research/soxl_v7_derisk.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3824,7 +3835,18 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/research/soxl_v7_derisk.py:127](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_v7_derisk.py#L127).
 
-### MD-326 — UsEquityStrategies: src/us_equity_strategies/research/soxl_v7_derisk_study.py
+### MD-327 — UsEquityStrategies: src/us_equity_strategies/research/soxl_v7_derisk_history.py
+
+- Role: synthetic history transformation. Proposed migration wave **2**. Medium/high: preserve model calibration, termination, real/synthetic labels and independent real-only result; no fabricated OHLC.
+- Provider / plan: Injected real underlying/real product history + versioned synthetic model. Underlying/rate/action source rights inherited; synthetic output is not observed product history.
+- Price basis: Close-return model with source_type synthetic_history / synthetic_bridge / real; underlying basis must remain explicit. Adjustment: Daily leverage, actual-day fee/financing terms, calibration and termination/splice logic.
+- Time / session / calendar: Inherited/undeclared at this boundary; Inherited; no local completed-session proof established; Inherited/undeclared; not inferred from weekday dates.
+- Corporate actions: Required calendar/corporate-action/index-regime inputs in model manifest.
+- Cache/storage: Caller-supplied input/in-memory result; no private location inspected.
+- Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
+- Evidence: [src/us_equity_strategies/research/soxl_v7_derisk_history.py:4](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_v7_derisk_history.py#L4); [src/us_equity_strategies/research/soxl_v7_derisk_history.py:90](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_v7_derisk_history.py#L90).
+
+### MD-328 — UsEquityStrategies: src/us_equity_strategies/research/soxl_v7_derisk_study.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3835,7 +3857,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/research/soxl_v7_derisk_study.py:157](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/soxl_v7_derisk_study.py#L157).
 
-### MD-327 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_core_optimization.py
+### MD-329 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_core_optimization.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3846,7 +3868,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, calendar_id, source, timezone.
 - Evidence: [src/us_equity_strategies/research/tqqq_core_optimization.py:22](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/tqqq_core_optimization.py#L22); [src/us_equity_strategies/research/tqqq_core_optimization.py:410](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/tqqq_core_optimization.py#L410).
 
-### MD-328 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_offline_input_contract.py
+### MD-330 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_offline_input_contract.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Yahoo Finance chart / yfinance (or injected CSV). Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -3857,7 +3879,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, price_field.
 - Evidence: [src/us_equity_strategies/research/tqqq_offline_input_contract.py:84](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/tqqq_offline_input_contract.py#L84).
 
-### MD-329 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_plugin_release_retention.py
+### MD-331 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_plugin_release_retention.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3868,7 +3890,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/research/tqqq_plugin_release_retention.py:173](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/tqqq_plugin_release_retention.py#L173).
 
-### MD-330 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_qqq_guard_cash_research.py
+### MD-332 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_qqq_guard_cash_research.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3879,7 +3901,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, calendar_id, timezone.
 - Evidence: [src/us_equity_strategies/research/tqqq_qqq_guard_cash_research.py:15](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/tqqq_qqq_guard_cash_research.py#L15); [src/us_equity_strategies/research/tqqq_qqq_guard_cash_research.py:73](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/tqqq_qqq_guard_cash_research.py#L73); [src/us_equity_strategies/research/tqqq_qqq_guard_cash_research.py:366](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/tqqq_qqq_guard_cash_research.py#L366).
 
-### MD-331 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_typed_baseline_result.py
+### MD-333 — UsEquityStrategies: src/us_equity_strategies/research/tqqq_typed_baseline_result.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3890,7 +3912,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [src/us_equity_strategies/research/tqqq_typed_baseline_result.py:14](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/research/tqqq_typed_baseline_result.py#L14).
 
-### MD-332 — UsEquityStrategies: src/us_equity_strategies/strategies/global_etf_rotation.py
+### MD-334 — UsEquityStrategies: src/us_equity_strategies/strategies/global_etf_rotation.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3901,7 +3923,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: end_date, start_date, timezone.
 - Evidence: [src/us_equity_strategies/strategies/global_etf_rotation.py:46](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/global_etf_rotation.py#L46).
 
-### MD-333 — UsEquityStrategies: src/us_equity_strategies/strategies/ibit_smart_dca.py
+### MD-335 — UsEquityStrategies: src/us_equity_strategies/strategies/ibit_smart_dca.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3912,7 +3934,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of.
 - Evidence: [src/us_equity_strategies/strategies/ibit_smart_dca.py:489](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/ibit_smart_dca.py#L489); [src/us_equity_strategies/strategies/ibit_smart_dca.py:749](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/ibit_smart_dca.py#L749).
 
-### MD-334 — UsEquityStrategies: src/us_equity_strategies/strategies/mega_cap_leader_rotation.py
+### MD-336 — UsEquityStrategies: src/us_equity_strategies/strategies/mega_cap_leader_rotation.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3923,7 +3945,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, start_date.
 - Evidence: [src/us_equity_strategies/strategies/mega_cap_leader_rotation.py:175](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/mega_cap_leader_rotation.py#L175); [src/us_equity_strategies/strategies/mega_cap_leader_rotation.py:802](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/mega_cap_leader_rotation.py#L802).
 
-### MD-335 — UsEquityStrategies: src/us_equity_strategies/strategies/nasdaq_sp500_smart_dca.py
+### MD-337 — UsEquityStrategies: src/us_equity_strategies/strategies/nasdaq_sp500_smart_dca.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3934,7 +3956,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/strategies/nasdaq_sp500_smart_dca.py:116](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/nasdaq_sp500_smart_dca.py#L116); [src/us_equity_strategies/strategies/nasdaq_sp500_smart_dca.py:236](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/nasdaq_sp500_smart_dca.py#L236).
 
-### MD-336 — UsEquityStrategies: src/us_equity_strategies/strategies/qqq_tech_enhancement.py
+### MD-338 — UsEquityStrategies: src/us_equity_strategies/strategies/qqq_tech_enhancement.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3945,7 +3967,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, start_date.
 - Evidence: [src/us_equity_strategies/strategies/qqq_tech_enhancement.py:139](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/qqq_tech_enhancement.py#L139); [src/us_equity_strategies/strategies/qqq_tech_enhancement.py:600](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/qqq_tech_enhancement.py#L600).
 
-### MD-337 — UsEquityStrategies: src/us_equity_strategies/strategies/soxl_soxx_trend_income.py
+### MD-339 — UsEquityStrategies: src/us_equity_strategies/strategies/soxl_soxx_trend_income.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3956,7 +3978,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/strategies/soxl_soxx_trend_income.py:516](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/soxl_soxx_trend_income.py#L516).
 
-### MD-338 — UsEquityStrategies: src/us_equity_strategies/strategies/tecl_xlk_trend_income.py
+### MD-340 — UsEquityStrategies: src/us_equity_strategies/strategies/tecl_xlk_trend_income.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3967,7 +3989,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/strategies/tecl_xlk_trend_income.py:510](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/tecl_xlk_trend_income.py#L510).
 
-### MD-339 — UsEquityStrategies: src/us_equity_strategies/strategies/tqqq_dual_drive_core.py
+### MD-341 — UsEquityStrategies: src/us_equity_strategies/strategies/tqqq_dual_drive_core.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3978,7 +4000,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/strategies/tqqq_dual_drive_core.py:11](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/tqqq_dual_drive_core.py#L11).
 
-### MD-340 — UsEquityStrategies: src/us_equity_strategies/strategies/tqqq_growth_income.py
+### MD-342 — UsEquityStrategies: src/us_equity_strategies/strategies/tqqq_growth_income.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -3989,7 +4011,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/strategies/tqqq_growth_income.py:398](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/tqqq_growth_income.py#L398).
 
-### MD-341 — UsEquityStrategies: src/us_equity_strategies/strategies/us_equity_combo_core.py
+### MD-343 — UsEquityStrategies: src/us_equity_strategies/strategies/us_equity_combo_core.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -4000,7 +4022,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/strategies/us_equity_combo_core.py:205](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/us_equity_combo_core.py#L205).
 
-### MD-342 — UsEquityStrategies: src/us_equity_strategies/strategies/us_equity_combo_leveraged.py
+### MD-344 — UsEquityStrategies: src/us_equity_strategies/strategies/us_equity_combo_leveraged.py
 
 - Role: series/feature consumer. Proposed migration wave **2**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -4011,7 +4033,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [src/us_equity_strategies/strategies/us_equity_combo_leveraged.py:158](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/76e04b18180f21f7e04bd1f6e116a3206e2c30fc/src/us_equity_strategies/strategies/us_equity_combo_leveraged.py#L158).
 
-### MD-343 — QuantRuntimeSettings: scripts/market_benchmark_revision_policy.mjs
+### MD-345 — QuantRuntimeSettings: scripts/market_benchmark_revision_policy.mjs
 
 - Role: benchmark/FX display or publication boundary. Proposed migration wave **3**. Medium: preserve benchmark/FX identity, as-of interval, revision/409 protection and missing data.
 - Provider / plan: Stored benchmark projections / configured FX inputs; Yahoo publisher is the current index source. Inherited source entitlement/retention; no account/subscription query.
@@ -4022,7 +4044,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [scripts/market_benchmark_revision_policy.mjs:114](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/scripts/market_benchmark_revision_policy.mjs#L114).
 
-### MD-344 — QuantRuntimeSettings: scripts/sync_market_benchmark_closes.mjs
+### MD-346 — QuantRuntimeSettings: scripts/sync_market_benchmark_closes.mjs
 
 - Role: benchmark/FX display or publication boundary. Proposed migration wave **3**. Medium: preserve benchmark/FX identity, as-of interval, revision/409 protection and missing data.
 - Provider / plan: Stored benchmark projections / configured FX inputs; Yahoo publisher is the current index source. Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -4033,7 +4055,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): MARKET_BENCHMARK_APPLY_REVISION, MARKET_BENCHMARK_DRY_RUN, MARKET_BENCHMARK_RANGE, MARKET_BENCHMARK_REVISION_PAYLOAD_JSON, MARKET_BENCHMARK_REVISION_TOKEN, MARKET_BENCHMARK_SYNC_TOKEN, MARKET_BENCHMARK_SYNC_URL; data parameters/schema fields: source.
 - Evidence: [scripts/sync_market_benchmark_closes.mjs:47](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/scripts/sync_market_benchmark_closes.mjs#L47); [scripts/sync_market_benchmark_closes.mjs:72](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/scripts/sync_market_benchmark_closes.mjs#L72).
 
-### MD-345 — QuantRuntimeSettings: web/strategy-switch-console/frontend/src/OverviewPage.tsx
+### MD-347 — QuantRuntimeSettings: web/strategy-switch-console/frontend/src/OverviewPage.tsx
 
 - Role: benchmark/FX display or publication boundary. Proposed migration wave **3**. Medium: preserve benchmark/FX identity, as-of interval, revision/409 protection and missing data.
 - Provider / plan: Stored benchmark projections / configured FX inputs; Yahoo publisher is the current index source. Inherited source entitlement/retention; no account/subscription query.
@@ -4044,7 +4066,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [web/strategy-switch-console/frontend/src/OverviewPage.tsx:39](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/frontend/src/OverviewPage.tsx#L39).
 
-### MD-346 — QuantRuntimeSettings: web/strategy-switch-console/frontend/src/marketBenchmark.ts
+### MD-348 — QuantRuntimeSettings: web/strategy-switch-console/frontend/src/marketBenchmark.ts
 
 - Role: benchmark/FX display or publication boundary. Proposed migration wave **3**. Medium: preserve benchmark/FX identity, as-of interval, revision/409 protection and missing data.
 - Provider / plan: Stored benchmark projections / configured FX inputs; Yahoo publisher is the current index source. Inherited source entitlement/retention; no account/subscription query.
@@ -4055,7 +4077,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone.
 - Evidence: [web/strategy-switch-console/frontend/src/marketBenchmark.ts:8](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/frontend/src/marketBenchmark.ts#L8); [web/strategy-switch-console/frontend/src/marketBenchmark.ts:15](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/frontend/src/marketBenchmark.ts#L15).
 
-### MD-347 — QuantRuntimeSettings: web/strategy-switch-console/frontend/src/presentation.ts
+### MD-349 — QuantRuntimeSettings: web/strategy-switch-console/frontend/src/presentation.ts
 
 - Role: benchmark/FX display or publication boundary. Proposed migration wave **3**. Medium: preserve benchmark/FX identity, as-of interval, revision/409 protection and missing data.
 - Provider / plan: Stored benchmark projections / configured FX inputs; Yahoo publisher is the current index source. Inherited source entitlement/retention; no account/subscription query.
@@ -4066,7 +4088,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: feed, source, timezone.
 - Evidence: [web/strategy-switch-console/frontend/src/presentation.ts:303](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/frontend/src/presentation.ts#L303); [web/strategy-switch-console/frontend/src/presentation.ts:498](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/frontend/src/presentation.ts#L498).
 
-### MD-348 — QuantRuntimeSettings: web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark.js
+### MD-350 — QuantRuntimeSettings: web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark.js
 
 - Role: benchmark/FX display or publication boundary. Proposed migration wave **3**. Medium: preserve benchmark/FX identity, as-of interval, revision/409 protection and missing data.
 - Provider / plan: Stored benchmark projections / configured FX inputs; Yahoo publisher is the current index source. Public/personal research access; no entitlement/SLA or redistribution rights verified.
@@ -4077,7 +4099,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone.
 - Evidence: [web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark.js:2](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark.js#L2); [web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark.js:157](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark.js#L157).
 
-### MD-349 — QuantRuntimeSettings: web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark_revision.js
+### MD-351 — QuantRuntimeSettings: web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark_revision.js
 
 - Role: benchmark/FX display or publication boundary. Proposed migration wave **3**. Medium: preserve benchmark/FX identity, as-of interval, revision/409 protection and missing data.
 - Provider / plan: Stored benchmark projections / configured FX inputs; Yahoo publisher is the current index source. Inherited source entitlement/retention; no account/subscription query.
@@ -4088,7 +4110,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source.
 - Evidence: [web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark_revision.js:101](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark_revision.js#L101).
 
-### MD-350 — QuantRuntimeSettings: web/strategy-switch-console/worker.js
+### MD-352 — QuantRuntimeSettings: web/strategy-switch-console/worker.js
 
 - Role: benchmark/FX display or publication boundary. Proposed migration wave **3**. Medium: preserve benchmark/FX identity, as-of interval, revision/409 protection and missing data.
 - Provider / plan: Stored benchmark projections / configured FX inputs; Yahoo publisher is the current index source. Inherited source entitlement/retention; no account/subscription query.
@@ -4099,7 +4121,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: binding_sha256, source, timezone.
 - Evidence: [web/strategy-switch-console/worker.js:72](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/worker.js#L72); [web/strategy-switch-console/worker.js:310](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/850723f254dd0d2f0af7875b65b0f90de3b9c921/web/strategy-switch-console/worker.js#L310).
 
-### MD-351 — QmtPlatform: application/qmt_client.py
+### MD-353 — QmtPlatform: application/qmt_client.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **4**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected market-history CSV (no QMT market-data download implemented at this boundary). Inherited source entitlement/retention; no account/subscription query.
@@ -4110,7 +4132,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone; caller resolver runtime_config_support.py:44 exposes QMT_MARKET_HISTORY_PATH.
 - Evidence: [application/qmt_client.py:6](https://github.com/QuantStrategyLab/QmtPlatform/blob/31d23526bbb5b73f5f140e692640e227ec57f219/application/qmt_client.py#L6); [application/qmt_client.py:36](https://github.com/QuantStrategyLab/QmtPlatform/blob/31d23526bbb5b73f5f140e692640e227ec57f219/application/qmt_client.py#L36).
 
-### MD-352 — QmtPlatform: runtime_preflight.py
+### MD-354 — QmtPlatform: runtime_preflight.py
 
 - Role: series/feature consumer. Proposed migration wave **4**. Medium: retain upstream basis, availability and immutable binding; compare affected decisions/results.
 - Provider / plan: Injected market-history CSV (no QMT market-data download implemented at this boundary). Inherited source entitlement/retention; no account/subscription query.
@@ -4121,7 +4143,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone; caller resolver runtime_config_support.py:44 exposes QMT_MARKET_HISTORY_PATH.
 - Evidence: [runtime_preflight.py:7](https://github.com/QuantStrategyLab/QmtPlatform/blob/31d23526bbb5b73f5f140e692640e227ec57f219/runtime_preflight.py#L7); [runtime_preflight.py:173](https://github.com/QuantStrategyLab/QmtPlatform/blob/31d23526bbb5b73f5f140e692640e227ec57f219/runtime_preflight.py#L173).
 
-### MD-353 — BinancePlatform: application/cycle_service.py
+### MD-355 — BinancePlatform: application/cycle_service.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4132,7 +4154,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone.
 - Evidence: [application/cycle_service.py:8](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/application/cycle_service.py#L8); [application/cycle_service.py:150](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/application/cycle_service.py#L150).
 
-### MD-354 — BinancePlatform: application/execution_service.py
+### MD-356 — BinancePlatform: application/execution_service.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4143,7 +4165,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [application/execution_service.py:25](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/application/execution_service.py#L25).
 
-### MD-355 — BinancePlatform: application/portfolio_service.py
+### MD-357 — BinancePlatform: application/portfolio_service.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4154,7 +4176,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone.
 - Evidence: [application/portfolio_service.py:6](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/application/portfolio_service.py#L6); [application/portfolio_service.py:41](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/application/portfolio_service.py#L41).
 
-### MD-356 — BinancePlatform: infra/binance_runtime.py
+### MD-358 — BinancePlatform: infra/binance_runtime.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4165,7 +4187,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [infra/binance_runtime.py:12](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/infra/binance_runtime.py#L12).
 
-### MD-357 — BinancePlatform: main.py
+### MD-359 — BinancePlatform: main.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4176,7 +4198,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: lookback_days, output_path.
 - Evidence: [main.py:396](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/main.py#L396).
 
-### MD-358 — BinancePlatform: market_snapshot_support.py
+### MD-360 — BinancePlatform: market_snapshot_support.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4187,7 +4209,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone.
 - Evidence: [market_snapshot_support.py:26](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/market_snapshot_support.py#L26); [market_snapshot_support.py:46](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/market_snapshot_support.py#L46).
 
-### MD-359 — BinancePlatform: reporting/status_reports.py
+### MD-361 — BinancePlatform: reporting/status_reports.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4198,7 +4220,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [reporting/status_reports.py:38](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/reporting/status_reports.py#L38).
 
-### MD-360 — BinancePlatform: runtime_support.py
+### MD-362 — BinancePlatform: runtime_support.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4209,7 +4231,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone.
 - Evidence: [runtime_support.py:11](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/runtime_support.py#L11); [runtime_support.py:798](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/runtime_support.py#L798).
 
-### MD-361 — BinancePlatform: scripts/validate_runtime_startup.py
+### MD-363 — BinancePlatform: scripts/validate_runtime_startup.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4220,7 +4242,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract.
 - Evidence: [scripts/validate_runtime_startup.py:258](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/scripts/validate_runtime_startup.py#L258).
 
-### MD-362 — BinancePlatform: strategy_runtime.py
+### MD-364 — BinancePlatform: strategy_runtime.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Binance spot / supplied Binance history. Public endpoint limits/venue access; no entitlement/account query.
@@ -4231,7 +4253,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone.
 - Evidence: [strategy_runtime.py:6](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/strategy_runtime.py#L6); [strategy_runtime.py:164](https://github.com/QuantStrategyLab/BinancePlatform/blob/76937ed06de1c6e5a76e807892f8bca4030ab4d1/strategy_runtime.py#L164).
 
-### MD-363 — CharlesSchwabPlatform: application/runtime_broker_adapters.py
+### MD-365 — CharlesSchwabPlatform: application/runtime_broker_adapters.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Schwab history/quotes via injected broker adapter. Authorized API/account data entitlement not inspected.
@@ -4242,7 +4264,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: adjustment, as_of, price_basis, source, timezone; caller resolver runtime_config_support.py:282 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MODE, SCHWAB_FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_CACHE_DIR, SCHWAB_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, SCHWAB_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_FALLBACK_MODE, SCHWAB_MARKET_SIGNAL_HANDOFF_INDEX_URI, SCHWAB_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, SCHWAB_MARKET_SIGNAL_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_REQUIRED.
 - Evidence: [application/runtime_broker_adapters.py:8](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/runtime_broker_adapters.py#L8); [application/runtime_broker_adapters.py:25](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/runtime_broker_adapters.py#L25); [application/runtime_broker_adapters.py:27](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/runtime_broker_adapters.py#L27).
 
-### MD-364 — CharlesSchwabPlatform: application/runtime_strategy_adapters.py
+### MD-366 — CharlesSchwabPlatform: application/runtime_strategy_adapters.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Schwab history/quotes via injected broker adapter. Authorized API/account data entitlement not inspected.
@@ -4253,7 +4275,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract; caller resolver runtime_config_support.py:282 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MODE, SCHWAB_FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_CACHE_DIR, SCHWAB_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, SCHWAB_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_FALLBACK_MODE, SCHWAB_MARKET_SIGNAL_HANDOFF_INDEX_URI, SCHWAB_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, SCHWAB_MARKET_SIGNAL_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_REQUIRED.
 - Evidence: [application/runtime_strategy_adapters.py:121](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/runtime_strategy_adapters.py#L121).
 
-### MD-365 — CharlesSchwabPlatform: application/daily_loss_fact_producer.py
+### MD-367 — CharlesSchwabPlatform: application/daily_loss_fact_producer.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Schwab history/quotes via injected broker adapter. Authorized API/account data entitlement not inspected.
@@ -4264,7 +4286,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, end_date, start_date; caller resolver runtime_config_support.py:282 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MODE, SCHWAB_FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_CACHE_DIR, SCHWAB_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, SCHWAB_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_FALLBACK_MODE, SCHWAB_MARKET_SIGNAL_HANDOFF_INDEX_URI, SCHWAB_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, SCHWAB_MARKET_SIGNAL_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_REQUIRED.
 - Evidence: [application/daily_loss_fact_producer.py:197](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/daily_loss_fact_producer.py#L197).
 
-### MD-366 — CharlesSchwabPlatform: application/execution_service.py
+### MD-368 — CharlesSchwabPlatform: application/execution_service.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Schwab history/quotes via injected broker adapter. Authorized API/account data entitlement not inspected.
@@ -4275,7 +4297,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract; caller resolver runtime_config_support.py:282 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MODE, SCHWAB_FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_CACHE_DIR, SCHWAB_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, SCHWAB_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_FALLBACK_MODE, SCHWAB_MARKET_SIGNAL_HANDOFF_INDEX_URI, SCHWAB_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, SCHWAB_MARKET_SIGNAL_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_REQUIRED.
 - Evidence: [application/execution_service.py:28](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/execution_service.py#L28).
 
-### MD-367 — CharlesSchwabPlatform: application/rebalance_service.py
+### MD-369 — CharlesSchwabPlatform: application/rebalance_service.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Schwab history/quotes via injected broker adapter. Authorized API/account data entitlement not inspected.
@@ -4286,7 +4308,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone; caller resolver runtime_config_support.py:282 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MODE, SCHWAB_FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_CACHE_DIR, SCHWAB_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, SCHWAB_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_FALLBACK_MODE, SCHWAB_MARKET_SIGNAL_HANDOFF_INDEX_URI, SCHWAB_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, SCHWAB_MARKET_SIGNAL_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_REQUIRED.
 - Evidence: [application/rebalance_service.py:9](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/rebalance_service.py#L9); [application/rebalance_service.py:471](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/rebalance_service.py#L471).
 
-### MD-368 — CharlesSchwabPlatform: application/signal_provenance.py
+### MD-370 — CharlesSchwabPlatform: application/signal_provenance.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Schwab history/quotes via injected broker adapter. Authorized API/account data entitlement not inspected.
@@ -4297,7 +4319,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: price_basis, source, timezone; caller resolver runtime_config_support.py:282 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MODE, SCHWAB_FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_CACHE_DIR, SCHWAB_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, SCHWAB_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_FALLBACK_MODE, SCHWAB_MARKET_SIGNAL_HANDOFF_INDEX_URI, SCHWAB_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, SCHWAB_MARKET_SIGNAL_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_REQUIRED.
 - Evidence: [application/signal_provenance.py:13](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/signal_provenance.py#L13); [application/signal_provenance.py:20](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/application/signal_provenance.py#L20).
 
-### MD-369 — CharlesSchwabPlatform: entrypoints/cloud_run.py
+### MD-371 — CharlesSchwabPlatform: entrypoints/cloud_run.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Schwab history/quotes via injected broker adapter. Authorized API/account data entitlement not inspected.
@@ -4308,7 +4330,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: end_date, start_date, timezone; caller resolver runtime_config_support.py:282 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MODE, SCHWAB_FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_CACHE_DIR, SCHWAB_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, SCHWAB_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_FALLBACK_MODE, SCHWAB_MARKET_SIGNAL_HANDOFF_INDEX_URI, SCHWAB_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, SCHWAB_MARKET_SIGNAL_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_REQUIRED.
 - Evidence: [entrypoints/cloud_run.py:7](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/entrypoints/cloud_run.py#L7).
 
-### MD-370 — CharlesSchwabPlatform: main.py
+### MD-372 — CharlesSchwabPlatform: main.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Schwab history/quotes via injected broker adapter. Authorized API/account data entitlement not inspected.
@@ -4319,7 +4341,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract; caller resolver runtime_config_support.py:282 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, SCHWAB_FEATURE_SNAPSHOT_FALLBACK_MODE, SCHWAB_FEATURE_SNAPSHOT_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_CACHE_DIR, SCHWAB_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, SCHWAB_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_FALLBACK_MODE, SCHWAB_MARKET_SIGNAL_HANDOFF_INDEX_URI, SCHWAB_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, SCHWAB_MARKET_SIGNAL_MAX_STALE_DAYS, SCHWAB_MARKET_SIGNAL_REQUIRED.
 - Evidence: [main.py:54](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/main.py#L54); [main.py:752](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/blob/f0b84329b6c8de8b10dd38eaa7fda93d310daf85/main.py#L752).
 
-### MD-371 — FirstradePlatform: application/rebalance_service.py
+### MD-373 — FirstradePlatform: application/rebalance_service.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Firstrade OHLC and quote API through existing client. Authorized account/session access not inspected.
@@ -4330,7 +4352,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone; caller resolver runtime_config_support.py:254 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, FIRSTRADE_DEBUG_POSITION_SNAPSHOT, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_MODE, FIRSTRADE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_CACHE_DIR, FIRSTRADE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, FIRSTRADE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_FALLBACK_MODE, FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI, FIRSTRADE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, FIRSTRADE_MARKET_SIGNAL_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_REQUIRED.
 - Evidence: [application/rebalance_service.py:14](https://github.com/QuantStrategyLab/FirstradePlatform/blob/537ab80bb76dfc6b29591a5951152b905ffbf813/application/rebalance_service.py#L14); [application/rebalance_service.py:127](https://github.com/QuantStrategyLab/FirstradePlatform/blob/537ab80bb76dfc6b29591a5951152b905ffbf813/application/rebalance_service.py#L127).
 
-### MD-372 — FirstradePlatform: application/runtime_broker_adapters.py
+### MD-374 — FirstradePlatform: application/runtime_broker_adapters.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Firstrade OHLC and quote API through existing client. Authorized account/session access not inspected.
@@ -4341,7 +4363,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone; caller resolver runtime_config_support.py:254 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, FIRSTRADE_DEBUG_POSITION_SNAPSHOT, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_MODE, FIRSTRADE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_CACHE_DIR, FIRSTRADE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, FIRSTRADE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_FALLBACK_MODE, FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI, FIRSTRADE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, FIRSTRADE_MARKET_SIGNAL_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_REQUIRED.
 - Evidence: [application/runtime_broker_adapters.py:7](https://github.com/QuantStrategyLab/FirstradePlatform/blob/537ab80bb76dfc6b29591a5951152b905ffbf813/application/runtime_broker_adapters.py#L7); [application/runtime_broker_adapters.py:180](https://github.com/QuantStrategyLab/FirstradePlatform/blob/537ab80bb76dfc6b29591a5951152b905ffbf813/application/runtime_broker_adapters.py#L180).
 
-### MD-373 — FirstradePlatform: application/execution_service.py
+### MD-375 — FirstradePlatform: application/execution_service.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Firstrade OHLC and quote API through existing client. Authorized account/session access not inspected.
@@ -4352,7 +4374,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract; caller resolver runtime_config_support.py:254 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, FIRSTRADE_DEBUG_POSITION_SNAPSHOT, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_MODE, FIRSTRADE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_CACHE_DIR, FIRSTRADE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, FIRSTRADE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_FALLBACK_MODE, FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI, FIRSTRADE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, FIRSTRADE_MARKET_SIGNAL_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_REQUIRED.
 - Evidence: [application/execution_service.py:28](https://github.com/QuantStrategyLab/FirstradePlatform/blob/537ab80bb76dfc6b29591a5951152b905ffbf813/application/execution_service.py#L28).
 
-### MD-374 — FirstradePlatform: entrypoints/cloud_run.py
+### MD-376 — FirstradePlatform: entrypoints/cloud_run.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Firstrade OHLC and quote API through existing client. Authorized account/session access not inspected.
@@ -4363,7 +4385,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: end_date, start_date, timezone; caller resolver runtime_config_support.py:254 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, FIRSTRADE_DEBUG_POSITION_SNAPSHOT, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FIRSTRADE_FEATURE_SNAPSHOT_FALLBACK_MODE, FIRSTRADE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_CACHE_DIR, FIRSTRADE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, FIRSTRADE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_FALLBACK_MODE, FIRSTRADE_MARKET_SIGNAL_HANDOFF_INDEX_URI, FIRSTRADE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, FIRSTRADE_MARKET_SIGNAL_MAX_STALE_DAYS, FIRSTRADE_MARKET_SIGNAL_REQUIRED.
 - Evidence: [entrypoints/cloud_run.py:7](https://github.com/QuantStrategyLab/FirstradePlatform/blob/537ab80bb76dfc6b29591a5951152b905ffbf813/entrypoints/cloud_run.py#L7).
 
-### MD-375 — InteractiveBrokersPlatform: strategy_runtime.py
+### MD-377 — InteractiveBrokersPlatform: strategy_runtime.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: IBKR TRADES for signals; yfinance history fallback/probe. Inherited source entitlement/retention; no account/subscription query.
@@ -4374,7 +4396,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, bar_size, duration, market_calendar; caller resolver runtime_config_support.py:381 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, IBKR_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_MODE, IBKR_FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_MARKET, IBKR_MARKET_CALENDAR, IBKR_MARKET_CURRENCY, IBKR_MARKET_DATA_SYMBOL_SUFFIX, IBKR_MARKET_EXCHANGE, IBKR_MARKET_SIGNAL_CACHE_DIR, IBKR_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, IBKR_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_FALLBACK_MODE, IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI, IBKR_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, IBKR_MARKET_SIGNAL_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_REQUIRED, IBKR_MARKET_TIMEZONE.
 - Evidence: [strategy_runtime.py:12](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/strategy_runtime.py#L12); [strategy_runtime.py:304](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/strategy_runtime.py#L304).
 
-### MD-376 — InteractiveBrokersPlatform: application/execution_service.py
+### MD-378 — InteractiveBrokersPlatform: application/execution_service.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -4385,7 +4407,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: timezone; caller resolver runtime_config_support.py:381 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, IBKR_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_MODE, IBKR_FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_MARKET, IBKR_MARKET_CALENDAR, IBKR_MARKET_CURRENCY, IBKR_MARKET_DATA_SYMBOL_SUFFIX, IBKR_MARKET_EXCHANGE, IBKR_MARKET_SIGNAL_CACHE_DIR, IBKR_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, IBKR_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_FALLBACK_MODE, IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI, IBKR_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, IBKR_MARKET_SIGNAL_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_REQUIRED, IBKR_MARKET_TIMEZONE.
 - Evidence: [application/execution_service.py:12](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/application/execution_service.py#L12); [application/execution_service.py:598](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/application/execution_service.py#L598).
 
-### MD-377 — InteractiveBrokersPlatform: application/ibkr_market_data.py
+### MD-379 — InteractiveBrokersPlatform: application/ibkr_market_data.py
 
 - Role: execution quote wrapper. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Injected IBKR quote fetcher, entitlement-error summary wrapper. Inherited source entitlement/retention; no account/subscription query.
@@ -4396,7 +4418,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract; caller resolver runtime_config_support.py:381 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, IBKR_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_MODE, IBKR_FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_MARKET, IBKR_MARKET_CALENDAR, IBKR_MARKET_CURRENCY, IBKR_MARKET_DATA_SYMBOL_SUFFIX, IBKR_MARKET_EXCHANGE, IBKR_MARKET_SIGNAL_CACHE_DIR, IBKR_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, IBKR_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_FALLBACK_MODE, IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI, IBKR_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, IBKR_MARKET_SIGNAL_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_REQUIRED, IBKR_MARKET_TIMEZONE.
 - Evidence: [application/ibkr_market_data.py:18](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/application/ibkr_market_data.py#L18).
 
-### MD-378 — InteractiveBrokersPlatform: application/runtime_broker_adapters.py
+### MD-380 — InteractiveBrokersPlatform: application/runtime_broker_adapters.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -4407,7 +4429,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone; caller resolver runtime_config_support.py:381 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, IBKR_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_MODE, IBKR_FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_MARKET, IBKR_MARKET_CALENDAR, IBKR_MARKET_CURRENCY, IBKR_MARKET_DATA_SYMBOL_SUFFIX, IBKR_MARKET_EXCHANGE, IBKR_MARKET_SIGNAL_CACHE_DIR, IBKR_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, IBKR_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_FALLBACK_MODE, IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI, IBKR_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, IBKR_MARKET_SIGNAL_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_REQUIRED, IBKR_MARKET_TIMEZONE.
 - Evidence: [application/runtime_broker_adapters.py:6](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/application/runtime_broker_adapters.py#L6); [application/runtime_broker_adapters.py:38](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/application/runtime_broker_adapters.py#L38).
 
-### MD-379 — InteractiveBrokersPlatform: application/runtime_strategy_adapters.py
+### MD-381 — InteractiveBrokersPlatform: application/runtime_strategy_adapters.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: IBKR TRADES for signals; yfinance history fallback/probe. Historical-data entitlement, pacing and isolated approved session required; actual plan unverified.
@@ -4418,7 +4440,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, bar_size, duration, price_basis, source; caller resolver runtime_config_support.py:381 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, IBKR_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_MODE, IBKR_FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_MARKET, IBKR_MARKET_CALENDAR, IBKR_MARKET_CURRENCY, IBKR_MARKET_DATA_SYMBOL_SUFFIX, IBKR_MARKET_EXCHANGE, IBKR_MARKET_SIGNAL_CACHE_DIR, IBKR_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, IBKR_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_FALLBACK_MODE, IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI, IBKR_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, IBKR_MARKET_SIGNAL_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_REQUIRED, IBKR_MARKET_TIMEZONE.
 - Evidence: [application/runtime_strategy_adapters.py:77](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/application/runtime_strategy_adapters.py#L77).
 
-### MD-380 — InteractiveBrokersPlatform: application/signal_provenance.py
+### MD-382 — InteractiveBrokersPlatform: application/signal_provenance.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -4429,7 +4451,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: price_basis, source, timezone; caller resolver runtime_config_support.py:381 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, IBKR_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_MODE, IBKR_FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_MARKET, IBKR_MARKET_CALENDAR, IBKR_MARKET_CURRENCY, IBKR_MARKET_DATA_SYMBOL_SUFFIX, IBKR_MARKET_EXCHANGE, IBKR_MARKET_SIGNAL_CACHE_DIR, IBKR_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, IBKR_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_FALLBACK_MODE, IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI, IBKR_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, IBKR_MARKET_SIGNAL_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_REQUIRED, IBKR_MARKET_TIMEZONE.
 - Evidence: [application/signal_provenance.py:13](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/application/signal_provenance.py#L13); [application/signal_provenance.py:20](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/application/signal_provenance.py#L20).
 
-### MD-381 — InteractiveBrokersPlatform: entrypoints/cloud_run.py
+### MD-383 — InteractiveBrokersPlatform: entrypoints/cloud_run.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -4440,7 +4462,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: end_date, start_date, timezone; caller resolver runtime_config_support.py:381 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, IBKR_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_MODE, IBKR_FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_MARKET, IBKR_MARKET_CALENDAR, IBKR_MARKET_CURRENCY, IBKR_MARKET_DATA_SYMBOL_SUFFIX, IBKR_MARKET_EXCHANGE, IBKR_MARKET_SIGNAL_CACHE_DIR, IBKR_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, IBKR_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_FALLBACK_MODE, IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI, IBKR_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, IBKR_MARKET_SIGNAL_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_REQUIRED, IBKR_MARKET_TIMEZONE.
 - Evidence: [entrypoints/cloud_run.py:11](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/entrypoints/cloud_run.py#L11).
 
-### MD-382 — InteractiveBrokersPlatform: main.py
+### MD-384 — InteractiveBrokersPlatform: main.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -4451,7 +4473,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: bar_size, duration, market_calendar, market_timezone; caller resolver runtime_config_support.py:381 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, IBKR_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_MODE, IBKR_FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_MARKET, IBKR_MARKET_CALENDAR, IBKR_MARKET_CURRENCY, IBKR_MARKET_DATA_SYMBOL_SUFFIX, IBKR_MARKET_EXCHANGE, IBKR_MARKET_SIGNAL_CACHE_DIR, IBKR_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, IBKR_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_FALLBACK_MODE, IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI, IBKR_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, IBKR_MARKET_SIGNAL_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_REQUIRED, IBKR_MARKET_TIMEZONE.
 - Evidence: [main.py:85](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/main.py#L85); [main.py:375](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/main.py#L375).
 
-### MD-383 — InteractiveBrokersPlatform: scripts/print_strategy_switch_env_plan.py
+### MD-385 — InteractiveBrokersPlatform: scripts/print_strategy_switch_env_plan.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: Injected upstream artifact/series; provider not established at this boundary. Inherited source entitlement/retention; no account/subscription query.
@@ -4462,7 +4484,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract; caller resolver runtime_config_support.py:381 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, IBKR_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, IBKR_FEATURE_SNAPSHOT_FALLBACK_MODE, IBKR_FEATURE_SNAPSHOT_MAX_STALE_DAYS, IBKR_MARKET, IBKR_MARKET_CALENDAR, IBKR_MARKET_CURRENCY, IBKR_MARKET_DATA_SYMBOL_SUFFIX, IBKR_MARKET_EXCHANGE, IBKR_MARKET_SIGNAL_CACHE_DIR, IBKR_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, IBKR_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_FALLBACK_MODE, IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI, IBKR_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, IBKR_MARKET_SIGNAL_MAX_STALE_DAYS, IBKR_MARKET_SIGNAL_REQUIRED, IBKR_MARKET_TIMEZONE.
 - Evidence: [scripts/print_strategy_switch_env_plan.py:62](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/scripts/print_strategy_switch_env_plan.py#L62); [scripts/print_strategy_switch_env_plan.py:72](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/blob/8e173b2bd1cb903f00ffbfe77e7f5f709aa00b7a/scripts/print_strategy_switch_env_plan.py#L72).
 
-### MD-384 — LongBridgePlatform: application/runtime_broker_adapters.py
+### MD-386 — LongBridgePlatform: application/runtime_broker_adapters.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: LongPort/LongBridge quote/history adapter. Market-specific quote entitlement not inspected.
@@ -4473,7 +4495,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: as_of, timezone; caller resolver runtime_config_support.py:334 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_DEBUG_POSITION_SNAPSHOT, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MODE, LONGBRIDGE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_MARKET, LONGBRIDGE_MARKET_CALENDAR, LONGBRIDGE_MARKET_SIGNAL_CACHE_DIR, LONGBRIDGE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MODE, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_INDEX_URI, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, LONGBRIDGE_MARKET_SIGNAL_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_REQUIRED, LONGBRIDGE_MARKET_TIMEZONE.
 - Evidence: [application/runtime_broker_adapters.py:7](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/application/runtime_broker_adapters.py#L7); [application/runtime_broker_adapters.py:47](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/application/runtime_broker_adapters.py#L47); [application/runtime_broker_adapters.py:68](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/application/runtime_broker_adapters.py#L68).
 
-### MD-385 — LongBridgePlatform: application/runtime_strategy_adapters.py
+### MD-387 — LongBridgePlatform: application/runtime_strategy_adapters.py
 
 - Role: artifact/CSV input boundary. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: LongPort/LongBridge quote/history adapter. Market-specific quote entitlement not inspected.
@@ -4484,7 +4506,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: end_date, start_date, timezone; caller resolver runtime_config_support.py:334 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_DEBUG_POSITION_SNAPSHOT, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MODE, LONGBRIDGE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_MARKET, LONGBRIDGE_MARKET_CALENDAR, LONGBRIDGE_MARKET_SIGNAL_CACHE_DIR, LONGBRIDGE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MODE, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_INDEX_URI, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, LONGBRIDGE_MARKET_SIGNAL_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_REQUIRED, LONGBRIDGE_MARKET_TIMEZONE.
 - Evidence: [application/runtime_strategy_adapters.py:7](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/application/runtime_strategy_adapters.py#L7); [application/runtime_strategy_adapters.py:90](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/application/runtime_strategy_adapters.py#L90).
 
-### MD-386 — LongBridgePlatform: application/execution_service.py
+### MD-388 — LongBridgePlatform: application/execution_service.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: LongPort/LongBridge quote/history adapter. Market-specific quote entitlement not inspected.
@@ -4495,7 +4517,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract; caller resolver runtime_config_support.py:334 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_DEBUG_POSITION_SNAPSHOT, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MODE, LONGBRIDGE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_MARKET, LONGBRIDGE_MARKET_CALENDAR, LONGBRIDGE_MARKET_SIGNAL_CACHE_DIR, LONGBRIDGE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MODE, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_INDEX_URI, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, LONGBRIDGE_MARKET_SIGNAL_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_REQUIRED, LONGBRIDGE_MARKET_TIMEZONE.
 - Evidence: [application/execution_service.py:36](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/application/execution_service.py#L36).
 
-### MD-387 — LongBridgePlatform: application/longbridge_portfolio.py
+### MD-389 — LongBridgePlatform: application/longbridge_portfolio.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: LongPort/LongBridge quote/history adapter. Market-specific quote entitlement not inspected.
@@ -4506,7 +4528,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: source, timezone; caller resolver runtime_config_support.py:334 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_DEBUG_POSITION_SNAPSHOT, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MODE, LONGBRIDGE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_MARKET, LONGBRIDGE_MARKET_CALENDAR, LONGBRIDGE_MARKET_SIGNAL_CACHE_DIR, LONGBRIDGE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MODE, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_INDEX_URI, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, LONGBRIDGE_MARKET_SIGNAL_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_REQUIRED, LONGBRIDGE_MARKET_TIMEZONE.
 - Evidence: [application/longbridge_portfolio.py:4](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/application/longbridge_portfolio.py#L4); [application/longbridge_portfolio.py:73](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/application/longbridge_portfolio.py#L73).
 
-### MD-388 — LongBridgePlatform: application/rebalance_service.py
+### MD-390 — LongBridgePlatform: application/rebalance_service.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: LongPort/LongBridge quote/history adapter. Market-specific quote entitlement not inspected.
@@ -4517,7 +4539,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): No data-specific env lookup in this file; caller arguments/injected contract; caller resolver runtime_config_support.py:334 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_DEBUG_POSITION_SNAPSHOT, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MODE, LONGBRIDGE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_MARKET, LONGBRIDGE_MARKET_CALENDAR, LONGBRIDGE_MARKET_SIGNAL_CACHE_DIR, LONGBRIDGE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MODE, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_INDEX_URI, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, LONGBRIDGE_MARKET_SIGNAL_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_REQUIRED, LONGBRIDGE_MARKET_TIMEZONE.
 - Evidence: [application/rebalance_service.py:327](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/application/rebalance_service.py#L327).
 
-### MD-389 — LongBridgePlatform: entrypoints/cloud_run.py
+### MD-391 — LongBridgePlatform: entrypoints/cloud_run.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: LongPort/LongBridge quote/history adapter. Market-specific quote entitlement not inspected.
@@ -4528,7 +4550,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): data parameters/schema fields: end_date, start_date, timezone; caller resolver runtime_config_support.py:334 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_DEBUG_POSITION_SNAPSHOT, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MODE, LONGBRIDGE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_MARKET, LONGBRIDGE_MARKET_CALENDAR, LONGBRIDGE_MARKET_SIGNAL_CACHE_DIR, LONGBRIDGE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MODE, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_INDEX_URI, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, LONGBRIDGE_MARKET_SIGNAL_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_REQUIRED, LONGBRIDGE_MARKET_TIMEZONE.
 - Evidence: [entrypoints/cloud_run.py:7](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/entrypoints/cloud_run.py#L7).
 
-### MD-390 — LongBridgePlatform: main.py
+### MD-392 — LongBridgePlatform: main.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: LongPort/LongBridge quote/history adapter. Market-specific quote entitlement not inspected.
@@ -4539,7 +4561,7 @@ Rows are ordered by proposed migration wave (0 shared contract; 1 research acqui
 - Config/env keys (names only): ACCOUNT_HISTORY_RECORDING_ENABLED; data parameters/schema fields: market_calendar, market_timezone, timezone; caller resolver runtime_config_support.py:334 exposes FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, FEATURE_SNAPSHOT_FALLBACK_MODE, FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_DEBUG_POSITION_SNAPSHOT, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_FEATURE_SNAPSHOT_FALLBACK_MODE, LONGBRIDGE_FEATURE_SNAPSHOT_MAX_STALE_DAYS, LONGBRIDGE_MARKET, LONGBRIDGE_MARKET_CALENDAR, LONGBRIDGE_MARKET_SIGNAL_CACHE_DIR, LONGBRIDGE_MARKET_SIGNAL_CONSUMPTION_AUDIT_URI, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_FALLBACK_MODE, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_INDEX_URI, LONGBRIDGE_MARKET_SIGNAL_HANDOFF_MANIFEST_URI, LONGBRIDGE_MARKET_SIGNAL_MAX_STALE_DAYS, LONGBRIDGE_MARKET_SIGNAL_REQUIRED, LONGBRIDGE_MARKET_TIMEZONE.
 - Evidence: [main.py:160](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/main.py#L160); [main.py:165](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/93f73736d0698f3d8d285563f510ae0dcbbf661d/main.py#L165).
 
-### MD-391 — LongBridgePlatform: scripts/print_strategy_switch_env_plan.py
+### MD-393 — LongBridgePlatform: scripts/print_strategy_switch_env_plan.py
 
 - Role: series/feature consumer. Proposed migration wave **5**. High/live-last: separately approved per-consumer provider/feed/basis/calendar/QPK/binding pin; retain current runtime and all order/risk guards.
 - Provider / plan: LongPort/LongBridge quote/history adapter. Market-specific quote entitlement not inspected.
