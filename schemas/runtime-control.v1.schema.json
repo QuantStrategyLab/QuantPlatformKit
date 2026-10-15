@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/QuantStrategyLab/QuantPlatformKit/schemas/runtime-control.v1.schema.json",
+  "title": "QSL runtime control v1",
+  "description": "Broker-neutral on/off switch, execution mode, cash policy and risk-policy reference for one runtime target. Contains no secrets or account identifiers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "target_id", "platform_id", "strategy_profile", "enabled", "mode", "cash_policy"],
+  "properties": {
+    "schema_version": {"const": "qsl.runtime_control.v1"},
+    "target_id": {"type": "string", "minLength": 1, "pattern": "^[a-z0-9_-]+/[a-z0-9_-]+$"},
+    "platform_id": {"type": "string", "minLength": 1},
+    "strategy_profile": {"type": "string", "minLength": 1},
+    "description": {"type": "string"},
+    "enabled": {"type": "boolean"},
+    "mode": {"enum": ["live", "paper", "dry_run"]},
+    "options_enabled": {"type": "boolean", "default": false},
+    "risk_limits_ref": {"type": "string", "minLength": 1},
+    "cash_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cash_only", "reserved_cash_ratio"],
+      "properties": {
+        "cash_only": {"type": "boolean"},
+        "reserved_cash_ratio": {"type": "number", "minimum": 0, "maximum": 1},
+        "reserved_cash_floor_usd": {"type": "number", "minimum": 0, "default": 0}
+      }
+    }
+  }
+}
