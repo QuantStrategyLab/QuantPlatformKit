@@ -89,8 +89,23 @@ def emit(env, *, now=None, read=_read, upload=None):
         if start <= source_stamp < end:
             reports.append(source)
     if not reports:
-        raise ValueError("candidate_source_absent")
-    payload = project_reports(reports, expected_target=target, opaque_account_uid=uid, target_id=tid, now=current)
+        schedule_raw = env.get("DIGEST_NOTIFICATION_SCHEDULE_JSON", "").strip()
+        if not schedule_raw:
+            raise ValueError("candidate_source_absent")
+        from quant_platform_kit.common.runtime_heartbeat_policy import filter_due_targets
+        schedule = json.loads(schedule_raw)
+        due, evaluated = filter_due_targets([schedule], since=start, now=end - timedelta(microseconds=1),
+            publication_grace=timedelta(0), warning_logger=lambda message: None)
+        if not evaluated or due:
+            raise ValueError("candidate_due_source_absent")
+        payload = {"schema_version": "qsl.digest_candidates.v1", "runs": [{
+            "platform_id": platform, "strategy_profile": target["strategy_profile"],
+            "opaque_account_uid": uid, "target_id": tid, "business_day": day.isoformat(),
+            "actually_ran": False, "status": "ok", "scheduled_idle": True,
+            "evidence_provenance": "candidates",
+        }]}
+    else:
+        payload = project_reports(reports, expected_target=target, opaque_account_uid=uid, target_id=tid, now=current)
     if upload is None:
         from google.cloud import storage
         def upload(uri, body):
