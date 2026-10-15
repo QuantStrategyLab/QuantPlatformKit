@@ -1,8 +1,6 @@
-# 资金信封目标缩仓与 Attention 预算（2026-09-18）
+# 资金信封目标缩仓与 Attention 预算
 
-> 状态：库侧本 PR；平台接线随后 pin 本 SHA。
-
-## 本 PR
+## API
 
 1. `apply_combined_scale_to_targets(targets, combined_scale)`  
    - `None`/非法 scale → **omit**（原样返回有限非负目标）  
@@ -12,8 +10,11 @@
    - 可被 `override` / `QSL_MANDATE_DD_BUDGET[_PROFILE]` 覆盖  
 3. `publish_attention_telegram_transition` — ACTION/HALT 跃迁才发 TG
 
-## 平台接线（后续 PR）
+## 平台消费
 
-- admission 后：`allocation["targets"] = apply_combined_scale_to_targets(..., admission.combined_scale)`  
-- 禁买/CRITICAL：调用 `publish_attention_telegram_transition` + marker  
-- 日损事实生产者：仍阻塞（见 DAILY_LOSS_FACT_PRODUCER_GAP）
+- 买侧数量与目标权重只能选择一处缩放；同一路径重复使用 `combined_scale` 会造成双重缩放。
+- Attention 通知应使用状态跃迁去重，成功发送后再记录 marker。
+- 日损判断需要账户对应的日损事实；缺少事实时不能用通知结果推断保护已生效。
+
+库 API 和依赖 pin 不能证明平台正在使用该路径。确认实际采用时，须分别核对部署版本、
+配置及对应周期的执行证据。
