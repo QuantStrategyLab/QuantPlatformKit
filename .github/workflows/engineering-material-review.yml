@@ -25,18 +25,31 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
+      - name: Fetch the approved cloud input bundle (disabled by default)
+        if: vars.HOSTED_INPUT_FETCH_ENABLED == 'true'
+        env:
+          HOSTED_INPUT_FETCH_ENABLED: ${{ vars.HOSTED_INPUT_FETCH_ENABLED }}
+          HOSTED_INPUT_URI: ${{ vars.HOSTED_INPUT_URI }}
+          HOSTED_INPUT_GENERATION: ${{ vars.HOSTED_INPUT_GENERATION }}
+          HOSTED_INPUT_ASSET: ${{ vars.HOSTED_INPUT_ASSET }}
+          HOSTED_INPUT_SHA256: ${{ vars.HOSTED_INPUT_SHA256 }}
+        run: python scripts/fetch_hosted_inputs.py
       - name: Stage the approved hosted input bundle
         env:
+          HOSTED_INPUT_FETCH_ENABLED: ${{ vars.HOSTED_INPUT_FETCH_ENABLED }}
           GH_TOKEN: ${{ github.token }}
           HOSTED_INPUT_RELEASE: ${{ vars.HOSTED_INPUT_RELEASE }}
           HOSTED_INPUT_ASSET: ${{ vars.HOSTED_INPUT_ASSET }}
           HOSTED_INPUT_SHA256: ${{ vars.HOSTED_INPUT_SHA256 }}
         run: |
           set -euo pipefail
-          test -n "$HOSTED_INPUT_RELEASE" && test -n "$HOSTED_INPUT_ASSET"
+          test -n "$HOSTED_INPUT_ASSET"
           [[ "$HOSTED_INPUT_SHA256" =~ ^[0-9a-f]{64}$ ]]
           [[ "$HOSTED_INPUT_ASSET" =~ ^[A-Za-z0-9_.-]+\.zip$ ]]
-          gh release download "$HOSTED_INPUT_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern "$HOSTED_INPUT_ASSET" --dir "$RUNNER_TEMP/approved-input"
+          if [[ "$HOSTED_INPUT_FETCH_ENABLED" != true ]]; then
+            test -n "$HOSTED_INPUT_RELEASE"
+            gh release download "$HOSTED_INPUT_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern "$HOSTED_INPUT_ASSET" --dir "$RUNNER_TEMP/approved-input"
+          fi
           python - <<'PYCODE'
           import hashlib, os, stat, zipfile
           from pathlib import Path, PurePosixPath
