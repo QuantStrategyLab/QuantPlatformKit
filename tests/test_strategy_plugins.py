@@ -1144,7 +1144,7 @@ class StrategyPluginsTests(unittest.TestCase):
         )
 
         self.assertEqual(len(alerts), 1)
-        self.assertEqual(alerts[0].subject, "alert:TQQQ Growth Income:Crisis:true crisis")
+        self.assertEqual(alerts[0].subject, "alert:NASDAQ Growth Income:Crisis:true crisis")
         self.assertIn("strategy_plugin_alert", alerts[0].alert_key)
         self.assertIn("plugin=Crisis", alerts[0].body)
         self.assertIn("status=true crisis", alerts[0].body)
