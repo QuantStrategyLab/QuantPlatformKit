@@ -202,6 +202,7 @@ def build_unified_net_report(
     trials: TrialEvidence | None = None, sr_benchmark: float = 0.0,
     confidence: float = .95, min_observations: int = DEFAULT_MIN_OBSERVATIONS,
     include_outcome_diagnostics: bool = False,
+    periods_per_year: int | None = None,
 ) -> UnifiedNetReport:
     """Summarize validated same-period net returns; never fill/drop observations.
 
@@ -214,9 +215,14 @@ def build_unified_net_report(
     the arithmetic mean includes every observation. Default eight metrics and
     all existing metric values remain unchanged.
     No files, accounts, ledgers, policy, orders or budgets are read or written.
+
+    An explicit ``periods_per_year`` opts into geometric net CAGR and Calmar
+    on this exact sample. The initial NAV is not an extra return observation.
+    No drawdown makes Calmar undefined, never infinity or an automatic pass.
     """
     if type(include_outcome_diagnostics) is not bool:
         raise ResearchInputError("include_outcome_diagnostics must be boolean")
+    annualization = None if periods_per_year is None else positive_int(periods_per_year, "periods_per_year")
     net = simple_returns(net_returns, "net_returns")
     if not net:
         raise ResearchInputError("net_returns must be nonempty")
@@ -281,6 +287,25 @@ def build_unified_net_report(
     metrics = (growth, sharpe, psr, dsr, mintrl, cvar, drawdown, drag)
     if include_outcome_diagnostics:
         metrics += _outcome_diagnostics(net)
+    if annualization is not None:
+        details = dict(definition_version="qpk.net_compounding.v1", periods_per_year=annualization,
+                       observations=len(net), initial_nav_is_observation=False,
+                       input_basis="same_window_net_simple_returns", report_only=True)
+        try:
+            cagr_value = math.expm1(growth.value * annualization)
+            cagr = (_computed("net_cagr", cagr_value, **details) if math.isfinite(cagr_value) else
+                    _missing("net_cagr", "numerical_failure", **details))
+        except (ArithmeticError, ValueError):
+            cagr = _missing("net_cagr", "numerical_failure", **details)
+        if worst == 0.0:
+            calmar = _missing("net_calmar_ratio", "zero_drawdown", **details)
+        elif not cagr.computed:
+            calmar = _missing("net_calmar_ratio", "cagr_uncomputable", **details)
+        else:
+            ratio = cagr.value / abs(worst)
+            calmar = (_computed("net_calmar_ratio", ratio, **details) if math.isfinite(ratio) else
+                      _missing("net_calmar_ratio", "numerical_failure", **details))
+        metrics += (cagr, calmar)
     return UnifiedNetReport(len(net), metrics,
                             trials.cumulative_total if trials else None,
                             trials.ledger_sha256 if trials else None)
