@@ -19,6 +19,7 @@ def test_display_mapping_and_unknown_names_do_not_rewrite_inputs():
     original = dict(identity)
     assert resolve("accounts", identity["account_key"], platform=identity["platform"]) == "live"
     assert resolve("accounts", "paper", platform="binance") == "paper"
+    assert resolve("accounts", "crypto_combo", "zh", platform="binance") == "实盘"
     assert resolve("accounts", "crypto_combo", platform="other") == "crypto_combo"
     assert resolve("strategies", identity["strategy_profile"], "en") == "Crypto Pool Rotation"
     assert resolve("strategies", identity["strategy_profile"], "zh-CN") == "加密池轮动"

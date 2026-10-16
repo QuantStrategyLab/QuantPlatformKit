@@ -1,18 +1,89 @@
 {
+  "account_aliases": {
+    "hk": {
+      "en": "HK",
+      "zh": "香港"
+    },
+    "live": {
+      "en": "live",
+      "zh": "实盘"
+    },
+    "paper": {
+      "en": "paper",
+      "zh": "模拟"
+    },
+    "sg": {
+      "en": "SG",
+      "zh": "新加坡"
+    },
+    "soxl": {
+      "en": "SOXL",
+      "zh": "SOXL"
+    },
+    "tqqq": {
+      "en": "TQQQ",
+      "zh": "TQQQ"
+    }
+  },
   "accounts": {
     "binance": {
-      "Binance": "live",
-      "binance": "live",
-      "crypto_combo": "live",
-      "default": "live"
+      "Binance": {
+        "en": "live",
+        "zh": "实盘"
+      },
+      "binance": {
+        "en": "live",
+        "zh": "实盘"
+      },
+      "crypto_combo": {
+        "en": "live",
+        "zh": "实盘"
+      },
+      "default": {
+        "en": "live",
+        "zh": "实盘"
+      }
+    }
+  },
+  "domains": {
+    "cn_equity": {
+      "en": "CN A-share",
+      "zh": "A股"
+    },
+    "crypto": {
+      "en": "Crypto",
+      "zh": "加密"
+    },
+    "hk_equity": {
+      "en": "HK Equity",
+      "zh": "港股"
+    },
+    "us_equity": {
+      "en": "US Equity",
+      "zh": "美股"
     }
   },
   "lanes": {
-    "dry_run": "dry_run",
-    "live": "live",
-    "paper": "paper",
-    "research": "research",
-    "shadow": "shadow"
+    "dry_run": {
+      "en": "dry run",
+      "zh": "演练"
+    },
+    "live": {
+      "en": "live",
+      "zh": "实盘"
+    },
+    "paper": {
+      "en": "paper",
+      "zh": "模拟"
+    },
+    "research": {
+      "en": "research",
+      "zh": "研究"
+    },
+    "shadow": {
+      "en": "shadow",
+      "zh": "影子"
+    }
   },
   "platforms": {
     "binance": "Binance",
