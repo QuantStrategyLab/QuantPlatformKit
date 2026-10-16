@@ -42,7 +42,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-quant_platform_kit = ["schemas/*.json"]
+quant_platform_kit = ["schemas/*.json", "common/display_names.json"]
 
 [tool.ruff]
 target-version = "py310"

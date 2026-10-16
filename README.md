@@ -147,3 +147,5 @@ See [LICENSE](LICENSE).
 ### AI 任务服务升级
 
 生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/TASK-SERVICE-V2.zh-CN.md)。本次版本尚未发布或部署。
+
+Display/notification naming configuration: [display names](docs/display-names.md).
