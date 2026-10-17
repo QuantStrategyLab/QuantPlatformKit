@@ -192,3 +192,26 @@ def test_atomic_claim_loser_and_missing_history_do_not_send():
     with pytest.raises(OSError):
         IncidentTracker(BrokenStore()).observe(incident, state="failed")
     assert IncidentTracker(store).observe(replace(incident, opaque_account_uid=None), state="failed").action == "coverage_unknown"
+
+
+def test_concurrent_claim_winner_prevents_second_workers_send():
+    class OtherWorkerWins(MemoryStore):
+        def compare_and_set(self, key, version, value):
+            # Another worker commits exactly this reservation after our read.
+            if not self.rows:
+                super().compare_and_set(key, version, value)
+                return False
+            return super().compare_and_set(key, version, value)
+    incident = event(event_kind="real_error", incident_reason="error")
+    store = OtherWorkerWins()
+    assert IncidentTracker(store).observe(incident, state="failed").action == "duplicate"
+    assert len(store.rows) == 1
+
+
+def test_incomplete_marker_history_cannot_be_treated_as_a_new_incident():
+    class IncompleteHistory(MemoryStore):
+        def read(self, key):
+            return 7, None
+    incident = event(event_kind="real_error", incident_reason="error")
+    with pytest.raises(RuntimeError, match="history_incomplete"):
+        IncidentTracker(IncompleteHistory()).observe(incident, state="failed")
