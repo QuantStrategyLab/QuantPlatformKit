@@ -8,6 +8,7 @@ Telegram, email, or another notification channel.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 
 from quant_platform_kit.common.notification_localization import resolve_notification_locale
 
@@ -285,3 +286,100 @@ def format_operational_heartbeat_status(
             str(detail or ""),
         )
     )
+
+
+# A separate opt-in renderer: legacy entrypoints above retain their exact output.
+_RECEIPT_TEXTS = {
+    "zh": {
+        "title": "[执行回执检查]",
+        "observed_at": "检查时间：{value}",
+        "due_at": "最近应执行时间：{value}",
+        "orders": "本轮提交订单：{value}",
+        "unknown": "未知",
+        "run": "运行记录：{value}",
+        "category": "{label}：{count} 份",
+        "accepted": "回执符合既有验收要求",
+        "blocked_run": "已运行但执行被阻断",
+        "strategy_risk_rejected": "本轮已运行但被风控拦截",
+        "skipped_before_due": "早于最近应执行时间，已跳过",
+        "skipped_outside_window": "不在检查窗口内，已跳过",
+        "receipt_missing": "缺少执行回执",
+        "receipt_stale": "执行回执已过期",
+        "receipt_unacceptable": "执行回执不符合既有验收要求",
+        "auth_failure": "认证失败",
+        "unknown_category": "回执分类未知",
+    },
+    "en": {
+        "title": "[Execution receipt check]",
+        "observed_at": "Checked at: {value}",
+        "due_at": "Latest execution due: {value}",
+        "orders": "Orders submitted this run: {value}",
+        "unknown": "Unknown",
+        "run": "Run record: {value}",
+        "category": "{label}: {count} report(s)",
+        "accepted": "Receipt meets existing acceptance rules",
+        "blocked_run": "Run observed but execution blocked",
+        "strategy_risk_rejected": "Run observed but blocked by strategy risk checks",
+        "skipped_before_due": "Skipped before latest execution due",
+        "skipped_outside_window": "Skipped outside the check window",
+        "receipt_missing": "Execution receipt missing",
+        "receipt_stale": "Execution receipt stale",
+        "receipt_unacceptable": "Execution receipt fails existing acceptance rules",
+        "auth_failure": "Authentication failed",
+        "unknown_category": "Receipt category unknown",
+    },
+}
+
+
+def format_sgt_time(value: datetime | None, *, locale: object | None = None) -> str:
+    """Format an aware datetime without silently assigning a missing timezone."""
+    from zoneinfo import ZoneInfo
+
+    normalized = resolve_operational_notification_locale(locale)
+    if value is None:
+        return _RECEIPT_TEXTS[normalized]["unknown"]
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("notification_time_timezone_missing")
+    stamp = value.astimezone(ZoneInfo("Asia/Singapore")).strftime("%Y-%m-%d %H:%M:%S")
+    return stamp + ("（新加坡时间）" if normalized == "zh" else " SGT")
+
+
+def format_receipt_alert(
+    *, locale: object | None, categories: Mapping[str, int | None],
+    observed_at: datetime | None = None, due_at: datetime | None = None,
+    orders_submitted_count: int | None = None,
+    run_url: str | None = None,
+) -> str:
+    """Render caller-proven receipt categories only; never infer acceptance.
+
+    Raw report URIs, account names and diagnostic text are not accepted fields.
+    Unknown category tokens are not echoed. Counts refer to inspected reports;
+    orders_submitted_count refers only to the caller's single proven run.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    normalized = resolve_operational_notification_locale(locale)
+    text = _RECEIPT_TEXTS[normalized]
+    lines = [text["title"], text["observed_at"].format(value=format_sgt_time(observed_at, locale=normalized)),
+             text["due_at"].format(value=format_sgt_time(due_at, locale=normalized))]
+    known_categories = {"accepted", "blocked_run", "strategy_risk_rejected", "skipped_before_due",
+                        "skipped_outside_window", "receipt_missing", "receipt_stale",
+                        "receipt_unacceptable", "auth_failure"}
+    for category, count in categories.items():
+        if count is not None and (type(count) is not int or count < 0):
+            raise ValueError("notification_receipt_count_invalid")
+        if count == 0:
+            continue
+        label = text[category] if category in known_categories else text["unknown_category"]
+        lines.append(text["category"].format(label=label, count=text["unknown"] if count is None else count))
+    if orders_submitted_count is not None and (type(orders_submitted_count) is not int or orders_submitted_count < 0):
+        raise ValueError("notification_order_count_invalid")
+    lines.append(text["orders"].format(value=text["unknown"] if orders_submitted_count is None else orders_submitted_count))
+    if run_url:
+        parsed = urlsplit(run_url)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+            raise ValueError("notification_run_url_invalid")
+        # Links are supplied by the caller, never reconstructed from account IDs.
+        safe_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        lines.append(text["run"].format(value=safe_url))
+    return "\n".join(lines)
