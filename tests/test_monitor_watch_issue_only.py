@@ -11,8 +11,11 @@ import importlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 REPO = Path(__file__).resolve().parents[1]
@@ -140,6 +143,38 @@ class FakeGH:
 
     def count(self, name):
         return sum(call[0] == name for call in self.calls)
+
+
+class FakeQueryGH(FakeGH):
+    """Fake callbacks compose real JSON parsing with a memory-only process stub."""
+
+    def __init__(self, runner, watch, query_names, responses):
+        super().__init__(runner, watch)
+        self.query_names = set(query_names)
+        self.responses = list(responses)
+        self.query_calls = []
+
+    def transport(self, argv, **kwargs):
+        self.query_calls.append((argv, kwargs))
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return SimpleNamespace(stdout=response)
+
+    def query(self, name, repo, adapter):
+        self.call(name, repo)
+        with patch.object(self.runner.subprocess, "run", side_effect=self.transport):
+            return adapter(repo)
+
+    def list_open(self, repo):
+        if "open" in self.query_names:
+            return self.query("open", repo, self.runner.list_open_issue_urls)
+        return super().list_open(repo)
+
+    def list_archived(self, repo):
+        if "archived" in self.query_names:
+            return self.query("archived", repo, self.runner.list_archived_issue_urls)
+        return super().list_archived(repo)
 
 
 class MonitorWatchTests(unittest.TestCase):
@@ -327,6 +362,48 @@ class MonitorWatchTests(unittest.TestCase):
         result = self.io.dispatch([self.finding], dry_run=False, comment_existing=True)
         self.assertEqual(result["errors"], 1)
         self.assertEqual((self.io.count("read"), self.io.count("comment"), self.io.count("create")), (1, 0, 0))
+
+    def assert_query_blocks(self, query_name, responses):
+        io = FakeQueryGH(self.runner, self.watch, [query_name], responses)
+        result = io.dispatch([self.finding], dry_run=False, comment_existing=False)
+        self.assertEqual((result["status"], result["errors"]), ("partial_error", 1))
+        self.assertFalse(result["issues"][0]["created"])
+        self.assertEqual(io.count("create"), 0)
+        self.assertEqual(io.count("comment"), 0)
+        if query_name == "archived":
+            self.assertTrue(result["issues"][0]["archive_lookup_failed"])
+        return io
+
+    def test_open_query_invalid_envelopes_and_parse_errors_block_creation(self):
+        for stdout in ["{}", "null", "true", "42", '"unknown"', "{bad", "", " "]:
+            with self.subTest(stdout=stdout):
+                io = self.assert_query_blocks("open", [stdout])
+                self.assertEqual(io.count("archived"), 0)
+
+    def test_closed_query_invalid_envelopes_and_parse_errors_block_creation(self):
+        for stdout in ["{}", "null", "true", "42", '"unknown"', "{bad", "", " "]:
+            with self.subTest(stdout=stdout):
+                self.assert_query_blocks("archived", [stdout])
+
+    def test_valid_empty_query_lists_preserve_creation(self):
+        io = FakeQueryGH(self.runner, self.watch, ["open", "archived"], ["[]", "[]"])
+        result = io.dispatch([self.finding], dry_run=False, comment_existing=False)
+        self.assertEqual((result["status"], result["errors"]), ("ok", 0))
+        self.assertTrue(result["issues"][0]["created"])
+        self.assertEqual([io.count(k) for k in ["open", "archived", "create", "read", "comment"]], [1, 1, 1, 0, 0])
+        self.assertEqual(len(io.query_calls), 2)
+
+    def test_query_process_failure_blocks_creation(self):
+        for name in ["open", "archived"]:
+            with self.subTest(query=name):
+                self.assert_query_blocks(name, [subprocess.CalledProcessError(1, ["synthetic-gh-query"])])
+
+    def test_invalid_later_query_page_cannot_establish_empty_result(self):
+        first_page = json.dumps([{"body": "synthetic unrelated issue"} for _ in range(100)])
+        for name in ["open", "archived"]:
+            with self.subTest(query=name):
+                io = self.assert_query_blocks(name, [first_page, "{}"])
+                self.assertEqual(len(io.query_calls), 2)
 
 
 if __name__ == "__main__":

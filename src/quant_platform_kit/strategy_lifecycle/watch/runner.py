@@ -36,10 +36,12 @@ def list_open_issue_urls(repo: str) -> dict[str, str]:
             text=True,
         )
         try:
-            issues = json.loads(result.stdout or "[]")
+            issues = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
             raise RuntimeError("failed to parse open issue list") from exc
-        if not isinstance(issues, list) or not issues:
+        if not isinstance(issues, list):
+            raise RuntimeError("invalid open issue list response")
+        if not issues:
             return open_issues
         for issue in issues:
             if not isinstance(issue, dict) or "pull_request" in issue:
@@ -110,10 +112,12 @@ def list_archived_issue_urls(repo: str) -> dict[str, str]:
             check=True, capture_output=True, text=True,
         )
         try:
-            issues = json.loads(result.stdout or "[]")
+            issues = json.loads(result.stdout)
         except json.JSONDecodeError as exc:
             raise RuntimeError("failed to parse closed issue list") from exc
-        if not isinstance(issues, list) or not issues:
+        if not isinstance(issues, list):
+            raise RuntimeError("invalid closed issue list response")
+        if not issues:
             return archived
         for issue in issues:
             if not isinstance(issue, dict) or "pull_request" in issue:
