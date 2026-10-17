@@ -791,6 +791,8 @@ def validate_strategy_plugin_signal_payload(
     schema_version = _optional_string(payload.get("schema_version")) or ""
     definitions = normalize_strategy_plugin_definitions(plugin_definitions)
     definition = definitions.get(plugin)
+    if definition is not None and definition.supported_schema_versions and not schema_version:
+        raise ValueError(f"strategy plugin {plugin} artifact schema_version is required")
     validate_strategy_plugin_schema_version(
         plugin=plugin,
         schema_version=schema_version,

@@ -1207,5 +1207,95 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertFalse(alerts[0].metadata["would_trade_if_enabled"])
 
 
+class RequiredArtifactSchemaTests(unittest.TestCase):
+    def test_registered_payload_must_supply_version_even_without_expected_version(self):
+        for value in (None, "", " \t"):
+            with self.subTest(value=value):
+                payload = _signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL)
+                payload["schema_version"] = value
+                with self.assertRaisesRegex(ValueError, "market_regime_control.*schema_version.*required"):
+                    validate_strategy_plugin_signal_payload(payload)
+        payload.pop("schema_version")
+        with self.assertRaisesRegex(ValueError, "schema_version.*required"):
+            validate_strategy_plugin_signal_payload(payload)
+
+    def test_file_loader_rejects_missing_version_without_filling_registry_default(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "signal.json"
+            payload = _signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL)
+            del payload["schema_version"]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "schema_version.*required"):
+                load_strategy_plugin_signal(str(path))
+
+    def test_custom_registered_version_set_uses_the_same_required_rule(self):
+        definitions = {
+            "custom": StrategyPluginDefinition(
+                plugin="custom",
+                supported_schema_versions=frozenset({"custom.v1"}),
+                default_schema_version="custom.v1",
+            )
+        }
+        payload = _signal_payload(plugin="custom")
+        del payload["schema_version"]
+        with self.assertRaisesRegex(ValueError, "custom.*schema_version.*required"):
+            validate_strategy_plugin_signal_payload(payload, plugin_definitions=definitions)
+        payload["schema_version"] = "custom.v1"
+        self.assertEqual(
+            validate_strategy_plugin_signal_payload(payload, plugin_definitions=definitions).schema_version,
+            "custom.v1",
+        )
+
+    def test_open_custom_or_unknown_definitions_keep_their_existing_semantics(self):
+        payload = _signal_payload(plugin="custom")
+        del payload["schema_version"]
+        for definitions in (None, {}, {"custom": StrategyPluginDefinition(plugin="custom")}):
+            with self.subTest(definitions=definitions):
+                signal = validate_strategy_plugin_signal_payload(payload, plugin_definitions=definitions)
+                self.assertEqual(signal.schema_version, "")
+                with self.assertRaisesRegex(ValueError, "schema_version mismatch"):
+                    validate_strategy_plugin_signal_payload(
+                        payload, plugin_definitions=definitions, expected_schema_version="custom.v1"
+                    )
+
+    def test_mount_and_notification_expected_versions_stay_optional(self):
+        mount = parse_strategy_plugin_mounts([
+            {"strategy": "tqqq_growth_income", "plugin": PLUGIN_MARKET_REGIME_CONTROL, "signal_path": "signal.json"}
+        ])[0]
+        target = parse_strategy_plugin_notification_targets([
+            {
+                "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+                "plugin": PLUGIN_MARKET_REGIME_CONTROL,
+                "signal_path": "signal.json",
+            }
+        ])[0]
+        self.assertIsNone(mount.expected_schema_version)
+        self.assertIsNone(target.expected_schema_version)
+
+    def test_both_configured_loaders_propagate_the_required_version_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "signal.json"
+            payload = _signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL)
+            del payload["schema_version"]
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            mounts = parse_strategy_plugin_mounts([
+                {"strategy": payload["strategy"], "plugin": payload["plugin"], "signal_path": str(path)}
+            ])
+            with self.assertRaisesRegex(ValueError, "schema_version.*required"):
+                load_configured_strategy_plugin_signals(mounts)
+            payload.pop("strategy")
+            payload.update(target_type="notification_target", notification_target=GENERAL_MARKET_REGIME_NOTIFICATION_TARGET)
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            targets = parse_strategy_plugin_notification_targets([
+                {
+                    "notification_target": GENERAL_MARKET_REGIME_NOTIFICATION_TARGET,
+                    "plugin": payload["plugin"],
+                    "signal_path": str(path),
+                }
+            ])
+            with self.assertRaisesRegex(ValueError, "schema_version.*required"):
+                load_configured_strategy_plugin_notification_target_signals(targets)
+
+
 if __name__ == "__main__":
     unittest.main()
