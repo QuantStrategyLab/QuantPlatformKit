@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 import json
+from pathlib import Path
 import tempfile
+from types import MappingProxyType
 import unittest
 from unittest.mock import patch
+
+import pytest
 
 from quant_platform_kit.common.runtime_reports import (
     RUNTIME_REPORT_SCHEMA_VERSION,
@@ -214,3 +219,123 @@ class RuntimeReportsTests(unittest.TestCase):
             fake_store.last_content_type,
             "application/json",
         )
+
+
+@pytest.mark.parametrize("cloud", [False, True], ids=["local", "fake_cloud"])
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ({"transactions": [], "source_complete": True}, {"transactions": [], "source_complete": True}),
+        ({"transactions": [], "source_complete": False}, {"transactions": [], "source_complete": False}),
+        ({"source_complete": True}, {"source_complete": True}),
+        ({"transactions": None, "source_complete": True}, {"source_complete": True}),
+        ({"transactions": (), "source_complete": True}, {"source_complete": True}),
+        ({"transactions": {}, "source_complete": True}, {"source_complete": True}),
+        ({"transactions": False, "source_complete": False}, {"transactions": False, "source_complete": False}),
+        ({"transactions": 0, "source_complete": False}, {"transactions": 0, "source_complete": False}),
+        (
+            {"transactions": [{"amount": "12.34", "optional": None}], "source_complete": False},
+            {"transactions": [{"amount": "12.34"}], "source_complete": False},
+        ),
+    ],
+    ids=["empty_true", "empty_false", "missing", "null", "tuple", "dict", "false", "zero", "nonempty"],
+)
+def test_raw_external_flows_survive_repeated_persist_boundaries(tmp_path, raw, expected, cloud):
+    report = build_runtime_report_base(
+        platform="synthetic", deploy_target="offline", service_name="test-runtime",
+        strategy_profile="test-profile", run_id="raw-roundtrip", run_source="test",
+        started_at="2026-10-17T00:00:00Z",
+    )
+    report["account_external_flows"] = deepcopy(raw)
+    original = deepcopy(report)
+    fake_store = FakeObjectStore()
+    writes = []
+
+    def capture_write(value, *, output_path):
+        path = write_runtime_report_json(value, output_path=output_path)
+        writes.append(json.loads(path.read_text(encoding="utf-8")))
+        return path
+
+    with patch("quant_platform_kit.cloud.get_object_store", return_value=fake_store) as get_store:
+        with patch("quant_platform_kit.common.runtime_reports.write_runtime_report_json", side_effect=capture_write):
+            for _ in range(3):
+                input_raw = deepcopy(report["account_external_flows"])
+                first_write = len(writes)
+                result = persist_runtime_report(
+                    report, output_path=tmp_path / "report.json",
+                    cloud_prefix_uri="gs://demo-bucket/reports" if cloud else None,
+                )
+                back = json.loads(Path(result.local_path).read_text(encoding="utf-8"))
+                assert report["account_external_flows"] == input_raw
+                assert len(writes) - first_write == (2 if cloud else 1)
+                for written in writes[first_write:]:
+                    assert written["account_external_flows"] == expected
+                assert back["account_external_flows"] == expected
+                assert back["account_external_flows"]["source_complete"] is raw["source_complete"]
+                if cloud:
+                    assert json.loads(fake_store.last_payload) == back
+                    assert result.cloud_uri == fake_store.last_uri
+                    assert fake_store.last_content_type == "application/json"
+                else:
+                    assert result.cloud_uri is None
+                report = back
+        assert get_store.call_count == (3 if cloud else 0)
+    assert original["account_external_flows"] == raw
+
+
+@pytest.mark.parametrize("schema", [None, "other.v1", RUNTIME_REPORT_SCHEMA_VERSION])
+def test_empty_flow_retention_is_schema_qualified_and_root_only(tmp_path, schema):
+    raw = {"transactions": [], "source_complete": False}
+    nested = {"schema_version": RUNTIME_REPORT_SCHEMA_VERSION, "account_external_flows": raw}
+    report = {"account_external_flows": raw, "summary": deepcopy(nested),
+              "diagnostics": deepcopy(nested), "context": deepcopy(nested)}
+    if schema is not None:
+        report["schema_version"] = schema
+    original = deepcopy(report)
+    path = write_runtime_report_json(report, output_path=tmp_path / "scoped.json")
+    back = json.loads(path.read_text(encoding="utf-8"))
+    expected = {"source_complete": False}
+    if schema == RUNTIME_REPORT_SCHEMA_VERSION:
+        expected["transactions"] = []
+    assert back["account_external_flows"] == expected
+    for section in ("summary", "diagnostics", "context"):
+        assert back[section]["account_external_flows"] == {"source_complete": False}
+    assert report == original
+
+
+def test_empty_flow_retention_accepts_mapping_without_mutation(tmp_path):
+    raw = {"transactions": []}
+    report = {"schema_version": RUNTIME_REPORT_SCHEMA_VERSION,
+              "account_external_flows": MappingProxyType(raw)}
+    path = write_runtime_report_json(report, output_path=tmp_path / "mapping.json")
+    assert json.loads(path.read_text(encoding="utf-8"))["account_external_flows"] == raw
+    assert raw == {"transactions": []}
+
+
+@pytest.mark.parametrize("raw", [None, [], (), False, 0])
+def test_non_mapping_flow_values_keep_default_normalization(tmp_path, raw):
+    report = {"schema_version": RUNTIME_REPORT_SCHEMA_VERSION, "account_external_flows": raw}
+    path = write_runtime_report_json(report, output_path=tmp_path / "non_mapping.json")
+    assert json.loads(path.read_text(encoding="utf-8"))["account_external_flows"] == ([] if raw == () else raw)
+
+
+def test_unrelated_cleanup_and_top_level_values_keep_default_json(tmp_path):
+    report = {
+        "schema_version": RUNTIME_REPORT_SCHEMA_VERSION, "runtime_target": {}, "errors": [],
+        "top_null": None, "top_blank": " ", "top_tuple": (),
+        "summary": {"none": None, "blank": " ", "list": [], "tuple": (), "dict": {},
+                    "false": False, "zero": 0, "symbols": ("SYNTH",), "path": Path("sample"),
+                    "time": datetime(2026, 10, 17, tzinfo=timezone.utc), "items": [None, "", {}, []]},
+        "diagnostics": {"none": None, "empty": [], "false": False},
+    }
+    original = deepcopy(report)
+    path = write_runtime_report_json(report, output_path=tmp_path / "defaults.json")
+    expected = {
+        "schema_version": RUNTIME_REPORT_SCHEMA_VERSION, "runtime_target": {}, "errors": [],
+        "top_null": None, "top_blank": " ", "top_tuple": [],
+        "summary": {"false": False, "zero": 0, "symbols": ["SYNTH"], "path": "sample",
+                    "time": "2026-10-17T00:00:00Z", "items": [None, "", {}, []]},
+        "diagnostics": {"false": False},
+    }
+    assert path.read_text(encoding="utf-8") == json.dumps(expected, ensure_ascii=False, indent=2, sort_keys=True)
+    assert report == original

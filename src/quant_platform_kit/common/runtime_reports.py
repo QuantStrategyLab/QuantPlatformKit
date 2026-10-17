@@ -317,7 +317,15 @@ def _coerce_datetime(value: datetime | str | None) -> datetime | None:
 def _normalize_mapping(mapping: Mapping[str, Any] | None) -> dict[str, Any]:
     if not mapping:
         return {}
-    return {str(key): _normalize_value(value) for key, value in mapping.items()}
+    normalized = {str(key): _normalize_value(value) for key, value in mapping.items()}
+    if mapping.get("schema_version") == RUNTIME_REPORT_SCHEMA_VERSION:
+        flows = mapping.get("account_external_flows")
+        if isinstance(flows, Mapping):
+            transactions = flows.get("transactions")
+            if isinstance(transactions, list) and not transactions:
+                # An explicit empty raw list is distinct from missing or unknown.
+                normalized["account_external_flows"]["transactions"] = []
+    return normalized
 
 
 def _normalize_runtime_target(value: RuntimeTarget | Mapping[str, Any] | None) -> dict[str, Any]:
