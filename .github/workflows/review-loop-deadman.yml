@@ -1,0 +1,36 @@
+name: Reusable Advisory Review Dead-man
+on:
+  workflow_call:
+    inputs:
+      lanes_json:
+        required: true
+        type: string
+      threshold:
+        required: false
+        type: string
+        default: '3'
+permissions:
+  contents: read
+  actions: read
+  issues: write
+concurrency:
+  group: advisory-review-deadman-${{ github.repository }}
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/QuantPlatformKit
+          ref: feat/advisory-review-closed-loop
+          persist-credentials: false
+          path: review-runtime
+      - name: Check the caller's review jobs independently
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: review-runtime/src
+          REVIEW_MONITOR_LANES_JSON: ${{ inputs.lanes_json }}
+          REVIEW_DEADMAN_THRESHOLD: ${{ inputs.threshold }}
+        run: python -m quant_platform_kit.strategy_lifecycle.review_deadman

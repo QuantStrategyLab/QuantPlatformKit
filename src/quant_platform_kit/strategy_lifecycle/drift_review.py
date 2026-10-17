@@ -22,6 +22,7 @@ def _critical_drifts(domain: str) -> list[dict[str, Any]]:
                 "strategy_profile": item.strategy_profile,
                 "domain": item.domain,
                 "drift_score": item.drift_score,
+                "as_of": item.as_of.isoformat() if item.as_of is not None else None,
                 "context": {
                     "domain": item.domain,
                     "drift_score": item.drift_score,
