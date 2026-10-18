@@ -1,6 +1,7 @@
 """Hand-calculated, synthetic-only net-return path diagnostic acceptance."""
 
 import json
+import hashlib
 import math
 import os
 import subprocess
@@ -23,6 +24,95 @@ NEGATIVE = "longest_negative_net_return_run_observations"
 
 
 class NetPathDiagnosticsTests(unittest.TestCase):
+    def test_default_path_report_retains_frozen_digest(self):
+        # Captured from merged QPK dd17abb before this implementation.
+        report = build_net_path_diagnostics((-.5, 0., 1.)).to_dict()
+        explicit_off = build_net_path_diagnostics((-.5, 0., 1.),
+                                                  include_max_drawdown_recovery=False).to_dict()
+        self.assertEqual(report, explicit_off)
+        digest = hashlib.sha256(json.dumps(report, sort_keys=True, separators=(",", ":"),
+                                           allow_nan=False).encode()).hexdigest()
+        self.assertEqual(digest, "3a98afb871df4c5542c8ab82f14df655e77e882c013899800915c77014b3c2a5")
+
+    def test_opt_in_MDD_event_hand_cases(self):
+        # indices include initial NAV at0; durations are differences, not days.
+        cases = (
+            ((0., -.5, 1.), (1, 2, 3), (2, 1), False, None),
+            ((-.5, 0., 1.), (0, 1, 3), (3, 2), False, None),
+            ((0., -.5, 0.), (1, 2, None), (None, None), True, "right_censored"),
+            ((-.5, 0., 1., -.75, 3.), (3, 4, 5), (2, 1), False, None),
+            ((-.75, 3., -.5), (0, 1, 2), (2, 1), False, None),
+            ((0., .5, 0.), (None, None, None), (None, None), False, "no_drawdown"),
+            ((-.2, .25), (0, 1, None), (None, None), True, "right_censored"),
+            ((-.5, 1., -.5, 1.), (0, 1, 2), (2, 1), False, None),
+        )
+        for returns, indices, durations, censored, reason in cases:
+            with self.subTest(returns=returns):
+                base = build_net_path_diagnostics(returns).to_dict()
+                report = build_net_path_diagnostics(returns, include_max_drawdown_recovery=True)
+                self.assertEqual(report.to_dict()["metrics"][:4], base["metrics"])
+                for name, value in zip(("max_drawdown_peak_to_recovery_observations",
+                                        "max_drawdown_trough_to_recovery_observations"), durations):
+                    metric = report.metric(name)
+                    self.assertEqual(metric.value, value)
+                    self.assertEqual(metric.reason_code, reason)
+                    self.assertEqual(tuple(metric.details[k] for k in
+                                           ("peak_index", "trough_index", "recovery_index")), indices)
+                    self.assertEqual(metric.details["right_censored"], censored)
+                    self.assertEqual(metric.details["unit"], "return_observations")
+                    self.assertFalse(metric.details["calendar_duration_computed"])
+                    self.assertEqual(metric.details["window_end_index"], len(returns))
+                    self.assertEqual(metric.status, "COMPUTED" if value is not None else "UNCOMPUTABLE")
+                    if not censored:
+                        self.assertIsNone(metric.details["observed_peak_to_end_lower_bound"])
+                        self.assertIsNone(metric.details["observed_trough_to_end_lower_bound"])
+
+    def test_censored_lower_bounds_are_not_recovery_durations(self):
+        report = build_net_path_diagnostics((-.5,), include_max_drawdown_recovery=True)
+        for name in ("max_drawdown_peak_to_recovery_observations",
+                     "max_drawdown_trough_to_recovery_observations"):
+            metric = report.metric(name)
+            self.assertIsNone(metric.value)
+            self.assertIsNone(metric.details["recovery_index"])
+            self.assertEqual(metric.details["observed_peak_to_end_lower_bound"], 1)
+            self.assertEqual(metric.details["observed_trough_to_end_lower_bound"], 0)
+
+    def test_deepest_event_recovery_is_independent_of_later_terminal_censor(self):
+        report = build_net_path_diagnostics((-.75, 3., -.5), include_max_drawdown_recovery=True)
+        self.assertTrue(report.metric(TERMINAL).details["right_censored"])
+        metric = report.metric("max_drawdown_peak_to_recovery_observations")
+        self.assertEqual(metric.value, 2)
+        self.assertFalse(metric.details["right_censored"])
+
+    def test_opt_in_keeps_exact_wealth_without_float_overflow(self):
+        report = build_net_path_diagnostics((1e300, 1e300, -.5, 1.), include_max_drawdown_recovery=True)
+        metric = report.metric("max_drawdown_trough_to_recovery_observations")
+        self.assertEqual(metric.value, 1)
+        self.assertEqual((metric.details["peak_index"], metric.details["trough_index"],
+                          metric.details["recovery_index"]), (2, 3, 4))
+
+    def test_opt_in_rejects_bad_points_without_dropping(self):
+        for bad in (None, True, float("nan"), float("inf"), -float("inf"), -1., -1.01):
+            with self.subTest(bad=bad), self.assertRaises(ResearchInputError):
+                build_net_path_diagnostics((.1, bad, .1), include_max_drawdown_recovery=True)
+        for flag in (0, 1, None, "true"):
+            with self.subTest(flag=flag), self.assertRaises(ResearchInputError):
+                build_net_path_diagnostics((-.5, 1.), include_max_drawdown_recovery=flag)
+
+    def test_opt_in_arithmetic_failure_never_invents_event_or_censor(self):
+        with patch("quant_platform_kit.research_stats.net_path_diagnostics.Fraction",
+                   side_effect=OverflowError("synthetic")):
+            report = build_net_path_diagnostics((-.5, 0., -.25), include_max_drawdown_recovery=True)
+        for name in ("max_drawdown_peak_to_recovery_observations",
+                     "max_drawdown_trough_to_recovery_observations"):
+            metric = report.metric(name)
+            self.assertIsNone(metric.value)
+            self.assertEqual(metric.reason_code, "numerical_failure")
+            self.assertIsNone(metric.details["peak_index"])
+            self.assertIsNone(metric.details["right_censored"])
+        self.assertEqual(report.metric(NEGATIVE).value, 1)
+
+
     def assert_counts(self, returns, underwater, recovered, terminal, negative):
         report = build_net_path_diagnostics(returns)
         self.assertEqual(report.observations, len(returns))

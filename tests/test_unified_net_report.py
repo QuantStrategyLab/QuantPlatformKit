@@ -15,6 +15,45 @@ from quant_platform_kit.research_stats.unified_report import (
 
 
 class UnifiedNetReportTests(unittest.TestCase):
+    def test_recovery_opt_in_with_missing_rf_retains_censored_nulls(self):
+        report = build_unified_net_report((-.5,), include_max_drawdown_recovery=True,
+                                          sharpe_basis="net_wealth_excess_sharpe_v2",
+                                          calendar_id="SYNTHETIC", periods_per_year=252)
+        self.assertEqual(report.metric("sharpe_per_period").reason_code, "missing_risk_free_returns")
+        self.assertEqual(report.metric("max_drawdown").value, -.5)
+        for name in ("max_drawdown_peak_to_recovery_observations",
+                     "max_drawdown_trough_to_recovery_observations"):
+            metric = report.metric(name)
+            self.assertIsNone(metric.value)
+            self.assertEqual(metric.reason_code, "right_censored")
+            self.assertEqual(metric.details["observed_trough_to_end_lower_bound"], 0)
+        payload = report.to_dict()
+        self.assertIsNone(next(m for m in payload["metrics"] if m["name"] ==
+                              "max_drawdown_peak_to_recovery_observations")["value"])
+
+    def test_recovery_observation_intervals_are_not_annualized(self):
+        for periods in (252, 365):
+            with self.subTest(periods=periods):
+                report = build_unified_net_report((-.5, 0., 1.), periods_per_year=periods,
+                                                  include_max_drawdown_recovery=True)
+                self.assertEqual(report.metric("max_drawdown_peak_to_recovery_observations").value, 3)
+        for flag in (0, 1, "yes", None):
+            with self.subTest(flag=flag), self.assertRaises(ResearchInputError):
+                build_unified_net_report((-.5, 1.), include_max_drawdown_recovery=flag)
+
+    def test_recovery_opt_in_uses_net_wealth_never_excess(self):
+        net = (-.5, 0., 1.)
+        options = dict(periods_per_year=252, calendar_id="SYNTHETIC",
+                       sharpe_basis="net_wealth_excess_sharpe_v2",
+                       risk_free_returns=(.01,) * 3, risk_free_source="synthetic")
+        base = build_unified_net_report(net, **options).to_dict()
+        report = build_unified_net_report(net, include_max_drawdown_recovery=True, **options)
+        self.assertEqual(report.to_dict()["metrics"][:-2], base["metrics"])
+        self.assertEqual(report.metric("max_drawdown_peak_to_recovery_observations").value, 3)
+        self.assertEqual(report.metric("max_drawdown_trough_to_recovery_observations").value, 2)
+        self.assertEqual(report.metric("max_drawdown_peak_to_recovery_observations").details["unit"],
+                         "return_observations")
+
     def test_c1_excess_below_minus_one_is_not_a_wealth_return(self):
         net = (.5, .7, -.995) * 12
         explicit = build_unified_net_report(

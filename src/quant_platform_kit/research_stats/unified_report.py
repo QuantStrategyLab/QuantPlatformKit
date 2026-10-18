@@ -208,6 +208,7 @@ def build_unified_net_report(
     risk_free_returns: Iterable[object] | None = None,
     risk_free_source: str | None = None,
     calendar_id: str | None = None,
+    include_max_drawdown_recovery: bool = False,
 ) -> UnifiedNetReport:
     """Summarize validated same-period net returns; never fill/drop observations.
 
@@ -233,9 +234,17 @@ def build_unified_net_report(
     Sharpe null threshold, not a risk-free return. No rf is inferred from cash.
     Supplied TrialEvidence must summarize the same excess-return convention;
     as with legacy evidence, its ledger provenance is caller asserted only.
+
+    Optional max-drawdown recovery metrics reuse the exact net-path diagnostic
+    contract on actual net returns, never excess returns. They are observation
+    index differences with event/censor details, not calendar durations. Legacy
+    default reports and existing metric values/details are unchanged. Full
+    details survive to_dict; the existing metric_entries projection omits them.
     """
     if type(include_outcome_diagnostics) is not bool:
         raise ResearchInputError("include_outcome_diagnostics must be boolean")
+    if type(include_max_drawdown_recovery) is not bool:
+        raise ResearchInputError("include_max_drawdown_recovery must be boolean")
     annualization = None if periods_per_year is None else positive_int(periods_per_year, "periods_per_year")
     net = simple_returns(net_returns, "net_returns")
     if not net:
@@ -345,6 +354,12 @@ def build_unified_net_report(
             calmar = (_computed("net_calmar_ratio", ratio, **details) if math.isfinite(ratio) else
                       _missing("net_calmar_ratio", "numerical_failure", **details))
         metrics += (cagr, calmar)
+    if include_max_drawdown_recovery:
+        from quant_platform_kit.research_stats.net_path_diagnostics import build_net_path_diagnostics
+        path = build_net_path_diagnostics(net, include_max_drawdown_recovery=True)
+        metrics += tuple(path.metric(name) for name in (
+            "max_drawdown_peak_to_recovery_observations",
+            "max_drawdown_trough_to_recovery_observations"))
     if explicit:
         inference = {"sharpe_per_period", "probabilistic_sharpe_ratio", "deflated_sharpe_ratio",
                      "minimum_track_record_periods"}
