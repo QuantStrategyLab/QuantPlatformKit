@@ -1,6 +1,6 @@
 # Research Promotion HITL Cycle Implementation Plan
 
-> **For agentic workers:** Implement task-by-task. No live authority.
+> No live authority.
 
 **Goal:** Wire drift → bounded re-optimization → non-live shadow evidence → human notify/decide, without granting live trading authority.
 
