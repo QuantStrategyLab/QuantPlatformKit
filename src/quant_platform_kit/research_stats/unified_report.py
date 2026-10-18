@@ -102,14 +102,15 @@ def _computed(name: str, value: float, **details: object) -> StatResult:
     return StatResult(name, "COMPUTED", value, details=details)
 
 
-def _psr(returns: tuple[float, ...], benchmark: float, floor: int) -> StatResult:
+def _psr(returns: tuple[float, ...], benchmark: float, floor: int, *, excess_basis: bool = False) -> StatResult:
     try:
-        return probabilistic_sharpe_ratio(returns, sr_benchmark=benchmark, min_observations=floor)
+        return probabilistic_sharpe_ratio(returns, sr_benchmark=benchmark, min_observations=floor,
+                                         **({"input_basis": "excess_returns"} if excess_basis else {}))
     except (ArithmeticError, ValueError):
         return _missing("probabilistic_sharpe_ratio", "numerical_failure")
 
 
-def _dsr(returns: tuple[float, ...], trials: TrialEvidence | None, floor: int) -> StatResult:
+def _dsr(returns: tuple[float, ...], trials: TrialEvidence | None, floor: int, *, excess_basis: bool = False) -> StatResult:
     name = "deflated_sharpe_ratio"
     if trials is None:
         return _missing(name, "missing_trial_evidence")
@@ -121,7 +122,7 @@ def _dsr(returns: tuple[float, ...], trials: TrialEvidence | None, floor: int) -
         threshold = expected_max_sharpe(trials.sharpe_variance, trials.cumulative_total)
         if not threshold.computed:
             return _missing(name, threshold.reason_code or "uncomputable", **details)
-        result = _psr(returns, threshold.value, floor)
+        result = _psr(returns, threshold.value, floor, excess_basis=excess_basis)
         details.update(result.details)
         details["expected_max_sharpe"] = threshold.value
         return StatResult(name, result.status, result.value, result.reason_code, details)
@@ -285,9 +286,9 @@ def build_unified_net_report(
         except (ArithmeticError, ValueError):
             sharpe = _missing("sharpe_per_period", "numerical_failure")
     psr = (_missing("probabilistic_sharpe_ratio", "missing_risk_free_returns") if excess is None
-           else _psr(excess, benchmark, floor))
+           else _psr(excess, benchmark, floor, excess_basis=explicit))
     dsr = (_missing("deflated_sharpe_ratio", "missing_risk_free_returns") if excess is None
-           else _dsr(excess, trials, floor))
+           else _dsr(excess, trials, floor, excess_basis=explicit))
     mintrl = _mintrl(psr, benchmark, level, floor)
     # Each observation has mass 1/n. Integrate exactly the worst 5% mass,
     # splitting the boundary observation rather than rounding up its count.

@@ -15,6 +15,26 @@ from quant_platform_kit.research_stats.unified_report import (
 
 
 class UnifiedNetReportTests(unittest.TestCase):
+    def test_c1_excess_below_minus_one_is_not_a_wealth_return(self):
+        net = (.5, .7, -.995) * 12
+        explicit = build_unified_net_report(
+            net, periods_per_year=252, calendar_id="SYNTHETIC",
+            sharpe_basis="net_wealth_excess_sharpe_v2", risk_free_returns=(.01,) * 36,
+            risk_free_source="synthetic-c1", trials=TrialEvidence(3, .02, "a" * 64))
+        self.assertAlmostEqual(explicit.metric("probabilistic_sharpe_ratio").value, .6695684362365747)
+        for name in ("probabilistic_sharpe_ratio", "deflated_sharpe_ratio", "minimum_track_record_periods"):
+            self.assertTrue(explicit.metric(name).computed, name)
+        legacy = build_unified_net_report(net, periods_per_year=252)
+        for name in ("net_log_growth_per_period", "net_cagr", "max_drawdown"):
+            self.assertEqual(explicit.metric(name).value, legacy.metric(name).value)
+
+    def test_c1_does_not_relax_raw_wealth_or_rf_bounds(self):
+        options = dict(periods_per_year=252, calendar_id="SYNTHETIC",
+                       sharpe_basis="net_wealth_excess_sharpe_v2", risk_free_source="synthetic-c1")
+        for net, rf in (((.5, .7, -1.), (.01,)*3), ((.5, .7, -.995), (-1.,)*3)):
+            with self.subTest(net=net, rf=rf), self.assertRaises(ResearchInputError):
+                build_unified_net_report(net, risk_free_returns=rf, **options)
+
     def test_legacy_report_retains_frozen_base_digest(self):
         # Captured from QPK 187c429, before the explicit-basis implementation.
         report = build_unified_net_report((.01, -.01, .02), min_observations=3,

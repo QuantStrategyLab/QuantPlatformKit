@@ -32,6 +32,49 @@ def _manual_moments(xs: list[float]) -> tuple[float, float, float]:
     return mean / sd, m3 / m2 ** 1.5, m4 / m2 ** 2
 
 
+@pytest.mark.parametrize("loss", [-1., -1.005])
+def test_explicit_excess_inference_keeps_below_wealth_bound_observations(loss):
+    xs = [.49, .69, loss] * 12
+    sr, skew, kurt = _manual_moments(xs)
+    variance = 1 - skew * sr + (kurt - 1) / 4 * sr * sr
+    psr = probabilistic_sharpe_ratio(xs, input_basis="excess_returns")
+    assert psr.computed
+    assert psr.value == pytest.approx(NormalDist().cdf(sr * math.sqrt(35) / math.sqrt(variance)))
+    assert psr.details["observations"] == 36
+    assert psr.details["sharpe_per_period"] == pytest.approx(sr)
+    assert psr.details["input_basis"] == "excess_returns"
+    trials = [-.1, 0., .1]
+    threshold = expected_max_sharpe(.01, 3).value
+    dsr = deflated_sharpe_ratio(xs, trials, input_basis="excess_returns")
+    assert dsr.computed
+    assert dsr.value == pytest.approx(NormalDist().cdf((sr-threshold)*math.sqrt(35)/math.sqrt(variance)))
+    # Opt-in changes only the statistical input domain; default wealth checks stay strict.
+    for result in (probabilistic_sharpe_ratio(xs), deflated_sharpe_ratio(xs, trials)):
+        assert result.value is None and result.reason_code == "invalid_input"
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -float("inf"), True, "-.1"])
+def test_excess_mode_rejects_nonfinite_or_nonnumeric_without_dropping(bad):
+    xs = [.49, .69, -1.005] * 12 + [bad]
+    for result in (probabilistic_sharpe_ratio(xs, input_basis="excess_returns"),
+                   deflated_sharpe_ratio(xs, [-.1, 0., .1], input_basis="excess_returns")):
+        assert result.value is None and result.reason_code == "invalid_input"
+
+
+@pytest.mark.parametrize("xs, reason", [([-1.2]*36, "zero_variance"),
+                                       ([.49, .69, -1.005], "insufficient_observations")])
+def test_excess_mode_preserves_undefined_and_insufficient_semantics(xs, reason):
+    for result in (probabilistic_sharpe_ratio(xs, input_basis="excess_returns"),
+                   deflated_sharpe_ratio(xs, [-.1, 0., .1], input_basis="excess_returns")):
+        assert result.value is None and result.reason_code == reason
+
+
+def test_unknown_excess_basis_does_not_bypass_validation():
+    for result in (probabilistic_sharpe_ratio([.1]*36, input_basis="unknown"),
+                   deflated_sharpe_ratio([.1]*36, [-.1, 0., .1], input_basis="unknown")):
+        assert result.value is None and result.reason_code == "invalid_input"
+
+
 def test_psr_matches_independent_closed_form() -> None:
     xs = _synthetic()
     sr, skew, kurt = _manual_moments(xs)
