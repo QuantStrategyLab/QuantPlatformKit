@@ -24,7 +24,9 @@ import hashlib
 import json
 import math
 import os
+import stat
 import tempfile
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
@@ -176,7 +178,19 @@ class PerformanceStore:
     def _write_local_json(self, key: str, payload: Mapping[str, Any]) -> None:
         path = self._local_path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                if path.exists():
+                    os.fchmod(handle.fileno(), stat.S_IMODE(path.stat().st_mode))
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     # ── generic read/write ───────────────────────────────────────
 
