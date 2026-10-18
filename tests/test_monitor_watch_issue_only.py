@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -21,7 +22,6 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 JOB = REPO.parent
 GUARD = {"denied": [], "external_attempts": 0, "outside_write_attempts": 0}
-sys.path.insert(0, str(REPO / "src"))
 
 
 def check_path(value, *, write=False):
@@ -63,9 +63,6 @@ def audit(event, args):
         raise
 
 
-sys.addaudithook(audit)
-
-
 def modules():
     return (
         importlib.import_module("quant_platform_kit.strategy_lifecycle.watch.runner"),
@@ -74,6 +71,8 @@ def modules():
 
 
 class ImportTests(unittest.TestCase):
+    __test__ = False  # Run below in the guarded child, never in pytest's process.
+
     def test_actual_parent_namespace_and_two_entrypoints(self):
         runner, watch = modules()
         for name in ["quant_platform_kit", "quant_platform_kit.strategy_lifecycle", runner.__name__, watch.__name__]:
@@ -178,6 +177,8 @@ class FakeQueryGH(FakeGH):
 
 
 class MonitorWatchTests(unittest.TestCase):
+    __test__ = False
+
     @classmethod
     def setUpClass(cls):
         cls.runner, cls.watch = modules()
@@ -406,7 +407,32 @@ class MonitorWatchTests(unittest.TestCase):
                 self.assertEqual(len(io.query_calls), 2)
 
 
+class IsolatedAcceptanceTest(unittest.TestCase):
+    def test_original_cases_run_in_the_guarded_child(self):
+        with tempfile.TemporaryDirectory(prefix=".watch-acceptance-", dir=JOB) as tmp:
+            result = subprocess.run(
+                [sys.executable, "-I", "-S", "-B", str(Path(__file__).resolve())],
+                cwd=REPO, env={"TZ": "UTC", "TMPDIR": tmp},
+                capture_output=True, text=True, timeout=60,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        summary = json.loads(result.stdout.splitlines()[-1])
+        expected = sum(unittest.defaultTestLoader.loadTestsFromTestCase(cls).countTestCases()
+                       for cls in (ImportTests, MonitorWatchTests))
+        self.assertEqual(summary["tests_run"], expected)
+        self.assertEqual((summary["failures"], summary["errors"], summary["skips"]), (0, 0, 0))
+        self.assertEqual(summary["guard"], {"denied": [], "external_attempts": 0,
+                                           "outside_write_attempts": 0})
+        print(json.dumps({"isolated_monitor_acceptance": summary}, sort_keys=True))
+
+
+def load_tests(loader, tests, pattern):
+    return loader.loadTestsFromTestCase(IsolatedAcceptanceTest)
+
+
 if __name__ == "__main__":
+    sys.path.insert(0, str(REPO / "src"))
+    sys.addaudithook(audit)
     import_only = "--import-only" in sys.argv
     suite = unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(ImportTests)])
     if not import_only:
