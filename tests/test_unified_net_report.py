@@ -1,6 +1,8 @@
 """B3 analytic and synthetic-only research report acceptance."""
 
 import math
+import hashlib
+import json
 import unittest
 from dataclasses import replace
 from statistics import NormalDist, stdev
@@ -13,6 +15,95 @@ from quant_platform_kit.research_stats.unified_report import (
 
 
 class UnifiedNetReportTests(unittest.TestCase):
+    def test_c1_excess_below_minus_one_is_not_a_wealth_return(self):
+        net = (.5, .7, -.995) * 12
+        explicit = build_unified_net_report(
+            net, periods_per_year=252, calendar_id="SYNTHETIC",
+            sharpe_basis="net_wealth_excess_sharpe_v2", risk_free_returns=(.01,) * 36,
+            risk_free_source="synthetic-c1", trials=TrialEvidence(3, .02, "a" * 64))
+        self.assertAlmostEqual(explicit.metric("probabilistic_sharpe_ratio").value, .6695684362365747)
+        for name in ("probabilistic_sharpe_ratio", "deflated_sharpe_ratio", "minimum_track_record_periods"):
+            self.assertTrue(explicit.metric(name).computed, name)
+        legacy = build_unified_net_report(net, periods_per_year=252)
+        for name in ("net_log_growth_per_period", "net_cagr", "max_drawdown"):
+            self.assertEqual(explicit.metric(name).value, legacy.metric(name).value)
+
+    def test_c1_does_not_relax_raw_wealth_or_rf_bounds(self):
+        options = dict(periods_per_year=252, calendar_id="SYNTHETIC",
+                       sharpe_basis="net_wealth_excess_sharpe_v2", risk_free_source="synthetic-c1")
+        for net, rf in (((.5, .7, -1.), (.01,)*3), ((.5, .7, -.995), (-1.,)*3)):
+            with self.subTest(net=net, rf=rf), self.assertRaises(ResearchInputError):
+                build_unified_net_report(net, risk_free_returns=rf, **options)
+
+    def test_legacy_report_retains_frozen_base_digest(self):
+        # Captured from QPK 187c429, before the explicit-basis implementation.
+        report = build_unified_net_report((.01, -.01, .02), min_observations=3,
+                                          periods_per_year=252).to_dict()
+        digest = hashlib.sha256(json.dumps(report, sort_keys=True, separators=(",", ":"),
+                                           allow_nan=False).encode()).hexdigest()
+        self.assertEqual(digest, "60ef62cd382a5bf177b18b13d2cbe512fe4acd07b4f659e4f690869b31a1a015")
+
+    def test_explicit_rf_contract_rejects_silent_assumptions(self):
+        base = dict(sharpe_basis="net_wealth_excess_sharpe_v2", calendar_id="XNYS",
+                    periods_per_year=252, risk_free_returns=(.001,) * 3,
+                    risk_free_source="synthetic")
+        for change in ({"risk_free_returns": (.001,)}, {"risk_free_source": None},
+                       {"calendar_id": None}, {"periods_per_year": None},
+                       {"sharpe_basis": "unknown"}, {"risk_free_returns": (float("nan"),) * 3},
+                       {"sharpe_basis": "legacy_net_rf0_v1"}):
+            with self.subTest(change=change), self.assertRaises(ResearchInputError):
+                build_unified_net_report((.01, -.01, .02), **(base | change))
+
+    def test_explicit_constant_excess_and_short_sample_stay_undefined(self):
+        options = dict(sharpe_basis="net_wealth_excess_sharpe_v2", calendar_id="XNYS",
+                       periods_per_year=252, risk_free_source="synthetic")
+        constant = build_unified_net_report((.001,) * 30, risk_free_returns=(.001,) * 30, **options)
+        self.assertIsNone(constant.metric("sharpe_per_period").value)
+        self.assertEqual(constant.metric("sharpe_per_period").reason_code, "zero_variance")
+        self.assertIsNone(constant.metric("net_calmar_ratio").value)
+        short = build_unified_net_report((.01, -.01, .02), risk_free_returns=(0.,) * 3, **options)
+        self.assertEqual(short.metric("sharpe_per_period").reason_code, "insufficient_observations")
+        self.assertEqual(short.metric("deflated_sharpe_ratio").reason_code, "missing_trial_evidence")
+
+    def test_explicit_excess_sharpe_does_not_change_net_wealth(self):
+        net = (.01, -.01, .02)
+        legacy = build_unified_net_report(net, min_observations=3, periods_per_year=252)
+        report = build_unified_net_report(
+            net, min_observations=3, periods_per_year=252,
+            sharpe_basis="net_wealth_excess_sharpe_v2", calendar_id="XNYS",
+            risk_free_returns=(.001,) * 3, risk_free_source="synthetic-period-rf")
+        self.assertAlmostEqual(report.metric("sharpe_per_period").value, 1.7 / math.sqrt(21))
+        for name in ("net_log_growth_per_period", "net_cagr", "max_drawdown"):
+            self.assertEqual(report.metric(name).value, legacy.metric(name).value)
+        self.assertNotEqual(report.to_dict(), legacy.to_dict())
+        self.assertEqual(report.metric("sharpe_per_period").details["risk_free_source"],
+                         "synthetic-period-rf")
+
+    def test_explicit_missing_rf_only_disables_sharpe_inference(self):
+        report = build_unified_net_report(
+            (.01, -.01, .02), min_observations=3, periods_per_year=252,
+            sharpe_basis="net_wealth_excess_sharpe_v2", calendar_id="XNYS")
+        for name in ("sharpe_per_period", "probabilistic_sharpe_ratio", "deflated_sharpe_ratio",
+                     "minimum_track_record_periods"):
+            self.assertIsNone(report.metric(name).value)
+            self.assertEqual(report.metric(name).reason_code, "missing_risk_free_returns")
+        self.assertTrue(report.metric("net_cagr").computed)
+        self.assertTrue(report.metric("max_drawdown").computed)
+
+    def test_variable_rf_is_shared_by_all_sharpe_inference_only(self):
+        net = (.01, -.01, .02) * 12
+        rf = (.001, .002, -.001) * 12
+        trials = TrialEvidence(3, .02, "a" * 64)
+        explicit = build_unified_net_report(
+            net, trials=trials, periods_per_year=252, calendar_id="synthetic",
+            sharpe_basis="net_wealth_excess_sharpe_v2", risk_free_returns=rf,
+            risk_free_source="synthetic-varying-rf")
+        oracle = build_unified_net_report(tuple(r-f for r, f in zip(net, rf)), trials=trials)
+        for name in ("sharpe_per_period", "probabilistic_sharpe_ratio", "deflated_sharpe_ratio",
+                     "minimum_track_record_periods"):
+            self.assertEqual(explicit.metric(name).value, oracle.metric(name).value)
+            self.assertEqual(explicit.metric(name).status, oracle.metric(name).status)
+
     def test_analytic_growth_cost_drag_sharpe_and_drawdown(self):
         net = (.1, -.1, .05)
         gross = (.11, -.08, .05)
