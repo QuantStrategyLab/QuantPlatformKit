@@ -2190,3 +2190,164 @@ class ResearchTrialLedgerStoreTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResearchCostFactsTest(unittest.TestCase):
+    """C01-C11 synthetic cost facts, independent of any broker statement."""
+
+    def packet(self):
+        from quant_platform_kit.strategy_lifecycle import contracts as c
+        days = (
+            _mark_day(date(2026, 1, 2), 699., 30., 300., -100., 1., 999., 960.),
+            _mark_day(date(2026, 1, 3), 758.4, 25., 300., 60., .6, 1058.4, 999.),
+            _mark_day(date(2026, 1, 4), 1030.9, 0., 0., 275., 2.5, 1030.9, 1058.4),
+        )
+        ledger = dataclasses.replace(_ledger(), initial_session_date=date(2026, 1, 1),
+            initial_nav=960., initial_cash=800., initial_positions=(ResearchPositionMark("SOXL", 20., 160.),),
+            days=days, cost_source=c.RESEARCH_AVERAGE_COST_POLICY)
+        opening = {"session": "2026-01-01", "cash": 800., "positions": {
+            "SOXL": {"quantity": 20., "total_basis": 160., "mark": 8.}}}
+        observations = [("BUY", 10., 10., 1., 101., 0., 0., 30., 261., 0.),
+                        ("SELL", 5., 12., .6, 0., 43.5, 15.9, 25., 217.5, 15.9),
+                        ("SELL", 25., 11., 2.5, 0., 217.5, 55., 0., 0., 70.9)]
+        facts = dict(policy_id=c.RESEARCH_AVERAGE_COST_POLICY, source_label=c.RESEARCH_NETTER_COST_SOURCE,
+            synthetic=True, synthetic_book_id="cost-book", currency="USD",
+            ledger_identity={"trial_id": ledger.trial_id, "run_id": ledger.run_id, "input_id": ledger.input_id},
+            opening_book=opening, coverage={"opening": "complete", "fills": "complete", "fees": "complete"},
+            corrections=[], late_fees=[], cutoff="2026-01-04", days=[])
+        for i, (side, q, price, fee, added, relieved, realized, held, basis, cum) in enumerate(observations, 1):
+            day = days[i-1].session_date.isoformat()
+            fill = dict(execution_id=f"fill-{i}", revision=1, fee_id=f"fee-{i}",
+                symbol="SOXL", side=side, quantity=q, price=price, fee=fee,
+                event_time=day, known_at=day, basis_added=added, basis_relieved=relieved,
+                realized_net=realized)
+            facts["days"].append(dict(session=day, fills=[fill], positions={
+                "SOXL": {"quantity": held, "total_basis": basis, "mark": price}},
+                realized_net_cumulative=cum))
+        return c, ledger, facts
+
+    def validate(self, c, ledger, facts, previous=None):
+        return c.validate_research_cost_facts(ledger, c.ResearchCostFacts.from_dict(facts), previous)
+
+    def test_cost_facts_buy_partial_sell_close_and_readback(self):
+        c, ledger, facts = self.packet()
+        original = ledger.to_dict()
+        result = self.validate(c, ledger, facts)
+        payload = result.to_dict()
+        self.assertEqual(payload["status"], "PASS_SCOPED_SYNTHETIC")
+        self.assertEqual(payload["fee_convention"], "BUY_COST_CAPITALIZED_SELL_COST_EXPENSED_ONCE")
+        self.assertAlmostEqual(payload["days"][0]["positions"]["SOXL"]["total_basis"], 261.)
+        self.assertAlmostEqual(payload["days"][1]["unrealized"], 82.5)
+        self.assertAlmostEqual(payload["days"][-1]["realized_net_cumulative"], 70.9)
+        self.assertEqual(self.validate(c, ledger, facts, result).to_dict(), payload)
+        self.assertEqual(c.ResearchCostValidationReceipt.from_dict(json.loads(json.dumps(payload))).to_dict(), payload)
+        self.assertEqual(ledger.to_dict(), original)  # legacy serialization untouched
+
+    def test_cost_facts_duplicate_fill_idempotent_conflict_and_fee_identity(self):
+        c, ledger, facts = self.packet()
+        expected = self.validate(c, ledger, facts).to_dict()
+        duplicate = json.loads(json.dumps(facts["days"][0]["fills"][0]))
+        facts["days"][0]["fills"].append(duplicate)
+        self.assertEqual(self.validate(c, ledger, facts).to_dict(), expected)
+        facts["days"][0]["fills"][-1]["price"] = 99.
+        with self.assertRaisesRegex(ValueError, "COST_FILL_CONFLICT"):
+            self.validate(c, ledger, facts)
+        _, _, facts = self.packet()
+        facts["days"][1]["fills"][0]["fee_id"] = "fee-1"
+        with self.assertRaisesRegex(ValueError, "COST_FEE_DUPLICATE"):
+            self.validate(c, ledger, facts)
+
+    def test_cost_facts_missing_source_opening_and_coverage_never_default_zero(self):
+        c, ledger, facts = self.packet()
+        for key in ("opening_book", "source_label"):
+            value = facts.pop(key)
+            self.assertEqual(self.validate(c, ledger, facts).status, "UNAVAILABLE")
+            facts[key] = value
+        facts["coverage"]["fees"] = "unknown"
+        self.assertEqual(self.validate(c, ledger, facts).status, "UNAVAILABLE")
+        facts["coverage"]["fees"] = "complete"
+        del facts["opening_book"]["positions"]["SOXL"]["total_basis"]
+        self.assertEqual(self.validate(c, ledger, facts).status, "UNAVAILABLE")
+
+    def test_cost_facts_corrections_and_late_fees_are_explicitly_unsupported(self):
+        c, ledger, facts = self.packet()
+        for field, reason in (("corrections", "COST_CORRECTION_UNSUPPORTED"),
+                              ("late_fees", "COST_LATE_FEE_UNSUPPORTED")):
+            facts[field] = [{"id": "unimplemented"}]
+            self.assertEqual(self.validate(c, ledger, facts).to_dict()["reason_codes"], [reason])
+            facts[field] = []
+        facts["days"][0]["fills"][0]["revision"] = 2
+        self.assertEqual(self.validate(c, ledger, facts).to_dict()["reason_codes"], ["COST_CORRECTION_UNSUPPORTED"])
+
+    def test_cost_facts_scope_temporal_binding_and_mutation_sensitivity(self):
+        c, ledger, facts = self.packet()
+        for key, value in (("synthetic", False), ("currency", ""), ("source_label", "BROKER")):
+            altered = json.loads(json.dumps(facts)); altered[key] = value
+            self.assertEqual(self.validate(c, ledger, altered).status, "UNAVAILABLE")
+        for key in ("total_basis", "quantity", "mark"):
+            altered = json.loads(json.dumps(facts)); altered["days"][1]["positions"]["SOXL"][key] += 1.
+            with self.assertRaises(ValueError): self.validate(c, ledger, altered)
+        for key in ("fee", "basis_relieved", "realized_net"):
+            altered = json.loads(json.dumps(facts)); altered["days"][1]["fills"][0][key] += .1
+            with self.assertRaises(ValueError): self.validate(c, ledger, altered)
+        facts["days"][0]["fills"][0]["known_at"] = "2099-01-01"
+        self.assertEqual(self.validate(c, ledger, facts).status, "UNAVAILABLE")
+
+    def test_cost_facts_prefix_and_snapshot_immutability(self):
+        c, ledger, facts = self.packet()
+        snapshot = c.ResearchCostFacts.from_dict(facts)
+        old = snapshot.to_dict()
+        facts["currency"] = "changed"
+        self.assertEqual(snapshot.to_dict(), old)
+        full = c.validate_research_cost_facts(ledger, snapshot).to_dict()
+        prefix = json.loads(json.dumps(old)); prefix["days"] = prefix["days"][:1]; prefix["cutoff"] = "2026-01-02"
+        short = self.validate(c, dataclasses.replace(ledger, days=ledger.days[:1]), prefix).to_dict()
+        self.assertEqual(full["days"][:1], short["days"])
+
+
+    def test_cost_facts_late_fee_after_partial_or_closed_book_never_rewrites_history(self):
+        c, ledger, facts = self.packet()
+        for length in (2, 3):
+            scoped = dataclasses.replace(ledger, days=ledger.days[:length])
+            supplied = json.loads(json.dumps(facts)); supplied["days"] = supplied["days"][:length]
+            supplied["cutoff"] = scoped.window_end.isoformat()
+            prior = self.validate(c, scoped, supplied)
+            before = prior.to_dict()
+            supplied["late_fees"] = [{"fee_id":"late-1", "execution_id":"fill-1", "amount":1.,
+                                     "currency":"USD", "known_at":scoped.window_end.isoformat()}]
+            self.assertEqual(self.validate(c, scoped, supplied).to_dict()["reason_codes"], ["COST_LATE_FEE_UNSUPPORTED"])
+            self.assertEqual(prior.to_dict(), before)
+
+    def test_cost_facts_identity_cutoff_missing_realized_and_receipt_integrity(self):
+        c, ledger, facts = self.packet()
+        for field in ("trial_id", "run_id", "input_id"):
+            altered = json.loads(json.dumps(facts)); altered["ledger_identity"][field] = "foreign"
+            with self.assertRaisesRegex(ValueError, "COST_LEDGER_BINDING"):
+                self.validate(c, ledger, altered)
+        altered = json.loads(json.dumps(facts)); altered["cutoff"] = "2099-01-01"
+        with self.assertRaisesRegex(ValueError, "COST_LEDGER_BINDING"):
+            self.validate(c, ledger, altered)
+        altered = json.loads(json.dumps(facts)); del altered["days"][1]["fills"][0]["realized_net"]
+        with self.assertRaises(ValueError): self.validate(c, ledger, altered)
+        valid = self.validate(c, ledger, facts).to_dict()
+        valid["ledger_hash"] = "0"*64
+        with self.assertRaisesRegex(ValueError, "COST_PREVIOUS_RECEIPT"):
+            self.validate(c, ledger, facts, c.ResearchCostValidationReceipt.from_dict(valid))
+        altered = json.loads(json.dumps(facts)); altered["synthetic_book_id"] = "foreign-book"
+        previous = self.validate(c, ledger, facts)
+        with self.assertRaisesRegex(ValueError, "COST_PREVIOUS_PREFIX"):
+            self.validate(c, ledger, altered, previous)
+
+
+    def test_cost_facts_previous_receipt_binds_opening_and_ledger_identity(self):
+        c, ledger, facts = self.packet()
+        receipt = self.validate(c, ledger, facts).to_dict()
+        for field in ("opening_book", "ledger_identity"):
+            altered = json.loads(json.dumps(receipt))
+            if field == "opening_book": altered[field]["cash"] += 1.
+            else: altered[field]["input_id"] = "other-input"
+            unsigned = {k:v for k,v in altered.items() if k != "receipt_id"}
+            altered["receipt_id"] = hashlib.sha256(json.dumps(unsigned, sort_keys=True,
+                separators=(",", ":"), allow_nan=False).encode()).hexdigest()
+            with self.assertRaisesRegex(ValueError, "COST_PREVIOUS_PREFIX"):
+                self.validate(c, ledger, facts, c.ResearchCostValidationReceipt.from_dict(altered))
