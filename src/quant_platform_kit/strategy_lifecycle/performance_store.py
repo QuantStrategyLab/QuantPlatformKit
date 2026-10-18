@@ -180,9 +180,11 @@ class PerformanceStore:
         path.parent.mkdir(parents=True, exist_ok=True)
         text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
         temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        created = False
         try:
-            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle = temporary.open("x", encoding="utf-8")
+            created = True
+            with handle:
                 if path.exists():
                     os.fchmod(handle.fileno(), stat.S_IMODE(path.stat().st_mode))
                 handle.write(text)
@@ -190,7 +192,8 @@ class PerformanceStore:
                 os.fsync(handle.fileno())
             os.replace(temporary, path)
         finally:
-            temporary.unlink(missing_ok=True)
+            if created:
+                temporary.unlink(missing_ok=True)
 
     # ── generic read/write ───────────────────────────────────────
 

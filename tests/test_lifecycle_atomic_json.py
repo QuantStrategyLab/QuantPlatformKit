@@ -49,7 +49,7 @@ class AtomicLocalJsonTests(unittest.TestCase):
 
         def interrupt(file, mode="r", *args, **kwargs):
             handle = actual_open(file, mode, *args, **kwargs)
-            if "w" in mode:
+            if any(flag in mode for flag in "wx"):
                 return Interrupted(handle)
             return handle
 
@@ -61,6 +61,16 @@ class AtomicLocalJsonTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.store._write_local_json(self.key, {"invalid": object()})
         self.assert_old_preserved()
+
+    def test_exclusive_create_collision_never_deletes_unowned_file(self):
+        value = module.uuid.UUID("00000000-0000-4000-8000-000000000001")
+        other = self.path.with_name(f".{self.path.name}.{value.hex}.tmp")
+        other.write_text("another owner's temporary file")
+        with patch.object(module.uuid, "uuid4", return_value=value):
+            with self.assertRaises(FileExistsError):
+                self.store._write_local_json(self.key, {"committed": "new"})
+        self.assertEqual(self.path.read_bytes(), self.old)
+        self.assertEqual(other.read_text(), "another owner's temporary file")
 
     def test_fsync_failure_preserves_committed_bytes(self):
         with patch.object(module.os, "fsync", side_effect=OSError("synthetic fsync failure")):
