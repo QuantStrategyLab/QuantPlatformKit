@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from statistics import NormalDist, stdev
 from typing import Iterable
@@ -203,6 +203,10 @@ def build_unified_net_report(
     confidence: float = .95, min_observations: int = DEFAULT_MIN_OBSERVATIONS,
     include_outcome_diagnostics: bool = False,
     periods_per_year: int | None = None,
+    sharpe_basis: str = "legacy_net_rf0_v1",
+    risk_free_returns: Iterable[object] | None = None,
+    risk_free_source: str | None = None,
+    calendar_id: str | None = None,
 ) -> UnifiedNetReport:
     """Summarize validated same-period net returns; never fill/drop observations.
 
@@ -219,6 +223,15 @@ def build_unified_net_report(
     An explicit ``periods_per_year`` opts into geometric net CAGR and Calmar
     on this exact sample. The initial NAV is not an extra return observation.
     No drawdown makes Calmar undefined, never infinity or an automatic pass.
+
+    The default is the byte-compatible legacy assumption of zero rf, not new
+    qualified excess-return evidence. Opt into net_wealth_excess_sharpe_v2
+    with an explicit calendar and periods_per_year. Its same-period simple rf
+    series is subtracted only for Sharpe inference, never from net wealth.
+    Missing rf disables only that inference. sr_benchmark is a dimensionless
+    Sharpe null threshold, not a risk-free return. No rf is inferred from cash.
+    Supplied TrialEvidence must summarize the same excess-return convention;
+    as with legacy evidence, its ledger provenance is caller asserted only.
     """
     if type(include_outcome_diagnostics) is not bool:
         raise ResearchInputError("include_outcome_diagnostics must be boolean")
@@ -226,6 +239,27 @@ def build_unified_net_report(
     net = simple_returns(net_returns, "net_returns")
     if not net:
         raise ResearchInputError("net_returns must be nonempty")
+    if sharpe_basis not in ("legacy_net_rf0_v1", "net_wealth_excess_sharpe_v2"):
+        raise ResearchInputError("unknown sharpe_basis")
+    explicit = sharpe_basis == "net_wealth_excess_sharpe_v2"
+    excess = net
+    if not explicit:
+        if risk_free_returns is not None or risk_free_source is not None or calendar_id is not None:
+            raise ResearchInputError("rf/calendar inputs require explicit v2 basis")
+    else:
+        if annualization is None or not isinstance(calendar_id, str) or not calendar_id.strip():
+            raise ResearchInputError("explicit basis requires periods_per_year and calendar_id")
+        if risk_free_returns is None:
+            if risk_free_source is not None:
+                raise ResearchInputError("risk_free_source without risk_free_returns")
+            excess = None
+        else:
+            rf = simple_returns(risk_free_returns, "risk_free_returns")
+            if len(rf) != len(net):
+                raise ResearchInputError("risk_free_returns must align exactly with net_returns")
+            if not isinstance(risk_free_source, str) or not risk_free_source.strip():
+                raise ResearchInputError("explicit rf requires risk_free_source")
+            excess = tuple(r - f for r, f in zip(net, rf))
     gross = None if gross_returns is None else simple_returns(gross_returns, "gross_returns")
     if gross is not None and (len(gross) != len(net) or any(
             b > a and b - a > _cost_roundoff_bound(a) for a, b in zip(gross, net))):
@@ -239,17 +273,21 @@ def build_unified_net_report(
         raise ResearchInputError("confidence must be in (.5, 1)")
     logs = tuple(math.log1p(r) for r in net)
     growth = _computed("net_log_growth_per_period", math.fsum(logs) / len(net))
-    if len(net) < floor:
+    if excess is None:
+        sharpe = _missing("sharpe_per_period", "missing_risk_free_returns")
+    elif len(net) < floor:
         sharpe = _missing("sharpe_per_period", "insufficient_observations")
     else:
         try:
-            std = stdev(net)
+            std = stdev(excess)
             sharpe = (_missing("sharpe_per_period", "zero_variance") if std == 0 else
-                      _computed("sharpe_per_period", (math.fsum(net) / len(net)) / std, ddof=1))
+                      _computed("sharpe_per_period", (math.fsum(excess) / len(net)) / std, ddof=1))
         except (ArithmeticError, ValueError):
             sharpe = _missing("sharpe_per_period", "numerical_failure")
-    psr = _psr(net, benchmark, floor)
-    dsr = _dsr(net, trials, floor)
+    psr = (_missing("probabilistic_sharpe_ratio", "missing_risk_free_returns") if excess is None
+           else _psr(excess, benchmark, floor))
+    dsr = (_missing("deflated_sharpe_ratio", "missing_risk_free_returns") if excess is None
+           else _dsr(excess, trials, floor))
     mintrl = _mintrl(psr, benchmark, level, floor)
     # Each observation has mass 1/n. Integrate exactly the worst 5% mass,
     # splitting the boundary observation rather than rounding up its count.
@@ -306,6 +344,16 @@ def build_unified_net_report(
             calmar = (_computed("net_calmar_ratio", ratio, **details) if math.isfinite(ratio) else
                       _missing("net_calmar_ratio", "numerical_failure", **details))
         metrics += (cagr, calmar)
+    if explicit:
+        inference = {"sharpe_per_period", "probabilistic_sharpe_ratio", "deflated_sharpe_ratio",
+                     "minimum_track_record_periods"}
+        metrics = tuple(replace(m, details={**m.details, "return_basis": sharpe_basis,
+                            "input_basis": "net_minus_same_period_rf" if m.name in inference
+                                           else "actual_net_simple_returns",
+                            "calendar_id": calendar_id, "periods_per_year": annualization,
+                            "risk_free_source": risk_free_source,
+                            "risk_free_frequency": "same_as_net_returns" if excess is not None else None})
+                        for m in metrics)
     return UnifiedNetReport(len(net), metrics,
                             trials.cumulative_total if trials else None,
                             trials.ledger_sha256 if trials else None)
