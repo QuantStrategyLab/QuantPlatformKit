@@ -287,6 +287,18 @@ def _small_account_hold_allows_overrun(
     return True
 
 
+
+def _observe(observer, key, value):
+    if observer is not None:
+        try:
+            observer.emit(key, value)
+        except BaseException:
+            try:
+                object.__setattr__(observer, "_faulted", True)
+            except BaseException:
+                pass
+
+
 def _runtime_risk_limits_rejection(
     limits: RuntimeRiskLimits,
     *,
@@ -299,74 +311,86 @@ def _runtime_risk_limits_rejection(
     current_weights: Mapping[str, float] | None = None,
     cash_only_execution: bool | None = None,
     hold_diagnostics: dict[str, Any] | None = None,
+    observer=None,
 ) -> tuple[str, str] | None:
-    """Return a fail-closed finding for an explicit runtime limit set."""
-    if type(limits) is not RuntimeRiskLimits:
-        return ("rejected:runtime_risk_limits", "invalid_runtime_risk_limits")
-
-    allowed = set(limits.allowed_symbols)
-    seen_symbols: set[str] = set()
-    for position in positions:
-        if type(position) is not PositionTarget:
+    _observe(observer, "limits", "ENTERED")
+    if observer is not None:
+        try:
+            same = limits is object.__getattribute__(observer, "_prepared_limits")
+        except BaseException:
+            same = None
+        _observe(observer, "same_prepared_object", same)
+    try:
+        """Return a fail-closed finding for an explicit runtime limit set."""
+        if type(limits) is not RuntimeRiskLimits:
             return ("rejected:runtime_risk_limits", "invalid_runtime_risk_limits")
-        if position.symbol not in allowed:
-            return ("rejected:runtime_risk_limits", "symbol_not_allowed")
-        if position.symbol in seen_symbols:
-            return ("rejected:runtime_risk_limits", "duplicate_symbol")
-        seen_symbols.add(position.symbol)
-        if position.target_weight is not None and position.target_value is not None:
-            return ("rejected:runtime_risk_limits", "conflicting_target_modes")
-        if position.target_weight is not None and (
-            _finite_number(position.target_weight) is None
-            or float(position.target_weight) < 0.0
+
+        allowed = set(limits.allowed_symbols)
+        seen_symbols: set[str] = set()
+        for position in positions:
+            if type(position) is not PositionTarget:
+                return ("rejected:runtime_risk_limits", "invalid_runtime_risk_limits")
+            if position.symbol not in allowed:
+                return ("rejected:runtime_risk_limits", "symbol_not_allowed")
+            if position.symbol in seen_symbols:
+                return ("rejected:runtime_risk_limits", "duplicate_symbol")
+            seen_symbols.add(position.symbol)
+            if position.target_weight is not None and position.target_value is not None:
+                return ("rejected:runtime_risk_limits", "conflicting_target_modes")
+            if position.target_weight is not None and (
+                _finite_number(position.target_weight) is None
+                or float(position.target_weight) < 0.0
+            ):
+                return ("rejected:runtime_risk_limits", "negative_weight_not_allowed")
+            if position.target_value is not None and not value_target_exposure_enforced:
+                return ("rejected:runtime_risk_limits", "value_target_enforcement_required")
+
+        if budgets:
+            return ("rejected:runtime_risk_limits", "budgets_not_supported")
+
+        if len(weights) > limits.max_positions:
+            return ("rejected:runtime_risk_limits", "max_positions_exceeded")
+
+        nominal_total = 0.0
+        effective_total = 0.0
+        overrun_codes: list[str] = []
+        for position, weight in weights:
+            factor = limits.product_leverage_factors.get(position.symbol)
+            nominal_cap = limits.nominal_caps.get(position.symbol)
+            if factor is None or nominal_cap is None:
+                return ("rejected:runtime_risk_limits", "asset_limit_missing")
+            if weight > nominal_cap:
+                overrun_codes.append("nominal_cap_exceeded")
+            nominal_total += weight
+            effective_total += weight * factor
+        if nominal_total > limits.total_nominal_exposure_cap + 1e-9:
+            overrun_codes.append("total_nominal_cap_exceeded")
+        if effective_total > limits.total_effective_exposure_cap + 1e-9:
+            overrun_codes.append("total_effective_cap_exceeded")
+        if not overrun_codes:
+            return None
+
+        primary = overrun_codes[0]
+        if _small_account_hold_allows_overrun(
+            limits=limits,
+            target_weights=weights,
+            overrun_codes=tuple(dict.fromkeys(overrun_codes)),
+            hold_policy=hold_policy,
+            verified_nav=verified_nav,
+            current_weights=current_weights,
+            cash_only_execution=cash_only_execution,
         ):
-            return ("rejected:runtime_risk_limits", "negative_weight_not_allowed")
-        if position.target_value is not None and not value_target_exposure_enforced:
-            return ("rejected:runtime_risk_limits", "value_target_enforcement_required")
-
-    if budgets:
-        return ("rejected:runtime_risk_limits", "budgets_not_supported")
-
-    if len(weights) > limits.max_positions:
-        return ("rejected:runtime_risk_limits", "max_positions_exceeded")
-
-    nominal_total = 0.0
-    effective_total = 0.0
-    overrun_codes: list[str] = []
-    for position, weight in weights:
-        factor = limits.product_leverage_factors.get(position.symbol)
-        nominal_cap = limits.nominal_caps.get(position.symbol)
-        if factor is None or nominal_cap is None:
-            return ("rejected:runtime_risk_limits", "asset_limit_missing")
-        if weight > nominal_cap:
-            overrun_codes.append("nominal_cap_exceeded")
-        nominal_total += weight
-        effective_total += weight * factor
-    if nominal_total > limits.total_nominal_exposure_cap + 1e-9:
-        overrun_codes.append("total_nominal_cap_exceeded")
-    if effective_total > limits.total_effective_exposure_cap + 1e-9:
-        overrun_codes.append("total_effective_cap_exceeded")
-    if not overrun_codes:
-        return None
-
-    primary = overrun_codes[0]
-    if _small_account_hold_allows_overrun(
-        limits=limits,
-        target_weights=weights,
-        overrun_codes=tuple(dict.fromkeys(overrun_codes)),
-        hold_policy=hold_policy,
-        verified_nav=verified_nav,
-        current_weights=current_weights,
-        cash_only_execution=cash_only_execution,
-    ):
-        if hold_diagnostics is not None:
-            hold_diagnostics["runtime_risk_small_account_hold"] = True
-            hold_diagnostics["runtime_risk_small_account_hold_overruns"] = tuple(
-                dict.fromkeys(overrun_codes)
-            )
-            hold_diagnostics["runtime_risk_small_account_hold_nav"] = float(verified_nav or 0.0)
-        return None
-    return ("rejected:runtime_risk_limits", primary)
+            if hold_diagnostics is not None:
+                hold_diagnostics["runtime_risk_small_account_hold"] = True
+                hold_diagnostics["runtime_risk_small_account_hold_overruns"] = tuple(
+                    dict.fromkeys(overrun_codes)
+                )
+                hold_diagnostics["runtime_risk_small_account_hold_nav"] = float(verified_nav or 0.0)
+            return None
+        return ("rejected:runtime_risk_limits", primary)
+    except BaseException:
+        _observe(observer, "limits", "RAISED")
+        raise
 
 def _canonical_cap_material(
     value: Any,
@@ -2333,6 +2357,7 @@ def _apply_risk_gate_static(
     now: datetime,
     engine_action: Any,
     engine_failed: bool,
+    observer=None,
 ) -> StrategyDecision:
     if type(decision) is not StrategyDecision:
         raise TypeError("invalid decision")
@@ -2612,11 +2637,16 @@ def _apply_risk_gate_static(
             current_weights=resolved_current_weights,
             cash_only_execution=cash_only_execution,
             hold_diagnostics=hold_diagnostics,
+            **({"observer": observer} if observer is not None else {}),
         )
+        _observe(observer, "limits", "RETURNED")
+        _observe(observer, "limits_check", "REJECT" if runtime_rejection is not None else "PASS")
         if runtime_rejection is not None:
             static_rejection = runtime_rejection
         elif hold_diagnostics:
             diagnostics.update(hold_diagnostics)
+    else:
+        _observe(observer, "limits", "NOT_REACHED")
     if (
         static_rejection is None
         and positions
@@ -2774,6 +2804,7 @@ def apply_risk_gate(
     small_account_hold_policy: SmallAccountRiskHoldPolicy | None = None,
     current_portfolio_weights: Mapping[str, float] | None = None,
     cash_only_execution: bool | None = None,
+    observer=None,
 ) -> StrategyDecision:
     """Apply hard checks and call RiskEngine.assess exactly once.
 
@@ -2784,6 +2815,7 @@ def apply_risk_gate(
     legacy value-target strategy is migrated, the default path records
     ``value_target_exposure_policy=legacy_compatibility`` in diagnostics.
     """
+    _observe(observer, "gate", "ENTERED")
     try:
         engine_action = build_risk_engine().assess(
             decision,
@@ -2797,7 +2829,7 @@ def apply_risk_gate(
         engine_failed = False
     now = _utc_now()
     try:
-        return _apply_risk_gate_static(
+        result = _apply_risk_gate_static(
             decision,
             risk_mandate_id=risk_mandate_id,
             product_leverage_factors=product_leverage_factors,
@@ -2816,14 +2848,25 @@ def apply_risk_gate(
             now=now,
             engine_action=engine_action,
             engine_failed=engine_failed,
+            **({"observer": observer} if observer is not None else {}),
         )
     except Exception:
-        return _reject(
+        result = _reject(
             decision,
             flag="rejected:invalid_risk_metadata",
             reason="invalid_risk_metadata",
             diagnostics={},
         )
+    _observe(observer, "gate", "RETURNED")
+    if observer is not None:
+        try:
+            outcome = result.diagnostics.get("risk_gate")
+        except BaseException:
+            outcome = None
+        if type(outcome) is str and outcome in ("APPROVE", "REJECT"):
+            _observe(observer, "gate_outcome", outcome)
+    return result
+
 
 def _reject(
     decision: StrategyDecision,

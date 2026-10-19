@@ -3556,3 +3556,99 @@ class EnrichDecisionRiskDiagnosticsTests(unittest.TestCase):
         enriched = enrich_decision_risk_diagnostics(decision, unrealized_pnl_pct=-0.25)
         result = apply_risk_gate(enriched)
         self.assertEqual(result.risk_flags, ("rejected:stop_loss",))
+
+
+class _DP01RiskObserver:
+    def __init__(self, prepared=None, failure=None):
+        self._prepared_limits = prepared
+        self.events = []
+        self.failure = failure
+        self._faulted = False
+
+    def emit(self, key, value):
+        assert type(value) in (str, bool, type(None))
+        if self.failure is not None:
+            raise self.failure
+        self.events.append((key, value))
+
+
+def test_dp01_risk_real_limits_same_object_and_early_reject_noninterference():
+    import json
+    from dataclasses import asdict
+    from datetime import datetime, timezone
+    from unittest.mock import Mock
+    from quant_platform_kit.risk import gate
+    fixed = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    limits = ApplyRiskGateTests._runtime_limits()
+    cases = [
+        (_decision(positions=(PositionTarget(symbol="SOXL", target_weight=.1),)), limits, False, "RETURNED", "PASS"),
+        (_decision(positions=(PositionTarget(symbol="SPY", target_weight=.1),)), limits, False, "RETURNED", "REJECT"),
+        (_decision(positions=(PositionTarget(symbol="SOXL", target_value=100),)), limits, True, "NOT_REACHED", None),
+        (_decision(positions=(PositionTarget(symbol="SOXL", target_weight=.1),)), None, False, "NOT_REACHED", None),
+        (StrategyDecision(diagnostics=[]), limits, False, "NOT_REACHED", None),
+    ]
+    for decision, applied_limits, enforce, stage, check in cases:
+        kwargs = dict(max_single_weight=1., portfolio_snapshot=_portfolio_snapshot(), runtime_risk_limits=applied_limits,
+                      enforce_value_target_exposure=enforce)
+        outputs = []
+        for observer in (None, _DP01RiskObserver(limits), _DP01RiskObserver(object()),
+                         _DP01RiskObserver(limits, RuntimeError("secret")),
+                         _DP01RiskObserver(limits, KeyboardInterrupt()), _DP01RiskObserver(limits, SystemExit())):
+            engine = Mock(wraps=RiskEngine())
+            with patch.object(gate, "_utc_now", return_value=fixed), patch.object(gate, "build_risk_engine", return_value=engine):
+                result = gate.apply_risk_gate(decision, **kwargs, **({"observer": observer} if observer is not None else {}))
+            assert engine.assess.call_count == 1
+            outputs.append(json.dumps(asdict(result), sort_keys=True, default=str))
+            if observer is not None and observer.failure is None:
+                facts = dict(observer.events)
+                assert facts["gate"] == "RETURNED"
+                assert facts["gate_outcome"] == result.diagnostics["risk_gate"]
+                assert facts["limits"] == stage
+                assert facts.get("limits_check") == check
+                if stage == "RETURNED":
+                    assert facts["same_prepared_object"] is (observer._prepared_limits is applied_limits)
+                else:
+                    assert "same_prepared_object" not in facts
+        assert len(set(outputs)) == 1
+
+
+def test_dp01_risk_business_soft_abort_and_none_forwarding_contract():
+    import pytest
+    from unittest.mock import Mock
+    from quant_platform_kit.risk import gate
+    decision = _decision(positions=(PositionTarget(symbol="SOXL", target_weight=.1),))
+    for error in (KeyboardInterrupt("business"), SystemExit("business")):
+        engine = Mock()
+        engine.assess.side_effect = error
+        observer = _DP01RiskObserver(failure=RuntimeError("observer"))
+        with patch.object(gate, "build_risk_engine", return_value=engine):
+            with pytest.raises(type(error)) as caught:
+                gate.apply_risk_gate(decision, observer=observer)
+        assert caught.value is error
+        engine.assess.assert_called_once()
+    with patch.object(gate, "_apply_risk_gate_static", return_value=decision) as static:
+        assert gate.apply_risk_gate(decision) is decision
+    assert "observer" not in static.call_args.kwargs
+
+
+def test_dp01_limits_body_exception_remains_original_fail_closed_result():
+    from quant_platform_kit.risk import gate
+    from dataclasses import replace, asdict
+    from datetime import datetime, timezone
+    # Inject a failure only in the real producer's set() dependency, while
+    # retaining the valid limits constructor and the real producer body.
+    limits = ApplyRiskGateTests._runtime_limits()
+    decision = _decision(positions=(PositionTarget(symbol="SOXL", target_weight=.1),))
+    observer = _DP01RiskObserver(limits)
+    def fail_at_limits(values=()):
+        if values is limits.allowed_symbols:
+            raise RuntimeError("synthetic limits dependency failure")
+        return set(values)
+    with (patch.object(gate, "_utc_now", return_value=datetime(2026, 10, 1, tzinfo=timezone.utc)),
+          patch.object(gate, "set", side_effect=fail_at_limits, create=True)):
+        plain = gate.apply_risk_gate(decision, runtime_risk_limits=limits)
+        observed = gate.apply_risk_gate(decision, runtime_risk_limits=limits, observer=observer)
+    assert asdict(observed) == asdict(plain)
+    assert dict(observer.events)["limits"] == "RAISED"
+    assert dict(observer.events)["gate_outcome"] == "REJECT"
+    assert "limits_check" not in dict(observer.events)
