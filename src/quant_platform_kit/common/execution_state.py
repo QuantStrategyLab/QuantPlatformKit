@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
+import threading
+import uuid
 import hashlib
 import os
 import re
@@ -711,3 +714,398 @@ def _date_key(value: object) -> str:
     if len(text) >= 10 and text[4] == "-" and text[7] == "-":
         return text[:10]
     return text
+
+
+ACCOUNT_SUBMISSION_CONTRACT = "account_submission.v1"
+_ACCOUNT_SUBMISSION_NAMESPACE = "account_submissions"
+_SUBMISSION_ACK = frozenset({"PendingSubmit", "ApiPending", "ApiPendingSubmit", "Submitted", "PreSubmitted"})
+_SUBMISSION_PARTIAL = frozenset({"Partial", "PartiallyFilled"})
+_SUBMISSION_TERMINAL = frozenset({"Filled", "Rejected", "rejected", "Cancelled", "ApiCancelled"})
+
+
+class AccountSubmissionError(RuntimeError):
+    """No new submission permission was obtained; reconciliation may be required."""
+
+
+def submission_binding_digest(value: Mapping[str, Any]) -> str:
+    """Content identity; never use lossy path cleaning for account/order identity."""
+    if not isinstance(value, Mapping) or not value:
+        raise AccountSubmissionError("nonempty submission binding required")
+    try:
+        encoded = json.dumps(dict(value), sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise AccountSubmissionError("invalid submission binding") from exc
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _submission_text(value: object) -> str:
+    if not isinstance(value, str) or not value or value != value.strip() or len(value) > 256:
+        raise AccountSubmissionError("invalid submission identity")
+    if any(ord(char) < 32 or ord(char) > 126 for char in value):
+        raise AccountSubmissionError("invalid submission identity")
+    return value
+
+
+def _submission_digest(value: object) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        raise AccountSubmissionError("invalid submission digest")
+    return value
+
+
+def _submission_account(broker: str, account_id: str) -> tuple[str, str]:
+    broker = _submission_text(broker).lower()
+    if re.fullmatch(r"[a-z][a-z0-9_-]*", broker) is None:
+        raise AccountSubmissionError("invalid broker identity")
+    account = _submission_text(account_id)
+    if broker == "ibkr":
+        account = account.upper()
+        if re.fullmatch(r"(?:DU|U|F|I)[0-9]+", account) is None:
+            raise AccountSubmissionError("physical IBKR account identity required")
+    return broker, account
+
+
+def _submission_number(value: object) -> float:
+    if isinstance(value, bool):
+        raise AccountSubmissionError("invalid submission quantity/price")
+    try:
+        result = float(value)
+    except (ValueError, TypeError) as exc:
+        raise AccountSubmissionError("invalid submission quantity/price") from exc
+    if not math.isfinite(result) or result < 0:
+        raise AccountSubmissionError("invalid submission quantity/price")
+    return result
+
+
+@dataclass(frozen=True)
+class AccountSubmissionGrant:
+    account_root: str
+    attempt_id: str
+    fence: str
+    generation: int
+    event_sha256: str
+    intent_id: str
+    order_sha256: str
+    release_id: str
+
+
+@dataclass(frozen=True, init=False, eq=False)
+class AccountSubmissionSession:
+    """Stage B: immutable account arbitration, with no UNKNOWN resolution API.
+
+    Every writer uses one broker/physical-account sequence on the existing
+    ObjectStore. A fresh, confirmed create is the only source of a grant. A
+    stale listing cannot acquire the occupied next sequence. PREPARED remains
+    blocking after crashes; only the original in-memory grant owner can dispatch
+    it once. There is no TTL, takeover, delete, reset, or automatic reconciliation.
+    """
+
+    contract_version = ACCOUNT_SUBMISSION_CONTRACT
+
+    def __init__(self, store: ExecutionMarkerStore, *, broker: str, account_id: str,
+                 owner_id: str, profile: str, intent_id: str, release_id: str):
+        if not isinstance(store, ExecutionMarkerStore) or not (store.cloud_prefix_uri or store.local_dir):
+            raise AccountSubmissionError("existing durable execution store required")
+        broker, account = _submission_account(broker, account_id)
+        values = {
+            "store": store, "broker": broker, "account_id": account,
+            "owner_id": _submission_text(owner_id), "profile": _submission_text(profile),
+            "intent_id": _submission_digest(intent_id), "release_id": _submission_digest(release_id),
+            "account_root": "v1/" + submission_binding_digest({"broker": broker, "account_id": account}),
+            "_issued": {}, "_used": set(), "_mutex": threading.RLock(), "_failed": False,
+        }
+        for name, value in values.items():
+            object.__setattr__(self, name, value)
+
+    def _location(self, sequence: int | None = None):
+        suffix = self.account_root + "/" + (f"{sequence:020d}.json" if sequence is not None else "")
+        if self.store.cloud_prefix_uri:
+            if sequence is None:
+                return self.store._cloud_prefix_for_namespace(self.account_root, _ACCOUNT_SUBMISSION_NAMESPACE)
+            return self.store._cloud_uri_for_namespace(suffix.removesuffix(".json"), _ACCOUNT_SUBMISSION_NAMESPACE)
+        return Path(self.store.local_dir).expanduser() / _ACCOUNT_SUBMISSION_NAMESPACE / suffix
+
+    def _order(self, order) -> tuple[str, float]:
+        _, account = _submission_account(self.broker, getattr(order, "account_id", None))
+        if account != self.account_id:
+            raise AccountSubmissionError("submission account differs from session")
+        quantity = _submission_number(getattr(order, "quantity", None))
+        if quantity <= 0:
+            raise AccountSubmissionError("positive submission quantity required")
+        limit = getattr(order, "limit_price", None)
+        if limit is not None:
+            limit = _submission_number(limit)
+        descriptor = {
+            "account_id": account, "symbol": _submission_text(getattr(order, "symbol", "")).upper(),
+            "side": _submission_text(getattr(order, "side", "")).lower(), "quantity": quantity,
+            "order_type": _submission_text(getattr(order, "order_type", "market")).lower(),
+            "limit_price": limit, "time_in_force": str(getattr(order, "time_in_force", None) or "DAY").upper(),
+            "metadata": dict(getattr(order, "metadata", None) or {}),
+        }
+        if descriptor["side"] not in {"buy", "sell"}:
+            raise AccountSubmissionError("unsupported submission side")
+        return submission_binding_digest(descriptor), quantity
+
+    @staticmethod
+    def _event_hash(event: Mapping[str, Any]) -> str:
+        return submission_binding_digest({k: v for k, v in event.items() if k != "event_sha256"})
+
+    @staticmethod
+    def _certainty(observation: Mapping[str, Any], quantity: float) -> str:
+        status, order_id = observation["status"], observation["broker_order_id"]
+        filled, price = observation["filled_quantity"], observation["average_fill_price"]
+        if filled > quantity or (filled > 0 and (price is None or price <= 0)):
+            return "UNKNOWN"
+        if status in {"Rejected", "rejected", "Cancelled", "ApiCancelled"}:
+            return "TERMINAL"
+        if not order_id:
+            return "UNKNOWN"
+        if status == "Filled":
+            return "TERMINAL" if filled == quantity else "UNKNOWN"
+        if status in _SUBMISSION_PARTIAL:
+            return "KNOWN_PENDING" if 0 < filled < quantity else "UNKNOWN"
+        if status in _SUBMISSION_ACK:
+            return "KNOWN_PENDING"
+        return "UNKNOWN"
+
+    def read_state(self) -> dict[str, Any]:
+        """Validate and reduce all account events; absence alone grants nothing."""
+        prefix = self._location()
+        if self.store.cloud_prefix_uri:
+            objects = self.store._object_store()
+            locations = list(objects.list(str(prefix)))
+            read = objects.read_text
+        else:
+            locations = list(prefix.glob("*.json")) if prefix.exists() else []
+            def read(path):
+                return path.read_text(encoding="utf-8")
+        if len(locations) != len(set(map(str, locations))):
+            raise AccountSubmissionError("duplicate account journal sequence")
+        state: dict[str, Any] = {"generation": 0, "head_sha256": "0" * 64, "attempts": {}}
+        for location in sorted(locations, key=str):
+            sequence = state["generation"] + 1
+            if str(location) != str(self._location(sequence)):
+                raise AccountSubmissionError("incomplete or wrong account journal sequence")
+            try:
+                event = json.loads(read(location))
+            except (ValueError, TypeError) as exc:
+                raise AccountSubmissionError("invalid account journal JSON") from exc
+            required = {"schema_version", "account_root", "sequence", "previous_sha256", "kind", "data", "event_sha256"}
+            if not isinstance(event, dict) or set(event) != required:
+                raise AccountSubmissionError("invalid account journal event fields")
+            if (event["schema_version"] != ACCOUNT_SUBMISSION_CONTRACT or event["account_root"] != self.account_root
+                    or type(event["sequence"]) is not int or event["sequence"] != sequence
+                    or event["previous_sha256"] != state["head_sha256"]
+                    or event["event_sha256"] != self._event_hash(event)):
+                raise AccountSubmissionError("account journal schema/root/hash/sequence mismatch")
+            data = event["data"]
+            if not isinstance(data, dict):
+                raise AccountSubmissionError("invalid account event data")
+            if event["kind"] == "PREPARED":
+                keys = {"attempt_id", "fence", "intent_id", "order_sha256", "release_id", "owner_id", "profile", "quantity"}
+                if set(data) != keys:
+                    raise AccountSubmissionError("invalid prepared fields")
+                for key in ["attempt_id", "fence", "intent_id", "order_sha256", "release_id"]:
+                    _submission_digest(data[key])
+                for key in ["owner_id", "profile"]:
+                    _submission_text(data[key])
+                quantity = _submission_number(data["quantity"])
+                if quantity <= 0 or any(a["certainty"] in {"PREPARED", "UNKNOWN"} for a in state["attempts"].values()):
+                    raise AccountSubmissionError("prepared event bypasses unresolved account")
+                if data["attempt_id"] in state["attempts"] or any(
+                    (a["intent_id"], a["order_sha256"]) == (data["intent_id"], data["order_sha256"])
+                    for a in state["attempts"].values()
+                ):
+                    raise AccountSubmissionError("duplicate submission identity")
+                state["attempts"][data["attempt_id"]] = {
+                    **data, "generation": sequence, "event_sha256": event["event_sha256"],
+                    "certainty": "PREPARED", "observation": None, "filled_quantity": 0.0,
+                }
+            elif event["kind"] == "OBSERVED":
+                if set(data) != {"attempt_id", "observation"} or data["attempt_id"] not in state["attempts"]:
+                    raise AccountSubmissionError("observation references unknown attempt")
+                attempt = state["attempts"][data["attempt_id"]]
+                observation = data["observation"]
+                if not isinstance(observation, dict) or set(observation) != {
+                    "status", "broker_order_id", "filled_quantity", "average_fill_price", "certainty",
+                }:
+                    raise AccountSubmissionError("invalid observation fields")
+                if not isinstance(observation["status"], str):
+                    raise AccountSubmissionError("invalid broker status")
+                if observation["broker_order_id"] is not None:
+                    _submission_text(observation["broker_order_id"])
+                filled = _submission_number(observation["filled_quantity"])
+                if observation["average_fill_price"] is not None:
+                    _submission_number(observation["average_fill_price"])
+                certainty = self._certainty(observation, attempt["quantity"])
+                prior = attempt["observation"]
+                if (certainty != observation["certainty"] or filled < attempt["filled_quantity"]
+                        or filled > attempt["quantity"] or attempt["certainty"] in {"UNKNOWN", "TERMINAL"}
+                        or (prior and prior["broker_order_id"] and prior["broker_order_id"] != observation["broker_order_id"])):
+                    raise AccountSubmissionError("illegal or non-monotonic observation; UNKNOWN cannot be resolved")
+                attempt.update(certainty=certainty, observation=observation, filled_quantity=filled)
+            else:
+                raise AccountSubmissionError("unsupported account event; no resolution API")
+            state.update(generation=sequence, head_sha256=event["event_sha256"])
+        return state
+
+    def _append(self, state: Mapping[str, Any], kind: str, data: dict) -> dict:
+        event = {
+            "schema_version": ACCOUNT_SUBMISSION_CONTRACT, "account_root": self.account_root,
+            "sequence": state["generation"] + 1, "previous_sha256": state["head_sha256"],
+            "kind": kind, "data": data,
+        }
+        event["event_sha256"] = self._event_hash(event)
+        encoded = json.dumps(event, sort_keys=True, allow_nan=False)
+        location = self._location(event["sequence"])
+        try:
+            if self.store.cloud_prefix_uri:
+                created = self.store._object_store().create_text(str(location), encoded, "application/json")
+            else:
+                location.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    fd = os.open(location, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                except FileExistsError:
+                    created = False
+                else:
+                    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                        handle.write(encoded)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    created = True
+            if created is not True:
+                raise AccountSubmissionError("account event create conflict; no submission grant")
+            confirmed = self.read_state()
+            if confirmed["generation"] != event["sequence"] or confirmed["head_sha256"] != event["event_sha256"]:
+                raise AccountSubmissionError("account event confirmation failed")
+        except Exception:
+            object.__setattr__(self, "_failed", True)
+            raise
+        return event
+
+    def reserve(self, order) -> AccountSubmissionGrant:
+        """Only a fresh acknowledged create can return a grant; never reclaim it."""
+        with self._mutex:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain; no grant")
+            digest, quantity = self._order(order)
+            state = self.read_state()
+            if any(a["certainty"] in {"PREPARED", "UNKNOWN"} for a in state["attempts"].values()):
+                raise AccountSubmissionError("unresolved UNKNOWN/account submission")
+            if any((a["intent_id"], a["order_sha256"]) == (self.intent_id, digest) for a in state["attempts"].values()):
+                raise AccountSubmissionError("same intent/order already reserved; no retry grant")
+            data = {
+                "attempt_id": uuid.uuid4().hex + uuid.uuid4().hex,
+                "fence": uuid.uuid4().hex + uuid.uuid4().hex,
+                "intent_id": self.intent_id, "order_sha256": digest, "release_id": self.release_id,
+                "owner_id": self.owner_id, "profile": self.profile, "quantity": quantity,
+            }
+            event = self._append(state, "PREPARED", data)
+            grant = AccountSubmissionGrant(self.account_root, data["attempt_id"], data["fence"],
+                                           event["sequence"], event["event_sha256"], self.intent_id, digest, self.release_id)
+            self._issued[grant.attempt_id] = grant
+            return grant
+
+    def _owned_grant(self, grant: AccountSubmissionGrant) -> dict:
+        if (not isinstance(grant, AccountSubmissionGrant) or self._issued.get(grant.attempt_id) is not grant
+                or grant.account_root != self.account_root or grant.intent_id != self.intent_id
+                or grant.release_id != self.release_id):
+            raise AccountSubmissionError("wrong/stale/session grant")
+        state = self.read_state()
+        attempt = state["attempts"].get(grant.attempt_id)
+        if (not attempt or attempt["fence"] != grant.fence or attempt["generation"] != grant.generation
+                or attempt["event_sha256"] != grant.event_sha256 or attempt["order_sha256"] != grant.order_sha256):
+            raise AccountSubmissionError("grant fence/binding mismatch")
+        return state
+
+    def dispatch(self, grant: AccountSubmissionGrant, order, submit: Callable[[], Any]):
+        """Consume exactly once at the final platform submit wrapper, then observe."""
+        with self._mutex:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain")
+            state = self._owned_grant(grant)
+            digest, _ = self._order(order)
+            if digest != grant.order_sha256 or grant.attempt_id in self._used:
+                raise AccountSubmissionError("wrong order or already-used grant")
+            if state["attempts"][grant.attempt_id]["certainty"] != "PREPARED":
+                raise AccountSubmissionError("grant no longer prepared")
+            self._used.add(grant.attempt_id)
+        try:
+            report = submit()
+        except Exception as exc:
+            try:
+                self.record_observation(grant, None)
+            except Exception as persist_exc:
+                exc.add_note("account outcome persistence also failed: " + type(persist_exc).__name__)
+                object.__setattr__(self, "_failed", True)
+            raise
+        self.record_observation(grant, report)
+        attempt = self.read_state()["attempts"][grant.attempt_id]
+        if attempt["certainty"] == "UNKNOWN" and str(getattr(report, "status", "")).strip() in (
+            _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL
+        ):
+            raise AccountSubmissionError("broker result facts are uncertain; original attempt retained")
+        return report
+
+    def record_observation(self, grant: AccountSubmissionGrant, report) -> bool:
+        """Persist original facts. Exact replay is idempotent, never a new grant."""
+        with self._mutex:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain")
+            state = self._owned_grant(grant)
+            if grant.attempt_id not in self._used:
+                raise AccountSubmissionError("grant not dispatched")
+            attempt = state["attempts"][grant.attempt_id]
+            prior = attempt["observation"]
+            status = str(getattr(report, "status", "") or "").strip()
+            order_id = str(getattr(report, "broker_order_id", "") or "").strip() or None
+            invalid = False
+            try:
+                filled = _submission_number(getattr(report, "filled_quantity", None) or 0.0)
+                price_value = getattr(report, "average_fill_price", None)
+                price = _submission_number(price_value) if price_value is not None else None
+                if filled < attempt["filled_quantity"] or filled > attempt["quantity"]:
+                    raise AccountSubmissionError("non-monotonic fill")
+                if order_id is not None:
+                    _submission_text(order_id)
+                if prior and prior["broker_order_id"] and order_id != prior["broker_order_id"]:
+                    raise AccountSubmissionError("broker order identity changed")
+            except AccountSubmissionError:
+                invalid = True
+                status = "Unknown"
+                order_id = prior["broker_order_id"] if prior else None
+                filled = attempt["filled_quantity"]
+                price = prior["average_fill_price"] if prior else None
+            observation = {"status": status, "broker_order_id": order_id,
+                           "filled_quantity": filled, "average_fill_price": price}
+            observation["certainty"] = self._certainty(observation, attempt["quantity"])
+            if prior == observation:
+                if invalid:
+                    raise AccountSubmissionError("historical/non-monotonic observation rejected")
+                return False
+            if attempt["certainty"] in {"UNKNOWN", "TERMINAL"}:
+                raise AccountSubmissionError("historical UNKNOWN/terminal cannot be changed")
+            self._append(state, "OBSERVED", {"attempt_id": grant.attempt_id, "observation": observation})
+            if invalid:
+                raise AccountSubmissionError("invalid/non-monotonic broker observation; UNKNOWN persisted")
+            return True
+
+
+def submission_release_digest(receipt: Mapping[str, Any]) -> str:
+    """Bind the loaded release identity; observation timestamps are not identity."""
+    if (not isinstance(receipt, Mapping) or receipt.get("attestation_state") != "self_attested"
+            or not receipt.get("release_id") or not isinstance(receipt.get("strategy_release"), Mapping)
+            or not receipt["strategy_release"]):
+        raise AccountSubmissionError("attested release binding required for submission")
+    return submission_binding_digest({k: v for k, v in receipt.items() if k != "loaded_at"})
+
+
+def submission_intent_digest(metadata: Mapping[str, Any], profile: str) -> str:
+    allocation = metadata.get("allocation")
+    if not isinstance(allocation, Mapping) or not allocation:
+        raise AccountSubmissionError("approved allocation identity required")
+    return submission_binding_digest({
+        "profile": _submission_text(profile), "allocation": dict(allocation),
+        **{key: metadata.get(key) for key in (
+            "trade_date", "signal_date", "effective_date", "snapshot_as_of", "execution_timing_contract",
+        )},
+    })

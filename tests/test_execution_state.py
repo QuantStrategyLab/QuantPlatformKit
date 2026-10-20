@@ -346,3 +346,400 @@ class ExecutionStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Account submission journal tests use only local/fake ObjectStore, never brokers.
+def _account_session(store, *, account="U00000001", broker="ibkr", intent="a" * 64,
+                     owner="synthetic-owner", profile="synthetic-profile", release="b" * 64):
+    from quant_platform_kit.common import execution_state
+    return execution_state.AccountSubmissionSession(
+        store, broker=broker, account_id=account, owner_id=owner,
+        profile=profile, intent_id=intent, release_id=release,
+    )
+
+
+def _account_order(*, symbol="VOO", account="U00000001", quantity=5):
+    from quant_platform_kit.common.models import OrderIntent
+    return OrderIntent(symbol=symbol, side="buy", quantity=quantity, account_id=account)
+
+
+def _account_report(status="Submitted", *, filled=0, price=0, order_id="synthetic-order"):
+    from types import SimpleNamespace
+    return SimpleNamespace(status=status, broker_order_id=order_id,
+                           filled_quantity=filled, average_fill_price=price)
+
+
+def test_account_journal_unknown_blocks_new_intent_after_reopen(tmp_path):
+    import pytest
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    session = _account_session(store)
+    order = _account_order()
+    grant = session.reserve(order)
+    session.dispatch(grant, order, lambda: _account_report("Unknown", filled=1, price=50))
+    reopened = _account_session(ExecutionMarkerStore(local_dir=tmp_path), intent="c" * 64,
+                                owner="another-owner", profile="another-profile")
+    with pytest.raises(RuntimeError, match="unresolved|uncertain|UNKNOWN"):
+        reopened.reserve(_account_order(symbol="QQQM"))
+    assert next(iter(reopened.read_state()["attempts"].values()))["filled_quantity"] == 1
+
+
+class _JournalObjects:
+    """Memory ObjectStore with explicit response-loss/read fault controls."""
+    def __init__(self):
+        self.data = {}
+        self.lock = threading.Lock()
+        self.list_transform = lambda uris: uris
+        self.lose_kind = None
+        self.lose_mode = "raise"
+        self.fail_read = False
+        self.before_write = False
+
+    def list(self, prefix):
+        return self.list_transform(sorted(k for k in self.data if k.startswith(prefix)))
+
+    def read_text(self, uri):
+        if self.fail_read:
+            raise OSError("synthetic read unavailable")
+        return self.data[uri]
+
+    def create_text(self, uri, text, _content_type):
+        kind = json.loads(text)["kind"]
+        if kind == self.lose_kind and self.before_write:
+            raise OSError("synthetic write unavailable before commit")
+        with self.lock:
+            if uri in self.data:
+                return False
+            self.data[uri] = text
+        if kind == self.lose_kind:
+            if self.lose_mode == "false":
+                return False
+            raise OSError("synthetic response lost after commit")
+        return True
+
+
+class _JournalStore(ExecutionMarkerStore):
+    def __init__(self, objects):
+        super().__init__(local_dir=None, cloud_prefix_uri="gs://synthetic-bucket/existing-prefix")
+        object.__setattr__(self, "objects", objects)
+
+    def _object_store(self):
+        return self.objects
+
+
+def test_account_journal_normal_ack_partial_and_terminal_remain_usable(tmp_path):
+    import pytest
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    session = _account_session(store)
+    for symbol, report in [
+        ("VOO", _account_report()),
+        ("QQQM", _account_report("PartiallyFilled", filled=2, price=50, order_id="partial")),
+        ("TQQQ", _account_report("Filled", filled=5, price=51, order_id="filled")),
+        ("BIL", _account_report("Rejected", order_id=None)),
+    ]:
+        order = _account_order(symbol=symbol)
+        grant = session.reserve(order)
+        assert session.dispatch(grant, order, lambda: report) is report
+        before = session.read_state()["generation"]
+        assert session.record_observation(grant, report) is False
+        assert session.read_state()["generation"] == before
+        with pytest.raises(RuntimeError):
+            session.dispatch(grant, order, lambda: pytest.fail("duplicate submit"))
+        with pytest.raises(RuntimeError, match="same intent"):
+            _account_session(store).reserve(order)
+    states = {a["certainty"] for a in session.read_state()["attempts"].values()}
+    assert states == {"KNOWN_PENDING", "TERMINAL"}
+
+
+def test_account_journal_scope_aliases_owner_profile_and_broker(tmp_path):
+    import pytest
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    old = _account_session(store)
+    order = _account_order()
+    old.dispatch(old.reserve(order), order, lambda: _account_report("Unknown"))
+    for kwargs in [dict(account="u00000001"), dict(owner="different"), dict(profile="different"), dict(intent="c"*64)]:
+        session = _account_session(store, **kwargs)
+        assert session.account_root == old.account_root
+        with pytest.raises(RuntimeError, match="unresolved"):
+            session.reserve(order)
+    for kwargs in [dict(account="U00000002"), dict(broker="other")]:
+        session = _account_session(store, **kwargs)
+        assert session.account_root != old.account_root
+        assert session.reserve(_account_order(account=session.account_id))
+    for account in ["", "LIVE", "group-a", " U00000001", "U/00000001", "U_00000001"]:
+        with pytest.raises(RuntimeError):
+            _account_session(store, account=account)
+
+
+def test_account_journal_no_later_observation_clears_unknown(tmp_path):
+    import pytest
+    s = _account_session(ExecutionMarkerStore(local_dir=tmp_path))
+    o = _account_order()
+    g = s.reserve(o)
+    s.dispatch(g, o, lambda: _account_report("Unknown", filled=1, price=50))
+    for report in [_account_report(), _account_report("PartiallyFilled", filled=2, price=50),
+                   _account_report("Filled", filled=5, price=50), _account_report("Cancelled")]:
+        with pytest.raises(RuntimeError, match="historical"):
+            s.record_observation(g, report)
+    assert next(iter(s.read_state()["attempts"].values()))["certainty"] == "UNKNOWN"
+    assert not any(hasattr(s, name) for name in ["reset", "clear", "remove", "resolve", "expire"])
+
+
+def test_account_journal_old_wrong_or_reopened_grant_is_not_dispatch_permission(tmp_path):
+    import pytest
+    from dataclasses import replace
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    s = _account_session(store)
+    o = _account_order()
+    g = s.reserve(o)
+    for wrong in [replace(g), replace(g, fence="f"*64), replace(g, release_id="f"*64)]:
+        with pytest.raises(RuntimeError):
+            s.dispatch(wrong, o, lambda: pytest.fail("wrong grant submitted"))
+    with pytest.raises(RuntimeError):
+        _account_session(store).dispatch(g, o, lambda: pytest.fail("reopened grant submitted"))
+    with pytest.raises(RuntimeError):
+        s.dispatch(g, _account_order(symbol="QQQM"), lambda: pytest.fail("wrong order submitted"))
+    s.dispatch(g, o, lambda: _account_report())
+    with pytest.raises(RuntimeError):
+        s.dispatch(g, o, lambda: pytest.fail("used grant submitted"))
+
+
+def test_account_journal_paused_original_worker_has_only_unrevoked_once_grant(tmp_path):
+    import pytest
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    s = _account_session(store)
+    o = _account_order()
+    g = s.reserve(o)
+    ready, resume = threading.Event(), threading.Event()
+    submitted = []
+
+    def worker():
+        ready.set()
+        assert resume.wait(5)
+        s.dispatch(g, o, lambda: submitted.append("venue") or _account_report())
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    assert ready.wait(5)
+    try:
+        with pytest.raises(RuntimeError, match="unresolved"):
+            _account_session(store, intent="c"*64).reserve(_account_order(symbol="QQQM"))
+        assert submitted == []
+    finally:
+        resume.set()
+        thread.join(5)
+    assert not thread.is_alive()
+    assert submitted == ["venue"]
+    with pytest.raises(RuntimeError):
+        s.dispatch(g, o, lambda: submitted.append("duplicate"))
+    assert submitted == ["venue"]
+
+
+def test_account_journal_concurrent_same_intent_create_has_one_grant():
+    from concurrent.futures import ThreadPoolExecutor
+    objects = _JournalObjects()
+    barrier = threading.Barrier(2)
+
+    def reserve(_):
+        session = _account_session(_JournalStore(objects))
+        barrier.wait(5)
+        try:
+            return session.reserve(_account_order())
+        except RuntimeError:
+            return None
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        grants = list(pool.map(reserve, range(2)))
+    assert sum(g is not None for g in grants) == 1
+    assert len(objects.data) == 1
+
+
+def test_account_journal_response_lost_never_reissues_grant():
+    import pytest
+    for kind in ["PREPARED", "OBSERVED"]:
+        for mode in ["raise", "false"]:
+            objects = _JournalObjects()
+            objects.lose_kind, objects.lose_mode = kind, mode
+            s = _account_session(_JournalStore(objects))
+            submitted = []
+            with pytest.raises((OSError, RuntimeError)):
+                g = s.reserve(_account_order())
+                s.dispatch(g, _account_order(), lambda: submitted.append("once") or _account_report())
+            assert submitted == ([] if kind == "PREPARED" else ["once"])
+            objects.lose_kind = None
+            with pytest.raises(RuntimeError):
+                s.reserve(_account_order(symbol="QQQM"))
+            reopened = _account_session(_JournalStore(objects))
+            with pytest.raises(RuntimeError):
+                reopened.reserve(_account_order())
+            certainty = next(iter(reopened.read_state()["attempts"].values()))["certainty"]
+            assert certainty == ("PREPARED" if kind == "PREPARED" else "KNOWN_PENDING")
+            # A committed ACK is a known durable observation for a NEW intent,
+            # never permission to replay this failed call or original intent.
+            if kind == "OBSERVED":
+                assert _account_session(_JournalStore(objects), intent="c"*64).reserve(_account_order(symbol="QQQM"))
+
+
+def test_account_journal_write_before_commit_and_confirmation_failures():
+    import pytest
+    for kind in ["PREPARED", "OBSERVED"]:
+        objects = _JournalObjects()
+        objects.lose_kind, objects.before_write = kind, True
+        s = _account_session(_JournalStore(objects))
+        calls = []
+        with pytest.raises(OSError):
+            g = s.reserve(_account_order())
+            s.dispatch(g, _account_order(), lambda: calls.append(1) or _account_report())
+        assert len(calls) == (0 if kind == "PREPARED" else 1)
+        if kind == "OBSERVED":
+            objects.lose_kind = None
+            with pytest.raises(RuntimeError, match="unresolved"):
+                _account_session(_JournalStore(objects), intent="c"*64).reserve(_account_order(symbol="QQQM"))
+    objects = _JournalObjects()
+    original = objects.create_text
+
+    def commit_without_readback(uri, text, content_type):
+        created = original(uri, text, content_type)
+        objects.fail_read = True
+        return created
+
+    objects.create_text = commit_without_readback
+    with pytest.raises(OSError):
+        _account_session(_JournalStore(objects)).reserve(_account_order())
+    assert len(objects.data) == 1
+
+
+def test_account_journal_incomplete_stale_duplicate_and_corrupt_sources():
+    import pytest
+    for fault in ["old-prefix", "missing-tail", "missing-middle", "duplicate", "wrong-root", "schema", "hash", "unknown-event"]:
+        objects = _JournalObjects()
+        s = _account_session(_JournalStore(objects))
+        o = _account_order()
+        s.dispatch(s.reserve(o), o, lambda: _account_report())
+        _account_session(_JournalStore(objects), intent="c"*64).reserve(_account_order(symbol="QQQM"))
+        before = len(objects.data)
+        if fault == "old-prefix":
+            objects.list_transform = lambda xs: xs[:2]  # stale healthy prefix, occupied next slot
+        elif fault == "missing-tail":
+            objects.list_transform = lambda xs: xs[:1]
+        elif fault == "missing-middle":
+            objects.list_transform = lambda xs: xs[1:]
+        elif fault == "duplicate":
+            objects.list_transform = lambda xs: xs + xs[:1]
+        else:
+            uri = sorted(objects.data)[0]
+            event = json.loads(objects.data[uri])
+            if fault == "wrong-root":
+                event["account_root"] = "v1/" + "f"*64
+            elif fault == "schema":
+                event["schema_version"] = "future.v2"
+            elif fault == "hash":
+                event["data"]["quantity"] = 4
+            else:
+                event["kind"] = "CLEAR"
+            if fault != "hash":
+                event["event_sha256"] = s._event_hash(event)
+            objects.data[uri] = json.dumps(event)
+        with pytest.raises(RuntimeError):
+            _account_session(_JournalStore(objects), intent="d"*64).reserve(_account_order(symbol="TQQQ"))
+        assert len(objects.data) == before
+
+
+def test_account_journal_fills_monotonic_and_unknown_facts_not_erased(tmp_path):
+    import pytest
+    s = _account_session(ExecutionMarkerStore(local_dir=tmp_path))
+    o = _account_order()
+    g = s.reserve(o)
+    s.dispatch(g, o, lambda: _account_report("PartiallyFilled", filled=1, price=50))
+    assert s.record_observation(g, _account_report("PartiallyFilled", filled=2, price=51)) is True
+    with pytest.raises(RuntimeError, match="non-monotonic"):
+        s.record_observation(g, _account_report("PartiallyFilled", filled=1, price=50))
+    state = s.read_state()["attempts"][g.attempt_id]
+    assert state["certainty"] == "UNKNOWN"
+    assert state["filled_quantity"] == 2
+    with pytest.raises(RuntimeError):
+        s.reserve(_account_order(symbol="QQQM"))
+
+
+def test_account_journal_transport_and_malformed_known_result_stop(tmp_path):
+    import pytest
+    for index, result in enumerate([TimeoutError("synthetic after placeOrder"),
+                                    _account_report("Filled", filled=0),
+                                    _account_report("Submitted", order_id=None)]):
+        s = _account_session(ExecutionMarkerStore(local_dir=tmp_path / str(index)))
+        o = _account_order()
+        g = s.reserve(o)
+        calls = []
+
+        def submit():
+            calls.append(1)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        with pytest.raises((RuntimeError, TimeoutError)):
+            s.dispatch(g, o, submit)
+        assert calls == [1]
+        assert s.read_state()["attempts"][g.attempt_id]["certainty"] == "UNKNOWN"
+
+
+def test_account_journal_confirmation_of_different_payload_never_grants():
+    import pytest
+    objects = _JournalObjects()
+    original = objects.create_text
+
+    def wrong_confirmed_payload(uri, text, content_type):
+        event = json.loads(text)
+        event["data"]["fence"] = "f"*64
+        event["event_sha256"] = _account_session(_JournalStore(objects))._event_hash(event)
+        return original(uri, json.dumps(event), content_type)
+
+    objects.create_text = wrong_confirmed_payload
+    with pytest.raises(RuntimeError, match="confirmation"):
+        _account_session(_JournalStore(objects)).reserve(_account_order())
+    assert len(objects.data) == 1
+
+
+def test_account_journal_bindings_immutable_release_time_not_identity(tmp_path):
+    import pytest
+    from dataclasses import FrozenInstanceError
+    from quant_platform_kit.common.execution_state import submission_release_digest
+    receipt = {"attestation_state": "self_attested", "release_id": "synthetic-release",
+               "strategy_release": {"strategy_revision": "a"*40}, "loaded_at": "one"}
+    assert submission_release_digest(receipt) == submission_release_digest({**receipt, "loaded_at": "two"})
+    assert submission_release_digest(receipt) != submission_release_digest({**receipt, "release_id": "different"})
+    with pytest.raises(RuntimeError):
+        submission_release_digest({"attestation_state": "legacy_unattested"})
+    session = _account_session(ExecutionMarkerStore(local_dir=tmp_path))
+    with pytest.raises(FrozenInstanceError):
+        session.account_root = "v1/" + "f"*64
+    assert not list(tmp_path.rglob("*.json"))
+
+
+def test_account_journal_invalid_order_and_read_failure_never_register(tmp_path):
+    import pytest
+    for quantity in [0, -1, float("nan"), float("inf")]:
+        session = _account_session(ExecutionMarkerStore(local_dir=tmp_path))
+        with pytest.raises(RuntimeError):
+            session.reserve(_account_order(quantity=quantity))
+    assert not list(tmp_path.rglob("*.json"))
+    objects = _JournalObjects()
+    session = _account_session(_JournalStore(objects))
+    objects.list = lambda _prefix: (_ for _ in ()).throw(OSError("synthetic listing unavailable"))
+    with pytest.raises(OSError):
+        session.reserve(_account_order())
+    assert objects.data == {}
+
+
+def test_account_journal_empty_unknown_and_pending_cancel_keep_obligations(tmp_path):
+    import pytest
+    from types import SimpleNamespace
+    for index, report in enumerate([None, SimpleNamespace(), _account_report("PendingCancel", filled=1, price=50),
+                                    _account_report("Inactive"), _account_report("unrecognized")]):
+        store = ExecutionMarkerStore(local_dir=tmp_path / str(index))
+        session = _account_session(store)
+        order = _account_order()
+        session.dispatch(session.reserve(order), order, lambda: report)
+        state = _account_session(store, intent="c"*64).read_state()
+        assert {a["certainty"] for a in state["attempts"].values()} == {"UNKNOWN"}
+        with pytest.raises(RuntimeError, match="unresolved"):
+            _account_session(store, intent="d"*64).reserve(_account_order(symbol="QQQM"))
