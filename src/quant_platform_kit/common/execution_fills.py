@@ -77,8 +77,8 @@ def accumulate_execution_fills(
     """Copy state and count only increases to each execution's high-water mark.
 
     Missing execution IDs use a digest of the normalized order ID and identifying
-    payload fields. Quantity aliases share the canonical ``quantity`` field;
-    every present price and time field participates in the digest.
+    payload fields. The cumulative quantity is tracked by the high-water mark and
+    deliberately excluded from the digest, so a growing leg keeps one identity.
     """
     if previous is not None and not isinstance(previous, Mapping):
         raise ValueError("EXECUTION_FILL_INVALID")
@@ -97,10 +97,10 @@ def accumulate_execution_fills(
         if execution_id:
             key = f"{order_id}|{execution_id}"
         else:
-            identifying_fields = {"quantity": quantity}
+            identifying_fields = {}
             for name in ("price", "executed_price", "executed_at", "timestamp"):
                 value = _field(leg, name, default=_MISSING)
-                if value is not _MISSING:
+                if value is not _MISSING and value is not None:
                     identifying_fields[name] = _digest_value(value)
             canonical = json.dumps(
                 [order_id, identifying_fields], sort_keys=True, separators=(",", ":"), default=str,

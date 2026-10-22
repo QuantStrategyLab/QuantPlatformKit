@@ -117,7 +117,7 @@ def test_degraded_key_is_stable_across_numeric_forms() -> None:
 
 
 @pytest.mark.parametrize("field", [
-    "quantity", "price", "executed_price", "executed_at", "timestamp",
+    "price", "executed_price", "executed_at", "timestamp",
 ])
 def test_degraded_identity_includes_each_present_identifying_field(field) -> None:
     leg = {
@@ -125,7 +125,7 @@ def test_degraded_identity_includes_each_present_identifying_field(field) -> Non
         "executed_at": "older", "timestamp": "older",
     }
     first = accumulate_execution_fills(None, [leg])
-    changed = {**leg, field: 3 if field == "quantity" else "different"}
+    changed = {**leg, field: "different"}
     second = accumulate_execution_fills(first.state, [changed])
 
     assert second.degraded_legs != first.degraded_legs
@@ -133,8 +133,38 @@ def test_degraded_identity_includes_each_present_identifying_field(field) -> Non
     assert len(second.state) == 2
 
 
+def test_degraded_cumulative_growth_keeps_one_key() -> None:
+    first = accumulate_execution_fills(None, [
+        {"order_id": "order", "quantity": 2, "price": 100},
+    ])
+    second = accumulate_execution_fills(first.state, [
+        {"order_id": "order", "quantity": 3, "price": 100},
+    ])
+
+    key = first.degraded_legs[0]
+    assert first.state == {key: 2.0}
+    assert second.delta == 1.0
+    assert second.state == {key: 3.0}
+    assert second.degraded_legs == first.degraded_legs
+
+
+def test_degraded_digest_ignores_absent_and_none_fields() -> None:
+    first = accumulate_execution_fills(None, [
+        {"order_id": "order", "quantity": 2, "price": 100},
+    ])
+    second = accumulate_execution_fills(first.state, [
+        {"order_id": "order", "quantity": 2, "price": 100, "executed_at": None},
+    ])
+
+    assert second.delta == 0.0
+    assert second.degraded_legs == first.degraded_legs
+
+
 def test_degraded_keys_are_deduplicated_in_first_seen_order() -> None:
-    legs = [{"order_id": "order", "quantity": quantity} for quantity in (2, 3)]
+    legs = [
+        {"order_id": "order", "quantity": quantity, "price": price}
+        for quantity, price in ((2, 100), (3, 101))
+    ]
     first = accumulate_execution_fills(None, legs)
     replay = accumulate_execution_fills(first.state, [legs[1], legs[0], legs[1]])
 
