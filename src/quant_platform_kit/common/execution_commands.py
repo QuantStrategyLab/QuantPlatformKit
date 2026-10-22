@@ -321,6 +321,14 @@ class ExecutionCommandEvent:
 
 
 @dataclass(frozen=True)
+class ExecutionCommandRecoveryEntry:
+    command_id: str
+    effective_date: str
+    state: str
+    age_days: int
+
+
+@dataclass(frozen=True)
 class ExecutionCommandStore:
     """Create-only command and event storage with a fail-closed claim path."""
 
@@ -344,6 +352,22 @@ class ExecutionCommandStore:
                 continue
             commands.append(ExecutionCommand.from_dict(json.loads(self._read_text(location))))
         return tuple(sorted(commands, key=lambda command: command.command_id))
+
+    def list_unresolved(self) -> tuple[ExecutionCommand, ...]:
+        """Read nonterminal commands across all effective dates."""
+        root = self._version_root()
+        if self.cloud_prefix_uri:
+            locations = (self.object_store or self._object_store()).list(f"{root}/")
+        else:
+            locations = Path(root).glob("*/*/command.json")
+        commands: list[ExecutionCommand] = []
+        for location in locations:
+            if not str(location).endswith("/command.json"):
+                continue
+            command = ExecutionCommand.from_dict(json.loads(self._read_text(location)))
+            if self.current_state(command) not in TERMINAL_EXECUTION_COMMAND_STATES:
+                commands.append(command)
+        return tuple(sorted(commands, key=lambda command: (command.effective_date, command.command_id)))
 
     def current_state(self, command: ExecutionCommand) -> ExecutionCommandState:
         events = self.events(command)
@@ -424,6 +448,14 @@ class ExecutionCommandStore:
     def _due_prefix(self, effective_date: str) -> str | Path:
         return self._location(effective_date)
 
+    def _version_root(self) -> str | Path:
+        if self.cloud_prefix_uri:
+            root = str(self.cloud_prefix_uri).rstrip("/")
+            return "/".join((root, self.namespace, EXECUTION_COMMAND_SCHEMA_VERSION))
+        if self.local_dir:
+            return Path(self.local_dir) / self.namespace / EXECUTION_COMMAND_SCHEMA_VERSION
+        raise RuntimeError("execution command store has no durable backend")
+
     def _location(self, effective_date: str, *parts: str) -> str | Path:
         safe_date = _iso_date(effective_date, field_name="effective_date")
         safe_parts = [_safe_path_part(part, field_name="execution command path part") for part in parts]
@@ -477,6 +509,26 @@ class ExecutionCommandStore:
         except ImportError as exc:
             raise RuntimeError("quant_platform_kit.cloud is required for cloud execution commands") from exc
         return get_object_store(project_id=self.project_id)
+
+
+def build_recovery_report(
+    store: ExecutionCommandStore, *, as_of_date: object
+) -> tuple[ExecutionCommandRecoveryEntry, ...]:
+    """Report unresolved commands due by the given date without changing them."""
+    as_of = date.fromisoformat(_iso_date(as_of_date, field_name="as_of_date"))
+    entries: list[ExecutionCommandRecoveryEntry] = []
+    for command in store.list_unresolved():
+        effective_date = date.fromisoformat(command.effective_date)
+        if effective_date <= as_of:
+            entries.append(
+                ExecutionCommandRecoveryEntry(
+                    command_id=command.command_id,
+                    effective_date=command.effective_date,
+                    state=store.current_state(command).value,
+                    age_days=(as_of - effective_date).days,
+                )
+            )
+    return tuple(sorted(entries, key=lambda entry: (entry.effective_date, entry.command_id)))
 
 
 def build_execution_command_store_from_env(
