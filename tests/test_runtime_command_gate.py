@@ -147,6 +147,7 @@ class RuntimeCommandGateTests(unittest.TestCase):
             policy=RuntimeCommandGatePolicy(enforcement=RuntimeCommandGateEnforcement.OBSERVE),
         )
 
+        self.assertEqual(observed.enforcement, RuntimeCommandGateEnforcement.OBSERVE)
         self.assertEqual(observed.mode, RuntimeCommandGateMode.HALTED)
         self.assertTrue(observed.would_block)
         self.assertFalse(observed.broker_write_allowed)
