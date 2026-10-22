@@ -49,6 +49,7 @@ class BrokerReconciliationFinding(str, Enum):
     ACCOUNT_IDENTITY_MISMATCH = "broker_reconciliation_account_identity_mismatch"
     POSITIONS_MISMATCH = "broker_reconciliation_positions_mismatch"
     CASH_MISMATCH = "broker_reconciliation_cash_mismatch"
+    CASH_CONSERVATION_MISMATCH = "cash_conservation_mismatch"
     OPEN_ORDERS_MISMATCH = "broker_reconciliation_open_orders_mismatch"
     RECENT_EXECUTIONS_MISMATCH = "broker_reconciliation_recent_executions_mismatch"
     LOCAL_EXECUTION_LEDGER_MISMATCH = "broker_reconciliation_local_execution_ledger_mismatch"
