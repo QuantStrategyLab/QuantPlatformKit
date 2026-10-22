@@ -1,5 +1,7 @@
 # QuantPlatformKit
 
+[Specification index](docs/README.md) — architecture topics, development-standard overview and historical compatibility.
+
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
@@ -144,8 +146,8 @@ See [LICENSE](LICENSE).
 
 `quant_platform_kit.strategy_contracts` was removed in v1. Import strategy contracts from `quant_platform_kit.common.strategy_contracts`, execution translation from `quant_platform_kit.common.execution_translation`, and runtime inputs from `quant_platform_kit.common.runtime_inputs`. No compatibility facade is provided.
 
-### AI 任务服务升级
+### AI task-service upgrade
 
-生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/TASK-SERVICE-V2.zh-CN.md)。本次版本尚未发布或部署。
+The local 2.0 migration uses the generic task interface for lifecycle AI calls and distinguishes API tasks from persistent assistants. See the [Chinese migration note](docs/ai-service/TASK-SERVICE-V2.zh-CN.md) for route configuration, approved client artifacts, original-task recovery and research authority boundaries. That note describes an unpublished, undeployed local migration baseline; it is not a current deployment readback.
 
 Display/notification naming configuration: [display names](docs/display-names.md).

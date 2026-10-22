@@ -1,5 +1,7 @@
 # QuantPlatformKit
 
+[规范索引](docs/README.md)：架构主题、开发规范英文概要与历史兼容入口。
+
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
@@ -91,3 +93,7 @@ quant-lifecycle dashboard --format all
 ## v1 迁移
 
 v1 已删除 `quant_platform_kit.strategy_contracts`。策略 contract 请改从 `quant_platform_kit.common.strategy_contracts` 导入；执行转换和 runtime input 分别从其对应的 `common` 模块导入。不会提供兼容 facade。
+
+### AI 任务服务升级
+
+生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/TASK-SERVICE-V2.zh-CN.md)。该说明保留尚未发布或部署的本地迁移基线，不作为当前部署状态。
