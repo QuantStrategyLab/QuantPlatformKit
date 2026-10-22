@@ -1,5 +1,7 @@
 # Strategy-Platform Configuration Specification
 
+[Specification index](README.md). Legacy plugin mount/config-sync examples retain their historical meaning; consult the [historical compatibility boundary](strategy_plugin_runtime_contract.md) before using them.
+
 ## Single Source of Truth
 
 Every platform service has **one** canonical config entry-point:
