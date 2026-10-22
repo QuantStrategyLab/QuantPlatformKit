@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from math import isfinite
 from typing import Any
 
 from .models import ExecutionReport
@@ -270,6 +271,68 @@ def _resolve_order_status(
 
 def is_confirmed_fill_status(status: Any) -> bool:
     return _normalize_status(status) in _NORMALIZED_CONFIRMED_FILL_STATUSES
+
+
+def available_sell_quantity(long_qty, working_orders) -> float:
+    """Subtract working sell remainders from a position that already reflects fills."""
+    def quantity_value(value):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("ORDER_AVAILABILITY_INVALID")
+        try:
+            number = float(value)
+        except OverflowError:
+            raise ValueError("ORDER_AVAILABILITY_INVALID") from None
+        if not isfinite(number) or number < 0:
+            raise ValueError("ORDER_AVAILABILITY_INVALID")
+        return number
+
+    def field(order, *names, default=None, skip_none=False):
+        for name in names:
+            if isinstance(order, Mapping):
+                if name in order:
+                    value = order[name]
+                    if skip_none and value is None:
+                        continue
+                    return value
+            else:
+                try:
+                    value = getattr(order, name)
+                except AttributeError:
+                    continue
+                if skip_none and value is None:
+                    continue
+                return value
+        return default
+
+    if isinstance(working_orders, Mapping):
+        raise ValueError("ORDER_AVAILABILITY_INVALID")
+    position = quantity_value(long_qty)
+    terminal_statuses = {"filled", "cancelled", "canceled", "rejected", "expired"}
+    identified_remaining = {}
+    anonymous_remaining = 0.0
+    for order in (() if working_orders is None else working_orders):
+        if _normalize_status(field(order, "side")) != "sell":
+            continue
+        quantity = quantity_value(field(order, "quantity", "qty", "order_quantity"))
+        filled = quantity_value(
+            field(
+                order,
+                "filled_quantity",
+                "executed_qty",
+                "filled",
+                default=0,
+                skip_none=True,
+            )
+        )
+        remaining = max(0.0, quantity - filled)
+        if _normalize_status(field(order, "status")) in terminal_statuses:
+            remaining = 0.0
+        order_id = field(order, "broker_order_id", "order_id")
+        if order_id is None or (isinstance(order_id, str) and not order_id.strip()):
+            anonymous_remaining += remaining
+        else:
+            identified_remaining[order_id] = remaining
+    return max(0.0, position - anonymous_remaining - sum(identified_remaining.values()))
 
 
 def compute_confirmed_sell_release_value(
