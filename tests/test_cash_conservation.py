@@ -140,5 +140,31 @@ def test_negative_tolerance_is_invalid() -> None:
         evaluate_cash_conservation(0, 0, tolerance=-1)
 
 
+@pytest.mark.parametrize(
+    ("fills", "fees"),
+    [
+        ([{"side": "buy", "quantity": 1e308, "price": 10}], None),
+        ([{"side": "sell", "quantity": 1e308, "price": 1}] * 2, None),
+        ([{"side": "sell", "quantity": 1e308, "price": 10},
+          {"side": "buy", "quantity": 1e308, "price": 10}], None),
+        (None, [1e308, 1e308]),
+    ],
+)
+def test_overflowing_cash_delta_is_invalid(fills, fees) -> None:
+    with pytest.raises(ValueError, match="^CASH_CONSERVATION_INVALID$"):
+        expected_cash_delta(fills, fees, None, None)
+
+
+def test_attribute_property_failure_is_normalized() -> None:
+    class BrokenFill:
+        @property
+        def side(self):
+            raise RuntimeError("db offline")
+
+    with pytest.raises(ValueError, match="^CASH_CONSERVATION_INVALID$") as error:
+        expected_cash_delta([BrokenFill()], None, None, None)
+    assert isinstance(error.value.__cause__, RuntimeError)
+
+
 def test_schema_version() -> None:
     assert CASH_CONSERVATION_SCHEMA_VERSION == "qsl.cash_conservation.v1"

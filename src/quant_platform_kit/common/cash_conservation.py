@@ -34,6 +34,8 @@ def _field(fill: object, *names: str) -> object:
                 return getattr(fill, name)
             except AttributeError:
                 continue
+            except Exception as exc:
+                raise ValueError("CASH_CONSERVATION_INVALID") from exc
     return None
 
 
@@ -59,13 +61,23 @@ def expected_cash_delta(
         )
         price = _number(_field(fill, "price", "executed_price", "average_fill_price"), non_negative=True)
         notional = quantity * price
+        if not isfinite(notional):
+            raise ValueError("CASH_CONSERVATION_INVALID")
         delta += -notional if side == "buy" else notional
+        if not isfinite(delta):
+            raise ValueError("CASH_CONSERVATION_INVALID")
     for fee in (() if fees is None else fees):
         delta -= _number(fee, non_negative=True)
+        if not isfinite(delta):
+            raise ValueError("CASH_CONSERVATION_INVALID")
     for transfer in (() if transfers is None else transfers):
         delta += _number(transfer)
+        if not isfinite(delta):
+            raise ValueError("CASH_CONSERVATION_INVALID")
     for dividend in (() if dividends is None else dividends):
         delta += _number(dividend, non_negative=True)
+        if not isfinite(delta):
+            raise ValueError("CASH_CONSERVATION_INVALID")
     return delta
 
 
