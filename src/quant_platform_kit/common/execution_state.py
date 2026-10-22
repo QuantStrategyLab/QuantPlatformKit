@@ -579,8 +579,12 @@ def build_execution_marker_store_from_env(
     project_id: str | None = None,
     client_factory: Any = None,
     default_local_dir: str | Path | None = None,
+    execution_mode: str | None = None,
 ) -> ExecutionMarkerStore:
     prefix = str(platform_env_prefix or "").strip().upper()
+    mode = _first_non_empty(
+        execution_mode, env_reader(f"{prefix}_EXECUTION_MODE", None),
+    ).lower() or None
     explicit_cloud_uri = _read_cloud_env(
         env_reader, new_key=f"{prefix}_EXECUTION_STATE_CLOUD_URI",
         old_key=f"{prefix}_EXECUTION_STATE_GCS_URI",
@@ -593,10 +597,22 @@ def build_execution_marker_store_from_env(
             old_key="EXECUTION_REPORT_GCS_URI",
         )
     )
-    local_dir = env_reader(f"{prefix}_EXECUTION_STATE_DIR", None)
+    local_dir: str | Path | None = env_reader(f"{prefix}_EXECUTION_STATE_DIR", None)
+    if not str(local_dir or "").strip():
+        local_dir = default_local_dir
+    if not str(local_dir or "").strip():
+        local_dir = None
+    cloud_uri = explicit_cloud_uri or report_cloud_uri
+    if mode in {"live", "real", "production"} and not _first_non_empty(cloud_uri):
+        ephemeral_roots = (Path("/tmp").resolve(), Path(tempfile.gettempdir()).resolve())
+        resolved_dir = Path(local_dir).resolve() if local_dir is not None else None
+        if resolved_dir is None or any(
+            resolved_dir.is_relative_to(root) for root in ephemeral_roots
+        ):
+            raise ValueError("EXECUTION_STATE_DURABLE_PATH_REQUIRED")
     return ExecutionMarkerStore(
-        local_dir=local_dir or default_local_dir or DEFAULT_EXECUTION_STATE_DIR,
-        cloud_prefix_uri=explicit_cloud_uri or report_cloud_uri,
+        local_dir=local_dir or DEFAULT_EXECUTION_STATE_DIR,
+        cloud_prefix_uri=cloud_uri,
         project_id=project_id,
         client_factory=client_factory,
     )

@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from quant_platform_kit.common.execution_state import (
     ExecutionMarkerStore,
@@ -259,6 +260,151 @@ class ExecutionStateTests(unittest.TestCase):
         )
         self.assertEqual(store.cloud_prefix_uri, "gs://bucket/reports")
         self.assertEqual(str(store.local_dir), "/tmp/schwab")
+
+    def test_live_modes_require_explicit_durable_backend(self) -> None:
+        for mode in ("live", "real", "production", " LIVE "):
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(
+                    ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$",
+                ):
+                    build_execution_marker_store_from_env(
+                        platform_env_prefix="SCHWAB",
+                        env_reader=lambda name, default=None: default,
+                        execution_mode=mode,
+                    )
+
+    def test_live_mode_from_env_requires_durable_backend(self) -> None:
+        for mode in ("live", " LIVE "):
+            env = {"SCHWAB_EXECUTION_MODE": mode}
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(
+                    ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$",
+                ):
+                    build_execution_marker_store_from_env(
+                        platform_env_prefix="SCHWAB", env_reader=env.get,
+                    )
+
+    def test_live_rejects_ephemeral_env_directory(self) -> None:
+        for directory in ("/tmp", "/tmp/qsl", str(Path("/tmp").resolve() / "qsl")):
+            env = {"SCHWAB_EXECUTION_STATE_DIR": directory}
+            with self.subTest(directory=directory):
+                with self.assertRaisesRegex(
+                    ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$",
+                ):
+                    build_execution_marker_store_from_env(
+                        platform_env_prefix="SCHWAB", env_reader=env.get,
+                        execution_mode="live",
+                    )
+
+    def test_live_rejects_ephemeral_default_directory(self) -> None:
+        with self.assertRaisesRegex(ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$"):
+            build_execution_marker_store_from_env(
+                platform_env_prefix="SCHWAB",
+                env_reader=lambda name, default=None: default,
+                execution_mode="live", default_local_dir="/tmp/qsl",
+            )
+
+    def test_live_rejects_system_temp_directory(self) -> None:
+        with patch("tempfile.gettempdir", return_value="/var/tmp/qpk-g5"):
+            for directory in ("/var/tmp/qpk-g5", "/var/tmp/qpk-g5/execution"):
+                env = {"SCHWAB_EXECUTION_STATE_DIR": directory}
+                with self.subTest(directory=directory):
+                    with self.assertRaisesRegex(
+                        ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$",
+                    ):
+                        build_execution_marker_store_from_env(
+                            platform_env_prefix="SCHWAB", env_reader=env.get,
+                            execution_mode="live",
+                        )
+
+    def test_live_rejects_symlink_to_ephemeral_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            directory = Path(tmpdir) / "state"
+            directory.symlink_to("/tmp/qsl", target_is_directory=True)
+            env = {"SCHWAB_EXECUTION_STATE_DIR": str(directory)}
+            with self.assertRaisesRegex(ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$"):
+                build_execution_marker_store_from_env(
+                    platform_env_prefix="SCHWAB", env_reader=env.get,
+                    execution_mode="live",
+                )
+
+    def test_live_accepts_durable_env_directory(self) -> None:
+        env = {"SCHWAB_EXECUTION_STATE_DIR": "/var/lib/qsl/execution"}
+        store = build_execution_marker_store_from_env(
+            platform_env_prefix="SCHWAB", env_reader=env.get, execution_mode="live",
+        )
+        self.assertEqual(store.local_dir, "/var/lib/qsl/execution")
+
+    def test_live_accepts_durable_default_directory_with_blank_env(self) -> None:
+        env = {"SCHWAB_EXECUTION_STATE_DIR": "  "}
+        directory = Path("/var/lib/qsl/execution")
+        store = build_execution_marker_store_from_env(
+            platform_env_prefix="SCHWAB", env_reader=env.get,
+            execution_mode="live", default_local_dir=directory,
+        )
+        self.assertEqual(store.local_dir, directory)
+
+    def test_live_rejects_blank_directories_and_cloud_uri(self) -> None:
+        env = {
+            "SCHWAB_EXECUTION_STATE_DIR": "  ",
+            "SCHWAB_EXECUTION_STATE_CLOUD_URI": "  ",
+        }
+        with self.assertRaisesRegex(ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$"):
+            build_execution_marker_store_from_env(
+                platform_env_prefix="SCHWAB", env_reader=env.get,
+                execution_mode="live", default_local_dir="  ",
+            )
+
+    def test_live_accepts_cloud_uri_including_report_fallbacks(self) -> None:
+        for key in (
+            "SCHWAB_EXECUTION_STATE_CLOUD_URI", "SCHWAB_EXECUTION_STATE_GCS_URI",
+            "QSL_EXECUTION_REPORT_CLOUD_URI", "QSL_EXECUTION_REPORT_GCS_URI",
+            "EXECUTION_REPORT_CLOUD_URI", "EXECUTION_REPORT_GCS_URI",
+        ):
+            for uri in ("gs://bucket/execution", "s3://bucket/execution"):
+                env = {key: uri}
+                with self.subTest(key=key, uri=uri):
+                    store = build_execution_marker_store_from_env(
+                        platform_env_prefix="SCHWAB", env_reader=env.get,
+                        execution_mode="live",
+                    )
+                    self.assertEqual(store.cloud_prefix_uri, uri)
+
+    def test_non_live_modes_keep_default_directory(self) -> None:
+        for mode in ("paper", "dry_run", "backtest", "", "unknown", None):
+            with self.subTest(mode=mode):
+                store = build_execution_marker_store_from_env(
+                    platform_env_prefix="SCHWAB",
+                    env_reader=lambda name, default=None: default,
+                    execution_mode=mode,
+                )
+                self.assertEqual(store.local_dir, "/tmp/quant_execution_state")
+
+    def test_no_mode_keeps_default_directory(self) -> None:
+        store = build_execution_marker_store_from_env(
+            platform_env_prefix="SCHWAB",
+            env_reader=lambda name, default=None: default,
+        )
+        self.assertEqual(store.local_dir, "/tmp/quant_execution_state")
+
+    def test_explicit_mode_overrides_environment(self) -> None:
+        env = {"SCHWAB_EXECUTION_MODE": "live"}
+        store = build_execution_marker_store_from_env(
+            platform_env_prefix="SCHWAB", env_reader=env.get, execution_mode="paper",
+        )
+        self.assertEqual(store.local_dir, "/tmp/quant_execution_state")
+        env["SCHWAB_EXECUTION_MODE"] = "paper"
+        with self.assertRaisesRegex(ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$"):
+            build_execution_marker_store_from_env(
+                platform_env_prefix="SCHWAB", env_reader=env.get, execution_mode="live",
+            )
+
+    def test_blank_explicit_mode_falls_back_to_environment(self) -> None:
+        env = {"SCHWAB_EXECUTION_MODE": "live"}
+        with self.assertRaisesRegex(ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$"):
+            build_execution_marker_store_from_env(
+                platform_env_prefix="SCHWAB", env_reader=env.get, execution_mode="  ",
+            )
 
     def test_resolve_execution_dedup_enabled(self) -> None:
         def reader(name: str, default: str | None = None) -> str | None:
