@@ -603,9 +603,12 @@ def build_execution_marker_store_from_env(
     if not str(local_dir or "").strip():
         local_dir = None
     cloud_uri = explicit_cloud_uri or report_cloud_uri
-    if mode in {"live", "real", "production"} and not _first_non_empty(cloud_uri):
+    if mode in {"live", "real", "production"} and not _first_non_empty(
+        explicit_cloud_uri, report_cloud_uri,
+    ):
         ephemeral_roots = (Path("/tmp").resolve(), Path(tempfile.gettempdir()).resolve())
-        resolved_dir = Path(local_dir).resolve() if local_dir is not None else None
+        # The store expands "~" when it reads and writes; validate the same path.
+        resolved_dir = Path(local_dir).expanduser().resolve() if local_dir is not None else None
         if resolved_dir is None or any(
             resolved_dir.is_relative_to(root) for root in ephemeral_roots
         ):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -369,6 +370,51 @@ class ExecutionStateTests(unittest.TestCase):
                         execution_mode="live",
                     )
                     self.assertEqual(store.cloud_prefix_uri, uri)
+
+    def test_live_expands_user_directory_before_ephemeral_check(self) -> None:
+        env = {"SCHWAB_EXECUTION_STATE_DIR": "~/qsl-state"}
+        with patch.dict(os.environ, {"HOME": "/tmp/qsl-home"}):
+            with self.assertRaisesRegex(ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$"):
+                build_execution_marker_store_from_env(
+                    platform_env_prefix="SCHWAB", env_reader=env.get, execution_mode="live",
+                )
+        with patch.dict(os.environ, {"HOME": "/var/lib/qsl-home"}):
+            store = build_execution_marker_store_from_env(
+                platform_env_prefix="SCHWAB", env_reader=env.get, execution_mode="live",
+            )
+            self.assertEqual(store.local_dir, "~/qsl-state")
+
+    def test_blank_explicit_cloud_uri_uses_report_fallback_for_validation(self) -> None:
+        env = {
+            "SCHWAB_EXECUTION_STATE_CLOUD_URI": "  ",
+            "QSL_EXECUTION_REPORT_CLOUD_URI": "gs://bucket/execution",
+        }
+        store = build_execution_marker_store_from_env(
+            platform_env_prefix="SCHWAB", env_reader=env.get, execution_mode="live",
+        )
+        self.assertEqual(store.cloud_prefix_uri, "  ")
+
+    def test_empty_cloud_uris_do_not_satisfy_live(self) -> None:
+        env = {
+            "SCHWAB_EXECUTION_STATE_CLOUD_URI": "",
+            "QSL_EXECUTION_REPORT_CLOUD_URI": "",
+        }
+        with self.assertRaisesRegex(ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$"):
+            build_execution_marker_store_from_env(
+                platform_env_prefix="SCHWAB", env_reader=env.get, execution_mode="live",
+            )
+
+    def test_live_rejects_before_constructing_store(self) -> None:
+        with patch(
+            "quant_platform_kit.common.execution_state.ExecutionMarkerStore",
+        ) as store_class:
+            with self.assertRaisesRegex(ValueError, "^EXECUTION_STATE_DURABLE_PATH_REQUIRED$"):
+                build_execution_marker_store_from_env(
+                    platform_env_prefix="SCHWAB",
+                    env_reader=lambda name, default=None: default,
+                    execution_mode="live",
+                )
+            store_class.assert_not_called()
 
     def test_non_live_modes_keep_default_directory(self) -> None:
         for mode in ("paper", "dry_run", "backtest", "", "unknown", None):
