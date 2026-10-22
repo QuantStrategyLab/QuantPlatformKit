@@ -5,6 +5,15 @@ QuantStrategyLab repositories.  New cross-cutting additions (contracts,
 artifacts, indicators, etc.) should be placed here rather than duplicated.
 """
 
+from .us_equity_sessions import (
+    DEFAULT_US_EQUITY_SESSION_WINDOWS,
+    US_EQUITY_TIMEZONE,
+    Session,
+    SessionWindow,
+    classify_session,
+    session_enabled,
+    session_gate,
+)
 from .notification_localization import (
     COMMON_ZH_NOTIFICATION_REPLACEMENTS,
     format_notification_account_label,
@@ -331,6 +340,13 @@ from .strategy_plugins import (
 )
 
 __all__ = [
+    "DEFAULT_US_EQUITY_SESSION_WINDOWS",
+    "US_EQUITY_TIMEZONE",
+    "Session",
+    "SessionWindow",
+    "classify_session",
+    "session_enabled",
+    "session_gate",
     "ACCOUNT_IDENTITY_RECEIPT_SCHEMA_VERSION",
     "AccountIdentityBlockedError",
     "AccountIdentityDecision",
