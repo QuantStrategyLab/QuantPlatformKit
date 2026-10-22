@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
+from quant_platform_kit.common.models import ExecutionReport
 from quant_platform_kit.common.order_status import (
     available_sell_quantity,
     compute_confirmed_sell_release_value,
@@ -93,8 +94,12 @@ class OrderStatusHelpersTests(unittest.TestCase):
                     available_sell_quantity(value, None)
 
     def test_available_sell_quantity_rejects_invalid_order_quantities(self) -> None:
-        for name in ("quantity", "qty", "order_quantity", "filled_quantity", "executed_qty", "filled"):
-            for value in (-1, float("nan"), float("inf"), True, None, "invalid"):
+        fill_names = ("filled_quantity", "executed_qty", "filled")
+        for name in ("quantity", "qty", "order_quantity", *fill_names):
+            values = (-1, float("nan"), float("inf"), True, "invalid")
+            if name not in fill_names:
+                values += (None,)
+            for value in values:
                 with self.subTest(name=name, value=value):
                     order = {"side": "sell", "quantity": 4}
                     if name in ("qty", "order_quantity"):
@@ -108,6 +113,20 @@ class OrderStatusHelpersTests(unittest.TestCase):
     def test_available_sell_quantity_without_orders(self) -> None:
         self.assertEqual(available_sell_quantity(10, None), 10.0)
         self.assertEqual(available_sell_quantity(0.5, []), 0.5)
+
+    def test_available_sell_quantity_treats_empty_id_as_anonymous(self) -> None:
+        order = {"side": "sell", "status": "working", "quantity": 4, "broker_order_id": " "}
+        self.assertEqual(available_sell_quantity(10, [order, dict(order)]), 2.0)
+
+    def test_available_sell_quantity_reads_execution_report_with_unset_fill(self) -> None:
+        report = ExecutionReport(symbol="TEST", side="sell", quantity=4, status="working")
+        self.assertIsNone(report.filled_quantity)
+        self.assertEqual(available_sell_quantity(10, [report]), 6.0)
+
+    def test_available_sell_quantity_rejects_mapping_container(self) -> None:
+        order = {"side": "sell", "status": "working", "quantity": 4}
+        with self.assertRaisesRegex(ValueError, "^ORDER_AVAILABILITY_INVALID$"):
+            available_sell_quantity(10, {"a": order})
 
     def test_compute_confirmed_sell_release_value_supports_single_argument_fetcher(self) -> None:
         released = compute_confirmed_sell_release_value(

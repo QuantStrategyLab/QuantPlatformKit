@@ -286,18 +286,26 @@ def available_sell_quantity(long_qty, working_orders) -> float:
             raise ValueError("ORDER_AVAILABILITY_INVALID")
         return number
 
-    def field(order, *names, default=None):
+    def field(order, *names, default=None, skip_none=False):
         for name in names:
             if isinstance(order, Mapping):
                 if name in order:
-                    return order[name]
+                    value = order[name]
+                    if skip_none and value is None:
+                        continue
+                    return value
             else:
                 try:
-                    return getattr(order, name)
+                    value = getattr(order, name)
                 except AttributeError:
-                    pass
+                    continue
+                if skip_none and value is None:
+                    continue
+                return value
         return default
 
+    if isinstance(working_orders, Mapping):
+        raise ValueError("ORDER_AVAILABILITY_INVALID")
     position = quantity_value(long_qty)
     terminal_statuses = {"filled", "cancelled", "canceled", "rejected", "expired"}
     identified_remaining = {}
@@ -307,13 +315,20 @@ def available_sell_quantity(long_qty, working_orders) -> float:
             continue
         quantity = quantity_value(field(order, "quantity", "qty", "order_quantity"))
         filled = quantity_value(
-            field(order, "filled_quantity", "executed_qty", "filled", default=0)
+            field(
+                order,
+                "filled_quantity",
+                "executed_qty",
+                "filled",
+                default=0,
+                skip_none=True,
+            )
         )
         remaining = max(0.0, quantity - filled)
         if _normalize_status(field(order, "status")) in terminal_statuses:
             remaining = 0.0
         order_id = field(order, "broker_order_id", "order_id")
-        if order_id is None:
+        if order_id is None or (isinstance(order_id, str) and not order_id.strip()):
             anonymous_remaining += remaining
         else:
             identified_remaining[order_id] = remaining
