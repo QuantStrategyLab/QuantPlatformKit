@@ -6,16 +6,6 @@ from dataclasses import dataclass
 import math
 from typing import Mapping
 
-from quant_platform_kit.common.risk_mandates import (
-    _APPROVED_BOOTSTRAP_MANDATE,
-    _BOOTSTRAP_EFFECTIVE_EXPOSURE_CAP,
-    _BOOTSTRAP_NOMINAL_CAPS,
-    _TQQQ_ETF_ONLY_EFFECTIVE_CAPS,
-    _TQQQ_ETF_ONLY_FACTORS,
-    _TQQQ_ETF_ONLY_NOMINAL_CAPS,
-    _TQQQ_ETF_ONLY_RESEARCH_MANDATE,
-)
-
 _DEFAULT_MAX_POSITION_PCT = 0.10
 KELLY_BET_LOSS_RISK_SHARE_VERSION = "kelly.bet_loss_risk_share.v1"
 KELLY_CAPITAL_EXPOSURE_VERSION = "kelly.capital_exposure.v1"
@@ -89,14 +79,6 @@ class CapitalExposureKellyResult:
 
 
 _BOOTSTRAP_LOSS_BUDGET_CAP = 0.01
-_TQQQ_ETF_ONLY_PRODUCTS = {
-    symbol: (
-        _TQQQ_ETF_ONLY_FACTORS[symbol],
-        _TQQQ_ETF_ONLY_NOMINAL_CAPS[symbol],
-        _TQQQ_ETF_ONLY_EFFECTIVE_CAPS[symbol],
-    )
-    for symbol in _TQQQ_ETF_ONLY_FACTORS
-}
 
 
 def _weight_mapping(value: object, *, allow_empty: bool) -> dict[str, float] | None:
@@ -272,6 +254,29 @@ def validate_reduce_only_normalization(
         and target_effective < origin_effective - 1e-9
         and target_effective <= cap + 1e-9
     )
+
+
+# Deferred until validate_reduce_only_normalization exists: importing
+# quant_platform_kit.risk runs risk/__init__, which imports risk.gate, which
+# imports that function from this module during initialization.
+from quant_platform_kit.risk.mandates import (
+    _APPROVED_BOOTSTRAP_MANDATE,
+    _BOOTSTRAP_EFFECTIVE_EXPOSURE_CAP,
+    _BOOTSTRAP_NOMINAL_CAPS,
+    _TQQQ_ETF_ONLY_EFFECTIVE_CAPS,
+    _TQQQ_ETF_ONLY_FACTORS,
+    _TQQQ_ETF_ONLY_NOMINAL_CAPS,
+    _TQQQ_ETF_ONLY_RESEARCH_MANDATE,
+)
+
+_TQQQ_ETF_ONLY_PRODUCTS = {
+    symbol: (
+        _TQQQ_ETF_ONLY_FACTORS[symbol],
+        _TQQQ_ETF_ONLY_NOMINAL_CAPS[symbol],
+        _TQQQ_ETF_ONLY_EFFECTIVE_CAPS[symbol],
+    )
+    for symbol in _TQQQ_ETF_ONLY_FACTORS
+}
 
 
 def risk_budgeted_target_weight(

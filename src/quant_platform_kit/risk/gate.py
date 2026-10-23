@@ -31,7 +31,7 @@ from quant_platform_kit.risk.contracts import (
     SmallAccountRiskHoldPolicy,
 )
 from quant_platform_kit.risk.engine import build_risk_engine
-from quant_platform_kit.common.risk_mandates import (
+from quant_platform_kit.risk.mandates import (
     _APPROVED_BOOTSTRAP_MANDATE,
     _BOOTSTRAP_EFFECTIVE_EXPOSURE_CAP,
     _BOOTSTRAP_NOMINAL_CAPS,
