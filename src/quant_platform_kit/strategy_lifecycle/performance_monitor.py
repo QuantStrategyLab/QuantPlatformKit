@@ -10,7 +10,7 @@ import logging
 import os
 import re
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -18,6 +18,7 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.contracts import (
     StrategyPerformanceSnapshot,
     interval_return_coverage_comparison_reason,
@@ -43,8 +44,7 @@ _SOURCE_REVISION_SENTINELS = frozenset(
 )
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 def resolve_monitor_source_revision(
