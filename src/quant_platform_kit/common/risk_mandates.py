@@ -3,6 +3,10 @@
 The bootstrap and TQQQ ETF-only mandates are enforced by both the risk gate
 and position sizing.  Keeping their identifiers, factors, and caps here
 prevents the two enforcement points from drifting apart.
+
+This module lives under ``common`` rather than ``risk`` so importing it does
+not execute the ``risk`` package initializer, which imports the gate while the
+gate is still importing position sizing.
 """
 
 from __future__ import annotations
