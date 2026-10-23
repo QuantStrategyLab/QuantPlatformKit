@@ -27,11 +27,12 @@ import os
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 from quant_platform_kit.cloud import get_object_store
+from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
     BacktestValidationIdentity,
@@ -53,8 +54,7 @@ DEFAULT_BUCKET_ENV = "LIFECYCLE_PERFORMANCE_BUCKET"
 DEFAULT_LOCAL_ROOT = Path(tempfile.gettempdir()) / "quant_platform_lifecycle"
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 def _clean_key(value: str) -> str:
