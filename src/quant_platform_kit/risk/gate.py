@@ -31,6 +31,16 @@ from quant_platform_kit.risk.contracts import (
     SmallAccountRiskHoldPolicy,
 )
 from quant_platform_kit.risk.engine import build_risk_engine
+from quant_platform_kit.risk.mandates import (
+    _APPROVED_BOOTSTRAP_MANDATE,
+    _BOOTSTRAP_EFFECTIVE_EXPOSURE_CAP,
+    _BOOTSTRAP_NOMINAL_CAPS,
+    _TQQQ_ETF_ONLY_EFFECTIVE_CAPS,
+    _TQQQ_ETF_ONLY_FACTORS,
+    _TQQQ_ETF_ONLY_NOMINAL_CAPS,
+    _TQQQ_ETF_ONLY_RESEARCH_MANDATE,
+    _TQQQ_ETF_ONLY_STRATEGY_PROFILE,
+)
 from quant_platform_kit.common.strategy_contracts import (
     BudgetIntent,
     PositionTarget,
@@ -42,12 +52,6 @@ logger = logging.getLogger(__name__)
 _STOP_LOSS_THRESHOLD = -0.20
 _MAX_CONSECUTIVE_LOSSES = 5
 _DEFAULT_MAX_SINGLE_WEIGHT = 0.10
-_APPROVED_BOOTSTRAP_MANDATE = "bootstrap_small_account_v2"
-_TQQQ_ETF_ONLY_RESEARCH_MANDATE = "tqqq_etf_only_research_v1"
-_TQQQ_ETF_ONLY_STRATEGY_PROFILE = "tqqq_etf_only_single_strategy_research_v1"
-_TQQQ_ETF_ONLY_FACTORS = {"TQQQ": 3, "BOXX": 1}
-_TQQQ_ETF_ONLY_NOMINAL_CAPS = {"TQQQ": 0.15, "BOXX": 0.50}
-_TQQQ_ETF_ONLY_EFFECTIVE_CAPS = {"TQQQ": 0.45, "BOXX": 0.50}
 _TQQQ_EVIDENCE_MANDATE_SCHEMA = "qsl.tqqq-evidence-risk-mandate.v1"
 _TQQQ_EVIDENCE_PORTFOLIO_SCHEMA = "qsl.tqqq-evidence-portfolio-snapshot.v1"
 _TQQQ_EVIDENCE_RISK_STATE_SCHEMA = "qsl.tqqq-evidence-risk-state.v1"
@@ -66,8 +70,6 @@ _TQQQ_EVIDENCE_STRESS_LOSS_DISTANCE = 0.05
 _RETIRED_GLOBAL_ETF_RESEARCH_MANDATE = (
     "global_etf_rotation_etf_only_research_v1"
 )
-_BOOTSTRAP_EFFECTIVE_EXPOSURE_CAP = 0.50
-_BOOTSTRAP_NOMINAL_CAPS = {1: 0.50, 2: 0.25, 3: 0.15}
 _ASSESSMENT_CONTRACT_VERSION = "qsl.risk_gate_assessment.v2"
 _ASSESSMENT_POLICY_ID = "qpk.risk_gate"
 _ASSESSMENT_POLICY_VERSION = "v2"
