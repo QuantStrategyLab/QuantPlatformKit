@@ -11,6 +11,8 @@ import re
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from quant_platform_kit.common.jsonio import strict_json_loads
+
 
 class InvalidResearchInputEvidence(ValueError):
     """Raised when a research-input manifest or its JSON readback is invalid."""
@@ -287,19 +289,6 @@ def research_input_manifest_sha256(manifest: Mapping[str, object]) -> str:
     return sha256(canonical_research_input_manifest_bytes(manifest)).hexdigest()
 
 
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            _invalid()
-        result[key] = value
-    return result
-
-
-def _reject_nonfinite_constant(_: str) -> None:
-    _invalid()
-
-
 def read_research_input_manifest_json(payload: bytes | str) -> dict[str, object]:
     """Strictly parse and validate an in-memory research-input manifest JSON payload."""
     try:
@@ -307,11 +296,7 @@ def read_research_input_manifest_json(payload: bytes | str) -> dict[str, object]
             payload = payload.decode("utf-8")
         if not isinstance(payload, str):
             _invalid()
-        parsed = json.loads(
-            payload,
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_nonfinite_constant,
-        )
+        parsed = strict_json_loads(payload)
         if not isinstance(parsed, dict):
             _invalid()
         return validate_research_input_manifest(parsed)

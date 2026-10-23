@@ -11,9 +11,10 @@ import math
 import re
 import uuid
 from dataclasses import replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from typing import Any, Mapping, Protocol, Sequence, runtime_checkable
 
+from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
     BacktestValidationIdentity,
@@ -44,8 +45,7 @@ _PROMOTION_OPTIONAL_METRICS = (
 )
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 def _run_id() -> str:

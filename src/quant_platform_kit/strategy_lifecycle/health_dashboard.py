@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.contracts import StrategyHealthScore
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 from quant_platform_kit.strategy_lifecycle.strategy_health_score import compute_health_score
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 def build_dashboard(
