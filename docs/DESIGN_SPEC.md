@@ -1,5 +1,7 @@
 # 平台、策略、插件开发规范
 
+[English overview](DESIGN_SPEC.en.md) · [规范索引](README.md)。本文保留 v1.0（2026-06-30）原文；旧插件挂载与自动同步示例按[历史兼容契约](strategy_plugin_runtime_contract.md)理解，不作为现行挂载或交易授权。
+
 > 本文档是 QuantStrategyLab 所有开发工作必须遵守的规范。
 > 违反本文档的 PR 不应合并。
 

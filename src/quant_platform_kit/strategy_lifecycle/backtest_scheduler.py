@@ -10,9 +10,10 @@ from __future__ import annotations
 import enum
 from datetime import datetime, timezone
 
+from quant_platform_kit.common.jsonio import utc_now_iso
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+
+_now_iso = utc_now_iso
 
 
 class ScheduleCadence(str, enum.Enum):

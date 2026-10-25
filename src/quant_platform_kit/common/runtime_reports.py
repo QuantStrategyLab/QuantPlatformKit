@@ -342,7 +342,15 @@ def _normalize_value(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
     if isinstance(value, Mapping):
-        return _drop_empty({str(key): _normalize_value(item) for key, item in value.items()})
+        normalized = _drop_empty({str(key): _normalize_value(item) for key, item in value.items()})
+        positions = value.get("broker_reported_positions")
+        if (
+            value.get("schema_version") == "ibkr_account_snapshot.v1"
+            and isinstance(positions, list) and not positions
+        ):
+            # Typed source snapshots distinguish a known empty inventory from unknown.
+            normalized["broker_reported_positions"] = []
+        return normalized
     if isinstance(value, tuple):
         return [_normalize_value(item) for item in value]
     if isinstance(value, list):

@@ -20,10 +20,10 @@ import os
 import subprocess
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.contracts import (
     DriftResult,
     DriftStatus,
@@ -32,8 +32,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 # ── GitHub Issue Bridge ──────────────────────────────────────────────

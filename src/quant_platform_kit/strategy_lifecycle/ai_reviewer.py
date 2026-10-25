@@ -13,11 +13,11 @@ import math
 from numbers import Real
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any, Mapping
 
 import numpy as np
 
+from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.contracts import (
     DriftResult,
     DriftStatus,
@@ -28,8 +28,7 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
 )
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 # ── Data models ──────────────────────────────────────────────────────

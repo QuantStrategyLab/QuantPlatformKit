@@ -181,10 +181,14 @@ def _raise_mode(mode: RuntimeCommandGateMode, candidate: RuntimeCommandGateMode)
 
 @dataclass(frozen=True)
 class RuntimeCommandGatePolicy:
-    """Reviewed static policy; strict checks are observation-only by default."""
+    """Reviewed static policy with ``ENFORCE`` as the default.
+
+    ``OBSERVE`` is receipt/observation only and never grants broker-write
+    permission. Denied decisions remain blocked and still record ``would_block``.
+    """
 
     mode: RuntimeCommandGateMode = RuntimeCommandGateMode.ACTIVE
-    enforcement: RuntimeCommandGateEnforcement = RuntimeCommandGateEnforcement.OBSERVE
+    enforcement: RuntimeCommandGateEnforcement = RuntimeCommandGateEnforcement.ENFORCE
     require_durable_command: bool = True
     require_due_session: bool = True
     require_release_attestation: bool = True
@@ -223,9 +227,13 @@ class RuntimeCommandGateDecision:
 
     @property
     def broker_write_allowed(self) -> bool:
-        """Whether an adapter may proceed in the selected enforcement mode."""
+        """Whether policy allows an adapter to proceed with a broker write.
 
-        return self.policy_allows or self.enforcement is RuntimeCommandGateEnforcement.OBSERVE
+        Explicit ``OBSERVE`` is receipt/observation only: a denied decision still
+        returns ``False`` and records ``would_block=True``.
+        """
+
+        return self.policy_allows
 
     @property
     def would_block(self) -> bool:

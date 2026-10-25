@@ -1,181 +1,45 @@
-"""Shared feature snapshot loading helpers."""
+"""Feature snapshot guard state machine and current-generation pointer validation."""
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
-import shutil
 import tempfile
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable
 
 import pandas as pd
 
-from .strategies import normalize_profile_name
-
-
-DEFAULT_SNAPSHOT_DATE_COLUMNS = ("as_of", "snapshot_date")
-DEFAULT_MAX_SNAPSHOT_MONTH_LAG = 1
-DEFAULT_SNAPSHOT_MANIFEST_SUFFIX = ".manifest.json"
-DEFAULT_ARTIFACT_CACHE_DIR = Path(tempfile.gettempdir()) / "quant_strategy_artifacts"
-DEFAULT_FEATURE_SNAPSHOT_FALLBACK_MODE = "none"
-FEATURE_SNAPSHOT_FALLBACK_MODE_NONE = "none"
-FEATURE_SNAPSHOT_FALLBACK_MODE_LAST_VALID = "last_valid"
-DEFAULT_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS = 3
-DEFAULT_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR = (
-    DEFAULT_ARTIFACT_CACHE_DIR / "last_valid_feature_snapshots"
+from .io import (
+    _is_cloud_uri,
+    _load_snapshot_frame,
+    _materialize_artifact_path,
+    _parse_cloud_uri,
+    _resolve_manifest_path,
+    _resolve_manifest_reference,
+    _sha256_file,
 )
-_CURRENT_GENERATION_SCHEMA = "current_generation.v1"
-_CURRENT_GENERATION_OBJECT_NAMES = ("snapshot", "manifest", "ranking", "release_summary")
-_CURRENT_GENERATION_POINTER_FILENAME = "current_generation.json"
-_CURRENT_GENERATION_DIGEST_RE = re.compile(r"[0-9a-f]{64}\Z")
-_CURRENT_GENERATION_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
-_MANIFEST_DIAGNOSTIC_FIELDS = (
-    "price_as_of",
-    "universe_as_of",
-    "source_input_status",
-    "source_input_fallback_used",
-    "source_input_fallback_reason",
-    "source_input_fallback_streak",
-    "source_input_manifest_path",
-    "source_refresh_run_id",
-    "source_refresh_generated_at",
+from .types import (
+    DEFAULT_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS,
+    DEFAULT_FEATURE_SNAPSHOT_FALLBACK_MODE,
+    DEFAULT_MAX_SNAPSHOT_MONTH_LAG,
+    DEFAULT_SNAPSHOT_DATE_COLUMNS,
+    FEATURE_SNAPSHOT_FALLBACK_MODE_LAST_VALID,
+    _CURRENT_GENERATION_DIGEST_RE,
+    _CURRENT_GENERATION_ID_RE,
+    _CURRENT_GENERATION_OBJECT_NAMES,
+    _CURRENT_GENERATION_POINTER_FILENAME,
+    _CURRENT_GENERATION_SCHEMA,
+    _MANIFEST_DIAGNOSTIC_FIELDS,
+    FeatureSnapshotGuardResult,
+    _build_guard_metadata,
+    _month_lag,
+    _normalize_config_name_label,
+    _normalize_contract_version_label,
+    _normalize_strategy_profile_label,
+    _normalize_timestamp,
+    normalize_feature_snapshot_fallback_mode,
 )
-
-
-def _normalize_strategy_profile_label(value: object) -> str:
-    return normalize_profile_name(str(value or "").strip())
-
-
-def _normalize_contract_version_label(value: object) -> str:
-    label = str(value or "").strip()
-    if not label:
-        return ""
-    prefix, marker, suffix = label.partition(".feature_snapshot.")
-    if not marker:
-        return label
-    return f"{_normalize_strategy_profile_label(prefix)}{marker}{suffix}"
-
-
-def _normalize_config_name_label(value: object) -> str:
-    return _normalize_strategy_profile_label(value)
-
-
-@dataclass(frozen=True)
-class FeatureSnapshotGuardResult:
-    frame: pd.DataFrame | None
-    metadata: dict[str, object]
-
-
-def _load_snapshot_frame(snapshot_path: Path) -> pd.DataFrame:
-    suffix = snapshot_path.suffix.lower()
-    if suffix == ".csv":
-        return pd.read_csv(snapshot_path)
-    if suffix in {".json", ".jsonl"}:
-        return pd.read_json(snapshot_path, orient="records", lines=suffix == ".jsonl")
-    if suffix == ".parquet":
-        return pd.read_parquet(snapshot_path)
-
-    raise ValueError(
-        "Unsupported feature snapshot format; expected .csv, .json, .jsonl, or .parquet"
-    )
-
-
-def _normalize_timestamp(value) -> pd.Timestamp | None:
-    if value is None or value == "":
-        return None
-    ts = pd.Timestamp(value)
-    if ts.tzinfo is not None:
-        ts = ts.tz_convert(None)
-    else:
-        ts = ts.tz_localize(None)
-    return ts.normalize()
-
-
-def _month_lag(snapshot_as_of: pd.Timestamp, run_as_of: pd.Timestamp) -> int:
-    return (run_as_of.year - snapshot_as_of.year) * 12 + (run_as_of.month - snapshot_as_of.month)
-
-
-def _build_guard_metadata(
-    *,
-    snapshot_path: Path,
-    decision: str,
-    snapshot_format: str | None = None,
-    snapshot_exists: bool,
-    snapshot_as_of: pd.Timestamp | None = None,
-    file_timestamp: str | None = None,
-    age_days: int | None = None,
-    no_op_reason: str | None = None,
-    fail_reason: str | None = None,
-    **extra,
-) -> dict[str, object]:
-    payload = {
-        "feature_snapshot_path": str(snapshot_path),
-        "snapshot_path": str(snapshot_path),
-        "snapshot_format": snapshot_format,
-        "snapshot_exists": bool(snapshot_exists),
-        "snapshot_as_of": snapshot_as_of,
-        "snapshot_file_timestamp": file_timestamp,
-        "snapshot_age_days": age_days,
-        "snapshot_guard_decision": decision,
-        "no_op_reason": no_op_reason,
-        "fail_reason": fail_reason,
-    }
-    payload.update(extra)
-    return payload
-
-
-def _sha256_file(path: Path) -> str:
-    hasher = hashlib.sha256()
-    with path.open("rb") as fh:
-        while True:
-            chunk = fh.read(1024 * 1024)
-            if not chunk:
-                break
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
-def _resolve_manifest_path(snapshot_path: Path, manifest_path: str | None) -> Path:
-    raw_manifest = str(manifest_path or "").strip()
-    if raw_manifest:
-        return Path(raw_manifest)
-    return Path(f"{snapshot_path}{DEFAULT_SNAPSHOT_MANIFEST_SUFFIX}")
-
-
-def _is_cloud_uri(reference: str | None) -> bool:
-    return str(reference or "").strip().startswith("gs://") or str(reference or "").strip().startswith("s3://")
-
-
-# Backward-compatible alias
-_is_gcs_uri = _is_cloud_uri
-
-
-def _resolve_manifest_reference(snapshot_reference: str, manifest_path: str | None) -> str:
-    raw_manifest = str(manifest_path or "").strip()
-    if raw_manifest:
-        return raw_manifest
-    return f"{str(snapshot_reference).strip()}{DEFAULT_SNAPSHOT_MANIFEST_SUFFIX}"
-
-
-def _parse_cloud_uri(uri: str) -> tuple[str, str]:
-    raw_uri = str(uri or "").strip()
-    if not raw_uri.startswith("gs://") and not raw_uri.startswith("s3://"):
-        raise ValueError(f"Unsupported cloud storage URI: {raw_uri}")
-    bucket_name, _, object_name = raw_uri[5:].partition("/")
-    if not bucket_name or not object_name:
-        raise ValueError(f"Invalid cloud storage URI: {raw_uri}")
-    return bucket_name, object_name
-
-
-def _download_remote_object(uri: str, destination: Path) -> None:
-    from quant_platform_kit.cloud import get_object_store
-
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_bytes(get_object_store().read_bytes(uri))
 
 
 def _is_current_generation_pointer_reference(reference: str) -> bool:
@@ -316,7 +180,9 @@ def _load_current_generation_feature_snapshot_guarded(
         prefix_root = _validate_current_generation_pointer_uri(pointer_uri)
         with tempfile.TemporaryDirectory(prefix="feature-snapshot-generation-") as temporary_dir:
             pointer_path = Path(temporary_dir) / _CURRENT_GENERATION_POINTER_FILENAME
-            _download_gcs_object(pointer_uri, pointer_path)
+            from . import _download_gcs_object as download
+
+            download(pointer_uri, pointer_path)
             payload = _read_current_generation_pointer(pointer_path.read_bytes())
             pointer_profile = str(payload["profile"])
             if expected_strategy_profile and _normalize_strategy_profile_label(
@@ -345,7 +211,7 @@ def _load_current_generation_feature_snapshot_guarded(
                 basename = objects[name]["basename"]
                 object_uri = f"{immutable_prefix}/{basename}"
                 local_path = Path(temporary_dir) / f"{name}-{basename}"
-                _download_gcs_object(object_uri, local_path)
+                download(object_uri, local_path)
                 if _sha256_file(local_path) != object_digests[name]:
                     return FeatureSnapshotGuardResult(
                         frame=None,
@@ -419,34 +285,6 @@ def _load_current_generation_feature_snapshot_guarded(
         )
 
 
-# Backward-compatible aliases
-_parse_gcs_uri = _parse_cloud_uri
-
-
-def _download_gcs_object(uri: str, destination: Path) -> None:
-    _download_remote_object(uri, destination)
-
-
-def _cache_path_for_remote_artifact(reference: str) -> Path:
-    raw_reference = str(reference or "").strip()
-    digest = hashlib.sha256(raw_reference.encode("utf-8")).hexdigest()[:16]
-    leaf_name = Path(raw_reference).name or "artifact"
-    return DEFAULT_ARTIFACT_CACHE_DIR / digest / leaf_name
-
-
-def _materialize_artifact_path(reference: str) -> tuple[Path, dict[str, object]]:
-    raw_reference = str(reference or "").strip()
-    if not raw_reference:
-        raise ValueError("artifact reference is required")
-
-    if not _is_cloud_uri(raw_reference):
-        return Path(raw_reference), {"source_uri": None, "local_path": raw_reference}
-
-    local_path = _cache_path_for_remote_artifact(raw_reference)
-    _download_gcs_object(raw_reference, local_path)
-    return local_path, {"source_uri": raw_reference, "local_path": str(local_path)}
-
-
 def _normalize_manifest_payload(payload: dict[str, object]) -> dict[str, object]:
     normalized = dict(payload)
     if "snapshot_as_of" in normalized:
@@ -513,6 +351,12 @@ def load_feature_snapshot_guarded(
     fallback_max_stale_days: int | None = DEFAULT_FEATURE_SNAPSHOT_FALLBACK_MAX_STALE_DAYS,
 ) -> FeatureSnapshotGuardResult:
     """Load a guarded snapshot, optionally falling back to the last valid artifact."""
+
+    from . import (
+        _feature_snapshot_fallback_context,
+        _load_feature_snapshot_last_valid,
+        _write_feature_snapshot_last_valid,
+    )
 
     raw_path = str(path or "").strip()
     if _is_current_generation_pointer_reference(raw_path):
@@ -1148,263 +992,3 @@ def _load_feature_snapshot_guarded_without_fallback(
             actual_config_sha256=actual_config_sha256,
         ),
     )
-
-
-def normalize_feature_snapshot_fallback_mode(value: object) -> str:
-    mode = str(value or DEFAULT_FEATURE_SNAPSHOT_FALLBACK_MODE).strip().lower().replace("-", "_")
-    aliases = {
-        "": FEATURE_SNAPSHOT_FALLBACK_MODE_NONE,
-        "off": FEATURE_SNAPSHOT_FALLBACK_MODE_NONE,
-        "disabled": FEATURE_SNAPSHOT_FALLBACK_MODE_NONE,
-        "false": FEATURE_SNAPSHOT_FALLBACK_MODE_NONE,
-        "none": FEATURE_SNAPSHOT_FALLBACK_MODE_NONE,
-        "last": FEATURE_SNAPSHOT_FALLBACK_MODE_LAST_VALID,
-        "last_valid": FEATURE_SNAPSHOT_FALLBACK_MODE_LAST_VALID,
-        "last_valid_snapshot": FEATURE_SNAPSHOT_FALLBACK_MODE_LAST_VALID,
-    }
-    normalized = aliases.get(mode, mode)
-    if normalized not in {
-        FEATURE_SNAPSHOT_FALLBACK_MODE_NONE,
-        FEATURE_SNAPSHOT_FALLBACK_MODE_LAST_VALID,
-    }:
-        raise ValueError(
-            "unsupported feature snapshot fallback mode "
-            f"{value!r}; supported: none, last_valid"
-        )
-    return normalized
-
-
-def _feature_snapshot_fallback_context(
-    *,
-    path: str,
-    manifest_path: str | None,
-    expected_strategy_profile: str | None,
-    expected_config_name: str | None,
-    expected_contract_version: str | None,
-    required_columns: Iterable[str] | None,
-    snapshot_date_columns: Iterable[str],
-    cache_dir: str | Path | None,
-) -> dict[str, Any]:
-    raw_path = str(path or "").strip()
-    raw_manifest = str(manifest_path or "").strip()
-    payload = {
-        "path": raw_path,
-        "manifest_path": raw_manifest,
-        "expected_strategy_profile": str(expected_strategy_profile or "").strip(),
-        "expected_config_name": str(expected_config_name or "").strip(),
-        "expected_contract_version": str(expected_contract_version or "").strip(),
-        "required_columns": tuple(str(column) for column in (required_columns or ())),
-        "snapshot_date_columns": tuple(str(column) for column in snapshot_date_columns),
-    }
-    digest = hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-    ).hexdigest()[:24]
-    cache_root = Path(cache_dir or DEFAULT_FEATURE_SNAPSHOT_FALLBACK_CACHE_DIR) / digest
-    snapshot_suffix = Path(raw_path).suffix or ".snapshot"
-    return {
-        "cache_root": cache_root,
-        "record_path": cache_root / "record.json",
-        "snapshot_path": cache_root / f"snapshot{snapshot_suffix}",
-        "manifest_path": cache_root / "snapshot.manifest.json",
-        "source_path": raw_path,
-        "source_manifest_path": raw_manifest or _resolve_manifest_reference(raw_path, manifest_path),
-        "cache_key_payload": payload,
-    }
-
-
-def _write_feature_snapshot_last_valid(
-    fallback_context: Mapping[str, Any],
-    metadata: Mapping[str, Any],
-) -> None:
-    source_snapshot = _path_from_metadata(
-        metadata.get("snapshot_local_path") or metadata.get("snapshot_path")
-    )
-    if source_snapshot is None or not source_snapshot.exists():
-        return
-
-    cache_root = Path(fallback_context["cache_root"])
-    snapshot_path = Path(fallback_context["snapshot_path"])
-    manifest_path = Path(fallback_context["manifest_path"])
-    record_path = Path(fallback_context["record_path"])
-    cache_root.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source_snapshot, snapshot_path)
-
-    source_manifest = _path_from_metadata(
-        metadata.get("snapshot_manifest_local_path") or metadata.get("snapshot_manifest_path")
-    )
-    manifest_copied = False
-    if source_manifest is not None and source_manifest.exists():
-        shutil.copy2(source_manifest, manifest_path)
-        manifest_copied = True
-
-    record = {
-        "schema_version": "feature_snapshot_last_valid.v1",
-        "saved_at": datetime.now(timezone.utc).isoformat(),
-        "source_path": fallback_context["source_path"],
-        "source_manifest_path": fallback_context["source_manifest_path"],
-        "snapshot_path": str(snapshot_path),
-        "manifest_path": str(manifest_path) if manifest_copied else None,
-        "snapshot_as_of": _json_safe_value(metadata.get("snapshot_as_of")),
-        "snapshot_sha256": _sha256_file(snapshot_path),
-        "manifest_sha256": _sha256_file(manifest_path) if manifest_copied else None,
-        "cache_key_payload": fallback_context["cache_key_payload"],
-    }
-    record_path.write_text(json.dumps(record, sort_keys=True, indent=2), encoding="utf-8")
-
-
-def _load_feature_snapshot_last_valid(
-    fallback_context: Mapping[str, Any],
-    *,
-    run_as_of,
-    required_columns: Iterable[str] | None,
-    snapshot_date_columns: Iterable[str],
-    max_snapshot_month_lag: int,
-    require_manifest: bool,
-    expected_strategy_profile: str | None,
-    expected_config_name: str | None,
-    expected_config_path: str | None,
-    expected_contract_version: str | None,
-    failed_metadata: Mapping[str, Any],
-    max_stale_days: int | None,
-) -> FeatureSnapshotGuardResult | None:
-    record_path = Path(fallback_context["record_path"])
-    snapshot_path = Path(fallback_context["snapshot_path"])
-    manifest_path = Path(fallback_context["manifest_path"])
-    if not record_path.exists() or not snapshot_path.exists():
-        return _feature_snapshot_fallback_failure(
-            failed_metadata,
-            reason="last_valid_missing",
-            fallback_context=fallback_context,
-        )
-    try:
-        record = json.loads(record_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        return _feature_snapshot_fallback_failure(
-            failed_metadata,
-            reason=f"last_valid_record_invalid:{type(exc).__name__}:{exc}",
-            fallback_context=fallback_context,
-        )
-    if not isinstance(record, Mapping):
-        return _feature_snapshot_fallback_failure(
-            failed_metadata,
-            reason="last_valid_record_invalid:not_mapping",
-            fallback_context=fallback_context,
-        )
-    stale_reason = _feature_snapshot_fallback_stale_reason(record, max_stale_days=max_stale_days)
-    if stale_reason:
-        return _feature_snapshot_fallback_failure(
-            failed_metadata,
-            reason=stale_reason,
-            fallback_context=fallback_context,
-            record=record,
-        )
-    if require_manifest and not manifest_path.exists():
-        return _feature_snapshot_fallback_failure(
-            failed_metadata,
-            reason="last_valid_manifest_missing",
-            fallback_context=fallback_context,
-            record=record,
-        )
-
-    fallback_result = _load_feature_snapshot_guarded_without_fallback(
-        str(snapshot_path),
-        run_as_of=run_as_of,
-        required_columns=required_columns,
-        snapshot_date_columns=snapshot_date_columns,
-        max_snapshot_month_lag=max_snapshot_month_lag,
-        manifest_path=str(manifest_path) if manifest_path.exists() else None,
-        require_manifest=require_manifest,
-        expected_strategy_profile=expected_strategy_profile,
-        expected_config_name=expected_config_name,
-        expected_config_path=expected_config_path,
-        expected_contract_version=expected_contract_version,
-    )
-    metadata = dict(fallback_result.metadata)
-    if metadata.get("snapshot_guard_decision") != "proceed":
-        return _feature_snapshot_fallback_failure(
-            failed_metadata,
-            reason=str(metadata.get("fail_reason") or metadata.get("no_op_reason") or "last_valid_guard_failed"),
-            fallback_context=fallback_context,
-            record=record,
-        )
-
-    metadata.update(
-        {
-            "feature_snapshot_path": fallback_context["source_path"],
-            "snapshot_path": fallback_context["source_path"],
-            "snapshot_manifest_path": fallback_context["source_manifest_path"],
-            "snapshot_local_path": str(snapshot_path),
-            "snapshot_manifest_local_path": str(manifest_path) if manifest_path.exists() else None,
-            "artifact_fallback_used": True,
-            "artifact_fallback_mode": FEATURE_SNAPSHOT_FALLBACK_MODE_LAST_VALID,
-            "artifact_fallback_reason": failed_metadata.get("fail_reason")
-            or failed_metadata.get("no_op_reason"),
-            "artifact_fallback_saved_at": record.get("saved_at"),
-            "artifact_fallback_cache_dir": str(fallback_context["cache_root"]),
-            "artifact_fallback_snapshot_path": str(snapshot_path),
-            "artifact_fallback_manifest_path": str(manifest_path) if manifest_path.exists() else None,
-        }
-    )
-    return FeatureSnapshotGuardResult(frame=fallback_result.frame, metadata=metadata)
-
-
-def _feature_snapshot_fallback_failure(
-    failed_metadata: Mapping[str, Any],
-    *,
-    reason: str,
-    fallback_context: Mapping[str, Any],
-    record: Mapping[str, Any] | None = None,
-) -> FeatureSnapshotGuardResult:
-    metadata = dict(failed_metadata)
-    metadata.update(
-        {
-            "artifact_fallback_used": False,
-            "artifact_fallback_mode": FEATURE_SNAPSHOT_FALLBACK_MODE_LAST_VALID,
-            "artifact_fallback_fail_reason": reason,
-            "artifact_fallback_cache_dir": str(fallback_context["cache_root"]),
-        }
-    )
-    if record is not None:
-        metadata["artifact_fallback_saved_at"] = record.get("saved_at")
-    return FeatureSnapshotGuardResult(frame=None, metadata=metadata)
-
-
-def _feature_snapshot_fallback_stale_reason(
-    record: Mapping[str, Any],
-    *,
-    max_stale_days: int | None,
-) -> str | None:
-    if max_stale_days is None:
-        return None
-    if int(max_stale_days) < 0:
-        return "last_valid_max_stale_days_negative"
-    saved_at = record.get("saved_at")
-    try:
-        saved_ts = pd.Timestamp(saved_at)
-    except Exception:
-        return "last_valid_saved_at_invalid"
-    if pd.isna(saved_ts):
-        return "last_valid_saved_at_invalid"
-    if saved_ts.tzinfo is None:
-        saved_ts = saved_ts.tz_localize(timezone.utc)
-    now_ts = pd.Timestamp(datetime.now(timezone.utc))
-    if saved_ts < now_ts - pd.Timedelta(days=int(max_stale_days)):
-        return "last_valid_stale:saved_at=" + str(saved_at)
-    return None
-
-
-def _path_from_metadata(value: object) -> Path | None:
-    text = str(value or "").strip()
-    if not text or text.startswith("gs://"):
-        return None
-    return Path(text)
-
-
-def _json_safe_value(value: object) -> object:
-    if isinstance(value, pd.Timestamp):
-        return value.isoformat()
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    return str(value)
