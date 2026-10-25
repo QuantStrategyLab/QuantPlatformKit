@@ -93,6 +93,10 @@ def describe_security_drawdown_reference(reference, *, selected_benchmark, curre
     except OverflowError:
         valid = False
     _require(valid, "SECURITY_REFERENCE_RETURNS_INVALID")
+    wealth = 1.0
+    for value in returns:
+        wealth *= 1.0 + value
+        _require(math.isfinite(wealth) and wealth > 0, "SECURITY_REFERENCE_WEALTH_UNCOMPUTABLE")
     try:
         encoded = json.dumps(dict(reference=dict(reference), selected_benchmark=selected_benchmark,
             currency=currency, calendar_id=calendar_id, valuation_sampling=valuation_sampling,

@@ -115,3 +115,9 @@ def test_incomplete_dates_returns_and_clock_are_rejected(fault):
 def test_daily_reference_cannot_be_silently_used_for_intraday_observations():
     with pytest.raises(SecurityDrawdownReferenceError, match="^SECURITY_REFERENCE_DAILY_CLOSE_REQUIRED$"):
         describe(valuation_sampling="INTRADAY")
+
+
+def test_finite_daily_returns_cannot_hide_overflowed_wealth_as_zero_drawdown():
+    ref = packet(); ref["returns"] = [1e308, 1e308, -.5]
+    with pytest.raises(SecurityDrawdownReferenceError, match="^SECURITY_REFERENCE_WEALTH_UNCOMPUTABLE$"):
+        describe(ref)
