@@ -138,6 +138,10 @@ rw.update_secret("my-token", "new-token-value")
 - Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for maintainer and contributor conduct.
 - Report credential, automation, broker, exchange, or cloud-resource vulnerabilities through [SECURITY.md](SECURITY.md); do not open public issues for secrets or live-execution risk.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). AI assistants and maintainers follow [AGENTS.md](AGENTS.md).
+
 ## License
 
 See [LICENSE](LICENSE).

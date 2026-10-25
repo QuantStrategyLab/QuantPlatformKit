@@ -97,3 +97,7 @@ v1 已删除 `quant_platform_kit.strategy_contracts`。策略 contract 请改从
 ### AI 任务服务升级
 
 生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/TASK-SERVICE-V2.zh-CN.md)。该说明保留尚未发布或部署的本地迁移基线，不作为当前部署状态。
+
+## 参与贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。AI 助手与维护者遵循 [AGENTS.md](AGENTS.md)。
