@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 import json
 import tempfile
 import unittest
@@ -214,3 +215,50 @@ class RuntimeReportsTests(unittest.TestCase):
             fake_store.last_content_type,
             "application/json",
         )
+
+    @patch("quant_platform_kit.cloud.get_object_store")
+    def test_explicit_empty_inventory_survives_report_persistence(self, mock_get_store) -> None:
+        report = build_runtime_report_base(
+            platform="example", deploy_target="cloud_run", service_name="example-runtime",
+            strategy_profile="example", run_id="empty-inventory", run_source="probe",
+            started_at="2026-01-01T00:00:00Z",
+            summary={"account_facts": {
+                "schema_version": "ibkr_account_snapshot.v1",
+                "broker_reported_positions": [], "broker_reported_positions_complete": True,
+                "unavailable": None, "blank": "", "empty_metadata": {},
+            }},
+        )
+        finalize_runtime_report(report, status="ok", summary={"check": {"complete": True}})
+        fake_store = FakeObjectStore()
+        mock_get_store.return_value = fake_store
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = persist_runtime_report(
+                report, base_dir=tmp_dir, cloud_prefix_uri="gs://demo-bucket/reports",
+            )
+            local_payload = json.loads(Path(result.local_path).read_text(encoding="utf-8"))
+        for location, payload in zip(
+            ("memory", "local", "cloud"),
+            (report, local_payload, json.loads(fake_store.last_payload)),
+        ):
+            with self.subTest(location=location):
+                self.assertEqual(payload["summary"]["account_facts"]["broker_reported_positions"], [])
+                self.assertIs(payload["summary"]["account_facts"]["broker_reported_positions_complete"], True)
+                self.assertNotIn("unavailable", payload["summary"]["account_facts"])
+                self.assertNotIn("blank", payload["summary"]["account_facts"])
+                self.assertNotIn("empty_metadata", payload["summary"]["account_facts"])
+
+    def test_inventory_retention_does_not_create_missing_or_untyped_empty_positions(self) -> None:
+        for schema, raw_positions in (
+            ("ibkr_account_snapshot.v1", None),
+            ("ibkr_account_snapshot.v1", ()),
+            ("other.v1", []),
+        ):
+            with self.subTest(schema=schema, raw_positions=raw_positions):
+                report = build_runtime_report_base(
+                    platform="example", deploy_target="offline", service_name="example-runtime",
+                    strategy_profile="example", run_id="unknown-inventory", run_source="test",
+                    summary={"account_facts": {
+                        "schema_version": schema, "broker_reported_positions": raw_positions,
+                    }},
+                )
+                self.assertNotIn("broker_reported_positions", report["summary"]["account_facts"])
