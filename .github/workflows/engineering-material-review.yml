@@ -9,8 +9,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   review:
-    if: github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.AI_SERVICE_RELEASE_READY == 'true'
-    runs-on: [self-hosted, research-runner]
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.AI_SERVICE_RELEASE_READY == 'true' && vars.HOSTED_RESEARCH_ACCEPTED == 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
       AI_SERVICE_URL: ${{ vars.AI_SERVICE_URL }}
@@ -19,6 +19,48 @@ jobs:
       AUDIT_MATERIAL: ${{ vars.AI_SERVICE_ENGINEERING_MATERIAL_PATH }}
       AUDIT_ROLES: ${{ vars.AI_SERVICE_ENGINEERING_ROLES_JSON }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Stage the approved hosted input bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HOSTED_INPUT_RELEASE: ${{ vars.HOSTED_INPUT_RELEASE }}
+          HOSTED_INPUT_ASSET: ${{ vars.HOSTED_INPUT_ASSET }}
+          HOSTED_INPUT_SHA256: ${{ vars.HOSTED_INPUT_SHA256 }}
+        run: |
+          set -euo pipefail
+          test -n "$HOSTED_INPUT_RELEASE" && test -n "$HOSTED_INPUT_ASSET"
+          [[ "$HOSTED_INPUT_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$HOSTED_INPUT_ASSET" =~ ^[A-Za-z0-9_.-]+\.zip$ ]]
+          gh release download "$HOSTED_INPUT_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern "$HOSTED_INPUT_ASSET" --dir "$RUNNER_TEMP/approved-input"
+          python - <<'PYCODE'
+          import hashlib, os, stat, zipfile
+          from pathlib import Path, PurePosixPath
+          archive = Path(os.environ['RUNNER_TEMP']) / 'approved-input' / os.environ['HOSTED_INPUT_ASSET']
+          with archive.open('rb') as stream:
+              digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+          if digest != os.environ['HOSTED_INPUT_SHA256']:
+              raise SystemExit('approved hosted input digest mismatch')
+          target = Path('hosted-inputs')
+          with zipfile.ZipFile(archive) as bundle:
+              entries = bundle.infolist()
+              if len(entries) > 100000 or sum(item.file_size for item in entries) > 8 * 1024**3:
+                  raise SystemExit('hosted input bundle exceeds the staging limit')
+              for item in entries:
+                  path = PurePosixPath(item.filename)
+                  if path.is_absolute() or '..' in path.parts or chr(92) in item.filename or stat.S_ISLNK(item.external_attr >> 16):
+                      raise SystemExit('unsafe hosted input bundle entry')
+              bundle.extractall(target)
+          PYCODE
+      - name: Install the checked-out caller
+        run: |
+          python -m pip install .
+          python -m pip install --no-index --find-links hosted-inputs/wheels -r hosted-inputs/runtime-requirements.txt
+          python -m pip check
       - name: Review caller-owned frozen material using the approved runtime
         run: |
           set -euo pipefail
