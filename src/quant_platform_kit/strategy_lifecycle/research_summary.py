@@ -58,6 +58,20 @@ def _locales(payload: Any) -> dict[str, dict[str, str]] | None:
 
 def make_summary_callback(*, revision: str, repository: str, local_facts: Mapping[str, Any],
                           validate_context: Callable[[Any], dict[str, Any]], client=None):
+    def loop_identity(context):
+        encoded = json.dumps({"repository": repository, "revision": revision,
+                              "facts": dict(local_facts), "context": context}, sort_keys=True, allow_nan=False)
+        return "research-summary-review:" + hashlib.sha256(encoded.encode()).hexdigest()
+
+    def failed(context):
+        if os.environ.get("AI_REVIEW_CLOSED_LOOP", "").lower() == "true":
+            try:
+                from .review_disposition import disposition
+                disposition({"repository": repository, "revision": revision}, {"status": "unavailable"},
+                            identity=loop_identity(context))
+            except Exception:
+                pass
+        return unavailable()
     if client is None:
         try:
             route = AiProviderConfig(
@@ -67,7 +81,7 @@ def make_summary_callback(*, revision: str, repository: str, local_facts: Mappin
             )
             client = AiServiceClient(AiServiceConfig.reliability(primary=route))
         except (TypeError, ValueError):
-            return lambda _context: unavailable()
+            return lambda context: failed(context)
 
     def summarize(summary_context):
         try:
@@ -91,13 +105,24 @@ def make_summary_callback(*, revision: str, repository: str, local_facts: Mappin
                     or raw.get("result_kind") != "advisory" or not result.provider
                     or raw.get("model_verification") not in {"unavailable", "provider_reported"}
                     or not isinstance(raw.get("model_requested"), str) or not raw["model_requested"]):
-                return unavailable()
+                return failed(summary_context)
             locales = _locales(json.loads(result.output))
             if locales is None:
-                return unavailable()
+                return failed(summary_context)
+            if os.environ.get("AI_REVIEW_CLOSED_LOOP", "").lower() == "true":
+                from .task_review import review_material
+                roles = [route.label for route in AiServiceConfig.from_env().reviewers]
+                review = review_material(
+                    {"repository": repository, "revision": revision, "facts": dict(local_facts),
+                     "context": context, "summary": locales, "advisory_only": True},
+                    operation_id=loop_identity(summary_context), required_roles=roles,
+                )
+                # A summary never changes an investment decision or promotion gate.
+                if review.get("loop", {}).get("disposition") not in {"auto_verified", "dismissed"}:
+                    return unavailable()
             return {"status": "available", "provider": result.provider,
                     "model_requested": raw["model_requested"],
                     "model_verification": raw["model_verification"], "locales": locales}
         except Exception:
-            return unavailable()
+            return failed(summary_context)
     return summarize
