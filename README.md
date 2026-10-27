@@ -132,6 +132,16 @@ rw.update_secret("my-token", "new-token-value")
 - [`docs/strategy_plugin_runtime_contract.zh-CN.md`](docs/strategy_plugin_runtime_contract.zh-CN.md)
 - [`docs/us_equity_cross_platform_strategy_spec.md`](docs/us_equity_cross_platform_strategy_spec.md)
 
+## Schwab reporting snapshots
+
+The Schwab reader preserves `metadata.broker_stock_inventory` from its existing
+account response before strategy-symbol filtering. It records field presence,
+native row count and bounded stock-reporting fields; missing or malformed data
+remains unknown, while an explicit valid empty list can establish an empty stock
+scope. Strategy positions, balances and the original response digest are unchanged.
+Consumers adopt this optional metadata through an explicitly pinned QPK revision
+and project it using the same snapshot time, without an additional broker read.
+
 ## Community and security
 
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for pull request scope, local verification, and documentation expectations.
