@@ -38,6 +38,11 @@ observed_at
 失败或超时不会自动证明“没有下单”。如果无法证明券商未收到请求，生产者必须写
 `not_observed` 或 `reconciliation_required`，并保持停止新增风险的现有流程。
 
+模拟运行不会宣称真实提交或券商确认，但其技术异常仍记为
+`failed / not_applicable`；正常模拟运行记为 `no_action / not_applicable`。
+这是结果分类修正，不改变字段或执行权限。下游采用包含此修复的固定 revision 后生效；
+仅更新共享库源码不会改变已部署平台的行为。
+
 ## 接入方式
 
 平台在已经生成、自证 strategy release 的 `runtime_report.v1` 上调用
