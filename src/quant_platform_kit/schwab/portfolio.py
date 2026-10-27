@@ -18,6 +18,47 @@ _MAX_CASH_BALANCE_INTEGER_DIGITS = 15
 _MAX_CASH_BALANCE_FRACTION_DIGITS = 8
 
 
+def _inventory_scalar(value: Any) -> Any:
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (str, int, float, Decimal)) and len(str(value)) <= 64:
+        return value
+    return None
+
+
+def _native_stock_inventory(account: dict[str, Any]) -> dict[str, Any]:
+    """Keep bounded reporting fields from this response, before strategy filtering.
+
+    This is not the strategy position set and is never used for sizing. Missing
+    fields stay missing; malformed/oversized lists cannot become an empty set.
+    """
+    native = account.get("positions")
+    observation: dict[str, Any] = {
+        "positions_field_present": "positions" in account,
+        "native_positions_count": len(native) if isinstance(native, list) else None,
+    }
+    if "positions" not in account:
+        return observation
+    observation["positions"] = None
+    if not isinstance(native, list) or len(native) > 512:
+        return observation
+    rows = []
+    for raw in native:
+        if not isinstance(raw, dict):
+            rows.append(None)
+            continue
+        row = {key: _inventory_scalar(raw[key]) for key in
+               ("longQuantity", "shortQuantity", "marketValue") if key in raw}
+        if "instrument" in raw:
+            instrument = raw["instrument"]
+            row["instrument"] = ({key: _inventory_scalar(instrument[key]) for key in
+                                  ("assetType", "symbol") if key in instrument}
+                                 if isinstance(instrument, dict) else None)
+        rows.append(row)
+    observation["positions"] = rows
+    return observation
+
+
 def _payload_digest(payload: Any) -> str:
     """Bind a normalized snapshot to the broker response without retaining it."""
 
@@ -202,6 +243,7 @@ def fetch_account_snapshot(
         "buying_power_source": buying_power_source,
         "total_equity_source": total_equity_source,
         "source_digest_sha256": _payload_digest(account_payload),
+        "broker_stock_inventory": _native_stock_inventory(account),
     }
     broker_account_type = _optional_account_type(account.get("type"))
     if broker_account_type is not None:
