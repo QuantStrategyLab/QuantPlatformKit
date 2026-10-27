@@ -244,7 +244,7 @@ def resolve_execution_receipt_fact(
     """
 
     if dry_run:
-        return "no_action", "not_applicable"
+        return ("failed" if failed else "no_action"), "not_applicable"
     if reconciliation_required:
         return "reconciliation_required", "reconciliation_required"
     if filled:
