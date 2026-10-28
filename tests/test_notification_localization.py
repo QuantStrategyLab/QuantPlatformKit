@@ -77,6 +77,17 @@ class NotificationLocalizationTests(unittest.TestCase):
     def test_common_replacements_include_reason_label(self):
         self.assertIn(("reason=", "原因="), COMMON_ZH_NOTIFICATION_REPLACEMENTS)
 
+    def test_cash_reasons_are_localized_without_partial_code_replacements(self):
+        text = "IBIT: insufficient_cash; TEST: insufficient_cash_for_whole_share"
+        self.assertEqual(
+            localize_notification_text(text, translator=_translator_factory("无需交易")),
+            "IBIT: 可用现金不足; TEST: 现金不足以买入一整股",
+        )
+        self.assertEqual(
+            localize_notification_text(text, translator=_translator_factory("No trades")),
+            text,
+        )
+
     def test_humanize_control_plane_lines_for_zh_operator_message(self):
         translator = _translator_factory("无需交易")
         self.assertEqual(
@@ -245,7 +256,7 @@ class NotificationLocalizationTests(unittest.TestCase):
         self.assertEqual(merged["zh"]["strategy_plugin_name_taco_rebound_shadow"], "TACO 反弹观察通知")
         self.assertEqual(merged["en"]["strategy_plugin_route_watch"], "watch")
 
-    def test_operational_alert_renderer_keeps_technical_detail_separate_from_zh_summary(self):
+    def test_operational_alert_renderer_links_logs_instead_of_inline_technical_payload(self):
         message = format_operational_alert(
             locale="zh-CN",
             alert_type="runtime_guard",
@@ -265,9 +276,30 @@ class NotificationLocalizationTests(unittest.TestCase):
         self.assertIn("[运行守卫] LongBridge SG", message)
         self.assertIn("问题：", message)
         self.assertIn("Cloud Run 日志查询失败", message)
-        self.assertIn("技术详情（原文）：", message)
-        self.assertIn("HttpError: INTERNAL", message)
+        self.assertIn("排查详情请查看工作流或云端运行日志。", message)
+        self.assertNotIn("技术详情（原文）：", message)
+        self.assertNotIn("HttpError: INTERNAL", message)
         self.assertIn("工作流：https://example.test/run/1", message)
+
+    def test_operational_alert_does_not_embed_provider_audit_json_in_either_locale(self):
+        details = ['{"@type":"google.cloud.audit.AuditLog","authenticationInfo":{"principalEmail":"example@example.test"}}']
+        for locale in ("zh", "en"):
+            with self.subTest(locale=locale):
+                message = format_operational_alert(
+                    locale=locale,
+                    alert_type="runtime_guard",
+                    name="TEST",
+                    technical_details=details,
+                    workflow_url="https://example.test/run/2",
+                )
+                self.assertIn("https://example.test/run/2", message)
+                self.assertNotIn("AuditLog", message)
+                self.assertNotIn("authenticationInfo", message)
+                self.assertNotIn("example@example.test", message)
+
+    def test_operational_alert_without_technical_details_has_no_log_hint(self):
+        message = format_operational_alert(locale="zh", alert_type="runtime_guard", name="TEST")
+        self.assertNotIn("排查详情", message)
 
     def test_operational_locale_and_normal_heartbeat_are_bilingual(self):
         self.assertEqual(resolve_operational_notification_locale("zh_TW"), "zh")

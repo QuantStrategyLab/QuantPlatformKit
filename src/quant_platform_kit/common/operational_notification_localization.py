@@ -26,6 +26,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "lookback_hours": "检查范围：过去 {value} 小时",
         "issues": "问题：",
         "technical_details": "技术详情（原文）：",
+        "technical_details_in_logs": "排查详情请查看工作流或云端运行日志。",
         "recent_reports": "最近检查的回执（原文）：",
         "latest_runtime_run": "最近一次运行：",
         "workflow": "工作流：{value}",
@@ -100,6 +101,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "lookback_hours": "Lookback: {value} hours",
         "issues": "Issues:",
         "technical_details": "Technical details (original):",
+        "technical_details_in_logs": "See the workflow or cloud runtime logs for diagnostic details.",
         "recent_reports": "Recent reports (original):",
         "latest_runtime_run": "Latest runtime run:",
         "workflow": "Workflow: {value}",
@@ -230,9 +232,10 @@ def format_operational_alert(
 ) -> str:
     """Build a concise localized operator notification.
 
-    ``recent_reports`` and ``technical_details`` are expressly labelled as
-    original diagnostic text.  They may contain broker or cloud-provider
-    wording and therefore must not be presented as localized summaries.
+    ``technical_details`` signals that diagnostic material exists in the source
+    logs. Raw exceptions and provider audit payloads stay out of the delivered
+    message; the workflow URL remains available for investigation.
+    ``recent_reports`` retains its existing labelled receipt-summary format.
     """
 
     title_key = f"{str(alert_type).strip()}_title"
@@ -256,12 +259,7 @@ def format_operational_alert(
             ]
         )
     if technical_details:
-        lines.extend(
-            [
-                operational_notification_text(locale, "technical_details"),
-                *(str(item) for item in technical_details),
-            ]
-        )
+        lines.append(operational_notification_text(locale, "technical_details_in_logs"))
     if workflow_url:
         lines.append(operational_notification_text(locale, "workflow", value=str(workflow_url)))
     return "\n".join(line for line in lines if line)
