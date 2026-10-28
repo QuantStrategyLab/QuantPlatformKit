@@ -415,6 +415,32 @@ class RunStrategyOptimizationWatcherTest(unittest.TestCase):
         self.assertEqual(result["errors"], 1)
         self.assertEqual(len(result["issues"]), 2)
 
+    def test_unknown_issue_create_is_not_retried_for_same_key(self) -> None:
+        payload = {"repo": "QuantStrategyLab/TestStrategies", "snapshots": [
+            _performance_payload(profile="same"), _performance_payload(profile="same"),
+            _performance_payload(profile="other"),
+        ]}
+        for failure in (subprocess.TimeoutExpired(["gh", "SENTINEL_PRIVATE_BODY"], 30),
+                        subprocess.CalledProcessError(1, ["gh", "SENTINEL_PRIVATE_BODY"])):
+            with self.subTest(failure=type(failure).__name__):
+                calls = []
+
+                def create(repo, title, body):
+                    calls.append(title)
+                    if ":same" in title:
+                        raise failure
+                    return "https://example.test/other"
+
+                result = run_watcher(payload, source_repo="QuantStrategyLab/TestStrategies", dry_run=False,
+                                     create_issue=create, list_issues=lambda _: {}, list_archived_issues=lambda _: {})
+
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(result["status"], "partial_error")
+                self.assertEqual(result["errors"], 2)
+                self.assertNotIn("SENTINEL_PRIVATE_BODY", json.dumps(result))
+                self.assertIn("outcome unavailable", result["issues"][1]["skipped_reason"])
+                self.assertTrue(result["issues"][2]["created"])
+
     def test_run_watcher_updates_cache_after_create(self) -> None:
         create_calls: list[tuple[str, str, str]] = []
         payload = {

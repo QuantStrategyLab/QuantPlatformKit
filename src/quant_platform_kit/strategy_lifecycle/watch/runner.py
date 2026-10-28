@@ -358,6 +358,7 @@ def dispatch_strategy_watch_findings(
     archive_lookup_failed: dict[str, str] = {}
     known_event_keys: dict[tuple[str, str], set[str]] = {}
     attempted_event_keys: dict[tuple[str, str], set[str]] = {}
+    attempted_creates: set[tuple[str, str]] = set()
     for finding in findings:
         task = finding_to_automation_task(finding)
         issue = issue_for_task(task)
@@ -422,8 +423,19 @@ def dispatch_strategy_watch_findings(
                         issue_result["existing_url"] = archived_url
                         issue_result["archived"] = True
                         issue_result["skipped_reason"] = "trusted archived research scope"
+                    elif (repo, issue_key) in attempted_creates:
+                        issue_result["error"] = "issue creation outcome unavailable"
+                        issue_result["skipped_reason"] = "issue creation outcome unavailable; no further attempt in this run"
                     else:
-                        issue_result["url"] = create_issue(repo, issue["title"], issue["body"])
+                        attempted_creates.add((repo, issue_key))
+                        try:
+                            issue_result["url"] = create_issue(repo, issue["title"], issue["body"])
+                        except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                            issue_result["error"] = "issue creation outcome unavailable"
+                            issues.append(issue_result)
+                            continue
+                        if not issue_result["url"]:
+                            raise ValueError("issue creation outcome unavailable")
                         open_issue_cache[repo][issue_key] = str(issue_result["url"])
                         known_event_keys[(repo, str(issue_result["url"]))] = {
                             str(issue_result["task"].get("event_key") or "")
