@@ -26,6 +26,7 @@ import math
 import os
 import tempfile
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -55,6 +56,10 @@ DEFAULT_LOCAL_ROOT = Path(tempfile.gettempdir()) / "quant_platform_lifecycle"
 
 
 _now_iso = utc_now_iso
+
+
+class LiveRunHistoryReadError(RuntimeError):
+    """The complete live history could not be read; no partial result is safe."""
 
 
 def _clean_key(value: str) -> str:
@@ -128,12 +133,17 @@ class PerformanceStore:
         prefix = self.cloud_prefix.strip("/")
         return path[len(prefix) + 1 :] if prefix and path.startswith(f"{prefix}/") else path
 
-    def _read_cloud_json(self, key: str) -> dict[str, Any] | None:
+    def _read_cloud_json(self, key: str, *, strict: bool = False) -> dict[str, Any] | None:
         if not self.cloud_bucket:
             return None
         try:
             store = self._object_store()
             raw = store.read_bytes(self._cloud_uri(key))
+        except Exception:
+            if strict:
+                raise LiveRunHistoryReadError("live_run_history_read_failed") from None
+            return None
+        try:
             data = json.loads(raw.decode("utf-8"))
             return data if isinstance(data, Mapping) else None
         except Exception:
@@ -148,13 +158,15 @@ class PerformanceStore:
             json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
         )
 
-    def _list_cloud_keys(self, prefix: str) -> list[str]:
+    def _list_cloud_keys(self, prefix: str, *, strict: bool = False) -> list[str]:
         if not self.cloud_bucket:
             return []
         try:
             store = self._object_store()
             return [self._cloud_key(uri) for uri in store.list(self._cloud_uri(prefix))]
         except Exception:
+            if strict:
+                raise LiveRunHistoryReadError("live_run_history_read_failed") from None
             return []
 
     # ── local helpers ────────────────────────────────────────────
@@ -724,8 +736,13 @@ class PerformanceStore:
         *,
         strategy_profile: str | None = None,
         stream_id: str | None = None,
+        strict: bool = False,
     ) -> list[dict[str, Any]]:
-        """Load persisted live evaluation/execution records for a domain."""
+        """Load live records in original order with at most four cloud reads.
+
+        Strict mode rejects storage I/O failure instead of using partial history.
+        Non-record JSON objects retain their existing ignore semantics.
+        """
         prefix = f"live_runs/{_clean_key(domain)}/"
         if strategy_profile:
             prefix = f"{prefix}{_clean_key(strategy_profile)}/"
@@ -741,17 +758,35 @@ class PerformanceStore:
         if local_dir.exists():
             for path in sorted(local_dir.rglob("*.json")):
                 try:
-                    data = json.loads(path.read_text(encoding="utf-8"))
+                    raw = path.read_text(encoding="utf-8")
+                except Exception as exc:
+                    if strict and isinstance(exc, OSError):
+                        raise LiveRunHistoryReadError("live_run_history_read_failed") from None
+                    continue
+                try:
+                    data = json.loads(raw)
                 except Exception:
                     continue
                 if isinstance(data, Mapping):
                     records.append(dict(data))
 
         if self.cloud_bucket:
-            for key in self._list_cloud_keys(prefix):
-                data = self._read_cloud_json(key)
-                if data:
-                    records.append(dict(data))
+            keys = self._list_cloud_keys(prefix, strict=True) if strict else self._list_cloud_keys(prefix)
+            if keys:
+                executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="live-history")
+                try:
+                    def read(key: str) -> dict[str, Any] | None:
+                        return self._read_cloud_json(key, strict=True) if strict else self._read_cloud_json(key)
+
+                    # map yields in input order: completion order must not alter
+                    # the existing local-then-cloud, last-record-wins contract.
+                    for data in executor.map(read, keys):
+                        if data:
+                            records.append(dict(data))
+                finally:
+                    # A platform SIGALRM must not wait for active SDK requests.
+                    # Running reads may finish; queued reads are cancelled.
+                    executor.shutdown(wait=False, cancel_futures=True)
 
         deduped: dict[str, dict[str, Any]] = {}
         for record in records:

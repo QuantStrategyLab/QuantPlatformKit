@@ -886,12 +886,15 @@ def resolve_consecutive_losses(
     if not profile or not market:
         return None
 
-    if store is None:
-        from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
+    from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
+    if store is None:
         store = PerformanceStore.from_env()
 
-    records = store.list_live_run_records(market, strategy_profile=profile)
+    if isinstance(store, PerformanceStore):
+        records = store.list_live_run_records(market, strategy_profile=profile, strict=True)
+    else:
+        records = store.list_live_run_records(market, strategy_profile=profile)
     result = live_run_records_to_return_series_result(
         records,
         domain=market,
