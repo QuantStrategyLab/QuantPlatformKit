@@ -39,6 +39,8 @@ PYTHONPATH=src python -m pytest -q tests
 CI also validates the dependency constraint refs in `qsl-pins.txt`. Consumers
 pin this repository, so a behaviour change needs a coordinated rollout note.
 
+Organization documentation rules are checked by `python scripts/check_style.py`, which also runs in CI as the `Documentation check` job.
+
 ## Naming and documentation
 
 - Developer documentation is English by default; Chinese siblings use

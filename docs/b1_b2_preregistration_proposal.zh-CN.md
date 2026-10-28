@@ -89,7 +89,7 @@ B2 单独比较，不默认执行 B1×B2 全组合；组合研究须另列候选
 [Grossman、Zhou (1993), Optimal Investment Strategies for Controlling Drawdowns](https://onlinelibrary.wiley.com/doi/10.1111/j.1467-9965.1993.tb00044.x)。
 离散成交、跳空、成本与数据缺失可越过 floor，须报告突破，不能宣称硬回撤保证。
 
-具体例子仅用于合同核对：[现有 QPK risk gate](../src/quant_platform_kit/risk/gate.py)
+具体例子仅用于合同核对：[现有 QPK risk gate](../src/quant_platform_kit/risk/gate/assessment.py)
 的 TQQQ evidence mandate 为 `d<=0.05 → 1`、`0.05<d<=0.10 → 0.5`、
 `d>0.10 → 0`，并保留 TQQQ nominal 0.15 / effective 0.45 等上限。
 [sizing helper](../src/quant_platform_kit/position_sizing.py) 的有关现有 mandate
