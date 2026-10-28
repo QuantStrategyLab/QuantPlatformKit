@@ -5,6 +5,26 @@
 This document defines the lifecycle gates for strategy profiles across the
 quant repositories.
 
+## Live history reads
+
+`PerformanceStore.list_live_run_records` reads cloud objects with at most four
+concurrent requests per load. Results retain the listed key order, local records
+precede cloud records, and existing duplicate replacement and final sorting are
+unchanged. History is neither truncated nor filtered to a different stream.
+
+The optional `strict=True` mode rejects storage I/O failures with a fixed
+`LiveRunHistoryReadError` instead of computing from incomplete history. The
+consecutive-loss resolver uses this mode for `PerformanceStore`; injected custom
+stores retain their existing interface. Non-record and malformed JSON keep their
+existing ignore behavior. Other readers remain best effort by default. Platform
+handling of unknown risk data is unchanged; this is not a new trading gate.
+
+On interruption, queued reads are cancelled and the calling thread does not wait
+for active requests. Active SDK requests may still finish; request timeouts and
+worker lifecycle controls remain the platform's responsibility. Consumers must
+adopt the new QPK pin explicitly and validate their complete cycle before claiming
+that a production timeout is resolved.
+
 ## Design Goal
 
 The lifecycle should be permissive for research and monitoring, but strict for
