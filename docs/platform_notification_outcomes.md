@@ -29,6 +29,13 @@ platform runtime while the strategy execution window remains open.
 
 ## Skip Reasons
 
+Chinese notification renderers translate cash-shortage codes as user-facing
+reasons; persisted execution codes stay unchanged. Operational alerts show a
+localized summary and a workflow link instead of embedding raw exception or
+provider audit payloads. Detailed investigation uses the existing workflow and
+cloud logs. Downstream consumers must adopt the notification-only patch at their
+pinned runtime revision before these display changes take effect.
+
 The shared helper treats these skip reasons as execution blockers by default:
 
 - `buy_quantity_zero`

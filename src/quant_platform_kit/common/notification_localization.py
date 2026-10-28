@@ -324,6 +324,8 @@ COMMON_ZH_NOTIFICATION_REPLACEMENTS: tuple[NotificationReplacement, ...] = (
     ("no_selection", "无入选标的"),
     ("outside_execution_window", "当前不在执行窗口"),
     ("insufficient_buying_power", "购买力不足"),
+    ("insufficient_cash_for_whole_share", "现金不足以买入一整股"),
+    ("insufficient_cash", "可用现金不足"),
     ("missing_price", "缺少报价"),
     ("no_equity", "等待净值"),
     ("fail_closed", "关闭执行"),
