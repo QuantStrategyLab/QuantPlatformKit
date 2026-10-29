@@ -66,7 +66,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert "create_issues_for_domain" in workflow
     assert 'AI_SERVICE_URL: ${{ inputs.ai_service_url }}' in workflow
     assert 'AI_SERVICE_REVIEWERS_JSON: ${{ inputs.ai_service_reviewers_json }}' in workflow
-    assert 'python -m quant_platform_kit.strategy_lifecycle.drift_review' in workflow
+    assert 'from quant_platform_kit.strategy_lifecycle.drift_review import review_critical_drifts' in workflow
     assert 'AIAuditBridge' not in workflow
     assert 'CODEX_AUDIT_SERVICE_URL' not in workflow
     assert 'approved artifact required' in workflow
@@ -79,3 +79,39 @@ def test_reusable_drift_runner_defaults_to_hosted_and_accepts_research_runner():
     assert "runs-on: ${{ fromJSON(inputs.runner_labels) }}" in workflow
     assert "default: '\"ubuntu-latest\"'" in workflow
     assert "runs-on: ubuntu-latest" not in workflow
+
+
+def test_drift_review_receives_measured_evidence_and_keeps_rejection(monkeypatch, capsys):
+    import json
+    import sys
+    from types import SimpleNamespace
+    from unittest import mock
+    import pytest
+    import textwrap
+
+    path = Path(__file__).resolve().parents[1] / '.github/workflows/reusable-drift-check.yml'
+    step = path.read_text().split('      - name: Review critical drift through task service\n', 1)[1]
+    script = textwrap.dedent(step.split('        run: |\n', 1)[1]).strip()
+    code = '\n'.join(script.splitlines()[1:-1])
+    evidence = {'as_of': '2026-01-01', 'source_revision': 'synthetic-source',
+                'baseline_artifact_id': 'synthetic-baseline',
+                'dimensions': {'volatility': {'actual': 0.4, 'expected': 0.2, 'threshold': 0.3}}}
+    item = SimpleNamespace(strategy_profile='synthetic', domain='crypto', drift_score=0.75,
+                           status=SimpleNamespace(value='critical'), to_dict=lambda: evidence)
+    reviewer = mock.Mock(return_value={'ok': False, 'state': 'PARKED'})
+    detector = mock.Mock(return_value=[item])
+    monkeypatch.setitem(sys.modules, 'quant_platform_kit.strategy_lifecycle.drift_detector',
+                        SimpleNamespace(run_drift_detection=detector))
+    monkeypatch.setitem(sys.modules, 'quant_platform_kit.strategy_lifecycle.drift_review',
+                        SimpleNamespace(review_critical_drifts=reviewer))
+    monkeypatch.setenv('STRATEGY_DOMAIN', 'crypto')
+    monkeypatch.setenv('GITHUB_SHA', 'a' * 40)
+    monkeypatch.delenv('AI_SERVICE_REQUIRED_ROLES_JSON', raising=False)
+    with pytest.raises(SystemExit) as stopped:
+        exec(compile(code, '<drift-review-workflow>', 'exec'), {})
+    assert stopped.value.code == 3
+    observation = reviewer.call_args.args[1][0]
+    assert observation['evidence'] == evidence
+    assert 'deviation_pct' in observation['score_definition']
+    assert reviewer.call_args.kwargs['roles'] == ['primary', 'secondary', 'verification']
+    assert json.loads(capsys.readouterr().out)['state'] == 'PARKED'
