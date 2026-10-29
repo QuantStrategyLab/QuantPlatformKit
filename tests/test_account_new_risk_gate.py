@@ -282,3 +282,39 @@ class ReaderInjectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class InvalidVolActionContractTests(unittest.TestCase):
+    def test_invalid_vol_prohibits_without_flattening_and_keeps_brake(self):
+        for drawdown, scale in ((None, None), (0.2, 0.0)):
+            with self.subTest(drawdown=drawdown):
+                snapshot = InjectedReconciliationSnapshot('COMPLETE', 'VERIFIED', 'CLOSED', equity_usd=40000, realized_vol=float('nan'), drawdown_from_peak=drawdown)
+                result = evaluate_new_risk_admission(snapshot)
+                self.assertEqual(result.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+                self.assertIn('INVALID_REALIZED_VOL_FAIL_CLOSED', result.reason_codes)
+                self.assertEqual(result.combined_scale, scale)
+                self.assertTrue(result.risk_input_invalid)
+                self.assertEqual(result.hard_brake_triggered, drawdown is not None)
+                if drawdown is not None:
+                    self.assertIn('DRAWDOWN_BRAKE_TRIPPED', result.reason_codes)
+
+    def test_invalid_explicit_drawdown_keeps_independent_peak_brake(self):
+        snapshot = InjectedReconciliationSnapshot('COMPLETE', 'VERIFIED', 'CLOSED', equity_usd=40000, peak_equity_usd=50000, drawdown_from_peak='invalid')
+        result = evaluate_new_risk_admission(snapshot)
+        self.assertTrue(result.risk_input_invalid)
+        self.assertTrue(result.hard_brake_triggered)
+        self.assertEqual(result.combined_scale, 0.0)
+        self.assertIn('INVALID_DRAWDOWN_FAIL_CLOSED', result.reason_codes)
+        self.assertIn('DRAWDOWN_BRAKE_TRIPPED', result.reason_codes)
+
+class RiskReducingOrderProofTests(unittest.TestCase):
+    def test_signed_positions_and_pending_maximum_fill(self):
+        from quant_platform_kit.risk.account_new_risk_gate import is_proven_risk_reducing_order as proof
+        self.assertTrue(proof(10, 'sell', 5, pending_quantity=0))
+        self.assertTrue(proof(-10, 'buy', 5, pending_quantity=0))
+        self.assertFalse(proof(10, 'sell', 11))
+        self.assertFalse(proof(-10, 'buy', 11))
+        self.assertFalse(proof(10, 'buy', 1))
+        self.assertFalse(proof(10, 'sell', 6, pending_quantity=-5))
+        self.assertTrue(proof(10, 'sell', 5, pending_quantity=-5))
+        self.assertFalse(proof(-10, 'buy', 1, pending_quantity=None))
+        self.assertFalse(proof(-10, 'buy', 2, pending_quantity=-1))

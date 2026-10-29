@@ -839,7 +839,9 @@ class AccountSubmissionSession:
     contract_version = ACCOUNT_SUBMISSION_CONTRACT
 
     def __init__(self, store: ExecutionMarkerStore, *, broker: str, account_id: str,
-                 owner_id: str, profile: str, intent_id: str, release_id: str):
+                 owner_id: str, profile: str, intent_id: str, release_id: str,
+                 account_domain=None, observed_account_id=None, broker_identity=None, observed_at=None, decision_at=None,
+                 observed_environment=None, observed_server=None, observed_currency=None, observed_lifecycle_id=None, clock=None):
         if not isinstance(store, ExecutionMarkerStore) or not (store.cloud_prefix_uri or store.local_dir):
             raise AccountSubmissionError("existing durable execution store required")
         broker, account = _submission_account(broker, account_id)
@@ -849,6 +851,11 @@ class AccountSubmissionSession:
             "intent_id": _submission_digest(intent_id), "release_id": _submission_digest(release_id),
             "account_root": "v1/" + submission_binding_digest({"broker": broker, "account_id": account}),
             "_issued": {}, "_used": set(), "_mutex": threading.RLock(), "_failed": False,
+            "account_domain": account_domain, "observed_account_id": observed_account_id,
+            "broker_identity": broker_identity, "observed_at": observed_at, "decision_at": decision_at,
+            "observed_environment": observed_environment, "observed_server": observed_server,
+            "observed_currency": observed_currency, "observed_lifecycle_id": observed_lifecycle_id,
+            "clock": clock if clock is not None else lambda: datetime.now(timezone.utc),
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)
@@ -917,7 +924,7 @@ class AccountSubmissionSession:
                 return path.read_text(encoding="utf-8")
         if len(locations) != len(set(map(str, locations))):
             raise AccountSubmissionError("duplicate account journal sequence")
-        state: dict[str, Any] = {"generation": 0, "head_sha256": "0" * 64, "attempts": {}}
+        state: dict[str, Any] = {"generation": 0, "head_sha256": "0" * 64, "attempts": {}, "domain_binding": None, "risk_reservations": {}, "equity_observation": None, "snapshot_position_risk": 0.0}
         for location in sorted(locations, key=str):
             sequence = state["generation"] + 1
             if str(location) != str(self._location(sequence)):
@@ -937,9 +944,102 @@ class AccountSubmissionSession:
             data = event["data"]
             if not isinstance(data, dict):
                 raise AccountSubmissionError("invalid account event data")
-            if event["kind"] == "PREPARED":
+            if event["kind"] == "DOMAIN_BOUND":
+                if set(data) != {"domain_key", "account_type", "currency"} or state["domain_binding"] is not None:
+                    raise AccountSubmissionError("invalid or duplicate domain binding")
+                _submission_digest(data["domain_key"])
+                _submission_text(data["account_type"])
+                _submission_text(data["currency"])
+                state["domain_binding"] = data
+            elif event["kind"] == "EQUITY_OBSERVED":
+                if set(data) != {"equity", "cash_flow", "peak", "currency", "valuation_at", "source_digest", "covered_fills", "covered_fees", "position_risk", "position_3x_exposure", "protected_equity", "balance", "cash", "account_domain_key", "account_binding", "valid_until", "pending_3x_exposure", "open_orders_complete", "positions", "open_orders_empty"} or state["domain_binding"] is None:
+                    raise AccountSubmissionError("invalid equity observation")
+                equity = _submission_number(data["equity"])
+                _submission_number(data["balance"])
+                _submission_number(data["cash"])
+                if state["domain_binding"] is None or data["account_domain_key"] != state["domain_binding"]["domain_key"] or data["account_binding"] != submission_binding_digest({"broker": self.broker, "account_id": self.account_id}) or data["open_orders_complete"] is not True or _submission_number(data["pending_3x_exposure"]) < 0:
+                    raise AccountSubmissionError("invalid snapshot account or pending observation")
+                if not isinstance(data["positions"], dict) or any(not isinstance(symbol, str) or not symbol or not math.isfinite(_submission_number(qty)) for symbol, qty in data["positions"].items()) or type(data["open_orders_empty"]) is not bool:
+                    raise AccountSubmissionError("invalid position or pending observation")
+                from quant_platform_kit.common.account_domain import _time
+                if _time(data["valid_until"]) <= _time(data["valuation_at"]):
+                    raise AccountSubmissionError("invalid snapshot validity interval")
+                cash_flow = _submission_number(data["cash_flow"])
+                peak = _submission_number(data["peak"])
+                if not isinstance(data["covered_fills"], dict) or any(not isinstance(key, str) or _submission_number(value) < 0 for key, value in data["covered_fills"].items()):
+                    raise AccountSubmissionError("invalid covered attempt ids")
+                if not isinstance(data["covered_fees"], dict) or any(not isinstance(key, str) or _submission_number(value) < 0 for key, value in data["covered_fees"].items()):
+                    raise AccountSubmissionError("invalid covered fees")
+                if _submission_number(data["position_3x_exposure"]) < 0:
+                    raise AccountSubmissionError("invalid 3x position exposure")
+                if _submission_number(data["position_risk"]) < 0:
+                    raise AccountSubmissionError("invalid position risk")
+                previous = state["equity_observation"]
+                expected_peak = equity if previous is None else max(equity, previous["peak"] + cash_flow)
+                expected_protected = equity if previous is None else max(equity, previous["protected_equity"])
+                if data["protected_equity"] != expected_protected:
+                    raise AccountSubmissionError("invalid protected equity transition")
+                if equity < 0 or peak < 0 or not math.isclose(peak, expected_peak, rel_tol=1e-12, abs_tol=1e-9) or data["currency"] != state["domain_binding"]["currency"]:
+                    raise AccountSubmissionError("invalid equity peak transition")
+                from quant_platform_kit.common.account_domain import _time
+                if previous is not None and _time(data["valuation_at"]) <= _time(previous["valuation_at"]):
+                    raise AccountSubmissionError("non-monotonic equity observation")
+                state["equity_observation"] = data
+                state["snapshot_position_risk"] = _submission_number(data["position_risk"])
+            elif event["kind"] == "RISK_RESERVED":
+                if set(data) != {"order_sha256", "amount", "currency", "valuation_at", "source_digest", "reserved_3x_exposure", "quantity", "estimated_fee", "loss_per_unit", "quantity_step", "risk_fraction", "product_leverage_factor", "unit_price", "existing_3x_exposure", "pending_3x_exposure", "floor", "cost_buffer", "leverage_hitl_approved", "account_budget_policy"}:
+                    raise AccountSubmissionError("invalid risk reservation")
+                order_digest = _submission_digest(data["order_sha256"])
+                amount = _submission_number(data["amount"])
+                exposure = _submission_number(data["reserved_3x_exposure"])
+                if amount <= 0 or exposure < 0 or order_digest in state["risk_reservations"] or state["domain_binding"] is None:
+                    raise AccountSubmissionError("invalid or duplicate risk reservation")
+                if data["currency"] != state["domain_binding"]["currency"]:
+                    raise AccountSubmissionError("risk reservation currency mismatch")
+                _submission_text(data["valuation_at"])
+                _submission_text(data["source_digest"])
+                quantity = _submission_number(data["quantity"])
+                fee = _submission_number(data["estimated_fee"])
+                for field in ("loss_per_unit", "quantity_step", "risk_fraction", "product_leverage_factor", "unit_price", "existing_3x_exposure", "pending_3x_exposure", "floor", "cost_buffer"):
+                    _submission_number(data[field])
+                if not isinstance(data["account_budget_policy"], dict):
+                    raise AccountSubmissionError("invalid account budget policy")
+                if type(data["leverage_hitl_approved"]) is not bool:
+                    raise AccountSubmissionError("invalid leverage approval fact")
+                if quantity <= 0 or fee < 0 or fee > amount:
+                    raise AccountSubmissionError("invalid reserved quantity or fee")
+                state["risk_reservations"][order_digest] = {**data, "remaining_amount": amount, "reconciled_filled": 0.0, "actual_fee": 0.0, "remaining_3x_exposure": exposure}
+            elif event["kind"] == "RISK_RECONCILED":
+                from quant_platform_kit.common.account_domain import _time
+                if set(data) != {"attempt_id", "filled_quantity", "actual_fee", "snapshot_position_risk", "source_digest"}:
+                    raise AccountSubmissionError("invalid risk reconciliation")
+                attempt = state["attempts"].get(data["attempt_id"])
+                observation = state["equity_observation"]
+                if attempt is None or observation is None or data["source_digest"] != observation["source_digest"]:
+                    raise AccountSubmissionError("risk reconciliation snapshot mismatch")
+                reservation = state["risk_reservations"].get(attempt["order_sha256"])
+                filled = _submission_number(data["filled_quantity"])
+                fee = _submission_number(data["actual_fee"])
+                position_risk = _submission_number(data["snapshot_position_risk"])
+                if (reservation is None or attempt["certainty"] not in {"TERMINAL", "KNOWN_PENDING"}
+                        or observation["covered_fills"].get(data["attempt_id"]) != filled
+                        or observation["covered_fees"].get(data["attempt_id"]) != fee
+                        or observation["position_risk"] != position_risk
+                        or observation["source_digest"] == reservation["source_digest"]
+                        or _time(observation["valuation_at"]) <= _time(reservation["valuation_at"])
+                        or filled != attempt["filled_quantity"] or filled < reservation["reconciled_filled"]
+                        or fee < reservation["actual_fee"] or position_risk < 0):
+                    raise AccountSubmissionError("risk reconciliation facts mismatch")
+                if attempt["certainty"] == "TERMINAL":
+                    remaining = 0.0
+                else:
+                    remaining = (reservation["amount"] - reservation["estimated_fee"]) * (1.0 - filled / reservation["quantity"]) + max(0.0, reservation["estimated_fee"] - fee)
+                remaining_3x = 0.0 if attempt["certainty"] == "TERMINAL" else reservation["reserved_3x_exposure"] * (1.0 - filled / reservation["quantity"])
+                reservation.update(remaining_amount=remaining, remaining_3x_exposure=remaining_3x, reconciled_filled=filled, actual_fee=fee)
+                state["snapshot_position_risk"] = position_risk
+            elif event["kind"] == "PREPARED":
                 keys = {"attempt_id", "fence", "intent_id", "order_sha256", "release_id", "owner_id", "profile", "quantity"}
-                if set(data) != keys:
+                if set(data) not in (keys, keys | {"reduction", "reduction_source_digest"}) or ("reduction" in data and data["reduction"] is not True):
                     raise AccountSubmissionError("invalid prepared fields")
                 for key in ["attempt_id", "fence", "intent_id", "order_sha256", "release_id"]:
                     _submission_digest(data[key])
@@ -1019,6 +1119,269 @@ class AccountSubmissionSession:
             raise
         return event
 
+    def record_account_equity(self, *, snapshot, cash_flow, baseline_confirmed=False):
+        """Record a complete account equity observation with cash-flow-adjusted peak."""
+        from quant_platform_kit.common.account_risk_budget import available_new_risk_budget
+        from quant_platform_kit.common.account_domain import (
+            account_domain_key, account_domain_matches_broker_identity,
+            account_domain_policy_active, validate_account_domain,
+        )
+        with self._mutex:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain")
+            state = self.read_state()
+            binding = state["domain_binding"]
+            if binding is None or self.account_domain is None:
+                raise AccountSubmissionError("bound domain required")
+            domain = validate_account_domain(self.account_domain, platform_id=self.broker)
+            if (binding != {"domain_key": account_domain_key(domain), "account_type": domain["policy"]["account_type"], "currency": domain["policy"]["currency"]}
+                    or not account_domain_matches_broker_identity(domain, self.broker_identity, observed_environment=self.observed_environment, observed_server=self.observed_server, observed_currency=self.observed_currency, observed_lifecycle_id=self.observed_lifecycle_id)
+                    or not account_domain_policy_active(domain, as_of=self.decision_at)):
+                raise AccountSubmissionError("verified domain required")
+            _, observed_account = _submission_account(self.broker, self.observed_account_id)
+            if observed_account != self.account_id:
+                raise AccountSubmissionError("account domain observation mismatch")
+            # Validate completeness, identity, pending exposure, and source validity.
+            if (snapshot.get("account_domain_key") != account_domain_key(domain)
+                    or snapshot.get("account_id") != self.account_id
+                    or snapshot.get("open_orders_complete") is not True
+                    or _submission_number(snapshot.get("pending_3x_exposure")) < 0):
+                raise AccountSubmissionError("snapshot account or pending observation mismatch")
+            # Validate completeness, currency, time, provenance and numeric facts.
+            available_new_risk_budget(snapshot, currency=binding["currency"], floor=0,
+                                      reserved=0, cost_buffer=0, risk_fraction=0.005)
+            from quant_platform_kit.common.account_domain import _time
+            if not _time(snapshot["valuation_at"]) <= _time(self.observed_at) <= _time(self.decision_at) < _time(snapshot.get("valid_until")):
+                raise AccountSubmissionError("equity snapshot is not current at decision time")
+            equity = _submission_number(snapshot["equity"])
+            flow = _submission_number(cash_flow)
+            previous = state["equity_observation"]
+            if previous is None and baseline_confirmed is not True:
+                raise AccountSubmissionError("trusted initial equity baseline required")
+            if equity < 0 or (previous is not None and _time(snapshot["valuation_at"]) <= _time(previous["valuation_at"])):
+                raise AccountSubmissionError("invalid or non-monotonic equity observation")
+            peak = equity if previous is None else max(equity, previous["peak"] + flow)
+            positions = snapshot.get("positions")
+            open_orders_empty = snapshot.get("open_orders_empty")
+            if not isinstance(positions, dict) or any(not isinstance(symbol, str) or not symbol or not math.isfinite(_submission_number(qty)) for symbol, qty in positions.items()) or type(open_orders_empty) is not bool:
+                raise AccountSubmissionError("complete positions and pending observation required")
+            covered = snapshot.get("covered_fills", {})
+            covered_fees = snapshot.get("covered_fees", {})
+            position_risk = snapshot.get("position_risk")
+            position_3x = snapshot.get("position_3x_exposure")
+            if not isinstance(covered, dict) or any(not isinstance(key, str) or _submission_number(value) < 0 for key, value in covered.items()):
+                raise AccountSubmissionError("invalid covered attempt ids")
+            if not isinstance(covered_fees, dict) or any(not isinstance(key, str) or _submission_number(value) < 0 for key, value in covered_fees.items()):
+                raise AccountSubmissionError("invalid covered fees")
+            if _submission_number(position_3x) < 0:
+                raise AccountSubmissionError("invalid 3x position exposure")
+            if _submission_number(position_risk) < 0:
+                raise AccountSubmissionError("invalid position risk")
+            return self._append(state, "EQUITY_OBSERVED", {
+                "equity": equity, "cash_flow": flow, "peak": peak,
+                "currency": binding["currency"], "valuation_at": snapshot["valuation_at"],
+                "source_digest": snapshot["source_digest"], "covered_fills": covered,
+                "covered_fees": covered_fees, "position_risk": position_risk, "position_3x_exposure": position_3x,
+                "protected_equity": equity if previous is None else max(equity, previous["protected_equity"]),
+                "balance": float(snapshot["balance"]), "cash": float(snapshot["cash"]),
+                "account_domain_key": snapshot["account_domain_key"],
+                "account_binding": submission_binding_digest({"broker": self.broker, "account_id": self.account_id}),
+                "valid_until": snapshot["valid_until"], "pending_3x_exposure": float(snapshot["pending_3x_exposure"]),
+                "open_orders_complete": True, "positions": positions, "open_orders_empty": open_orders_empty,
+            })
+
+    def reserve_account_risk(self, order, *, snapshot, floor, cost_buffer, amount, risk_fraction,
+                             loss_per_unit, estimated_fee, quantity_step, product_leverage_factor,
+                             unit_price, existing_3x_exposure, pending_3x_exposure, leverage_hitl_approved,
+                             account_budget_policy):
+        """Atomically reserve account-currency risk; reservations are never auto-released."""
+        from quant_platform_kit.common.account_risk_budget import (
+            available_new_risk_budget, maximum_risk_quantity,
+        )
+        from quant_platform_kit.common.account_domain import (
+            account_domain_key, account_domain_matches_broker_identity,
+            account_domain_policy_active, validate_account_domain,
+        )
+
+        with self._mutex:
+            if self._failed or self.account_domain is None:
+                raise AccountSubmissionError("bound domain and healthy journal required")
+            state = self.read_state()
+            if any(item["certainty"] in {"PREPARED", "UNKNOWN"} for item in state["attempts"].values()):
+                raise AccountSubmissionError("unresolved account submission")
+            domain = validate_account_domain(self.account_domain, platform_id=self.broker)
+            binding = state["domain_binding"]
+            if (binding is None or binding != {"domain_key": account_domain_key(domain),
+                    "account_type": domain["policy"]["account_type"], "currency": domain["policy"]["currency"]}
+                    or not account_domain_matches_broker_identity(domain, self.broker_identity, observed_environment=self.observed_environment, observed_server=self.observed_server, observed_currency=self.observed_currency, observed_lifecycle_id=self.observed_lifecycle_id)
+                    or not account_domain_policy_active(domain, as_of=self.decision_at)):
+                raise AccountSubmissionError("verified domain must be bound before risk reservation")
+            _, observed_account = _submission_account(self.broker, self.observed_account_id)
+            if observed_account != self.account_id:
+                raise AccountSubmissionError("account domain observation mismatch")
+            observed = state["equity_observation"]
+            if observed is None or any(observed[key] != snapshot.get(key) for key in ("equity", "balance", "cash", "currency", "valuation_at", "source_digest", "account_domain_key", "valid_until", "pending_3x_exposure", "open_orders_complete")):
+                raise AccountSubmissionError("matching recorded equity snapshot required")
+            from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
+            peak = observed["peak"]
+            if peak <= 0:
+                raise AccountSubmissionError("positive protected peak required")
+            protected_envelope = evaluate_capital_risk_envelope(
+                observed["protected_equity"], drawdown_from_peak=max(0.0, 1.0 - observed["equity"] / peak),
+            )
+            if not protected_envelope.new_risk_allowed:
+                raise AccountSubmissionError("protected drawdown brake prohibits new risk")
+            order_digest, quantity = self._order(order)
+            if type(leverage_hitl_approved) is not bool:
+                raise AccountSubmissionError("invalid leverage approval fact")
+            from quant_platform_kit.common.account_domain import _time
+            if not _time(observed["valuation_at"]) <= _time(self.observed_at) <= _time(self.decision_at) < _time(observed["valid_until"]):
+                raise AccountSubmissionError("account valuation is stale")
+            if snapshot.get("account_id") != self.account_id or pending_3x_exposure != observed["pending_3x_exposure"]:
+                raise AccountSubmissionError("snapshot account or pending exposure mismatch")
+            factor = _submission_number(product_leverage_factor)
+            price = _submission_number(unit_price)
+            existing_3x = _submission_number(existing_3x_exposure)
+            pending_3x = _submission_number(pending_3x_exposure)
+            if factor not in (1.0, 3.0) or price <= 0 or existing_3x < 0 or pending_3x < 0 or existing_3x != observed["position_3x_exposure"]:
+                raise AccountSubmissionError("known product exposure and pending exposure required")
+            if factor == 3.0:
+                if protected_envelope.leverage_product_cap.new_leverage_requires_hitl and leverage_hitl_approved is not True:
+                    raise AccountSubmissionError("leverage approval required")
+                cap = protected_envelope.leverage_product_cap.max_3x_etf_weight * observed["equity"]
+                reserved_3x = sum(item["remaining_3x_exposure"] for item in state["risk_reservations"].values())
+                if existing_3x + pending_3x + reserved_3x + quantity * price > cap:
+                    raise AccountSubmissionError("product leverage cap exceeded")
+            amount = _submission_number(amount)
+            max_quantity = maximum_risk_quantity(budget=amount, loss_per_unit=loss_per_unit,
+                                                 estimated_fee=estimated_fee, quantity_step=quantity_step)
+            if quantity > max_quantity or not math.isclose(quantity / quantity_step, round(quantity / quantity_step), abs_tol=1e-9):
+                raise AccountSubmissionError("quantity exceeds reserved risk or step")
+            if amount <= 0 or order_digest in state["risk_reservations"]:
+                raise AccountSubmissionError("invalid or duplicate account risk reservation")
+            expected_fields = {"preference", "version", "source", "per_trade_fraction", "total_future_risk_limit", "floor", "cost_buffer", "contract_floor"}
+            if not isinstance(account_budget_policy, Mapping) or set(account_budget_policy) != expected_fields:
+                raise AccountSubmissionError("explicit account budget policy required")
+            if any(account_budget_policy[key] != domain["policy"][key] for key in ("preference", "version", "source")):
+                raise AccountSubmissionError("account budget policy binding mismatch")
+            policy_fraction = _submission_number(account_budget_policy["per_trade_fraction"])
+            total_limit = _submission_number(account_budget_policy["total_future_risk_limit"])
+            if (policy_fraction != _submission_number(risk_fraction) or total_limit < 0
+                    or _submission_number(account_budget_policy["floor"]) != _submission_number(floor)
+                    or _submission_number(account_budget_policy["cost_buffer"]) != _submission_number(cost_buffer)):
+                raise AccountSubmissionError("account budget policy values mismatch")
+            if domain["policy"]["capital_kind"] == "FTMO_SIMULATED":
+                contract_floor = _submission_number(account_budget_policy["contract_floor"])
+                if contract_floor <= 0 or _submission_number(floor) < contract_floor:
+                    raise AccountSubmissionError("FTMO confirmed contract floor required")
+                if _submission_number(risk_fraction) > 0.005:
+                    raise AccountSubmissionError("FTMO risk fraction exceeds offline cap")
+            elif account_budget_policy["contract_floor"] is not None:
+                raise AccountSubmissionError("unexpected contract floor for own account")
+            existing = state["snapshot_position_risk"] + sum(item["remaining_amount"] for item in state["risk_reservations"].values())
+            budget = available_new_risk_budget(snapshot, currency=binding["currency"], floor=floor,
+                                               reserved=existing, cost_buffer=cost_buffer, risk_fraction=risk_fraction)
+            if amount > budget or existing + amount > total_limit:
+                raise AccountSubmissionError("account risk budget exceeded")
+            return self._append(state, "RISK_RESERVED", {
+                "order_sha256": order_digest, "amount": amount, "currency": binding["currency"],
+                "valuation_at": snapshot["valuation_at"], "source_digest": snapshot["source_digest"],
+                "reserved_3x_exposure": quantity * price if factor == 3.0 else 0.0,
+                "quantity": quantity, "estimated_fee": float(estimated_fee),
+                "loss_per_unit": float(loss_per_unit), "quantity_step": float(quantity_step),
+                "risk_fraction": float(risk_fraction), "product_leverage_factor": factor,
+                "unit_price": price, "existing_3x_exposure": existing_3x,
+                "pending_3x_exposure": pending_3x, "floor": float(floor),
+                "cost_buffer": float(cost_buffer), "leverage_hitl_approved": leverage_hitl_approved,
+                "account_budget_policy": dict(account_budget_policy),
+            })
+
+    def reconcile_account_risk(self, *, attempt_id, filled_quantity, actual_fee, snapshot_position_risk, source_digest):
+        """Transfer observed fills into a complete recorded snapshot; UNKNOWN stays reserved."""
+        from quant_platform_kit.common.account_domain import (
+            account_domain_key, account_domain_matches_broker_identity,
+            account_domain_policy_active, validate_account_domain,
+        )
+        with self._mutex:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain")
+            state = self.read_state()
+            if self.account_domain is None:
+                raise AccountSubmissionError("verified domain required")
+            domain = validate_account_domain(self.account_domain, platform_id=self.broker)
+            binding = {"domain_key": account_domain_key(domain), "account_type": domain["policy"]["account_type"], "currency": domain["policy"]["currency"]}
+            _, observed_account = _submission_account(self.broker, self.observed_account_id)
+            if (state["domain_binding"] != binding or observed_account != self.account_id
+                    or not account_domain_matches_broker_identity(domain, self.broker_identity, observed_environment=self.observed_environment, observed_server=self.observed_server, observed_currency=self.observed_currency, observed_lifecycle_id=self.observed_lifecycle_id)
+                    or not account_domain_policy_active(domain, as_of=self.decision_at)):
+                raise AccountSubmissionError("verified domain required")
+            attempt = state["attempts"].get(attempt_id)
+            if attempt is None or attempt["certainty"] not in {"TERMINAL", "KNOWN_PENDING"}:
+                raise AccountSubmissionError("known broker observation required")
+            reservation = state["risk_reservations"].get(attempt["order_sha256"])
+            observation = state["equity_observation"]
+            filled = _submission_number(filled_quantity)
+            fee = _submission_number(actual_fee)
+            position_risk = _submission_number(snapshot_position_risk)
+            from quant_platform_kit.common.account_domain import _time
+            if (reservation is None or observation is None or source_digest != observation["source_digest"]
+                    or observation["covered_fills"].get(attempt_id) != filled
+                    or observation["covered_fees"].get(attempt_id) != fee
+                    or observation["position_risk"] != position_risk
+                    or observation["source_digest"] == reservation["source_digest"]
+                    or _time(observation["valuation_at"]) <= _time(reservation["valuation_at"])
+                    or filled != attempt["filled_quantity"] or filled < reservation["reconciled_filled"]
+                    or fee < reservation["actual_fee"] or position_risk < 0):
+                raise AccountSubmissionError("risk reconciliation facts mismatch")
+            return self._append(state, "RISK_RECONCILED", {
+                "attempt_id": attempt_id, "filled_quantity": filled_quantity,
+                "actual_fee": actual_fee, "snapshot_position_risk": snapshot_position_risk,
+                "source_digest": source_digest,
+            })
+
+    def reserve_reduction(self, order, *, admission) -> AccountSubmissionGrant:
+        """Reserve an account-brake reduction from a complete bound snapshot."""
+        from quant_platform_kit.common.account_domain import (
+            _time, account_domain_key, account_domain_matches_broker_identity,
+            account_domain_policy_active, validate_account_domain,
+        )
+        from quant_platform_kit.risk.account_new_risk_gate import NewRiskAdmissionResult, is_proven_risk_reducing_order
+        with self._mutex:
+            if self._failed or self.account_domain is None or not isinstance(admission, NewRiskAdmissionResult) or not admission.hard_brake_triggered:
+                raise AccountSubmissionError("verified account brake required")
+            state = self.read_state()
+            domain = validate_account_domain(self.account_domain, platform_id=self.broker)
+            binding = {"domain_key": account_domain_key(domain), "account_type": domain["policy"]["account_type"], "currency": domain["policy"]["currency"]}
+            _, account = _submission_account(self.broker, self.observed_account_id)
+            observed = state["equity_observation"]
+            if (state["domain_binding"] != binding or account != self.account_id or observed is None
+                    or not observed["open_orders_complete"] or not observed["open_orders_empty"]
+                    or not account_domain_matches_broker_identity(domain, self.broker_identity, observed_environment=self.observed_environment, observed_server=self.observed_server, observed_currency=self.observed_currency, observed_lifecycle_id=self.observed_lifecycle_id)
+                    or not account_domain_policy_active(domain, as_of=self.decision_at)
+                    or not _time(observed["valuation_at"]) <= _time(self.decision_at) < _time(observed["valid_until"])):
+                raise AccountSubmissionError("complete verified reduction observation required")
+            from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
+            if observed["peak"] <= 0 or "DRAWDOWN_BRAKE_TRIPPED" not in evaluate_capital_risk_envelope(
+                    observed["protected_equity"], drawdown_from_peak=max(0.0, 1.0 - observed["equity"] / observed["peak"])).reasons:
+                raise AccountSubmissionError("independent drawdown brake not verified")
+            digest, quantity = self._order(order)
+            symbol = str(getattr(order, "symbol", "")).strip().upper()
+            side = str(getattr(order, "side", "")).strip().lower()
+            if not is_proven_risk_reducing_order(observed["positions"].get(symbol), side, quantity, pending_quantity=0):
+                raise AccountSubmissionError("order reduction not proven")
+            if any(a["certainty"] in {"PREPARED", "UNKNOWN", "KNOWN_PENDING"} for a in state["attempts"].values()):
+                raise AccountSubmissionError("unresolved account submission")
+            if any((a["intent_id"], a["order_sha256"]) == (self.intent_id, digest) for a in state["attempts"].values()):
+                raise AccountSubmissionError("same intent/order already reserved")
+            data = {"attempt_id": uuid.uuid4().hex + uuid.uuid4().hex, "fence": uuid.uuid4().hex + uuid.uuid4().hex,
+                    "intent_id": self.intent_id, "order_sha256": digest, "release_id": self.release_id,
+                    "owner_id": self.owner_id, "profile": self.profile, "quantity": quantity, "reduction": True,
+                    "reduction_source_digest": observed["source_digest"]}
+            event = self._append(state, "PREPARED", data)
+            grant = AccountSubmissionGrant(self.account_root, data["attempt_id"], data["fence"], event["sequence"], event["event_sha256"], self.intent_id, digest, self.release_id)
+            self._issued[grant.attempt_id] = grant
+            return grant
+
     def reserve(self, order) -> AccountSubmissionGrant:
         """Only a fresh acknowledged create can return a grant; never reclaim it."""
         with self._mutex:
@@ -1026,6 +1389,36 @@ class AccountSubmissionSession:
                 raise AccountSubmissionError("session persistence uncertain; no grant")
             digest, quantity = self._order(order)
             state = self.read_state()
+            if self.account_domain is not None:
+                from quant_platform_kit.common.account_domain import (
+                    account_domain_key, account_domain_matches_broker_identity, account_domain_policy_active, validate_account_domain,
+                )
+                domain = validate_account_domain(self.account_domain, platform_id=self.broker)
+                if not account_domain_policy_active(domain, as_of=self.decision_at):
+                    raise AccountSubmissionError("account domain policy not active")
+                try:
+                    _, observed_account = _submission_account(self.broker, self.observed_account_id)
+                except (ValueError, TypeError) as exc:
+                    raise AccountSubmissionError("observed account identity required") from exc
+                if observed_account != self.account_id or not account_domain_matches_broker_identity(domain, self.broker_identity, observed_environment=self.observed_environment, observed_server=self.observed_server, observed_currency=self.observed_currency, observed_lifecycle_id=self.observed_lifecycle_id):
+                    raise AccountSubmissionError("account domain observation mismatch")
+                binding = {"domain_key": account_domain_key(domain),
+                           "account_type": domain["policy"]["account_type"],
+                           "currency": domain["policy"]["currency"]}
+                if state["domain_binding"] is None:
+                    self._append(state, "DOMAIN_BOUND", binding)
+                    state = self.read_state()
+                if state["domain_binding"] != binding:
+                    raise AccountSubmissionError("account domain binding mismatch")
+            elif state["domain_binding"] is not None:
+                raise AccountSubmissionError("bound account domain required")
+            if self.account_domain is not None:
+                reservation = state["risk_reservations"].get(digest)
+                observation = state["equity_observation"]
+                if reservation is None:
+                    raise AccountSubmissionError("account risk reservation required")
+                if observation is None or any(reservation[key] != observation[key] for key in ("valuation_at", "source_digest")):
+                    raise AccountSubmissionError("account risk reservation is stale")
             if any(a["certainty"] in {"PREPARED", "UNKNOWN"} for a in state["attempts"].values()):
                 raise AccountSubmissionError("unresolved UNKNOWN/account submission")
             if any((a["intent_id"], a["order_sha256"]) == (self.intent_id, digest) for a in state["attempts"].values()):
@@ -1065,6 +1458,28 @@ class AccountSubmissionSession:
                 raise AccountSubmissionError("wrong order or already-used grant")
             if state["attempts"][grant.attempt_id]["certainty"] != "PREPARED":
                 raise AccountSubmissionError("grant no longer prepared")
+            if self.account_domain is not None:
+                from quant_platform_kit.common.account_domain import (
+                    _time, account_domain_key, account_domain_matches_broker_identity,
+                    account_domain_policy_active, validate_account_domain,
+                )
+                domain = validate_account_domain(self.account_domain, platform_id=self.broker)
+                now = self.clock()
+                now_text = now.isoformat() if isinstance(now, datetime) else now
+                observed = state["equity_observation"]
+                reservation = state["risk_reservations"].get(digest)
+                binding = {"domain_key": account_domain_key(domain), "account_type": domain["policy"]["account_type"], "currency": domain["policy"]["currency"]}
+                _, account = _submission_account(self.broker, self.observed_account_id)
+                is_reduction = state["attempts"][grant.attempt_id].get("reduction") is True
+                if (state["domain_binding"] != binding or account != self.account_id
+                        or not account_domain_matches_broker_identity(domain, self.broker_identity, observed_environment=self.observed_environment, observed_server=self.observed_server, observed_currency=self.observed_currency, observed_lifecycle_id=self.observed_lifecycle_id)
+                        or not account_domain_policy_active(domain, as_of=now_text)
+                        or observed is None or (reservation is None and not is_reduction)
+                        or (not is_reduction and any(observed[key] != reservation[key] for key in ("valuation_at", "source_digest")))
+                        or (is_reduction and (not observed["open_orders_complete"] or not observed["open_orders_empty"]
+                            or observed["source_digest"] != state["attempts"][grant.attempt_id]["reduction_source_digest"]))
+                        or not _time(observed["valuation_at"]) <= _time(now_text) < _time(observed["valid_until"])):
+                    raise AccountSubmissionError("expired or mismatched domain observation")
             self._used.add(grant.attempt_id)
         try:
             report = submit()

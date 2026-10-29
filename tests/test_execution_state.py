@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import json
 import os
 import tempfile
@@ -942,3 +944,429 @@ def test_account_journal_empty_unknown_and_pending_cancel_keep_obligations(tmp_p
         assert {a["certainty"] for a in state["attempts"].values()} == {"UNKNOWN"}
         with pytest.raises(RuntimeError, match="unresolved"):
             _account_session(store, intent="d"*64).reserve(_account_order(symbol="QQQM"))
+
+
+def test_account_domain_binding_persists_and_blocks_omission_and_relabel(tmp_path):
+    import pytest
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    domain = {
+        "identity": {"environment": "LIVE", "platform_id": "ibkr", "server": "synthetic", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+        "policy": {"capital_kind": "OWN_REAL", "product": "BROKERAGE", "phase": "LIVE", "account_type": "CASH", "style": "INTRADAY", "preference": "CAPITAL_PRESERVATION", "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"},
+    }
+    observed = BrokerAccountIdentity(platform_id="ibkr", account_types=("CASH",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    from quant_platform_kit.common.account_domain import account_domain_key
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(**extra):
+        return AccountSubmissionSession(store, clock=lambda: "2026-10-30T02:00:00Z", observed_at="2026-10-30T02:00:00Z", decision_at="2026-10-30T02:00:00Z", observed_environment="LIVE", observed_server="synthetic", observed_currency="USD", observed_lifecycle_id="one", broker="ibkr", account_id="U00000001", owner_id="owner", profile="profile", intent_id="a" * 64, release_id="b" * 64, **extra)
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="mismatch"):
+        session(account_domain=domain, observed_account_id="U00000002", broker_identity=observed).reserve(order)
+    bound = session(account_domain=domain, observed_account_id="U00000001", broker_identity=observed)
+    with pytest.raises(AccountSubmissionError, match="risk reservation required"):
+        bound.reserve(order)
+    assert bound.read_state()["domain_binding"]["account_type"] == "CASH"
+    snapshot = {"balance": 10000, "equity": 9500, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    stale = session(account_domain=domain, observed_account_id="U00000001", broker_identity=observed)
+    object.__setattr__(stale, "decision_at", "2026-10-30T04:00:00Z")
+    with pytest.raises(AccountSubmissionError, match="not current"):
+        stale.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    bound.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    args = dict(floor=9000, cost_buffer=0, amount=10, risk_fraction=0.005, loss_per_unit=1,
+                estimated_fee=0, quantity_step=1, product_leverage_factor=1, unit_price=100,
+                existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9000, "cost_buffer": 0})
+    for altered in ({**snapshot, "balance": 100000}, {**snapshot, "account_id": "other"},
+                    {**snapshot, "pending_3x_exposure": 1}, {**snapshot, "valid_until": "2026-10-30T01:00:00Z"}):
+        with pytest.raises(AccountSubmissionError):
+            bound.reserve_account_risk(order, snapshot=altered, **args)
+    down = {**snapshot, "equity": 9000, "valuation_at": "2026-10-30T01:00:00Z"}
+    bound.record_account_equity(snapshot=down, cash_flow=0)
+    snapshot = {**snapshot, "equity": 9500, "valuation_at": "2026-10-30T02:00:00Z"}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=500)
+    assert bound.read_state()["equity_observation"]["peak"] == 10000
+    bound.reserve_account_risk(order, snapshot=snapshot, floor=9000, cost_buffer=10, amount=40, risk_fraction=0.005, loss_per_unit=3, estimated_fee=2, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9000, "cost_buffer": 10})
+    second = OrderIntent(symbol="QQQM", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="product leverage cap exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9000, cost_buffer=0, amount=10,
+                                   risk_fraction=0.005, loss_per_unit=1, estimated_fee=0, quantity_step=1,
+                                   product_leverage_factor=3, unit_price=10000, existing_3x_exposure=0,
+                                   pending_3x_exposure=0, leverage_hitl_approved=True, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000})
+    with pytest.raises(AccountSubmissionError, match="budget exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9450, cost_buffer=10, amount=1, risk_fraction=0.005, loss_per_unit=0.5, estimated_fee=0, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9450, "cost_buffer": 10})
+    grant = bound.reserve(order)
+    report = bound.dispatch(grant, order, lambda: _account_report("Unknown", filled=0, price=0))
+    assert report.status == "Unknown"
+    assert sum(item["amount"] for item in bound.read_state()["risk_reservations"].values()) == 40
+    with pytest.raises(AccountSubmissionError, match="domain required"):
+        session().reserve(order)
+    domain["policy"]["account_type"] = "MARGIN"
+    margin = BrokerAccountIdentity(platform_id="ibkr", account_types=("MARGIN",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    with pytest.raises(AccountSubmissionError, match="binding mismatch"):
+        session(account_domain=domain, observed_account_id="U00000001", broker_identity=margin).reserve(order)
+
+
+def test_ftmo_requires_confirmed_contract_floor(tmp_path):
+    import pytest
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    domain = {
+        "identity": {"environment": "DEMO", "platform_id": "mt5", "server": "synthetic", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+        "policy": {"capital_kind": "FTMO_SIMULATED", "product": "FTMO_CFD_2_STEP", "phase": "FREE_TRIAL", "account_type": "STANDARD", "style": "INTRADAY", "preference": "CAPITAL_PRESERVATION", "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"},
+    }
+    observed = BrokerAccountIdentity(platform_id="mt5", account_types=("STANDARD",), account_modes=("DEMO",), account_id_fingerprint="sha256:" + "1" * 64)
+    from quant_platform_kit.common.account_domain import account_domain_key
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(**extra):
+        return AccountSubmissionSession(store, clock=lambda: "2026-10-30T02:00:00Z", observed_at="2026-10-30T02:00:00Z", decision_at="2026-10-30T02:00:00Z", observed_environment="DEMO", observed_server="synthetic", observed_currency="USD", observed_lifecycle_id="one", broker="mt5", account_id="U00000001", owner_id="owner", profile="profile", intent_id="a" * 64, release_id="b" * 64, **extra)
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="mismatch"):
+        session(account_domain=domain, observed_account_id="U00000002", broker_identity=observed).reserve(order)
+    bound = session(account_domain=domain, observed_account_id="U00000001", broker_identity=observed)
+    with pytest.raises(AccountSubmissionError, match="risk reservation required"):
+        bound.reserve(order)
+    assert bound.read_state()["domain_binding"]["account_type"] == "STANDARD"
+    snapshot = {"balance": 10000, "equity": 9500, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    policy = {"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "floor": 9000, "cost_buffer": 0, "contract_floor": 9200}
+    with pytest.raises(AccountSubmissionError, match="contract floor"):
+        bound.reserve_account_risk(order, snapshot=snapshot, floor=9000, cost_buffer=0, amount=10, risk_fraction=0.005, loss_per_unit=1, estimated_fee=0, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy=policy)
+
+
+def test_brake_reduction_requires_complete_position_and_pending_proof(tmp_path):
+    import pytest
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    domain = {
+        "identity": {"environment": "LIVE", "platform_id": "ibkr", "server": "synthetic", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+        "policy": {"capital_kind": "OWN_REAL", "product": "BROKERAGE", "phase": "LIVE", "account_type": "CASH", "style": "INTRADAY", "preference": "CAPITAL_PRESERVATION", "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"},
+    }
+    observed = BrokerAccountIdentity(platform_id="ibkr", account_types=("CASH",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    from quant_platform_kit.common.account_domain import account_domain_key
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(**extra):
+        return AccountSubmissionSession(store, clock=lambda: "2026-10-30T02:00:00Z", observed_at="2026-10-30T02:00:00Z", decision_at="2026-10-30T02:00:00Z", observed_environment="LIVE", observed_server="synthetic", observed_currency="USD", observed_lifecycle_id="one", broker="ibkr", account_id="U00000001", owner_id="owner", profile="profile", intent_id="a" * 64, release_id="b" * 64, **extra)
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="mismatch"):
+        session(account_domain=domain, observed_account_id="U00000002", broker_identity=observed).reserve(order)
+    bound = session(account_domain=domain, observed_account_id="U00000001", broker_identity=observed)
+    with pytest.raises(AccountSubmissionError, match="risk reservation required"):
+        bound.reserve(order)
+    assert bound.read_state()["domain_binding"]["account_type"] == "CASH"
+    snapshot = {"balance": 10000, "equity": 9500, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    from quant_platform_kit.risk.account_new_risk_gate import InjectedReconciliationSnapshot, evaluate_new_risk_admission
+    lower = {**snapshot, "equity": 8000, "valuation_at": "2026-10-30T01:00:00Z"}
+    bound.record_account_equity(snapshot=lower, cash_flow=0)
+    admission = evaluate_new_risk_admission(InjectedReconciliationSnapshot("COMPLETE", "VERIFIED", "CLOSED", equity_usd=8000, peak_equity_usd=9500))
+    assert admission.hard_brake_triggered
+    sell = OrderIntent(symbol="VOO", side="sell", quantity=2, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="not proven"):
+        bound.reserve_reduction(OrderIntent(symbol="VOO", side="sell", quantity=3, account_id="U00000001"), admission=admission)
+    grant = bound.reserve_reduction(sell, admission=admission)
+    report = bound.dispatch(grant, sell, lambda: _account_report("Submitted"))
+    assert report.status == "Submitted"
+
+
+@pytest.mark.parametrize("peak,price", [(50000, 30000), (250000, 100000), (1000001, 1)])
+def test_historical_band_does_not_widen_after_loss(tmp_path, peak, price):
+    import pytest
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    domain = {
+        "identity": {"environment": "LIVE", "platform_id": "ibkr", "server": "synthetic", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+        "policy": {"capital_kind": "OWN_REAL", "product": "BROKERAGE", "phase": "LIVE", "account_type": "CASH", "style": "INTRADAY", "preference": "CAPITAL_PRESERVATION", "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"},
+    }
+    observed = BrokerAccountIdentity(platform_id="ibkr", account_types=("CASH",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    from quant_platform_kit.common.account_domain import account_domain_key
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(**extra):
+        return AccountSubmissionSession(store, clock=lambda: "2026-10-30T02:00:00Z", observed_at="2026-10-30T02:00:00Z", decision_at="2026-10-30T02:00:00Z", observed_environment="LIVE", observed_server="synthetic", observed_currency="USD", observed_lifecycle_id="one", broker="ibkr", account_id="U00000001", owner_id="owner", profile="profile", intent_id="a" * 64, release_id="b" * 64, **extra)
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="mismatch"):
+        session(account_domain=domain, observed_account_id="U00000002", broker_identity=observed).reserve(order)
+    bound = session(account_domain=domain, observed_account_id="U00000001", broker_identity=observed)
+    with pytest.raises(AccountSubmissionError, match="risk reservation required"):
+        bound.reserve(order)
+    assert bound.read_state()["domain_binding"]["account_type"] == "CASH"
+    snapshot = {"balance": peak, "equity": peak, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    lower = {**snapshot, "equity": peak - 1, "valuation_at": "2026-10-30T01:00:00Z"}
+    bound.record_account_equity(snapshot=lower, cash_flow=0)
+    assert bound.read_state()["equity_observation"]["protected_equity"] == peak
+    with pytest.raises(AccountSubmissionError, match="product leverage cap exceeded"):
+        bound.reserve_account_risk(order, snapshot=lower, floor=0, cost_buffer=0, amount=10, risk_fraction=0.005,
+                                   loss_per_unit=1, estimated_fee=0, quantity_step=1, product_leverage_factor=3,
+                                   unit_price=price, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=True, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000})
+
+
+def test_terminal_fill_risk_is_transferred_to_new_snapshot(tmp_path):
+    import pytest
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    domain = {
+        "identity": {"environment": "LIVE", "platform_id": "ibkr", "server": "synthetic", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+        "policy": {"capital_kind": "OWN_REAL", "product": "BROKERAGE", "phase": "LIVE", "account_type": "CASH", "style": "INTRADAY", "preference": "CAPITAL_PRESERVATION", "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"},
+    }
+    observed = BrokerAccountIdentity(platform_id="ibkr", account_types=("CASH",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    from quant_platform_kit.common.account_domain import account_domain_key
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(**extra):
+        return AccountSubmissionSession(store, clock=lambda: "2026-10-30T03:00:00Z", observed_at="2026-10-30T03:00:00Z", decision_at="2026-10-30T03:00:00Z", observed_environment="LIVE", observed_server="synthetic", observed_currency="USD", observed_lifecycle_id="one", broker="ibkr", account_id="U00000001", owner_id="owner", profile="profile", intent_id="a" * 64, release_id="b" * 64, **extra)
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="mismatch"):
+        session(account_domain=domain, observed_account_id="U00000002", broker_identity=observed).reserve(order)
+    bound = session(account_domain=domain, observed_account_id="U00000001", broker_identity=observed)
+    with pytest.raises(AccountSubmissionError, match="risk reservation required"):
+        bound.reserve(order)
+    assert bound.read_state()["domain_binding"]["account_type"] == "CASH"
+    snapshot = {"balance": 10000, "equity": 9500, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    down = {**snapshot, "equity": 9000, "valuation_at": "2026-10-30T01:00:00Z"}
+    bound.record_account_equity(snapshot=down, cash_flow=0)
+    snapshot = {**snapshot, "equity": 9500, "valuation_at": "2026-10-30T02:00:00Z"}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=500)
+    assert bound.read_state()["equity_observation"]["peak"] == 10000
+    bound.reserve_account_risk(order, snapshot=snapshot, floor=9000, cost_buffer=10, amount=40, risk_fraction=0.005, loss_per_unit=3, estimated_fee=2, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9000, "cost_buffer": 10})
+    second = OrderIntent(symbol="QQQM", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="product leverage cap exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9000, cost_buffer=0, amount=10,
+                                   risk_fraction=0.005, loss_per_unit=1, estimated_fee=0, quantity_step=1,
+                                   product_leverage_factor=3, unit_price=10000, existing_3x_exposure=0,
+                                   pending_3x_exposure=0, leverage_hitl_approved=True, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000})
+    with pytest.raises(AccountSubmissionError, match="budget exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9450, cost_buffer=10, amount=1, risk_fraction=0.005, loss_per_unit=0.5, estimated_fee=0, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9450, "cost_buffer": 10})
+    grant = bound.reserve(order)
+    report = bound.dispatch(grant, order, lambda: _account_report("Filled", filled=1, price=100))
+    assert report.status == "Filled"
+    after_fill = {**snapshot, "valuation_at": "2026-10-30T03:00:00Z", "source_digest": "sha256:" + "3" * 64, "covered_fills": {grant.attempt_id: 1}, "covered_fees": {grant.attempt_id: 2}, "position_risk": 3}
+    bound.record_account_equity(snapshot=after_fill, cash_flow=0)
+    bound.reconcile_account_risk(attempt_id=grant.attempt_id, filled_quantity=1, actual_fee=2,
+                                 snapshot_position_risk=3, source_digest=after_fill["source_digest"])
+    state = bound.read_state()
+    reservation = next(iter(state["risk_reservations"].values()))
+    assert reservation["remaining_amount"] == 0
+    assert reservation["actual_fee"] == 2
+    assert state["snapshot_position_risk"] == 3
+
+
+def test_expired_grant_never_calls_submit(tmp_path):
+    import pytest
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    current = ["2026-10-30T03:00:00Z"]
+    domain = {
+        "identity": {"environment": "LIVE", "platform_id": "ibkr", "server": "synthetic", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+        "policy": {"capital_kind": "OWN_REAL", "product": "BROKERAGE", "phase": "LIVE", "account_type": "CASH", "style": "INTRADAY", "preference": "CAPITAL_PRESERVATION", "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"},
+    }
+    observed = BrokerAccountIdentity(platform_id="ibkr", account_types=("CASH",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    from quant_platform_kit.common.account_domain import account_domain_key
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(**extra):
+        return AccountSubmissionSession(store, clock=lambda: current[0], observed_at="2026-10-30T03:00:00Z", decision_at="2026-10-30T03:00:00Z", observed_environment="LIVE", observed_server="synthetic", observed_currency="USD", observed_lifecycle_id="one", broker="ibkr", account_id="U00000001", owner_id="owner", profile="profile", intent_id="a" * 64, release_id="b" * 64, **extra)
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="mismatch"):
+        session(account_domain=domain, observed_account_id="U00000002", broker_identity=observed).reserve(order)
+    bound = session(account_domain=domain, observed_account_id="U00000001", broker_identity=observed)
+    with pytest.raises(AccountSubmissionError, match="risk reservation required"):
+        bound.reserve(order)
+    assert bound.read_state()["domain_binding"]["account_type"] == "CASH"
+    snapshot = {"balance": 10000, "equity": 9500, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    down = {**snapshot, "equity": 9000, "valuation_at": "2026-10-30T01:00:00Z"}
+    bound.record_account_equity(snapshot=down, cash_flow=0)
+    snapshot = {**snapshot, "equity": 9500, "valuation_at": "2026-10-30T02:00:00Z"}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=500)
+    assert bound.read_state()["equity_observation"]["peak"] == 10000
+    bound.reserve_account_risk(order, snapshot=snapshot, floor=9000, cost_buffer=10, amount=40, risk_fraction=0.005, loss_per_unit=3, estimated_fee=2, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9000, "cost_buffer": 10})
+    second = OrderIntent(symbol="QQQM", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="product leverage cap exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9000, cost_buffer=0, amount=10,
+                                   risk_fraction=0.005, loss_per_unit=1, estimated_fee=0, quantity_step=1,
+                                   product_leverage_factor=3, unit_price=10000, existing_3x_exposure=0,
+                                   pending_3x_exposure=0, leverage_hitl_approved=True, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000})
+    with pytest.raises(AccountSubmissionError, match="budget exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9450, cost_buffer=10, amount=1, risk_fraction=0.005, loss_per_unit=0.5, estimated_fee=0, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9450, "cost_buffer": 10})
+    grant = bound.reserve(order)
+    current[0] = "2026-10-30T04:00:00Z"
+    calls = []
+    with pytest.raises(AccountSubmissionError, match="expired"):
+        bound.dispatch(grant, order, lambda: calls.append(True))
+    assert calls == []
+
+
+def test_terminal_3x_exposure_transfers_to_complete_snapshot(tmp_path):
+    import pytest
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    domain = {
+        "identity": {"environment": "LIVE", "platform_id": "ibkr", "server": "synthetic", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+        "policy": {"capital_kind": "OWN_REAL", "product": "BROKERAGE", "phase": "LIVE", "account_type": "CASH", "style": "INTRADAY", "preference": "CAPITAL_PRESERVATION", "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"},
+    }
+    observed = BrokerAccountIdentity(platform_id="ibkr", account_types=("CASH",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    from quant_platform_kit.common.account_domain import account_domain_key
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(**extra):
+        return AccountSubmissionSession(store, clock=lambda: "2026-10-30T03:00:00Z", observed_at="2026-10-30T03:00:00Z", decision_at="2026-10-30T03:00:00Z", observed_environment="LIVE", observed_server="synthetic", observed_currency="USD", observed_lifecycle_id="one", broker="ibkr", account_id="U00000001", owner_id="owner", profile="profile", intent_id="a" * 64, release_id="b" * 64, **extra)
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="mismatch"):
+        session(account_domain=domain, observed_account_id="U00000002", broker_identity=observed).reserve(order)
+    bound = session(account_domain=domain, observed_account_id="U00000001", broker_identity=observed)
+    with pytest.raises(AccountSubmissionError, match="risk reservation required"):
+        bound.reserve(order)
+    assert bound.read_state()["domain_binding"]["account_type"] == "CASH"
+    snapshot = {"balance": 10000, "equity": 9500, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    down = {**snapshot, "equity": 9000, "valuation_at": "2026-10-30T01:00:00Z"}
+    bound.record_account_equity(snapshot=down, cash_flow=0)
+    snapshot = {**snapshot, "equity": 9500, "valuation_at": "2026-10-30T02:00:00Z"}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=500)
+    assert bound.read_state()["equity_observation"]["peak"] == 10000
+    bound.reserve_account_risk(order, snapshot=snapshot, floor=9000, cost_buffer=10, amount=40, risk_fraction=0.005, loss_per_unit=3, estimated_fee=2, quantity_step=1, product_leverage_factor=3, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9000, "cost_buffer": 10})
+    second = OrderIntent(symbol="QQQM", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="product leverage cap exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9000, cost_buffer=0, amount=10,
+                                   risk_fraction=0.005, loss_per_unit=1, estimated_fee=0, quantity_step=1,
+                                   product_leverage_factor=3, unit_price=10000, existing_3x_exposure=0,
+                                   pending_3x_exposure=0, leverage_hitl_approved=True, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000})
+    with pytest.raises(AccountSubmissionError, match="budget exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9450, cost_buffer=10, amount=1, risk_fraction=0.005, loss_per_unit=0.5, estimated_fee=0, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9450, "cost_buffer": 10})
+    grant = bound.reserve(order)
+    report = bound.dispatch(grant, order, lambda: _account_report("Filled", filled=1, price=100))
+    assert report.status == "Filled"
+    after_fill = {**snapshot, "valuation_at": "2026-10-30T03:00:00Z", "source_digest": "sha256:" + "3" * 64, "covered_fills": {grant.attempt_id: 1}, "covered_fees": {grant.attempt_id: 2}, "position_risk": 3, "position_3x_exposure": 100}
+    bound.record_account_equity(snapshot=after_fill, cash_flow=0)
+    bound.reconcile_account_risk(attempt_id=grant.attempt_id, filled_quantity=1, actual_fee=2,
+                                 snapshot_position_risk=3, source_digest=after_fill["source_digest"])
+    state = bound.read_state()
+    reservation = next(iter(state["risk_reservations"].values()))
+    assert reservation["remaining_amount"] == 0
+    assert reservation["actual_fee"] == 2
+    assert reservation["remaining_3x_exposure"] == 0
+    assert state["equity_observation"]["position_3x_exposure"] == 100
+    assert state["snapshot_position_risk"] == 3
+
+
+
+def test_partial_fill_keeps_remaining_risk_and_records_actual_fee(tmp_path):
+    import pytest
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    domain = {
+        "identity": {"environment": "LIVE", "platform_id": "ibkr", "server": "synthetic", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+        "policy": {"capital_kind": "OWN_REAL", "product": "BROKERAGE", "phase": "LIVE", "account_type": "CASH", "style": "INTRADAY", "preference": "CAPITAL_PRESERVATION", "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"},
+    }
+    observed = BrokerAccountIdentity(platform_id="ibkr", account_types=("CASH",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    from quant_platform_kit.common.account_domain import account_domain_key
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(**extra):
+        return AccountSubmissionSession(store, clock=lambda: "2026-10-30T03:00:00Z", observed_at="2026-10-30T03:00:00Z", decision_at="2026-10-30T03:00:00Z", observed_environment="LIVE", observed_server="synthetic", observed_currency="USD", observed_lifecycle_id="one", broker="ibkr", account_id="U00000001", owner_id="owner", profile="profile", intent_id="a" * 64, release_id="b" * 64, **extra)
+    order = OrderIntent(symbol="VOO", side="buy", quantity=2, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="mismatch"):
+        session(account_domain=domain, observed_account_id="U00000002", broker_identity=observed).reserve(order)
+    bound = session(account_domain=domain, observed_account_id="U00000001", broker_identity=observed)
+    with pytest.raises(AccountSubmissionError, match="risk reservation required"):
+        bound.reserve(order)
+    assert bound.read_state()["domain_binding"]["account_type"] == "CASH"
+    snapshot = {"balance": 10000, "equity": 9500, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    down = {**snapshot, "equity": 9000, "valuation_at": "2026-10-30T01:00:00Z"}
+    bound.record_account_equity(snapshot=down, cash_flow=0)
+    snapshot = {**snapshot, "equity": 9500, "valuation_at": "2026-10-30T02:00:00Z"}
+    bound.record_account_equity(snapshot=snapshot, cash_flow=500)
+    assert bound.read_state()["equity_observation"]["peak"] == 10000
+    bound.reserve_account_risk(order, snapshot=snapshot, floor=9000, cost_buffer=10, amount=40, risk_fraction=0.005, loss_per_unit=3, estimated_fee=2, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9000, "cost_buffer": 10})
+    second = OrderIntent(symbol="QQQM", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="product leverage cap exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9000, cost_buffer=0, amount=10,
+                                   risk_fraction=0.005, loss_per_unit=1, estimated_fee=0, quantity_step=1,
+                                   product_leverage_factor=3, unit_price=10000, existing_3x_exposure=0,
+                                   pending_3x_exposure=0, leverage_hitl_approved=True, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000})
+    with pytest.raises(AccountSubmissionError, match="budget exceeded"):
+        bound.reserve_account_risk(second, snapshot=snapshot, floor=9450, cost_buffer=10, amount=1, risk_fraction=0.005, loss_per_unit=0.5, estimated_fee=0, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9450, "cost_buffer": 10})
+    grant = bound.reserve(order)
+    report = bound.dispatch(grant, order, lambda: _account_report("PartiallyFilled", filled=1, price=100))
+    assert report.status == "PartiallyFilled"
+    after_fill = {**snapshot, "valuation_at": "2026-10-30T03:00:00Z", "source_digest": "sha256:" + "3" * 64, "covered_fills": {grant.attempt_id: 1}, "covered_fees": {grant.attempt_id: 2}, "position_risk": 3}
+    bound.record_account_equity(snapshot=after_fill, cash_flow=0)
+    bound.reconcile_account_risk(attempt_id=grant.attempt_id, filled_quantity=1, actual_fee=2,
+                                 snapshot_position_risk=3, source_digest=after_fill["source_digest"])
+    state = bound.read_state()
+    reservation = next(iter(state["risk_reservations"].values()))
+    assert reservation["remaining_amount"] == 19
+    assert reservation["actual_fee"] == 2
+    assert state["snapshot_position_risk"] == 3
+
+
+
+def test_concurrent_strategies_cannot_both_consume_same_account_budget(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from quant_platform_kit.common.account_domain import account_domain_key
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    domain = {"identity": {"environment": "LIVE", "platform_id": "ibkr", "server": "test", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+              "policy": {"capital_kind": "OWN_REAL", "product": "BROKERAGE", "phase": "LIVE", "account_type": "CASH", "style": "INTRADAY", "preference": "CAPITAL_PRESERVATION", "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"}}
+    observed = BrokerAccountIdentity(platform_id="ibkr", account_types=("CASH",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    snapshot = {"balance": 10000, "equity": 9500, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(profile):
+        return AccountSubmissionSession(store, broker="ibkr", account_id="U00000001", owner_id=profile, profile=profile, intent_id="a" * 64, release_id="b" * 64, account_domain=domain, observed_account_id="U00000001", broker_identity=observed, clock=lambda: "2026-10-30T00:00:00Z", observed_at="2026-10-30T00:00:00Z", decision_at="2026-10-30T00:00:00Z", observed_environment="LIVE", observed_server="test", observed_currency="USD", observed_lifecycle_id="one")
+    first = session("one")
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    try:
+        first.reserve(order)
+    except AccountSubmissionError:
+        pass
+    first.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    def compete(item):
+        profile, symbol = item
+        try:
+            session(profile).reserve_account_risk(OrderIntent(symbol=symbol, side="buy", quantity=1, account_id="U00000001"), snapshot=snapshot, floor=9450, cost_buffer=0, amount=40, risk_fraction=0.005, loss_per_unit=1, estimated_fee=0, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": "CAPITAL_PRESERVATION", "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": 1000, "contract_floor": None, "floor": 9450, "cost_buffer": 0})
+            return True
+        except AccountSubmissionError:
+            return False
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(compete, [("one", "VOO"), ("two", "QQQM")]))
+    assert sum(outcomes) == 1
+    assert sum(item["amount"] for item in first.read_state()["risk_reservations"].values()) == 40
+
+
+@pytest.mark.parametrize("preference,limit,expected", [("CAPITAL_PRESERVATION", 30, 0), ("BALANCED_COMPOUNDING", 50, 1), ("GROWTH_COMPOUNDING", 100, 2)])
+def test_synthetic_preference_account_caps_apply_once(tmp_path, preference, limit, expected):
+    from concurrent.futures import ThreadPoolExecutor
+    from quant_platform_kit.common.account_domain import account_domain_key
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import AccountSubmissionError, AccountSubmissionSession
+    from quant_platform_kit.common.models import OrderIntent
+    domain = {"identity": {"environment": "LIVE", "platform_id": "ibkr", "server": "test", "account_id_fingerprint": "sha256:" + "1" * 64, "lifecycle_id": "one"},
+              "policy": {"capital_kind": "OWN_REAL", "product": "BROKERAGE", "phase": "LIVE", "account_type": "CASH", "style": "INTRADAY", "preference": preference, "currency": "USD", "source": "synthetic", "effective_at": "2026-10-01T00:00:00Z", "valid_until": "2026-11-01T00:00:00Z", "version": "one"}}
+    observed = BrokerAccountIdentity(platform_id="ibkr", account_types=("CASH",), account_modes=("LIVE",), account_id_fingerprint="sha256:" + "1" * 64)
+    snapshot = {"balance": 10000, "equity": 9500, "cash": 1000, "currency": "USD", "valuation_at": "2026-10-30T00:00:00Z", "source_digest": "sha256:" + "2" * 64, "complete": True, "position_risk": 0, "position_3x_exposure": 0, "account_domain_key": account_domain_key(domain), "account_id": "U00000001", "valid_until": "2026-10-30T04:00:00Z", "pending_3x_exposure": 0, "open_orders_complete": True, "positions": {"VOO": 2}, "open_orders_empty": True}
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    def session(profile):
+        return AccountSubmissionSession(store, broker="ibkr", account_id="U00000001", owner_id=profile, profile=profile, intent_id="a" * 64, release_id="b" * 64, account_domain=domain, observed_account_id="U00000001", broker_identity=observed, clock=lambda: "2026-10-30T00:00:00Z", observed_at="2026-10-30T00:00:00Z", decision_at="2026-10-30T00:00:00Z", observed_environment="LIVE", observed_server="test", observed_currency="USD", observed_lifecycle_id="one")
+    first = session("one")
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    try:
+        first.reserve(order)
+    except AccountSubmissionError:
+        pass
+    first.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+    def compete(item):
+        profile, symbol = item
+        try:
+            session(profile).reserve_account_risk(OrderIntent(symbol=symbol, side="buy", quantity=1, account_id="U00000001"), snapshot=snapshot, floor=0, cost_buffer=0, amount=40, risk_fraction=0.005, loss_per_unit=1, estimated_fee=0, quantity_step=1, product_leverage_factor=1, unit_price=100, existing_3x_exposure=0, pending_3x_exposure=0, leverage_hitl_approved=False, account_budget_policy={"preference": preference, "version": "one", "source": "synthetic", "per_trade_fraction": 0.005, "total_future_risk_limit": limit, "contract_floor": None, "floor": 0, "cost_buffer": 0})
+            return True
+        except AccountSubmissionError:
+            return False
+    outcomes = [compete(("one", "VOO")), compete(("two", "QQQM"))]
+    assert sum(outcomes) == expected
+    assert sum(item["remaining_amount"] for item in first.read_state()["risk_reservations"].values()) == expected * 40

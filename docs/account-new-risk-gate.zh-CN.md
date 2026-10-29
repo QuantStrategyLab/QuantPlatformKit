@@ -112,3 +112,9 @@ W1 平台 adapter 已有实现；持久化 OPEN 熔断、实际账户读回和�
 - Composer 相对无杠杆基准 MDD 天花板：`CAPITAL_PRESERVATION` 1.00 / `BALANCED_COMPOUNDING` 1.25 / `GROWTH_COMPOUNDING` 1.50
 - 晋级 `promotion_sizing` 仓位缩放：0.50 / 0.75 / 1.00，且仅用于新晋级/材料变更；插件 scalar ≤ 1
 - 不得把 1.50× 当成仓位×1.5，不得用晋级缩放重算旧 live
+
+## 风险输入错误与动作契约
+
+`target_vol=None` 使用既有默认值；显式非正数、非有限数、布尔值或非数值会禁止新增风险。非法 realized volatility、drawdown 或 equity 同样禁止新增风险。信封数值缩放仅用于诊断，执行方必须检查 `new_risk_allowed` 和原因。
+
+`NewRiskAdmissionResult` 新增默认 false 的 `risk_input_invalid` 和 `hard_brake_triggered`。数据错误且没有可信 drawdown 硬刹车时，`combined_scale=None` 不表示零仓位；可信硬刹车同时存在时，两个标记均为 true，缩放保留 0。`apply_envelope_to_sized_weight` 对数据错误返回 `None`，可信硬刹车同时存在时返回 0。调用方必须处理可选返回值；升级前应完成消费者动作联测。

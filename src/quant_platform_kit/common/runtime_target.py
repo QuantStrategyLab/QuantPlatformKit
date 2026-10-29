@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from quant_platform_kit.data.decision_data_binding import DecisionDataBinding
 
+from .account_domain import validate_account_domain
 from .live_continuity import LiveContinuity, build_live_continuity
 from .strategy_release import StrategyReleaseIdentity, build_strategy_release_identity
 
@@ -80,8 +81,14 @@ class RuntimeTarget:
     live_continuity: LiveContinuity | None = None
     execution_environment: RuntimeExecutionEnvironment | str | None = None
     decision_data: DecisionDataBinding | None = None
+    account_domain: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
+        if self.account_domain is not None:
+            object.__setattr__(
+                self, "account_domain",
+                validate_account_domain(self.account_domain, platform_id=self.platform_id),
+            )
         object.__setattr__(
             self,
             "execution_environment",
@@ -90,6 +97,12 @@ class RuntimeTarget:
                 execution_environment=self.execution_environment,
             ),
         )
+
+        if self.account_domain is not None and self.execution_environment is not RuntimeExecutionEnvironment.DRY_RUN:
+            expected = (RuntimeExecutionEnvironment.PAPER if self.account_domain["policy"]["capital_kind"] == "FTMO_SIMULATED"
+                        else RuntimeExecutionEnvironment.LIVE)
+            if self.execution_environment is not expected:
+                raise ValueError("execution environment does not match account domain")
 
     @property
     def execution_mode(self) -> str:
@@ -106,6 +119,7 @@ class RuntimeTarget:
             "account_identity",
             "live_continuity",
             "decision_data",
+            "account_domain",
         ):
             if payload.get(field) is None:
                 payload.pop(field, None)
@@ -207,6 +221,7 @@ def build_runtime_target(
     execution_environment: RuntimeExecutionEnvironment | str | None = None,
     live_continuity: LiveContinuity | Mapping[str, object] | None = None,
     decision_data: DecisionDataBinding | Mapping[str, object] | None = None,
+    account_domain: Mapping[str, Any] | None = None,
     continuity_fingerprint_payload: Mapping[str, Any] | None = None,
 ) -> RuntimeTarget:
     normalized_market, normalized_calendar, normalized_timezone = _normalize_market_metadata(
@@ -233,6 +248,7 @@ def build_runtime_target(
             else None
         ),
         account_identity=dict(account_identity) if account_identity is not None else None,
+        account_domain=validate_account_domain(account_domain, platform_id=platform_id) if account_domain is not None else None,
         execution_environment=execution_environment,
         decision_data=_build_decision_data_binding(decision_data),
     )
@@ -339,6 +355,7 @@ def resolve_runtime_target_from_env(
         execution_windows=execution_windows,
         strategy_release=strategy_release,
         account_identity=account_identity,
+        account_domain=payload.get("account_domain"),
         execution_environment=payload.get("execution_environment"),
         live_continuity=live_continuity,
         decision_data=decision_data,
