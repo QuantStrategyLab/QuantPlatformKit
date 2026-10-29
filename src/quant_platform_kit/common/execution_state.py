@@ -1053,9 +1053,15 @@ class AccountSubmissionSession:
                     for a in state["attempts"].values()
                 ):
                     raise AccountSubmissionError("duplicate submission identity")
+                if state["domain_binding"] is not None and not data.get("reduction"):
+                    if (data["order_sha256"] not in state["risk_reservations"] or any(
+                            a["order_sha256"] == data["order_sha256"] and not a.get("reduction")
+                            for a in state["attempts"].values())):
+                        raise AccountSubmissionError("account risk reservation already used or missing")
                 state["attempts"][data["attempt_id"]] = {
                     **data, "generation": sequence, "event_sha256": event["event_sha256"],
                     "certainty": "PREPARED", "observation": None, "filled_quantity": 0.0,
+                    "prepared_snapshot": state["equity_observation"],
                 }
             elif event["kind"] == "OBSERVED":
                 if set(data) != {"attempt_id", "observation"} or data["attempt_id"] not in state["attempts"]:
@@ -1371,6 +1377,15 @@ class AccountSubmissionSession:
                 raise AccountSubmissionError("order reduction not proven")
             if any(a["certainty"] in {"PREPARED", "UNKNOWN", "KNOWN_PENDING"} for a in state["attempts"].values()):
                 raise AccountSubmissionError("unresolved account submission")
+            for attempt_id, attempt in state["attempts"].items():
+                if attempt["filled_quantity"] <= 0:
+                    continue
+                source = attempt["prepared_snapshot"]
+                if (source is None or observed["covered_fills"].get(attempt_id) != attempt["filled_quantity"]
+                        or attempt_id not in observed["covered_fees"]
+                        or observed["source_digest"] == source["source_digest"]
+                        or _time(observed["valuation_at"]) <= _time(source["valuation_at"])):
+                    raise AccountSubmissionError("filled submission requires a newer covering snapshot")
             if any((a["intent_id"], a["order_sha256"]) == (self.intent_id, digest) for a in state["attempts"].values()):
                 raise AccountSubmissionError("same intent/order already reserved")
             data = {"attempt_id": uuid.uuid4().hex + uuid.uuid4().hex, "fence": uuid.uuid4().hex + uuid.uuid4().hex,
@@ -1421,6 +1436,10 @@ class AccountSubmissionSession:
                     raise AccountSubmissionError("account risk reservation is stale")
             if any(a["certainty"] in {"PREPARED", "UNKNOWN"} for a in state["attempts"].values()):
                 raise AccountSubmissionError("unresolved UNKNOWN/account submission")
+            if self.account_domain is not None and any(
+                a["order_sha256"] == digest and not a.get("reduction") for a in state["attempts"].values()
+            ):
+                raise AccountSubmissionError("account risk reservation already used")
             if any((a["intent_id"], a["order_sha256"]) == (self.intent_id, digest) for a in state["attempts"].values()):
                 raise AccountSubmissionError("same intent/order already reserved; no retry grant")
             data = {
