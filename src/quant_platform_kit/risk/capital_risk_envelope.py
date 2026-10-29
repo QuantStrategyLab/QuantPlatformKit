@@ -192,6 +192,9 @@ def evaluate_capital_risk_envelope(
     Auto-downgrade only: a higher capital band after equity recovery requires
     external confirmation; this function never raises posture from prior state
     (it is also intentionally stateful-hysteresis-free).
+
+    Omitting target_vol uses the default. An explicit invalid target blocks new
+    risk and sets the volatility and combined scales to zero.
     """
     reasons: list[str] = []
     preference: str | None = None
@@ -227,22 +230,23 @@ def evaluate_capital_risk_envelope(
             risk_preference=preference,
         )
 
-    if (
+    invalid_target_vol = (
         isinstance(target_vol, bool)
         or not isinstance(target_vol, (int, float))
         or not math.isfinite(float(target_vol))
         or float(target_vol) <= 0.0
-    ):
+    )
+    if invalid_target_vol:
         reasons.append("INVALID_TARGET_VOL_FAIL_CLOSED")
-        target = DEFAULT_TARGET_VOL_ANNUAL
-    else:
-        target = float(target_vol)
 
     equity = float(equity_usd)
     band_id, capital_scale, dd_brake, max_3x, hitl, lev_summary = _resolve_band(equity)
     reasons.append(f"BAND_{band_id.upper()}")
 
-    vol_scale, vol_reasons = _vol_scale(realized_vol, target_vol=target)
+    if invalid_target_vol:
+        vol_scale, vol_reasons = 0.0, []
+    else:
+        vol_scale, vol_reasons = _vol_scale(realized_vol, target_vol=float(target_vol))
     reasons.extend(vol_reasons)
 
     dd_scale, new_risk_allowed, dd_reasons = _dd_scale(
@@ -262,7 +266,7 @@ def evaluate_capital_risk_envelope(
             new_leverage_requires_hitl=hitl,
             summary=lev_summary,
         ),
-        new_risk_allowed=new_risk_allowed,
+        new_risk_allowed=new_risk_allowed and not invalid_target_vol,
         reasons=tuple(reasons),
         dd_brake=dd_brake,
         risk_preference=preference,

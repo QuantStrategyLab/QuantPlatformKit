@@ -80,6 +80,33 @@ class VolScaleTests(unittest.TestCase):
         self.assertAlmostEqual(hot.vol_scale, 0.5)
         self.assertIn("VOL_SCALE_REDUCED", hot.reasons)
 
+    def test_invalid_target_vol_blocks_new_risk_and_zeroes_sized_weight(self) -> None:
+        for target_vol in (
+            float("nan"), float("inf"), float("-inf"),
+            -0.20, 0.0, True, False, None, "0.20",
+        ):
+            for realized_vol in (None, 0.0, 0.10, 0.40):
+                with self.subTest(target_vol=target_vol, realized_vol=realized_vol):
+                    env = evaluate_capital_risk_envelope(
+                        40_000.0, realized_vol=realized_vol, target_vol=target_vol
+                    )
+                    self.assertEqual(env.vol_scale, 0.0)
+                    self.assertEqual(env.combined_scale, 0.0)
+                    self.assertFalse(env.new_risk_allowed)
+                    self.assertIn("INVALID_TARGET_VOL_FAIL_CLOSED", env.reasons)
+                    self.assertEqual(apply_envelope_to_sized_weight(0.75, env), 0.0)
+                    self.assertFalse(env.live_authority_granted)
+
+    def test_omitted_target_vol_preserves_the_valid_default(self) -> None:
+        implicit = evaluate_capital_risk_envelope(40_000.0, realized_vol=0.40)
+        explicit = evaluate_capital_risk_envelope(
+            40_000.0, realized_vol=0.40, target_vol=DEFAULT_TARGET_VOL_ANNUAL
+        )
+        self.assertEqual(implicit, explicit)
+        self.assertEqual(implicit.vol_scale, 0.5)
+        self.assertTrue(implicit.new_risk_allowed)
+        self.assertNotIn("INVALID_TARGET_VOL_FAIL_CLOSED", implicit.reasons)
+
 
 class DrawdownBrakeTests(unittest.TestCase):
     def test_half_brake_halves_dd_scale(self) -> None:
@@ -129,6 +156,23 @@ class CombinedProductTests(unittest.TestCase):
 
 
 class MultiAccountEnvelopeViewTests(unittest.TestCase):
+    def test_invalid_target_vol_blocks_account_and_aggregate_envelopes(self) -> None:
+        view = evaluate_multi_account_envelope_view(
+            [
+                {"account_id": "account-a", "equity_usd": 30_000.0},
+                {"account_id": "account-b", "equity_usd": 40_000.0},
+            ],
+            target_vol=float("nan"),
+        )
+        self.assertFalse(view.new_risk_allowed)
+        self.assertTrue(view.any_account_new_risk_prohibited)
+        for envelope in (
+            view.aggregate_envelope, *(item.envelope for item in view.accounts)
+        ):
+            self.assertEqual(envelope.combined_scale, 0.0)
+            self.assertFalse(envelope.new_risk_allowed)
+            self.assertIn("INVALID_TARGET_VOL_FAIL_CLOSED", envelope.reasons)
+
     def test_aggregate_equity_uses_same_envelope_bands(self) -> None:
         view = evaluate_multi_account_envelope_view(
             [
