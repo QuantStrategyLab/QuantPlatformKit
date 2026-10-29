@@ -13,6 +13,7 @@ import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -1261,7 +1262,8 @@ class AccountSubmissionSession:
             amount = _submission_number(amount)
             max_quantity = maximum_risk_quantity(budget=amount, loss_per_unit=loss_per_unit,
                                                  estimated_fee=estimated_fee, quantity_step=quantity_step)
-            if quantity > max_quantity or not math.isclose(quantity / quantity_step, round(quantity / quantity_step), abs_tol=1e-9):
+            quantity_steps = Fraction(str(quantity)) / Fraction(str(quantity_step))
+            if quantity > max_quantity or abs(quantity_steps - round(quantity_steps)) > Fraction(1, 10**9):
                 raise AccountSubmissionError("quantity exceeds reserved risk or step")
             if amount <= 0 or order_digest in state["risk_reservations"]:
                 raise AccountSubmissionError("invalid or duplicate account risk reservation")
