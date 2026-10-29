@@ -370,4 +370,26 @@ jobs:
           AI_SERVICE_URL: ${{ inputs.ai_service_url }}
           AI_SERVICE_AUDIENCE: ${{ inputs.ai_service_audience }}
           AI_SERVICE_REVIEWERS_JSON: ${{ inputs.ai_service_reviewers_json }}
-        run: python -m quant_platform_kit.strategy_lifecycle.drift_review --domain "$STRATEGY_DOMAIN"
+        run: |
+          python - <<'PY'
+          import json, os
+          from quant_platform_kit.strategy_lifecycle.drift_detector import run_drift_detection
+          from quant_platform_kit.strategy_lifecycle.drift_review import review_critical_drifts
+
+          observations = [
+              {"trigger": "drift", "strategy_profile": item.strategy_profile,
+               "domain": item.domain, "drift_score": item.drift_score,
+               "evidence": item.to_dict(),
+               "score_definition": "max(breached-count score (1:0.30, 2:0.55, 3:0.75, 4+:0.90), min(mean(dimension.deviation_pct)/2, 1))",
+               "verification_scope": "Review supplied measured dimensions, thresholds and baseline lineage; missing evidence requires escalation, never execution authority."}
+              for item in run_drift_detection(os.environ["STRATEGY_DOMAIN"])
+              if item.status.value == "critical"
+          ]
+          roles = json.loads(os.environ.get("AI_SERVICE_REQUIRED_ROLES_JSON", '["primary", "secondary", "verification"]'))
+          if not isinstance(roles, list) or len(roles) != 3 or len(set(roles)) != 3 or any(not isinstance(r, str) or not r for r in roles):
+              raise ValueError("three distinct review roles required")
+          result = review_critical_drifts(os.environ["STRATEGY_DOMAIN"], observations,
+                                        roles=roles, revision=os.environ["GITHUB_SHA"])
+          print(json.dumps(result, sort_keys=True))
+          raise SystemExit(0 if result["ok"] else 3)
+          PY
