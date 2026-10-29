@@ -25,4 +25,4 @@ validate_dry_run_consistency(
 
 验证：`PYTHONPATH=src python3 -m pytest -q tests/test_runtime_control_checks.py tests/test_runtime_control.py`。
 
-[English](runtime_control_checks.md)
+[English](runtime-control-checks.md)

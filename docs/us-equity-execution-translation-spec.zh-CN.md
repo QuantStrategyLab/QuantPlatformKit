@@ -1,6 +1,6 @@
 # 美股执行翻译规范
 
-[English](us_equity_execution_translation_spec.md)
+[English](us-equity-execution-translation-spec.md)
 
 ## 目标
 

@@ -71,4 +71,4 @@ Fence 只在**同一对象存储前缀**内有效。碰同一 `{broker, account_
 
 - `quant_platform_kit.common.execution_state.build_account_owner_marker_key`
 - `quant_platform_kit.common.execution_state.claim_account_owner`
-- 执行 claim / outcome 分离见 [execution_outcomes.zh-CN.md](./execution_outcomes.zh-CN.md)
+- 执行 claim / outcome 分离见 [execution-outcomes.zh-CN.md](./execution-outcomes.zh-CN.md)

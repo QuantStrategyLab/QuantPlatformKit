@@ -1,6 +1,6 @@
 # Platform Repository Boundaries
 
-[简体中文](platform_repo_boundaries.zh-CN.md)
+[简体中文](platform-repo-boundaries.zh-CN.md)
 
 This document describes how `QuantPlatformKit` fits with strategy repositories
 and broker platform repositories.

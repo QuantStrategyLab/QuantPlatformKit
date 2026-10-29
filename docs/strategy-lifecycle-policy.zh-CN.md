@@ -1,6 +1,6 @@
 # 策略生命周期门槛策略
 
-[English](./strategy_lifecycle_policy.md)
+[English](./strategy-lifecycle-policy.md)
 
 本文定义量化仓库中策略 profile 的生命周期门槛。
 
@@ -110,7 +110,7 @@
 - live 启用阈值要保持高一些，确保运行时暴露是明确决策。
 - 以证据包晋级，而不是临时 override。证据包至少应包含回测摘要、
   drift 记录、风险复核和平台兼容性证据。
-- 证据包建议结构见 [`evidence_package_template.zh-CN.md`](./evidence_package_template.zh-CN.md)。
+- 证据包建议结构见 [`evidence-package-template.zh-CN.md`](./evidence-package-template.zh-CN.md)。
 - 如果策略是 wrapper / orchestrator，应先确认被包装组件稳定，再考虑给 wrapper 晋级。
 
 ## 候选与人工决定合同

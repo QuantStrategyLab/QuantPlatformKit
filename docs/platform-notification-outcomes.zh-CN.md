@@ -1,6 +1,6 @@
 # 平台通知与执行结果语义
 
-[English](platform_notification_outcomes.md)
+[English](platform-notification-outcomes.md)
 
 平台运行时应复用 `quant_platform_kit` 里的共享执行结果和通知 envelope
 helper，不要在每个仓库里各自定义一套 stage 或通知投递语义。

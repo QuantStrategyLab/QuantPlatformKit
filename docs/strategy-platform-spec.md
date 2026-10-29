@@ -1,6 +1,6 @@
 # Strategy-Platform Configuration Specification
 
-[Specification index](README.md). Legacy plugin mount/config-sync examples retain their historical meaning; consult the [historical compatibility boundary](strategy_plugin_runtime_contract.md) before using them.
+[Specification index](README.md). Legacy plugin mount/config-sync examples retain their historical meaning; consult the [historical compatibility boundary](strategy-plugin-runtime-contract.md) before using them.
 
 ## Single Source of Truth
 
@@ -31,7 +31,7 @@ auto-sync layer described below.
 
 ## Adding a New Strategy
 
-See also: [`strategy_lifecycle_policy.md`](./strategy_lifecycle_policy.md) for the
+See also: [`strategy-lifecycle-policy.md`](./strategy-lifecycle-policy.md) for the
 promotion ladder and live-enable gate model.
 
 Before requesting live enablement, attach an evidence package that covers:

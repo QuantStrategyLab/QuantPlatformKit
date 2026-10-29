@@ -4,7 +4,7 @@
 
 安装：`pip install 'quant-platform-kit[research]'`。numpy/pandas 只在 `research` extra（以及原有 `dev` extra）里，核心 `dependencies` 仍为空。PSR/DSR、PBO 与成本压力只用标准库；只有 bootstrap 延迟 import numpy。
 
-使用规范见 [QSL 回测标准 v1](backtest_standard_v1.zh-CN.md)。本模块与测试只使用合成数据，不包含任何真实回测数字。
+使用规范见 [QSL 回测标准 v1](backtest-standard-v1.zh-CN.md)。本模块与测试只使用合成数据，不包含任何真实回测数字。
 
 ## 组件
 
@@ -20,7 +20,7 @@
 
 ## 口径
 
-- Sharpe 一律是**单期、未年化**（均值 / 样本标准差 ddof=1），rf/MAR 由调用方先扣。`performance_metrics.compute_window_metrics` 默认用 ddof=0 并年化，二者差 √(n/(n−1))；需要一致时传 `volatility_ddof=1`，见 [窗口指标口径](window_metrics_semantics.zh-CN.md)。`trial_sharpes` 必须包括全部试验（含失败、拒绝），频率与 `returns` 一致。
+- Sharpe 一律是**单期、未年化**（均值 / 样本标准差 ddof=1），rf/MAR 由调用方先扣。`performance_metrics.compute_window_metrics` 默认用 ddof=0 并年化，二者差 √(n/(n−1))；需要一致时传 `volatility_ddof=1`，见 [窗口指标口径](window-metrics-semantics.zh-CN.md)。`trial_sharpes` 必须包括全部试验（含失败、拒绝），频率与 `returns` 一致。
 - 偏度/峰度用总体矩估计，峰度为非超额（正态 = 3）。
 - `min_observations=30` 只是沿用 Kelly 契约 v2 的结构下限，不是质量阈值。
 - bootstrap 统计量：单期对数增长 `mean(log1p r)`、单期 Sharpe、含初始净值的最大回撤；百分位区间，不做自相关以外的校正，不构成未来风险保证，也不替代多重试验校正。

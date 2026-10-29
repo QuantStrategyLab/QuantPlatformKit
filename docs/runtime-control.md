@@ -5,8 +5,8 @@ Status: library + schema only. No platform reads it yet; existing variables
 `<BROKER>_RESERVED_CASH_RATIO`, ...) keep their current meaning until each
 platform migrates in its own reviewed PR.
 
-An optional [offline dry-run consistency check](runtime_control_checks.md)
-([中文](runtime_control_checks.zh-CN.md)) is available for migration previews.
+An optional [offline dry-run consistency check](runtime-control-checks.md)
+([中文](runtime-control-checks.zh-CN.md)) is available for migration previews.
 It does not change existing runtime parsers or wire any platform into this contract.
 
 ## Why

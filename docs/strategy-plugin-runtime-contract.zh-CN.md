@@ -1,6 +1,6 @@
 # 旧策略插件运行时契约（历史兼容参考）
 
-[English](./strategy_plugin_runtime_contract.md)
+[English](./strategy-plugin-runtime-contract.md)
 
 > **状态：HISTORICAL / 不具权限效力。** 本文档保留旧 `latest_signal.json` 平台挂载格式，供历史回放和迁移排障使用。当前主线已退役按策略名称自动挂载插件 artifact 的路径；不得据此新增平台挂载、修改仓位、启用 Paper/Live 或推导任何 P4–P6 资格。当前 V2 插件只可产生受限观察/通知证据，真正可运行的对象必须是绑定策略 revision、插件 revision、输入和仓位规则的独立 composite candidate，并重新完成自己的 P1–P3 与目标通道证据。
 

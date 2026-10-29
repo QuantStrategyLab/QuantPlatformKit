@@ -1,6 +1,6 @@
 # US equity execution translation spec
 
-[简体中文](us_equity_execution_translation_spec.zh-CN.md)
+[简体中文](us-equity-execution-translation-spec.zh-CN.md)
 
 ## Goal
 
