@@ -373,6 +373,7 @@ jobs:
 
       - name: Review critical drift through task service
         env:
+          AI_SERVICE_VERIFICATION_ONLY: ${{ inputs.verification_only && 'true' || 'false' }}
           AI_SERVICE_URL: ${{ inputs.ai_service_url }}
           AI_SERVICE_AUDIENCE: ${{ inputs.ai_service_audience }}
           AI_SERVICE_REVIEWERS_JSON: ${{ inputs.ai_service_reviewers_json }}
@@ -396,6 +397,10 @@ jobs:
               raise ValueError("three distinct review roles required")
           result = review_critical_drifts(os.environ["STRATEGY_DOMAIN"], observations,
                                         roles=roles, revision=os.environ["GITHUB_SHA"])
+          verified = (os.environ.get("AI_SERVICE_VERIFICATION_ONLY") == "true"
+                      and result.get("count", 0) > 0
+                      and all(item.get("status") == "completed" for item in result.get("results", [])))
+          result["verification_completed"] = verified
           print(json.dumps(result, sort_keys=True))
-          raise SystemExit(0 if result["ok"] else 3)
+          raise SystemExit(0 if result["ok"] or verified else 3)
           PY
