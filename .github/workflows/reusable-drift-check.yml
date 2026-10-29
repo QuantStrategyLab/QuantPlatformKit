@@ -3,6 +3,11 @@ name: Reusable Drift Check
 on:
   workflow_call:
     inputs:
+      verification_only:
+        description: Skip GitHub issue publication for explicit manual verification
+        required: false
+        type: boolean
+        default: false
       strategy_domain:
         required: true
         type: string
@@ -346,6 +351,7 @@ jobs:
           quant-lifecycle drift --domain ${{ inputs.strategy_domain }} --no-alerts "${lifecycle_args[@]}"
 
       - name: Sync drift alerts to GitHub Issues
+        if: ${{ !inputs.verification_only }}
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}

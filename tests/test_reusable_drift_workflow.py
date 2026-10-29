@@ -87,11 +87,11 @@ def test_drift_review_receives_measured_evidence_and_keeps_rejection(monkeypatch
     from types import SimpleNamespace
     from unittest import mock
     import pytest
-    import yaml
+    import textwrap
 
     path = Path(__file__).resolve().parents[1] / '.github/workflows/reusable-drift-check.yml'
-    steps = yaml.safe_load(path.read_text())['jobs']['drift']['steps']
-    script = next(s['run'] for s in steps if s.get('name') == 'Review critical drift through task service')
+    step = path.read_text().split('      - name: Review critical drift through task service\n', 1)[1]
+    script = textwrap.dedent(step.split('        run: |\n', 1)[1]).strip()
     code = '\n'.join(script.splitlines()[1:-1])
     evidence = {'as_of': '2026-01-01', 'source_revision': 'synthetic-source',
                 'baseline_artifact_id': 'synthetic-baseline',
