@@ -398,10 +398,10 @@ jobs:
           result = review_critical_drifts(os.environ["STRATEGY_DOMAIN"], observations,
                                         roles=roles, revision=os.environ["GITHUB_SHA"])
           completed_results = result.get("results", [])
-          verified = (os.environ.get("AI_SERVICE_VERIFICATION_ONLY") == "true"
-                      and result.get("count", 0) == len(completed_results) > 0
-                      and all(item.get("status") == "completed" for item in completed_results))
+          review_completed = (result.get("count", 0) == len(completed_results) > 0
+                              and all(item.get("status") == "completed" for item in completed_results))
+          verified = os.environ.get("AI_SERVICE_VERIFICATION_ONLY") == "true" and review_completed
           result["verification_completed"] = verified
           print(json.dumps(result, sort_keys=True))
-          raise SystemExit(0 if result["ok"] or verified else 3)
+          raise SystemExit(0 if result["ok"] or review_completed else 3)
           PY

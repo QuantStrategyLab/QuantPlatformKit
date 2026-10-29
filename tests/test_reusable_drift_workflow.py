@@ -111,7 +111,7 @@ def test_drift_review_receives_measured_evidence_and_keeps_rejection(monkeypatch
     monkeypatch.delenv('AI_SERVICE_VERIFICATION_ONLY', raising=False)
     with pytest.raises(SystemExit) as stopped:
         exec(compile(code, '<drift-review-workflow>', 'exec'), {})
-    assert stopped.value.code == 3
+    assert stopped.value.code == 0
     observation = reviewer.call_args.args[1][0]
     assert observation['evidence'] == evidence
     assert 'deviation_pct' in observation['score_definition']
@@ -128,3 +128,10 @@ def test_drift_review_receives_measured_evidence_and_keeps_rejection(monkeypatch
     with pytest.raises(SystemExit) as pending:
         exec(compile(code, '<drift-review-workflow>', 'exec'), {})
     assert pending.value.code == 3
+    for verification in ('false', 'true'):
+        monkeypatch.setenv('AI_SERVICE_VERIFICATION_ONLY', verification)
+        for status in ('pending', 'unavailable', 'outcome_unknown', 'failed'):
+            reviewer.return_value = {'ok': False, 'count': 1, 'results': [{'status': status}]}
+            with pytest.raises(SystemExit) as incomplete:
+                exec(compile(code, '<drift-review-workflow>', 'exec'), {})
+            assert incomplete.value.code == 3
