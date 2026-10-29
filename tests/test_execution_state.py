@@ -1464,4 +1464,3 @@ def test_risk_reservation_cannot_be_shared_by_two_intents(tmp_path):
         restarted._append(state, "PREPARED", duplicate)
     with pytest.raises(AccountSubmissionError, match="reservation already used or missing"):
         restarted.read_state()
-
