@@ -303,11 +303,24 @@ jobs:
           fi
           quant-lifecycle doctor --domain ${{ inputs.strategy_domain }} --require-snapshot --require-backtest --max-freshness-days 7 "${lifecycle_args[@]}"
 
+      - name: Download approved task-service artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$RUNNER_TEMP/ai-task-runtime"
+          mkdir -m 700 "$target"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 60 --max-filesize 10485760 \
+            https://github.com/Pigbibi/PersonalAIService/releases/download/v2.0.0/personal_ai_service-2.0.0-py3-none-any.whl \
+            -o "$target/personal_ai_service-2.0.0-py3-none-any.whl"
+          curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 60 --max-filesize 10485760 \
+            https://github.com/QuantStrategyLab/QuantPlatformKit/releases/download/ai-tasks-v2-20261008/quant_platform_kit-1.0.0-py3-none-any.whl \
+            -o "$target/quant_platform_kit-1.0.0-py3-none-any.whl"
+
       - name: Install approved task-service artifacts
         env:
-          AI_SERVICE_CLIENT_WHEEL: ${{ vars.AI_SERVICE_CLIENT_WHEEL }}
+          AI_SERVICE_CLIENT_WHEEL: ${{ runner.temp }}/ai-task-runtime/personal_ai_service-2.0.0-py3-none-any.whl
           AI_SERVICE_CLIENT_SHA256: ${{ vars.AI_SERVICE_CLIENT_SHA256 }}
-          AI_SERVICE_QPK_WHEEL: ${{ vars.AI_SERVICE_QPK_WHEEL }}
+          AI_SERVICE_QPK_WHEEL: ${{ runner.temp }}/ai-task-runtime/quant_platform_kit-1.0.0-py3-none-any.whl
           AI_SERVICE_QPK_SHA256: ${{ vars.AI_SERVICE_QPK_SHA256 }}
         run: |
           python - <<'PYCODE'
