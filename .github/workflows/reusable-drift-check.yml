@@ -397,9 +397,10 @@ jobs:
               raise ValueError("three distinct review roles required")
           result = review_critical_drifts(os.environ["STRATEGY_DOMAIN"], observations,
                                         roles=roles, revision=os.environ["GITHUB_SHA"])
+          completed_results = result.get("results", [])
           verified = (os.environ.get("AI_SERVICE_VERIFICATION_ONLY") == "true"
-                      and result.get("count", 0) > 0
-                      and all(item.get("status") == "completed" for item in result.get("results", [])))
+                      and result.get("count", 0) == len(completed_results) > 0
+                      and all(item.get("status") == "completed" for item in completed_results))
           result["verification_completed"] = verified
           print(json.dumps(result, sort_keys=True))
           raise SystemExit(0 if result["ok"] or verified else 3)
