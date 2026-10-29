@@ -21,6 +21,7 @@ from typing import Protocol, runtime_checkable
 from .broker_reconciliation import BrokerReconciliationEvidence, evaluate_broker_reconciliation_recovery
 from .broker_reconciliation_enrollment import (
     BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION,
+    BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION,
     BrokerReconciliationBaselineCandidate,
 )
 
@@ -308,6 +309,8 @@ class ReconciliationRecoveryActivationFinding(str, Enum):
     EVIDENCE_NOT_REOBSERVED_AFTER_CONFIRMATION = "reconciliation_recovery_evidence_not_reobserved_after_confirmation"
     SOURCE_BINDING_MISSING = "reconciliation_recovery_source_binding_missing"
     DUAL_REVIEW_NOT_REVERIFIED = "reconciliation_recovery_dual_review_not_reverified"
+    INITIAL_FACTS_INCOMPLETE = "initial_enrollment_facts_incomplete"
+    INITIAL_EVIDENCE_CHANGED = "initial_enrollment_evidence_changed"
 
 
 @dataclass(frozen=True)
@@ -393,6 +396,58 @@ class ReconciliationRecoveryActivationEvaluation:
         return not self.findings and self.transition_plan is not None
 
 
+def _evaluate_initial_activation(*, recovery_id, candidate, confirmation, current_evidence,
+                                 current_live_continuity_state, now, max_age):
+    """Consume a confirmed initial candidate only after an independent fresh reread."""
+    invalid = ReconciliationRecoveryActivationFinding.CONFIRMATION_INVALID.value
+    fields = {"schema_version", "mode", "recovery_id", "candidate_sha256", "facts_sha256",
+              "confirmed_at", "confirmed_by", "no_order", "execution_authority_granted", "confirmation_sha256"}
+    try:
+        if not isinstance(confirmation, Mapping) or set(confirmation) != fields:
+            raise ValueError("invalid confirmation")
+        if (confirmation["schema_version"] != "qsl_initial_enrollment_confirmation.v1"
+                or confirmation["mode"] != "initial_enrollment"
+                or confirmation["no_order"] is not True or confirmation["execution_authority_granted"] is not False
+                or not isinstance(confirmation["confirmed_by"], str)
+                or not _LOGIN.fullmatch(confirmation["confirmed_by"])):
+            raise ValueError("invalid confirmation")
+        confirmation_sha = _digest(confirmation["confirmation_sha256"], "confirmation_sha256")
+        if _confirmation_digest(confirmation) != confirmation_sha:
+            raise ValueError("invalid confirmation")
+        confirmed_at = _time(confirmation["confirmed_at"], "confirmed_at")
+        if (confirmation["recovery_id"] != recovery_id or confirmation["candidate_sha256"] != candidate.candidate_sha256
+                or confirmation["facts_sha256"] != candidate.facts_sha256):
+            raise ValueError("invalid confirmation")
+        evidence = current_evidence if isinstance(current_evidence, BrokerReconciliationEvidence) else BrokerReconciliationEvidence.from_dict(current_evidence or {})
+    except (TypeError, ValueError, KeyError):
+        return ReconciliationRecoveryActivationEvaluation((invalid,), None)
+    findings = []
+    if str(current_live_continuity_state or "").strip().upper() != "RECONCILE_ONLY":
+        findings.append(ReconciliationRecoveryActivationFinding.CURRENT_STATE_NOT_RECONCILE_ONLY.value)
+    if (confirmed_at < candidate.last_observed_at or confirmed_at - candidate.last_observed_at > max_age
+            or confirmed_at > now or now - confirmed_at > max_age):
+        findings.append(ReconciliationRecoveryActivationFinding.CONFIRMATION_STALE.value)
+    if evidence.observed_at <= confirmed_at or evidence.observed_at > now or now - evidence.observed_at > max_age:
+        findings.append(ReconciliationRecoveryActivationFinding.EVIDENCE_NOT_REOBSERVED_AFTER_CONFIRMATION.value)
+    if set(dict(candidate.coverage or ()).values()) != {"complete"}:
+        findings.append(ReconciliationRecoveryActivationFinding.INITIAL_FACTS_INCOMPLETE.value)
+    fields_to_compare = ("platform_id", "strategy_profile", "account_scope_sha256", "baseline_id",
+                         "baseline_target_sha256", "positions_sha256", "cash_sha256", "open_orders_sha256",
+                         "recent_executions_sha256", "local_execution_ledger_sha256")
+    if (not evidence.broker_connected or not evidence.account_identity_match
+            or evidence.runtime_target_sha256 != candidate.baseline_target_sha256
+            or any(getattr(evidence, field) != getattr(candidate, field) for field in fields_to_compare)):
+        findings.append(ReconciliationRecoveryActivationFinding.INITIAL_EVIDENCE_CHANGED.value)
+    if findings:
+        return ReconciliationRecoveryActivationEvaluation(tuple(findings), None)
+    expected = {field: getattr(candidate, field) for field in fields_to_compare if field in {
+        "positions_sha256", "cash_sha256", "open_orders_sha256", "recent_executions_sha256", "local_execution_ledger_sha256"}}
+    return ReconciliationRecoveryActivationEvaluation((), ReconciliationRecoveryTransitionPlan(
+        recovery_id=recovery_id, candidate_sha256=candidate.candidate_sha256,
+        confirmation_sha256=confirmation_sha, baseline_id=candidate.baseline_id,
+        baseline_target_sha256=candidate.baseline_target_sha256, expected_digests=expected, verified_at=now))
+
+
 def evaluate_reconciliation_recovery_activation(
     *,
     recovery_id: str,
@@ -423,6 +478,10 @@ def evaluate_reconciliation_recovery_activation(
         candidate = BrokerReconciliationBaselineCandidate.from_dict(candidate.to_dict())
     except (AttributeError, TypeError, ValueError):
         return ReconciliationRecoveryActivationEvaluation((ReconciliationRecoveryActivationFinding.CONFIRMATION_INVALID.value,), None)
+    if candidate.schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION:
+        return _evaluate_initial_activation(recovery_id=recovery_id, candidate=candidate, confirmation=confirmation,
+            current_evidence=current_evidence, current_live_continuity_state=current_live_continuity_state,
+            now=_time(now or datetime.now(timezone.utc), "now"), max_age=max_age)
     reference_now = _time(now or datetime.now(timezone.utc), "now")
     if str(current_live_continuity_state or "").strip().upper() != "RECONCILE_ONLY":
         add(ReconciliationRecoveryActivationFinding.CURRENT_STATE_NOT_RECONCILE_ONLY.value)

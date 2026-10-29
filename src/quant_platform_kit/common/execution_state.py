@@ -393,6 +393,17 @@ class ExecutionMarkerStore:
         as an unmatched local ledger and keep a live baseline frozen.
         """
 
+        digest, count, _truncated = self.calculate_recent_ledger_digest_with_coverage(
+            platform=platform, strategy_profile=strategy_profile, account_scope=account_scope,
+            execution_mode=execution_mode, record_limit=record_limit,
+        )
+        return digest, count
+
+    def calculate_recent_ledger_digest_with_coverage(
+        self, *, platform: str, strategy_profile: str, account_scope: str, execution_mode: str,
+        record_limit: int = DEFAULT_EXECUTION_LEDGER_DIGEST_RECORD_LIMIT,
+    ) -> tuple[str, int, bool]:
+        """Return the existing digest plus whether either bounded namespace was truncated."""
         try:
             normalized_limit = int(record_limit)
         except (TypeError, ValueError) as exc:
@@ -410,11 +421,13 @@ class ExecutionMarkerStore:
             )
         )
         records: list[dict[str, str]] = []
+        truncation: list[bool] = []
         for namespace in (self.namespace, self.outcome_namespace):
             entries = self._recent_ledger_entries(
                 namespace=namespace,
                 relative_prefix=relative_prefix,
                 record_limit=normalized_limit,
+                truncation_out=truncation,
             )
             records.extend(
                 {
@@ -441,7 +454,7 @@ class ExecutionMarkerStore:
             separators=(",", ":"),
             allow_nan=False,
         )
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest(), len(records)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest(), len(records), any(truncation)
 
     def _recent_ledger_entries(
         self,
@@ -449,16 +462,21 @@ class ExecutionMarkerStore:
         namespace: str,
         relative_prefix: str,
         record_limit: int,
+        truncation_out: list[bool] | None = None,
     ) -> list[tuple[str, str]]:
         if self.cloud_prefix_uri:
             object_store = self._object_store()
             prefix_uri = self._cloud_prefix_for_namespace(relative_prefix, namespace)
             uris = sorted(str(uri) for uri in object_store.list(prefix_uri))
+            if truncation_out is not None:
+                truncation_out.append(len(uris) > record_limit)
             selected_uris = uris[-record_limit:]
             return [(uri, object_store.read_text(uri)) for uri in selected_uris]
         if self.local_dir:
             root = Path(self.local_dir).expanduser() / namespace / _clean_relative_key(relative_prefix)
             paths = sorted(path for path in root.rglob("*.json") if path.is_file())
+            if truncation_out is not None:
+                truncation_out.append(len(paths) > record_limit)
             selected_paths = paths[-record_limit:]
             return [(str(path), path.read_text(encoding="utf-8")) for path in selected_paths]
         raise RuntimeError("execution state store has no durable ledger backend")
