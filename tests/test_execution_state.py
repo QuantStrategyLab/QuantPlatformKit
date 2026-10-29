@@ -154,6 +154,13 @@ class ExecutionStateTests(unittest.TestCase):
                 record_limit=2,
             )
             self.assertEqual(count, 2)
+            kwargs = dict(platform="ibkr", strategy_profile="soxl_soxx_trend_income", account_scope="LIVE", execution_mode="live")
+            exact_digest, exact_count, exact_truncated = store.calculate_recent_ledger_digest_with_coverage(**kwargs, record_limit=3)
+            self.assertEqual((exact_count, exact_truncated), (3, False))
+            limited_digest, limited_count, limited_truncated = store.calculate_recent_ledger_digest_with_coverage(**kwargs, record_limit=2)
+            self.assertEqual((limited_count, limited_truncated), (2, True))
+            self.assertEqual(limited_digest, _digest)
+            self.assertEqual(exact_digest, store.calculate_recent_ledger_digest(**kwargs, record_limit=3)[0])
 
     def test_recent_ledger_digest_reads_only_scoped_cloud_prefixes(self) -> None:
         observed: list[str] = []
