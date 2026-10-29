@@ -7,7 +7,7 @@ Read documents at the library revision used by your consumer. These are source-l
 ## Architecture and implementation
 
 - [Architecture](ARCHITECTURE.md) ([中文](ARCHITECTURE.zh-CN.md)): [layers](ARCHITECTURE.md#2-layer-descriptions), [data flow](ARCHITECTURE.md#3-data-flow), [design patterns](ARCHITECTURE.md#4-design-patterns), [naming](ARCHITECTURE.md#5-naming-conventions), [dependencies](ARCHITECTURE.md#6-dependency-graph) and [cross-cutting concerns](ARCHITECTURE.md#7-cross-cutting-concerns).
-- [Development standard: English overview](DESIGN_SPEC.en.md) · [complete Chinese v1.0 standard](DESIGN_SPEC.md): platform/strategy development, configuration, monitoring, security and checklists. The v1.0 plugin examples are historical; see the compatibility section below before reading mount examples.
+- [Development standard: English overview](design-spec-overview.md) · [complete Chinese v1.0 standard](design-spec.md): platform/strategy development, configuration, monitoring, security and checklists. The v1.0 plugin examples are historical; see the compatibility section below before reading mount examples.
 - [Strategy-platform configuration](strategy-platform-spec.md): [source of truth](strategy-platform-spec.md#single-source-of-truth), [strategies](strategy-platform-spec.md#adding-a-new-strategy), [platforms](strategy-platform-spec.md#adding-a-new-platform), [validation](strategy-platform-spec.md#configuration-validation) and [scheduler timezones](strategy-platform-spec.md#scheduler-timezone-rules). Legacy plugin/config-sync examples must be read with the historical boundary below.
 
 ## Runtime contracts

@@ -1,6 +1,6 @@
 # Platform, strategy and plugin development standard — English overview
 
-[完整中文规范](DESIGN_SPEC.md) · [Specification index](README.md)
+[完整中文规范](design-spec.md) · [Specification index](README.md)
 
 This summarizes v1.0 dated 2026-06-30. The complete Chinese standard retains its exact examples and checklists. Treat legacy plugin mounting/config-sync examples as historical compatibility material under the [historical plugin contract](strategy-plugin-runtime-contract.md); they are not current mounting or trading authority.
 
@@ -20,6 +20,6 @@ Scheduler timezones follow the market, not the service region: US `America/New_Y
 
 The standard requires credentials/tokens in Secret Manager or GitHub Secrets, none in Git; least-privilege service accounts; restricted Cloud Run invocation by scheduler/runtime identities; no `allUsers` invoker; and SYSTEM_MANAGED service-account keys. It requires environment completeness and strategy/platform consistency checks before deployment and health/dry-run verification afterward.
 
-Environment additions use `--update-env-vars`; the standard prohibits `--set-env-vars` because it replaces unspecified values. JSON values must be passed safely. These are documentation requirements, not permission to change a cloud resource. Consult the full [platform, strategy and plugin checklists](DESIGN_SPEC.md#7-检查清单) for all v1.0 requirements and the [index](README.md) for scope and compatibility.
+Environment additions use `--update-env-vars`; the standard prohibits `--set-env-vars` because it replaces unspecified values. JSON values must be passed safely. These are documentation requirements, not permission to change a cloud resource. Consult the full [platform, strategy and plugin checklists](design-spec.md#7-检查清单) for all v1.0 requirements and the [index](README.md) for scope and compatibility.
 
 This overview changes no public API, risk rule or provider right. The repository [license](../LICENSE) applies; neither a checklist nor CI authorizes strategy selection, live trading or credential access.
