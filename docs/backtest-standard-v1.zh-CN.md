@@ -2,9 +2,9 @@
 
 版本：v1（2026-10-10）。状态：研究标准，**仅文档**。
 
-本文是 [策略晋级与风险标准](strategy_promotion_risk_standard.zh-CN.md) 的补充，规定研究回测「必须报告什么、怎么算、怎么标身份、最少要多少观察」。它不替代、不修改晋级标准的指标清单、`strategy_evidence_package.v2/v3` schema、`BacktestOrchestrator.run_promotion` 结构门或 [Kelly 契约](kelly_contract_v2.zh-CN.md)。
+本文是 [策略晋级与风险标准](strategy-promotion-risk-standard.zh-CN.md) 的补充，规定研究回测「必须报告什么、怎么算、怎么标身份、最少要多少观察」。它不替代、不修改晋级标准的指标清单、`strategy_evidence_package.v2/v3` schema、`BacktestOrchestrator.run_promotion` 结构门或 [Kelly 契约](kelly-contract-v2.zh-CN.md)。
 
-指标定义、成熟系统的重要分组、已实现能力与真实输入缺口见[统一量化指标目录](unified_metric_catalog.zh-CN.md)。平均盈亏比与 Profit Factor 分开，日收益观察与闭合交易分开；B3 可选诊断不替代逐笔记账或增加晋级阈值。
+指标定义、成熟系统的重要分组、已实现能力与真实输入缺口见[统一量化指标目录](unified-metric-catalog.zh-CN.md)。平均盈亏比与 Profit Factor 分开，日收益观察与闭合交易分开；B3 可选诊断不替代逐笔记账或增加晋级阈值。
 
 ## 0. 边界
 
@@ -21,10 +21,10 @@
 | 置信区间（平稳块自助法，固定 seed） | `quant_platform_kit.research_stats.stationary_bootstrap_ci` |
 | 成本压力重算（默认 1×/2×/3×） | `quant_platform_kit.research_stats.cost_stress_recompute` |
 | 报告模板 | `BacktestReportV1` + `schemas/backtest-report.v1.schema.json`（`qsl.backtest_report.v1`） |
-| 共同指标（CAGR、波动、Sharpe、Sortino、Calmar、MDD 等） | `strategy_lifecycle.performance_metrics`（口径见 [窗口指标口径](window_metrics_semantics.zh-CN.md)，[#659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)） |
+| 共同指标（CAGR、波动、Sharpe、Sortino、Calmar、MDD 等） | `strategy_lifecycle.performance_metrics`（口径见 [窗口指标口径](window-metrics-semantics.zh-CN.md)，[#659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)） |
 | 晋级结构门 | `BacktestOrchestrator.run_promotion`（`purged_walk_forward.v1`） |
 
-函数口径和失败语义见 [research_stats 说明](research_stats.zh-CN.md)。所有工具在数据不足或无定义时返回 `UNCOMPUTABLE` / `PARKED` 且不给数字；**缺失不是 0**。
+函数口径和失败语义见 [research_stats 说明](research-stats.zh-CN.md)。所有工具在数据不足或无定义时返回 `UNCOMPUTABLE` / `PARKED` 且不给数字；**缺失不是 0**。
 
 ## 2. 必须报告的内容
 
@@ -96,11 +96,11 @@
 
 | 评估目的 | 现有约定 | 来源 |
 | --- | --- | --- |
-| Kelly 风险份额估计 | 至少 30 个收益样本，正负两侧齐全，须有 MDD 观测 | [Kelly 契约 v2](kelly_contract_v2.zh-CN.md) |
+| Kelly 风险份额估计 | 至少 30 个收益样本，正负两侧齐全，须有 MDD 观测 | [Kelly 契约 v2](kelly-contract-v2.zh-CN.md) |
 | PSR / DSR 结构下限 | 默认 `min_observations=30`（沿用上行，仅为结构下限，不是质量阈值）；DSR 至少 2 个试验 | `research_stats` |
 | PBO | 至少 2 个试验，每块至少 `min_rows_per_block` 行 | `research_stats` |
 | 晋级用锁定 OOS | 至少 12 个日历月，至少 3 个 purged fold | `run_promotion` |
-| 前瞻观察 | 由候选的 `ForwardObservationPolicy` 声明（例如 SOXL V7 为 252 个 XNYS 有效观察日并完成影子对比） | [前瞻观察契约](forward_observation_runtime_contract.zh-CN.md) |
+| 前瞻观察 | 由候选的 `ForwardObservationPolicy` 声明（例如 SOXL V7 为 252 个 XNYS 有效观察日并完成影子对比） | [前瞻观察契约](forward-observation-runtime-contract.zh-CN.md) |
 
 达不到门槛时结果为 `PARKED` / `UNCOMPUTABLE`，不外推，不给建议仓位。
 
@@ -126,6 +126,6 @@
 
 ## 9. 已知缺口（登记，不在本文修复）
 
-- 共享指标口径冲突：基准静默取交集、`win_rate` 实为正收益日比例、`profit_factor` 基于日收益 —— [#659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)。已改为显式报告（`qpk.window_metrics.v2`：对齐计数、`daily_win_rate_ex_zero`、`zero_return_days`、`volatility_ddof`），旧字段数值不变，见 [窗口指标口径](window_metrics_semantics.zh-CN.md)；逐笔交易胜率仍未提供。
+- 共享指标口径冲突：基准静默取交集、`win_rate` 实为正收益日比例、`profit_factor` 基于日收益 —— [#659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)。已改为显式报告（`qpk.window_metrics.v2`：对齐计数、`daily_win_rate_ex_zero`、`zero_return_days`、`volatility_ddof`），旧字段数值不变，见 [窗口指标口径](window-metrics-semantics.zh-CN.md)；逐笔交易胜率仍未提供。
 - 各模拟器成交时点不一致（当日收盘 / 下一收盘 / 下一开盘）—— [UES #575](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/575)。
 - Binance 研究回测未计手续费与滑点 —— [BinancePlatform #366](https://github.com/QuantStrategyLab/BinancePlatform/issues/366)。

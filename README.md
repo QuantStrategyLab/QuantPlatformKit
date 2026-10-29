@@ -118,19 +118,19 @@ rw.update_secret("my-token", "new-token-value")
 ```
 
 ## Useful docs
-- [`docs/strategy_lifecycle_policy.md`](docs/strategy_lifecycle_policy.md)
-- [`docs/paper_execution_command_consumer.md`](docs/paper_execution_command_consumer.md)
-- [`docs/strategy_portfolio_action_matrix.md`](docs/strategy_portfolio_action_matrix.md)
-- [`docs/evidence_package_template.md`](docs/evidence_package_template.md)
+- [`docs/strategy-lifecycle-policy.md`](docs/strategy-lifecycle-policy.md)
+- [`docs/paper-execution-command-consumer.md`](docs/paper-execution-command-consumer.md)
+- [`docs/strategy-portfolio-action-matrix.md`](docs/strategy-portfolio-action-matrix.md)
+- [`docs/evidence-package-template.md`](docs/evidence-package-template.md)
 
-- [`docs/platform_notification_outcomes.md`](docs/platform_notification_outcomes.md)
-- [`docs/platform_notification_outcomes.zh-CN.md`](docs/platform_notification_outcomes.zh-CN.md)
-- [`docs/platform_repo_boundaries.md`](docs/platform_repo_boundaries.md)
-- [`docs/platform_repo_boundaries.zh-CN.md`](docs/platform_repo_boundaries.zh-CN.md)
+- [`docs/platform-notification-outcomes.md`](docs/platform-notification-outcomes.md)
+- [`docs/platform-notification-outcomes.zh-CN.md`](docs/platform-notification-outcomes.zh-CN.md)
+- [`docs/platform-repo-boundaries.md`](docs/platform-repo-boundaries.md)
+- [`docs/platform-repo-boundaries.zh-CN.md`](docs/platform-repo-boundaries.zh-CN.md)
 - [`docs/quantconnect.md`](docs/quantconnect.md)
-- [`docs/strategy_plugin_runtime_contract.md`](docs/strategy_plugin_runtime_contract.md)
-- [`docs/strategy_plugin_runtime_contract.zh-CN.md`](docs/strategy_plugin_runtime_contract.zh-CN.md)
-- [`docs/us_equity_cross_platform_strategy_spec.md`](docs/us_equity_cross_platform_strategy_spec.md)
+- [`docs/strategy-plugin-runtime-contract.md`](docs/strategy-plugin-runtime-contract.md)
+- [`docs/strategy-plugin-runtime-contract.zh-CN.md`](docs/strategy-plugin-runtime-contract.zh-CN.md)
+- [`docs/us-equity-cross-platform-strategy-spec.md`](docs/us-equity-cross-platform-strategy-spec.md)
 
 ## Schwab reporting snapshots
 
@@ -162,6 +162,6 @@ See [LICENSE](LICENSE).
 
 ### AI task-service upgrade
 
-The local 2.0 migration uses the generic task interface for lifecycle AI calls and distinguishes API tasks from persistent assistants. See the [Chinese migration note](docs/ai-service/TASK-SERVICE-V2.zh-CN.md) for route configuration, approved client artifacts, original-task recovery and research authority boundaries. That note describes an unpublished, undeployed local migration baseline; it is not a current deployment readback.
+The local 2.0 migration uses the generic task interface for lifecycle AI calls and distinguishes API tasks from persistent assistants. See the [Chinese migration note](docs/ai-service/task-service-v2.zh-CN.md) for route configuration, approved client artifacts, original-task recovery and research authority boundaries. That note describes an unpublished, undeployed local migration baseline; it is not a current deployment readback.
 
 Display/notification naming configuration: [display names](docs/display-names.md).

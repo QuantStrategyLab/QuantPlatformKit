@@ -1,6 +1,6 @@
 # 策略组合行动矩阵
 
-[English](./strategy_portfolio_action_matrix.md)
+[English](./strategy-portfolio-action-matrix.md)
 
 这份文档把当前跨仓库 review 结果整理成可执行方案。它以现有仓库状态为准，
 把结论分成：

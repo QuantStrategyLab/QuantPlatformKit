@@ -49,7 +49,7 @@ PR 或 CI 绿色不等于研究环境已安装该版本，也不证明相互叠�
 
 上述 `existing_cap` 是本研究作用域已批准风险/仓位/产品/现金上限的
 共同最小值；单位为资金暴露。不能把 QPK `bet_loss_risk_share` 的旧字段
-直接当暴露，单位与换算见[Kelly 契约](kelly_contract_v2.zh-CN.md)。
+直接当暴露，单位与换算见[Kelly 契约](kelly-contract-v2.zh-CN.md)。
 forecast_vol 和 target_vol 必须同一预测期、同一收益定义和单位。
 目标波动、EWMA decay、HAR 窗口/模型变体/重拟合周期均 **PENDING**；
 不能依据 holdout 或主比较结果选它们。候选笛卡尔积须显式列出、审批后
@@ -138,7 +138,7 @@ A2 adapter 目前仅单证券、零收益现金、合成或一致的复权 OHLC�
 ## 终点、统计与多重检验
 
 主终点拟为同一会话净对数增长相对固定 50% 的 paired difference。
-按[B3 报告](unified_net_report.zh-CN.md)输出八项：净 g、同频未年化 Sharpe
+按[B3 报告](unified-net-report.zh-CN.md)输出八项：净 g、同频未年化 Sharpe
 `ddof=1`、PSR、累计试验 DSR、MinTRL、fractional-tail CVaR95、含初始
 NAV 的最大回撤及同路径 gross/net 成本拖累。不同仓位路径间的增长差
 不能当作成本 drag。CVaR 和回撤为负损失口径；不可计算保留原因/None。

@@ -1,6 +1,6 @@
 # Strategy Lifecycle Policy
 
-[简体中文](./strategy_lifecycle_policy.zh-CN.md)
+[简体中文](./strategy-lifecycle-policy.zh-CN.md)
 
 This document defines the lifecycle gates for strategy profiles across the
 quant repositories.
@@ -133,7 +133,7 @@ authorization.
 - Prefer promotion by evidence package, not by ad hoc overrides. A promotion
   package should include backtest summary, drift notes, risk review, and
   platform compatibility evidence.
-- See [`evidence_package_template.md`](./evidence_package_template.md) for the
+- See [`evidence-package-template.md`](./evidence-package-template.md) for the
   recommended package shape.
 - When a strategy is a wrapper or orchestrator, promote it only after the
   wrapped components are stable and the wrapper itself has been validated.

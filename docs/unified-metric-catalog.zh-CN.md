@@ -1,6 +1,6 @@
 # QSL 统一量化指标：口径、能力与缺口
 
-适用于既有[回测标准](backtest_standard_v1.zh-CN.md)、[窗口指标](window_metrics_semantics.zh-CN.md)和研究侧 B3 `build_unified_net_report`。这是指标解释与能力目录，不新增策略晋级阈值、候选、交易权限或风险预算。英文版见 [Unified metric catalog](unified_metric_catalog.md)。
+适用于既有[回测标准](backtest-standard-v1.zh-CN.md)、[窗口指标](window-metrics-semantics.zh-CN.md)和研究侧 B3 `build_unified_net_report`。这是指标解释与能力目录，不新增策略晋级阈值、候选、交易权限或风险预算。英文版见 [Unified metric catalog](unified-metric-catalog.md)。
 
 ## 1. 胜率、盈亏比与 Profit Factor 分开报告
 

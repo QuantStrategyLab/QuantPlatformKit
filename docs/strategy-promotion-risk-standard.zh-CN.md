@@ -2,7 +2,7 @@
 
 本文定义策略晋级、插件自动化、AI 自动优化和 Kelly readiness 的统一门槛。
 
-研究回测的报告内容、成本、时点、数据身份与最小观察约定见 [QSL 回测标准 v1](backtest_standard_v1.zh-CN.md)（工具：`research_stats`，模板：`qsl.backtest_report.v1`）；该标准不设数值及格线。
+研究回测的报告内容、成本、时点、数据身份与最小观察约定见 [QSL 回测标准 v1](backtest-standard-v1.zh-CN.md)（工具：`research_stats`，模板：`qsl.backtest_report.v1`）；该标准不设数值及格线。
 
 ## 统一原则
 
@@ -110,7 +110,7 @@ Markowitz、fractional Kelly 与经验 log-growth 属于组合分配/风控分�
 不同方法，不作为单策略评分项相加。其共同账户约束、同窗净成本比较和
 实现边界由 [UES 组合风险预算研究契约](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/main/docs/research/portfolio_risk_budget_contract.md)
 记录；QPK Kelly 单位与现有限制沿用
-[Kelly 契约](kelly_contract_v2.zh-CN.md)。任何研究最优解或正增长估计都不能
+[Kelly 契约](kelly-contract-v2.zh-CN.md)。任何研究最优解或正增长估计都不能
 覆盖独立的杠杆、集中度、流动性、回撤/熔断约束与 RiskEngine 最终否决。
 
 本次文档对齐归入已有 `STRAT-02`（策略评估）、`STRAT-04`（组合证据）

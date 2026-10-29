@@ -1,6 +1,6 @@
 # 美股策略跨平台设计规范
 
-[English](us_equity_cross_platform_strategy_spec.md)
+[English](us-equity-cross-platform-strategy-spec.md)
 
 ## 目标
 

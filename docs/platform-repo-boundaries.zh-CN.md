@@ -1,6 +1,6 @@
 # 平台仓库职责边界
 
-[English](platform_repo_boundaries.md)
+[English](platform-repo-boundaries.md)
 
 这份文档说明 `QuantPlatformKit` 如何与策略仓库、券商平台仓库协作。
 

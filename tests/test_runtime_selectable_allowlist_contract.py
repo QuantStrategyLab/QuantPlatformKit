@@ -6,7 +6,7 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_runtime_selectable_allowlist_document_keeps_permission_boundary():
-    text = (ROOT / "docs/runtime_selectable_allowlist_v1.zh-CN.md").read_text()
+    text = (ROOT / "docs/runtime-selectable-allowlist-v1.zh-CN.md").read_text()
     assert "qsl.runtime_selectable_allowlist.v1" in text
     assert '"permission_effect": "none"' in text
     assert "不等于策略生命周期状态" in text

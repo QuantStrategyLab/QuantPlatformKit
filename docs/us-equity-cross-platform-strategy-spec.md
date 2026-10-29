@@ -1,6 +1,6 @@
 # US equity cross-platform strategy spec
 
-[简体中文](us_equity_cross_platform_strategy_spec.zh-CN.md)
+[简体中文](us-equity-cross-platform-strategy-spec.zh-CN.md)
 
 ## Goal
 

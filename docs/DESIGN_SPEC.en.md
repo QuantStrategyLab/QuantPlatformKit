@@ -2,7 +2,7 @@
 
 [完整中文规范](DESIGN_SPEC.md) · [Specification index](README.md)
 
-This summarizes v1.0 dated 2026-06-30. The complete Chinese standard retains its exact examples and checklists. Treat legacy plugin mounting/config-sync examples as historical compatibility material under the [historical plugin contract](strategy_plugin_runtime_contract.md); they are not current mounting or trading authority.
+This summarizes v1.0 dated 2026-06-30. The complete Chinese standard retains its exact examples and checklists. Treat legacy plugin mounting/config-sync examples as historical compatibility material under the [historical plugin contract](strategy-plugin-runtime-contract.md); they are not current mounting or trading authority.
 
 ## Platform and strategy interfaces
 
@@ -12,7 +12,7 @@ Pure strategy logic stays in its strategy package. Catalog metadata declares com
 
 ## Configuration and scheduling
 
-`RUNTIME_TARGET_JSON` is the documented strategy/settings source; do not independently set deprecated `STRATEGY_PROFILE`. Maintain required/optional environment templates. Preserve the complete standard's field definitions and the [configuration specification](STRATEGY_PLATFORM_SPEC.md), subject to the historical plugin boundary above.
+`RUNTIME_TARGET_JSON` is the documented strategy/settings source; do not independently set deprecated `STRATEGY_PROFILE`. Maintain required/optional environment templates. Preserve the complete standard's field definitions and the [configuration specification](strategy-platform-spec.md), subject to the historical plugin boundary above.
 
 Scheduler timezones follow the market, not the service region: US `America/New_York`, HK `Asia/Hong_Kong`, crypto `UTC`. The v1.0 standard describes main/precheck/backup/monitor tasks, artifact persistence and deduplication. Its cron examples and versioned integration examples are not proof of a configured or deployed schedule.
 

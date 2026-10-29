@@ -1,6 +1,6 @@
 # Platform Notification Outcomes
 
-[简体中文](platform_notification_outcomes.zh-CN.md)
+[简体中文](platform-notification-outcomes.zh-CN.md)
 
 Platform runtimes should use the shared execution outcome and notification
 envelope helpers in `quant_platform_kit` instead of defining private stage or

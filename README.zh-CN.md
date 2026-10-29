@@ -70,11 +70,11 @@ quant-lifecycle dashboard --format all
 
 ## 延伸文档
 
-- [`docs/strategy_lifecycle_policy.zh-CN.md`](docs/strategy_lifecycle_policy.zh-CN.md)
-- [`docs/strategy_portfolio_action_matrix.zh-CN.md`](docs/strategy_portfolio_action_matrix.zh-CN.md)
-- [`docs/evidence_package_template.zh-CN.md`](docs/evidence_package_template.zh-CN.md)
-- [`docs/cross_asset_research_driver.zh-CN.md`](docs/cross_asset_research_driver.zh-CN.md)
-- [`docs/cross_asset_forward_risk_driver.zh-CN.md`](docs/cross_asset_forward_risk_driver.zh-CN.md)
+- [`docs/strategy-lifecycle-policy.zh-CN.md`](docs/strategy-lifecycle-policy.zh-CN.md)
+- [`docs/strategy-portfolio-action-matrix.zh-CN.md`](docs/strategy-portfolio-action-matrix.zh-CN.md)
+- [`docs/evidence-package-template.zh-CN.md`](docs/evidence-package-template.zh-CN.md)
+- [`docs/cross-asset-research-driver.zh-CN.md`](docs/cross-asset-research-driver.zh-CN.md)
+- [`docs/cross-asset-forward-risk-driver.zh-CN.md`](docs/cross-asset-forward-risk-driver.zh-CN.md)
 
 ## 云服务抽象层
 
@@ -96,7 +96,7 @@ v1 已删除 `quant_platform_kit.strategy_contracts`。策略 contract 请改从
 
 ### AI 任务服务升级
 
-生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/TASK-SERVICE-V2.zh-CN.md)。该说明保留尚未发布或部署的本地迁移基线，不作为当前部署状态。
+生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/task-service-v2.zh-CN.md)。该说明保留尚未发布或部署的本地迁移基线，不作为当前部署状态。
 
 ## 参与贡献
 

@@ -1,6 +1,6 @@
 # Legacy Strategy Plugin Runtime Contract (Historical Compatibility Reference)
 
-[简体中文](./strategy_plugin_runtime_contract.zh-CN.md)
+[简体中文](./strategy-plugin-runtime-contract.zh-CN.md)
 
 > **Status: HISTORICAL / no authority effect.** This document preserves the
 > legacy `latest_signal.json` platform-mount format for replay and migration

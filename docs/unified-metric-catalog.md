@@ -1,6 +1,6 @@
 # QSL unified quantitative metrics: semantics, capabilities and gaps
 
-This catalog explains the existing [backtest standard](backtest_standard_v1.zh-CN.md), [window metrics](window_metrics_semantics.zh-CN.md) and research-only B3 `build_unified_net_report`. It adds no promotion thresholds, candidates, trading permission or risk budget. See the [Chinese version](unified_metric_catalog.zh-CN.md).
+This catalog explains the existing [backtest standard](backtest-standard-v1.zh-CN.md), [window metrics](window-metrics-semantics.zh-CN.md) and research-only B3 `build_unified_net_report`. It adds no promotion thresholds, candidates, trading permission or risk budget. See the [Chinese version](unified-metric-catalog.zh-CN.md).
 
 ## Outcome metrics
 

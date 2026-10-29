@@ -33,4 +33,4 @@ Existing legacy parser precedence is unchanged by adding this module.
 
 Validation: `PYTHONPATH=src python3 -m pytest -q tests/test_runtime_control_checks.py tests/test_runtime_control.py`.
 
-[中文](runtime_control_checks.zh-CN.md)
+[中文](runtime-control-checks.zh-CN.md)

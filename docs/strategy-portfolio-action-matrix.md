@@ -1,6 +1,6 @@
 # Strategy Portfolio Action Matrix
 
-[简体中文](./strategy_portfolio_action_matrix.zh-CN.md)
+[简体中文](./strategy-portfolio-action-matrix.zh-CN.md)
 
 This document turns the current cross-repository review into an execution plan.
 It uses the present repo state as the source of truth and separates:
