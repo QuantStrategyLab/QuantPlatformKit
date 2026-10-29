@@ -4,7 +4,7 @@
 
 `strategy_lifecycle/ai_provider.py` 现在使用 `ai_service.client.TaskClient`，只调用 V2 的提交和查询接口。已经删除该模块的旧 HTTP 客户端、CLI/VPS 路由、内置模型、provider chain 和付费 fallback。`AiProviderConfig` 接收 `label`、`mode`、`model`、`profile`；不再提供旧的 `codex_vps()`、`claude()`、`gpt()` 工厂。
 
-复用漂移工作流从固定 GitHub Release 下载已发布的 QuantAIService 2.0.0 与 QuantPlatformKit 1.0.0 wheel 到当前 runner 的临时目录。下载受 HTTPS、时间和大小限制，安装前仍按仓库显式配置的 SHA256 验证；不从公共包索引替代这些产物。QuantPlatformKit 的基础功能不会主动加载 AI 客户端；开启 AI 路径前需要准备该 wheel 和 `AI_SERVICE_URL`、`AI_SERVICE_AUDIENCE`，身份使用批准的 token 客户端或 GitHub Actions OIDC。旧的 `CODEX_AUDIT_SERVICE_*` 和 `AI_GATEWAY_RESEARCH_PROVIDERS` 不再用于本模块。
+复用漂移工作流从固定 GitHub Release 下载已发布的 QuantAIService 2.0.13 与 QuantPlatformKit 1.0.0 wheel 到当前 runner 的临时目录。下载受 HTTPS、时间和大小限制，安装前仍按仓库显式配置的 SHA256 验证；不从公共包索引替代这些产物。QuantPlatformKit 的基础功能不会主动加载 AI 客户端；开启 AI 路径前需要准备该 wheel 和 `AI_SERVICE_URL`、`AI_SERVICE_AUDIENCE`，身份使用批准的 token 客户端或 GitHub Actions OIDC。旧的 `CODEX_AUDIT_SERVICE_*` 和 `AI_GATEWAY_RESEARCH_PROVIDERS` 不再用于本模块。
 
 ## 路由与结果
 

@@ -310,22 +310,22 @@ jobs:
           target="$RUNNER_TEMP/ai-task-runtime"
           mkdir -m 700 "$target"
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 60 --max-filesize 10485760 \
-            https://github.com/QuantStrategyLab/QuantAIService/releases/download/v2.0.0/quant_ai_service-2.0.0-py3-none-any.whl \
-            -o "$target/quant_ai_service-2.0.0-py3-none-any.whl"
+            https://github.com/QuantStrategyLab/QuantAIService/releases/download/v2.0.13-native-client-20261029/quant_ai_service-2.0.13-py3-none-any.whl \
+            -o "$target/quant_ai_service-2.0.13-py3-none-any.whl"
           curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --max-time 60 --max-filesize 10485760 \
             https://github.com/QuantStrategyLab/QuantPlatformKit/releases/download/ai-tasks-v2-20261008/quant_platform_kit-1.0.0-py3-none-any.whl \
             -o "$target/quant_platform_kit-1.0.0-py3-none-any.whl"
 
       - name: Install approved task-service artifacts
         env:
-          AI_SERVICE_CLIENT_WHEEL: ${{ runner.temp }}/ai-task-runtime/quant_ai_service-2.0.0-py3-none-any.whl
+          AI_SERVICE_CLIENT_WHEEL: ${{ runner.temp }}/ai-task-runtime/quant_ai_service-2.0.13-py3-none-any.whl
           AI_SERVICE_CLIENT_SHA256: ${{ vars.AI_SERVICE_CLIENT_SHA256 }}
           AI_SERVICE_QPK_WHEEL: ${{ runner.temp }}/ai-task-runtime/quant_platform_kit-1.0.0-py3-none-any.whl
           AI_SERVICE_QPK_SHA256: ${{ vars.AI_SERVICE_QPK_SHA256 }}
         run: |
           python - <<'PYCODE'
           import hashlib, os, pathlib, re, subprocess, sys
-          for prefix, name in (("CLIENT", "quant_ai_service-2.0.0-"), ("QPK", "quant_platform_kit-1.0.0-")):
+          for prefix, name in (("CLIENT", "quant_ai_service-2.0.13-"), ("QPK", "quant_platform_kit-1.0.0-")):
               path = pathlib.Path(os.environ.get("AI_SERVICE_" + prefix + "_WHEEL", ""))
               digest = os.environ.get("AI_SERVICE_" + prefix + "_SHA256", "")
               if not re.fullmatch(r"[0-9a-f]{64}", digest) or not path.is_file() or path.is_symlink() or not path.name.startswith(name) or path.suffix != ".whl":
