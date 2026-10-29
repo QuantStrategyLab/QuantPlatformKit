@@ -98,7 +98,8 @@ def test_drift_review_receives_measured_evidence_and_keeps_rejection(monkeypatch
                 'dimensions': {'volatility': {'actual': 0.4, 'expected': 0.2, 'threshold': 0.3}}}
     item = SimpleNamespace(strategy_profile='synthetic', domain='crypto', drift_score=0.75,
                            status=SimpleNamespace(value='critical'), to_dict=lambda: evidence)
-    reviewer = mock.Mock(return_value={'ok': False, 'state': 'PARKED'})
+    reviewer = mock.Mock(return_value={'ok': False, 'state': 'PARKED', 'count': 1,
+                                            'results': [{'status': 'completed', 'outcome': 'requires_human'}]})
     detector = mock.Mock(return_value=[item])
     monkeypatch.setitem(sys.modules, 'quant_platform_kit.strategy_lifecycle.drift_detector',
                         SimpleNamespace(run_drift_detection=detector))
@@ -107,6 +108,7 @@ def test_drift_review_receives_measured_evidence_and_keeps_rejection(monkeypatch
     monkeypatch.setenv('STRATEGY_DOMAIN', 'crypto')
     monkeypatch.setenv('GITHUB_SHA', 'a' * 40)
     monkeypatch.delenv('AI_SERVICE_REQUIRED_ROLES_JSON', raising=False)
+    monkeypatch.delenv('AI_SERVICE_VERIFICATION_ONLY', raising=False)
     with pytest.raises(SystemExit) as stopped:
         exec(compile(code, '<drift-review-workflow>', 'exec'), {})
     assert stopped.value.code == 3
@@ -115,3 +117,14 @@ def test_drift_review_receives_measured_evidence_and_keeps_rejection(monkeypatch
     assert 'deviation_pct' in observation['score_definition']
     assert reviewer.call_args.kwargs['roles'] == ['primary', 'secondary', 'verification']
     assert json.loads(capsys.readouterr().out)['state'] == 'PARKED'
+    monkeypatch.setenv('AI_SERVICE_VERIFICATION_ONLY', 'true')
+    with pytest.raises(SystemExit) as verified:
+        exec(compile(code, '<drift-review-workflow>', 'exec'), {})
+    assert verified.value.code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result['verification_completed'] is True
+    assert result['state'] == 'PARKED' and result['ok'] is False
+    reviewer.return_value = {'ok': False, 'count': 1, 'results': [{'status': 'pending'}]}
+    with pytest.raises(SystemExit) as pending:
+        exec(compile(code, '<drift-review-workflow>', 'exec'), {})
+    assert pending.value.code == 3
