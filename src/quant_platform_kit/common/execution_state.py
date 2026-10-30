@@ -953,7 +953,8 @@ class AccountSubmissionSession:
                 _submission_text(data["currency"])
                 state["domain_binding"] = data
             elif event["kind"] == "EQUITY_OBSERVED":
-                if set(data) != {"equity", "cash_flow", "peak", "currency", "valuation_at", "source_digest", "covered_fills", "covered_fees", "position_risk", "position_3x_exposure", "protected_equity", "balance", "cash", "account_domain_key", "account_binding", "valid_until", "pending_3x_exposure", "open_orders_complete", "positions", "open_orders_empty"} or state["domain_binding"] is None:
+                equity_fields = {"equity", "cash_flow", "peak", "currency", "valuation_at", "source_digest", "covered_fills", "covered_fees", "position_risk", "position_3x_exposure", "protected_equity", "balance", "cash", "account_domain_key", "account_binding", "valid_until", "pending_3x_exposure", "open_orders_complete", "positions", "open_orders_empty"}
+                if set(data) not in (equity_fields, equity_fields | {"pending_order_evidence"}) or state["domain_binding"] is None:
                     raise AccountSubmissionError("invalid equity observation")
                 equity = _submission_number(data["equity"])
                 _submission_number(data["balance"])
@@ -985,6 +986,13 @@ class AccountSubmissionSession:
                 from quant_platform_kit.common.account_domain import _time
                 if previous is not None and _time(data["valuation_at"]) <= _time(previous["valuation_at"]):
                     raise AccountSubmissionError("non-monotonic equity observation")
+                if "pending_order_evidence" in data:
+                    from quant_platform_kit.common.pending_order_evidence import validate_pending_order_evidence
+                    try:
+                        validate_pending_order_evidence(data["pending_order_evidence"], observation=data,
+                                                        attempts=state["attempts"], reservations=state["risk_reservations"])
+                    except (ValueError, TypeError, KeyError) as exc:
+                        raise AccountSubmissionError("invalid pending order evidence") from exc
                 state["equity_observation"] = data
                 state["snapshot_position_risk"] = _submission_number(data["position_risk"])
             elif event["kind"] == "RISK_RESERVED":
@@ -1065,7 +1073,7 @@ class AccountSubmissionSession:
                     "prepared_snapshot": state["equity_observation"],
                 }
             elif event["kind"] == "OBSERVED":
-                if set(data) != {"attempt_id", "observation"} or data["attempt_id"] not in state["attempts"]:
+                if set(data) not in ({"attempt_id", "observation"}, {"attempt_id", "observation", "recorded_at"}) or data["attempt_id"] not in state["attempts"]:
                     raise AccountSubmissionError("observation references unknown attempt")
                 attempt = state["attempts"][data["attempt_id"]]
                 observation = data["observation"]
@@ -1086,7 +1094,19 @@ class AccountSubmissionSession:
                         or filled > attempt["quantity"] or attempt["certainty"] in {"UNKNOWN", "TERMINAL"}
                         or (prior and prior["broker_order_id"] and prior["broker_order_id"] != observation["broker_order_id"])):
                     raise AccountSubmissionError("illegal or non-monotonic observation; UNKNOWN cannot be resolved")
-                attempt.update(certainty=certainty, observation=observation, filled_quantity=filled)
+                recorded_at = data.get("recorded_at")
+                if recorded_at is not None:
+                    from quant_platform_kit.common.account_domain import _time
+                    try:
+                        instant = _time(recorded_at)
+                        previous_watermark = attempt.get("last_observation_recorded_at")
+                        if previous_watermark is not None and instant < _time(previous_watermark):
+                            raise ValueError("reception time moved backwards")
+                    except (ValueError, TypeError) as exc:
+                        raise AccountSubmissionError("invalid journal observation watermark") from exc
+                    attempt["last_observation_recorded_at"] = recorded_at
+                attempt.update(certainty=certainty, observation=observation, filled_quantity=filled,
+                               observation_event_sha256=event["event_sha256"], observation_recorded_at=recorded_at)
             else:
                 raise AccountSubmissionError("unsupported account event; no resolution API")
             state.update(generation=sequence, head_sha256=event["event_sha256"])
@@ -1184,8 +1204,19 @@ class AccountSubmissionSession:
                 raise AccountSubmissionError("invalid 3x position exposure")
             if _submission_number(position_risk) < 0:
                 raise AccountSubmissionError("invalid position risk")
+            evidence = snapshot.get("pending_order_evidence")
+            evidence_fields = {}
+            if "pending_order_evidence" in snapshot:
+                from quant_platform_kit.common.pending_order_evidence import validate_pending_order_evidence
+                observation = {**snapshot, "account_binding": submission_binding_digest({"broker": self.broker, "account_id": self.account_id})}
+                try:
+                    validate_pending_order_evidence(evidence, observation=observation,
+                                                    attempts=state["attempts"], reservations=state["risk_reservations"])
+                except (ValueError, TypeError, KeyError) as exc:
+                    raise AccountSubmissionError("invalid pending order evidence") from exc
+                evidence_fields["pending_order_evidence"] = evidence
             return self._append(state, "EQUITY_OBSERVED", {
-                "equity": equity, "cash_flow": flow, "peak": peak,
+                **evidence_fields, "equity": equity, "cash_flow": flow, "peak": peak,
                 "currency": binding["currency"], "valuation_at": snapshot["valuation_at"],
                 "source_digest": snapshot["source_digest"], "covered_fills": covered,
                 "covered_fees": covered_fees, "position_risk": position_risk, "position_3x_exposure": position_3x,
@@ -1468,9 +1499,11 @@ class AccountSubmissionSession:
             raise AccountSubmissionError("grant fence/binding mismatch")
         return state
 
-    def dispatch(self, grant: AccountSubmissionGrant, order, submit: Callable[[], Any]):
+    def dispatch(self, grant: AccountSubmissionGrant, order, submit: Callable[[], Any], *, record_observation_watermark=False):
         """Consume exactly once at the final platform submit wrapper, then observe."""
         with self._mutex:
+            if type(record_observation_watermark) is not bool:
+                raise AccountSubmissionError("invalid observation watermark option")
             if self._failed:
                 raise AccountSubmissionError("session persistence uncertain")
             state = self._owned_grant(grant)
@@ -1511,7 +1544,20 @@ class AccountSubmissionSession:
                 exc.add_note("account outcome persistence also failed: " + type(persist_exc).__name__)
                 object.__setattr__(self, "_failed", True)
             raise
-        self.record_observation(grant, report)
+        if record_observation_watermark:
+            try:
+                now = self.clock()
+                recorded_at = now.isoformat() if isinstance(now, datetime) else now
+                from quant_platform_kit.common.account_domain import _time
+                _time(recorded_at)
+            except Exception:
+                recorded_at = None
+            if recorded_at is not None:
+                self.record_observation(grant, report, recorded_at=recorded_at)
+            else:
+                self.record_observation(grant, report)
+        else:
+            self.record_observation(grant, report)
         attempt = self.read_state()["attempts"][grant.attempt_id]
         if attempt["certainty"] == "UNKNOWN" and str(getattr(report, "status", "")).strip() in (
             _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL
@@ -1519,7 +1565,7 @@ class AccountSubmissionSession:
             raise AccountSubmissionError("broker result facts are uncertain; original attempt retained")
         return report
 
-    def record_observation(self, grant: AccountSubmissionGrant, report) -> bool:
+    def record_observation(self, grant: AccountSubmissionGrant, report, *, recorded_at=None) -> bool:
         """Persist original facts. Exact replay is idempotent, never a new grant."""
         with self._mutex:
             if self._failed:
@@ -1557,7 +1603,18 @@ class AccountSubmissionSession:
                 return False
             if attempt["certainty"] in {"UNKNOWN", "TERMINAL"}:
                 raise AccountSubmissionError("historical UNKNOWN/terminal cannot be changed")
-            self._append(state, "OBSERVED", {"attempt_id": grant.attempt_id, "observation": observation})
+            event_data = {"attempt_id": grant.attempt_id, "observation": observation}
+            if recorded_at is not None:
+                from quant_platform_kit.common.account_domain import _time
+                try:
+                    instant = _time(recorded_at)
+                    previous_watermark = attempt.get("last_observation_recorded_at")
+                    if previous_watermark is None or instant >= _time(previous_watermark):
+                        event_data["recorded_at"] = recorded_at
+                except (ValueError, TypeError):
+                    # Optional metadata must never discard a broker observation.
+                    pass
+            self._append(state, "OBSERVED", event_data)
             if invalid:
                 raise AccountSubmissionError("invalid/non-monotonic broker observation; UNKNOWN persisted")
             return True
@@ -1582,3 +1639,4 @@ def submission_intent_digest(metadata: Mapping[str, Any], profile: str) -> str:
             "trade_date", "signal_date", "effective_date", "snapshot_as_of", "execution_timing_contract",
         )},
     })
+
