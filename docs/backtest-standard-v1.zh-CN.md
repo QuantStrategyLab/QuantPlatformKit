@@ -118,7 +118,7 @@
 
 ## 8. 组合分配方法
 
-最大复利（fractional Kelly / 带回撤约束的增长最优）与 Markowitz（均值–方差、最小方差、风险平价）属于组合分配研究，沿用 UES [组合风险预算研究契约](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/main/docs/research/portfolio_risk_budget_contract.md)。它们的结果必须：
+最大复利（fractional Kelly / 带回撤约束的增长最优）与 Markowitz（均值–方差、最小方差、风险平价）属于组合分配研究，沿用 UES [组合风险预算研究契约](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/main/docs/research/portfolio-risk-budget-contract.md)。它们的结果必须：
 
 - 在相同可执行约束、相同日期、相同成本口径下，与 1/N、固定权重和无杠杆基准对照；
 - 用严格前推（训练段估计、下一段应用）评估，并按本文报告；
