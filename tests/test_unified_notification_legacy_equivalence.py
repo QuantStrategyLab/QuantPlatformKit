@@ -69,10 +69,12 @@ def test_existing_renderers_and_publisher_preserve_content_except_raw_diagnostic
     assert calls == [('log', expected), ('send', heartbeat)]
 
 
-def test_new_dispatcher_off_calls_only_unchanged_legacy_callback():
+@pytest.mark.parametrize('kind', ['real_error', 'auth_failure', 'order_status_unknown', 'receipt_missing',
+                                  'risk_escalation', 'blocked_run', 'unexpected_kind'])
+def test_urgent_dispatcher_off_calls_only_unchanged_legacy_callback(kind):
     stamp = datetime.fromisoformat('2026-10-17T06:00:00+08:00')
     calls = []
-    fact = NotificationEvent('routine_cycle', stamp)
+    fact = NotificationEvent(kind, stamp)
     result = route_notification_event(fact, env={}, flag_key=FLAGS[0],
         persist_candidate=lambda _: pytest.fail('candidate write while OFF'),
         immediate=lambda: pytest.fail('new immediate while OFF'), legacy=lambda: calls.append('legacy') or 42)

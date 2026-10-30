@@ -124,3 +124,85 @@ def test_completed_order_count_is_not_used_as_execution_fill_count():
     fills = [{"execution_id": f"synthetic-fill-{i}"} for i in range(3)]
     row = project([report(orders=[{"status": "filled", "fills": fills}])])[0]
     assert row["order_count"] == 1 and row["fill_count"] == 3
+
+
+def test_proven_pending_projects_submission_without_inventing_fills():
+    order = {"status": "accepted", "broker_order_id": "synthetic"}
+    execution = {"execution_status": "pending_reconciliation", "orders_pending_count": 1}
+    assert cycle_evidence(execution, [order])["routine"] is False
+    evidence = cycle_evidence(execution, [order], known_pending=True)
+    assert (evidence["routine"], evidence["order_count"], evidence["fill_count"]) == (True, 1, None)
+    source = report()
+    source["summary"] = {"execution_status": "pending_reconciliation", "notification_digest": evidence}
+    row = project([source])[0]
+    assert (row["status"], row["execution_status"], row["order_count"], row["fill_count"]) == ("ok", "order_submitted", 1, None)
+    second = report("cycle-2")
+    assert project([source, second])[0]["execution_status"] == "order_submitted"
+
+
+@pytest.mark.parametrize("issue", ["reconciliation_required", "persistence_error", "notification_error", "auth_expired", "outcome_unknown", "submission_halted"])
+def test_proven_acknowledgement_does_not_hide_an_independent_issue(issue):
+    execution = {"execution_status": "pending_reconciliation", issue: True}
+    assert cycle_evidence(execution, [{"status": "accepted"}], known_pending=True)["routine"] is False
+
+
+@pytest.mark.parametrize("status", ["accepted", "PendingSubmit", "ApiPending", "ApiPendingSubmit", "Submitted", "PreSubmitted", "PartiallyFilled", "partial"])
+def test_known_pending_uses_original_status_without_weakening_default(status):
+    execution = {"execution_status": "pending_reconciliation", "no_op_reason": "broker_order_pending_confirmation"}
+    orders = [{"status": status, "broker_order_id": "synthetic"}]
+    original = deepcopy((execution, orders))
+    assert cycle_evidence(execution, orders)["routine"] is False
+    assert cycle_evidence(execution, orders, known_pending=True)["routine"] is True
+    assert (execution, orders) == original
+
+
+def test_known_pending_does_not_approve_rejected_order_or_empty_run():
+    execution = {"execution_status": "pending_reconciliation"}
+    assert cycle_evidence(execution, [{"status": "rejected"}], known_pending=True)["routine"] is False
+    assert cycle_evidence(execution, [], known_pending=True)["routine"] is False
+
+
+def test_observation_counts_use_live_signal_fields_and_do_not_export_content():
+    from types import SimpleNamespace
+    from quant_platform_kit.notifications.digest_candidates import routine_observation_counts
+    signals = [SimpleNamespace(canonical_route="watch", suggested_action="observe", secret="private"),
+               SimpleNamespace(canonical_route="watch", suggested_action="watch", error="bad"),
+               SimpleNamespace(canonical_route="panic_reversal", suggested_action="notify_manual_review")]
+    assert routine_observation_counts(signals) == {"watch": 1, "panic_reversal": 1}
+    from quant_platform_kit.notifications.digest_routing import immediate_plugin_signals
+    assert immediate_plugin_signals(signals, mode="daily_digest") == (signals[1],)
+    source = report()
+    source["summary"]["routine_observation_counts"] = {"watch": 1}
+    assert "routine_observation_counts" not in project([source])[0]
+
+
+def test_schwab_source_alias_does_not_change_target_identity():
+    target = {**TARGET, "platform_id": "schwab"}
+    source = report()
+    source.update(platform="charles_schwab", runtime_target=deepcopy(target))
+    result = project_reports([source], expected_target=target, opaque_account_uid="u", target_id="t", now=NOW)
+    assert result["runs"][0]["platform_id"] == "schwab"
+    source["platform"] = "other"
+    with pytest.raises(ValueError, match="candidate_source_invalid"):
+        project_reports([source], expected_target=target, opaque_account_uid="u", target_id="t", now=NOW)
+
+
+def test_schwab_archive_uses_report_alias_without_changing_target():
+    import json
+    from quant_platform_kit.notifications.digest_archive import emit
+    target = {**TARGET, "platform_id": "schwab"}
+    source = report()
+    source.update(platform="charles_schwab", runtime_target=deepcopy(target), started_at="2026-10-15T20:00:00Z")
+    env = dict(QSL_ROUTINE_NOTIFICATION_MODE="daily_digest", RUNTIME_TARGET_ENABLED="true",
+        RUNTIME_TARGET_JSON=json.dumps(target), DIGEST_STORE_TARGET="slot", DIGEST_OPAQUE_ACCOUNT_UID="u",
+        DIGEST_TARGET_ID="t", EXECUTION_REPORT_GCS_URI="gs://synthetic-reports/archive",
+        DIGEST_CANDIDATES_GCS_URI="gs://synthetic-reports/candidates")
+    calls, uploads = [], []
+    def read(args):
+        calls.append(args)
+        if args[0] == "ls":
+            assert "/charles_schwab/" in args[-1]
+            return [{"url": "gs://synthetic-reports/archive/charles_schwab/s/2026-10/a.json", "metadata": {"updated": "2026-10-15T20:01:00Z"}}]
+        return source
+    emit(env, now=NOW, read=read, upload=lambda *args: uploads.append(args))
+    assert json.loads(uploads[0][1])["runs"][0]["platform_id"] == "schwab"

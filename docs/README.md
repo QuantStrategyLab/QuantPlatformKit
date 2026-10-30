@@ -12,6 +12,7 @@ Read documents at the library revision used by your consumer. These are source-l
 
 ## Runtime contracts
 
+- [Notification routing policy](notification-routing-policy.md): durable daily facts and urgent incidents.
 - [Platform repository boundaries](platform-repo-boundaries.md) ([中文](platform-repo-boundaries.zh-CN.md)).
 - [Lifecycle policy](strategy-lifecycle-policy.md) ([中文](strategy-lifecycle-policy.zh-CN.md)).
 - [Pending order evidence v1](pending-order-evidence-v1.md): optional journal evidence without budget release.
