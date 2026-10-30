@@ -108,7 +108,7 @@
 
 Markowitz、fractional Kelly 与经验 log-growth 属于组合分配/风控分析的
 不同方法，不作为单策略评分项相加。其共同账户约束、同窗净成本比较和
-实现边界由 [UES 组合风险预算研究契约](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/main/docs/research/portfolio_risk_budget_contract.md)
+实现边界由 [UES 组合风险预算研究契约](https://github.com/QuantStrategyLab/UsEquityStrategies/blob/main/docs/research/portfolio-risk-budget-contract.md)
 记录；QPK Kelly 单位与现有限制沿用
 [Kelly 契约](kelly-contract-v2.zh-CN.md)。任何研究最优解或正增长估计都不能
 覆盖独立的杠杆、集中度、流动性、回撤/熔断约束与 RiskEngine 最终否决。
