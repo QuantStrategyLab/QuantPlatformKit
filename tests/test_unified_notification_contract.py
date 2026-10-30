@@ -49,19 +49,42 @@ def test_flags_unset_empty_invalid_are_false_and_legacy(flag, value):
     env = {} if value is None else {flag: value}
     assert not unified_notification_enabled(env, flag)
     for kind in EVENT_KINDS | {"future_unknown_event"}:
-        assert select_notification_route(event_kind=kind, env=env, flag_key=flag) == "legacy"
+        expected = "digest_candidate" if kind in {"routine_cycle", "healthy_heartbeat", "order_submitted", "fill"} else "legacy"
+        assert select_notification_route(event_kind=kind, env=env, flag_key=flag) == expected
 
 
 @pytest.mark.parametrize("mode", [None, "immediate", "daily_digest", "invalid"])
-def test_flag_maps_to_single_existing_mode_and_orders_default_immediate(mode):
+def test_flag_maps_to_single_existing_mode_and_orders_always_defer(mode):
     env = {FLAG: "true", "QSL_ROUTINE_NOTIFICATION_MODE": mode}
     assert effective_notification_mode(env, FLAG) == "daily_digest"
     for kind in EVENT_KINDS | {"pending_order", "future_unknown_event"}:
-        expected = "digest_candidate" if kind in {"routine_cycle", "healthy_heartbeat"} else "immediate"
+        expected = "digest_candidate" if kind in {"routine_cycle", "healthy_heartbeat", "order_submitted", "fill"} else "immediate"
         assert select_notification_route(event_kind=kind, env=env, flag_key=FLAG) == expected
     env["QSL_DIGEST_ROUTINE_ORDERS"] = "true"
     assert select_notification_route(event_kind="fill", env=env, flag_key=FLAG) == "digest_candidate"
     assert select_notification_route(event_kind="order_status_unknown", env=env, flag_key=FLAG) == "immediate"
+
+
+@pytest.mark.parametrize("flag_value", [None, "false", "true"])
+@pytest.mark.parametrize("orders_flag", [None, "false", "true"])
+@pytest.mark.parametrize("kind", ["routine_cycle", "healthy_heartbeat", "order_submitted", "fill"])
+def test_routine_facts_require_durable_candidate_in_every_flag_state(flag_value, orders_flag, kind):
+    env = {FLAG: flag_value, "QSL_DIGEST_ROUTINE_ORDERS": orders_flag}
+    row = event(event_kind=kind, order_execution_digest=order_identity_digest("order-a") if kind in {"order_submitted", "fill"} else None)
+    calls = []
+    result = route_notification_event(row, env=env, flag_key=FLAG,
+        persist_candidate=lambda payload: calls.append(payload) or True,
+        legacy=lambda: pytest.fail("routine legacy send"), immediate=lambda: pytest.fail("routine immediate send"))
+    assert result.route == "digest_candidate" and result.candidate_persisted and len(calls) == 1
+    for write in (lambda _: False, lambda _: None):
+        with pytest.raises(CandidatePersistenceError):
+            route_notification_event(row, env=env, flag_key=FLAG, persist_candidate=write,
+                legacy=lambda: pytest.fail("routine legacy send"), immediate=lambda: pytest.fail("routine immediate send"))
+    def fail_write(_):
+        raise OSError("synthetic write failure")
+    with pytest.raises(CandidatePersistenceError):
+        route_notification_event(row, env=env, flag_key=FLAG, persist_candidate=fail_write,
+            legacy=lambda: pytest.fail("routine legacy send"), immediate=lambda: pytest.fail("routine immediate send"))
 
 
 def test_run_event_keys_multi_account_multi_run_and_duplicate_observations():
@@ -126,16 +149,18 @@ def test_candidate_write_precedes_deferral_and_never_just_silences():
                 persist_candidate=lambda _: unconfirmed, legacy=lambda: None, immediate=lambda: None)
 
 
-def test_real_orders_counted_but_immediate_even_if_candidate_store_fails():
+def test_real_orders_are_not_sent_immediately_when_candidate_store_fails():
     order = event(event_kind="fill", order_execution_digest=order_identity_digest("execution-a"), fill_count=1)
     calls = []
     def failing_write(payload):
         calls.append(("candidate", payload["fill_count"]))
         raise OSError("fake storage failure")
-    result = route_notification_event(order, env={FLAG: "true"}, flag_key=FLAG,
-        persist_candidate=failing_write, legacy=lambda: pytest.fail("legacy"), immediate=lambda: calls.append("send"))
-    assert calls == [("candidate", 1), "send"]
-    assert result.route == "immediate" and result.candidate_persisted is False
+    with pytest.raises(CandidatePersistenceError) as caught:
+        route_notification_event(order, env={FLAG: "true"}, flag_key=FLAG,
+            persist_candidate=failing_write, legacy=lambda: pytest.fail("legacy"), immediate=lambda: pytest.fail("immediate"))
+    assert str(caught.value) == "notification_candidate_write_unconfirmed"
+    assert caught.value.__suppress_context__ is True
+    assert calls == [("candidate", 1)]
 
 
 def test_incident_duplicate_across_runs_workers_and_separate_accounts():
