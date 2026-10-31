@@ -126,6 +126,91 @@ def test_completed_order_count_is_not_used_as_execution_fill_count():
     assert row["order_count"] == 1 and row["fill_count"] == 3
 
 
+@pytest.mark.parametrize("identity", ["", "   ", None])
+def test_missing_fill_identity_remains_unknown(identity):
+    evidence = cycle_evidence({"execution_status": "completed"},
+        [{"status": "filled", "fills": [{"execution_id": identity}]}])
+    assert evidence["fill_count"] is None
+
+
+def test_numeric_trade_identity_is_preserved():
+    evidence = cycle_evidence({"execution_status": "completed"},
+        [{"status": "filled", "fills": [{"tradeId": 0}]}])
+    assert evidence["fill_count"] == 1
+
+
+def test_summary_requires_matching_unique_broker_order_identities():
+    from quant_platform_kit.notifications.digest_candidates import summary_evidence
+
+    submitted = [{"broker_order_id": "order-a", "status": "unknown"}]
+    filled = [{"broker_order_id": "order-b", "fills": [{"execution_id": "fill-b"}]}]
+    summary = {"execution_status": "completed", "orders_submitted": submitted, "orders_filled": filled}
+    original = deepcopy(summary)
+    result = summary_evidence(summary)
+    assert (result["order_count"], result["fill_count"], result["routine"]) == (1, None, False)
+    assert summary == original
+    filled[0]["broker_order_id"] = "order-a"
+    result = summary_evidence(summary)
+    assert (result["order_count"], result["fill_count"], result["routine"]) == (1, 1, True)
+    submitted[0].pop("broker_order_id")
+    assert summary_evidence(summary)["routine"] is False
+    filled.append(deepcopy(filled[0]))
+    assert summary_evidence(summary)["routine"] is False
+
+
+def test_summary_rejects_duplicate_order_identities():
+    from quant_platform_kit.notifications.digest_candidates import summary_evidence
+
+    orders = [{"broker_order_id": "same", "status": "filled"}] * 2
+    result = summary_evidence({"execution_status": "completed", "orders_submitted": orders, "orders_filled": orders})
+    assert result["routine"] is False and result["fill_count"] is None
+
+
+def test_summary_normalizes_integer_order_identities_before_matching_and_deduplication():
+    from quant_platform_kit.notifications.digest_candidates import summary_evidence
+
+    summary = {"execution_status": "completed",
+        "orders_submitted": [{"broker_order_id": 1, "status": "unknown"}],
+        "orders_filled": [{"broker_order_id": "1", "fills": [{"execution_id": "fill"}]}]}
+    result = summary_evidence(summary)
+    assert result["routine"] is True and result["fill_count"] == 1
+    summary["orders_submitted"].append({"broker_order_id": "1", "status": "filled"})
+    summary["orders_filled"].append({"broker_order_id": 1, "fills": [{"execution_id": "other"}]})
+    result = summary_evidence(summary)
+    assert result["routine"] is False and result["fill_count"] is None
+
+
+@pytest.mark.parametrize("identity", ["", "  ", None, True, 1.0, [], {}])
+def test_summary_rejects_invalid_broker_order_identities(identity):
+    from quant_platform_kit.notifications.digest_candidates import summary_evidence
+
+    summary = {"execution_status": "completed",
+        "orders_submitted": [{"broker_order_id": identity, "status": "filled"}],
+        "orders_filled": [{"broker_order_id": identity}]}
+    result = summary_evidence(summary)
+    assert result["routine"] is False and result["fill_count"] is None
+
+
+def test_summary_pending_outcomes_require_consistent_proven_identity_and_status():
+    from quant_platform_kit.notifications.digest_candidates import summary_evidence
+
+    summary = {"execution_status": "completed",
+        "orders_submitted": [{"broker_order_id": "a", "status": "filled", "fills": [{"execution_id": "fill-a"}]}],
+        "orders_filled": [{"broker_order_id": "b", "fills": [{"execution_id": "fill-b"}]}],
+        "orders_pending": [{"broker_order_id": "b"}]}
+    for proven in (False, True):
+        result = summary_evidence(summary, known_pending=proven)
+        assert result["routine"] is False and result["fill_count"] is None
+    summary = {"execution_status": "pending_reconciliation",
+        "orders_submitted": [{"broker_order_id": "a", "status": "accepted"}],
+        "orders_pending": [{"broker_order_id": "a", "status": "accepted"}]}
+    assert summary_evidence(summary)["routine"] is False
+    result = summary_evidence(summary, known_pending=True)
+    assert result["routine"] is True and result["fill_count"] is None
+    summary["orders_submitted"][0]["status"] = "filled"
+    assert summary_evidence(summary, known_pending=True)["routine"] is False
+
+
 def test_proven_pending_projects_submission_without_inventing_fills():
     order = {"status": "accepted", "broker_order_id": "synthetic"}
     execution = {"execution_status": "pending_reconciliation", "orders_pending_count": 1}
