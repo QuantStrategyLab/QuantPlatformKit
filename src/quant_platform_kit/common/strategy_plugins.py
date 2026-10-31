@@ -8,9 +8,11 @@ from .notification_localization import translator_uses_zh
 import hashlib
 import json
 import tempfile
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from dataclasses import replace as dataclass_replace
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -305,6 +307,11 @@ class StrategyPluginSignal:
     supported_schema_versions: tuple[str, ...] = ()
     target_type: str = "strategy"
     notification_target: str = ""
+    artifact_sha256: str | None = None
+    digest_status: str = "unverified"
+    observation_time_status: str = "unchecked"
+    observed_at: str | None = None
+    consumer_payload_sha256: str | None = None
 
     def report_summary(self) -> dict[str, Any]:
         return {
@@ -327,6 +334,11 @@ class StrategyPluginSignal:
             "runtime_consumption": _strategy_plugin_runtime_consumption_summary(self),
             "source_uri": self.source_uri,
             "local_path": self.local_path,
+            "artifact_sha256": self.artifact_sha256,
+            "digest_status": self.digest_status,
+            "observation_time_status": self.observation_time_status,
+            "observed_at": self.observed_at,
+            "consumer_payload_sha256": self.consumer_payload_sha256,
         }
 
 
@@ -617,7 +629,10 @@ def load_configured_strategy_plugin_signals(
     strategy_profile: str | None = None,
     client_factory: Any = None,
     plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
+    decision_time: datetime | None = None,
+    expected_sha256_by_reference: Mapping[str, str] | None = None,
 ) -> tuple[StrategyPluginSignal, ...]:
+    _validate_expected_digests(expected_sha256_by_reference)
     selected_strategy = _optional_string(strategy_profile)
     definitions = normalize_strategy_plugin_definitions(plugin_definitions)
     signals: list[StrategyPluginSignal] = []
@@ -642,6 +657,8 @@ def load_configured_strategy_plugin_signals(
                 expected_schema_version=mount.expected_schema_version,
                 client_factory=client_factory,
                 plugin_definitions=definitions,
+                decision_time=decision_time,
+                expected_sha256=_expected_digest_for_reference(expected_sha256_by_reference, mount.signal_path),
             )
         )
     return tuple(signals)
@@ -653,7 +670,10 @@ def load_configured_strategy_plugin_notification_target_signals(
     notification_target: str | None = None,
     client_factory: Any = None,
     plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
+    decision_time: datetime | None = None,
+    expected_sha256_by_reference: Mapping[str, str] | None = None,
 ) -> tuple[StrategyPluginSignal, ...]:
+    _validate_expected_digests(expected_sha256_by_reference)
     selected_target = _optional_string(notification_target)
     definitions = normalize_strategy_plugin_definitions(plugin_definitions)
     signals: list[StrategyPluginSignal] = []
@@ -676,9 +696,30 @@ def load_configured_strategy_plugin_notification_target_signals(
                 expected_schema_version=target.expected_schema_version,
                 client_factory=client_factory,
                 plugin_definitions=definitions,
+                decision_time=decision_time,
+                expected_sha256=_expected_digest_for_reference(expected_sha256_by_reference, target.signal_path),
             )
         )
     return tuple(signals)
+
+
+def _validate_expected_digests(digests: Mapping[str, str] | None) -> None:
+    if digests is None:
+        return
+    if not isinstance(digests, Mapping):
+        raise ValueError("expected_sha256_by_reference must be a mapping")
+    for reference, digest in digests.items():
+        if (not isinstance(reference, str) or not reference or reference != reference.strip()
+                or not isinstance(digest, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", digest)):
+            raise ValueError("expected_sha256_by_reference must map exact references to SHA-256 digests")
+
+
+def _expected_digest_for_reference(digests: Mapping[str, str] | None, reference: str) -> str | None:
+    if digests is None:
+        return None
+    if reference not in digests:
+        raise ValueError(f"expected_sha256_by_reference missing selected reference: {reference}")
+    return digests[reference]
 
 
 def load_strategy_plugin_signal(
@@ -691,14 +732,24 @@ def load_strategy_plugin_signal(
     expected_schema_version: str | None = None,
     client_factory: Any = None,
     plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
+    expected_sha256: str | None = None,
+    decision_time: datetime | None = None,
 ) -> StrategyPluginSignal:
     local_path, metadata = _materialize_artifact_path(reference, client_factory=client_factory)
     if not local_path.exists():
         raise FileNotFoundError(f"strategy plugin signal not found: {local_path}")
-    payload = json.loads(local_path.read_text(encoding="utf-8"))
+    raw = local_path.read_bytes()
+    observed_at = datetime.now(timezone.utc).isoformat()
+    digest = hashlib.sha256(raw).hexdigest()
+    if expected_sha256 is not None:
+        if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256):
+            raise ValueError("expected_sha256 must be a 64-character hexadecimal digest")
+        if digest != expected_sha256.lower():
+            raise ValueError("strategy plugin artifact sha256 mismatch")
+    payload = json.loads(raw.decode("utf-8"))
     if not isinstance(payload, Mapping):
         raise ValueError("strategy plugin signal must be a JSON object")
-    return validate_strategy_plugin_signal_payload(
+    signal = validate_strategy_plugin_signal_payload(
         payload,
         expected_strategy=expected_strategy,
         expected_notification_target=expected_notification_target,
@@ -708,7 +759,17 @@ def load_strategy_plugin_signal(
         source_uri=metadata.get("source_uri"),
         local_path=str(local_path),
         plugin_definitions=plugin_definitions,
+        decision_time=decision_time,
     )
+    try:
+        canonical = json.dumps(_build_non_authoritative_runtime_plugin_payload(payload), sort_keys=True,
+                               separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+        consumer_digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    except (TypeError, ValueError):
+        consumer_digest = None
+    return dataclass_replace(signal, artifact_sha256=digest, observed_at=observed_at,
+                             consumer_payload_sha256=consumer_digest,
+                             digest_status="verified" if expected_sha256 is not None else "unverified")
 
 
 def validate_strategy_plugin_signal_payload(
@@ -722,7 +783,9 @@ def validate_strategy_plugin_signal_payload(
     source_uri: str | None = None,
     local_path: str | None = None,
     plugin_definitions: Mapping[str, StrategyPluginDefinition] | Sequence[StrategyPluginDefinition] | None = None,
+    decision_time: datetime | None = None,
 ) -> StrategyPluginSignal:
+    as_of, time_status = _validate_observation_time(payload.get("as_of"), decision_time)
     target_type = _optional_string(payload.get("target_type")) or (
         "notification_target" if _optional_string(payload.get("notification_target")) else "strategy"
     )
@@ -812,7 +875,7 @@ def validate_strategy_plugin_signal_payload(
         configured_mode=configured_mode,
         effective_mode=effective_mode,
         schema_version=schema_version,
-        as_of=_optional_string(payload.get("as_of")) or "",
+        as_of=as_of,
         canonical_route=_optional_string(payload.get("canonical_route")),
         suggested_action=_optional_string(payload.get("suggested_action")),
         would_trade_if_enabled=_as_bool(payload.get("would_trade_if_enabled"), default=False),
@@ -825,7 +888,36 @@ def validate_strategy_plugin_signal_payload(
         supported_schema_versions=tuple(sorted(definition.supported_schema_versions)) if definition is not None else (),
         target_type=target_type,
         notification_target=notification_target,
+        observation_time_status=time_status,
     )
+
+
+def _validate_observation_time(value: object, decision_time: datetime | None) -> tuple[str, str]:
+    if not isinstance(value, str):
+        raise ValueError("as_of must be an ISO date or timezone-aware datetime")
+    text = value.strip()
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+            observation = date.fromisoformat(text)
+            is_date = True
+        else:
+            observation = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            if observation.tzinfo is None or observation.utcoffset() is None:
+                raise ValueError("timezone required")
+            is_date = False
+    except ValueError as exc:
+        raise ValueError("as_of must be an ISO date or timezone-aware datetime") from exc
+    if decision_time is None:
+        return text, "unchecked"
+    if not isinstance(decision_time, datetime) or decision_time.tzinfo is None or decision_time.utcoffset() is None:
+        raise ValueError("decision_time must be a timezone-aware datetime")
+    if is_date:
+        if observation > decision_time.astimezone(timezone.utc).date():
+            raise ValueError("as_of is in the future relative to decision_time")
+        return text, "date_not_future"
+    if observation > decision_time:
+        raise ValueError("as_of is in the future relative to decision_time")
+    return text, "timestamp_not_future"
 
 
 def build_strategy_plugin_report_payload(signals: Sequence[StrategyPluginSignal]) -> dict[str, Any]:

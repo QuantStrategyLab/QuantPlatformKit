@@ -1,6 +1,8 @@
+import hashlib
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -462,6 +464,52 @@ class StrategyPluginsTests(unittest.TestCase):
         self.assertFalse(signal.execution_controls["repository_broker_write_allowed"])
         self.assertEqual(signal.local_path, str(signal_path))
 
+    def test_observation_time_requires_valid_as_of_and_explicit_cutoff(self):
+        for value in (None, "", "not-a-date", "2026-02-30", "2026-04-17T12:00:00"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "as_of"):
+                validate_strategy_plugin_signal_payload({**_signal_payload(), "as_of": value})
+        signal = validate_strategy_plugin_signal_payload(_signal_payload())
+        self.assertEqual(signal.observation_time_status, "unchecked")
+        cutoff = datetime(2026, 4, 16, tzinfo=timezone.utc)
+        with self.assertRaisesRegex(ValueError, "future"):
+            validate_strategy_plugin_signal_payload(_signal_payload(), decision_time=cutoff)
+        with self.assertRaisesRegex(ValueError, "decision_time"):
+            validate_strategy_plugin_signal_payload(_signal_payload(), decision_time=datetime(2026, 4, 17))
+        signal = validate_strategy_plugin_signal_payload(
+            _signal_payload(), decision_time=datetime(2026, 4, 17, tzinfo=timezone.utc)
+        )
+        self.assertEqual(signal.observation_time_status, "date_not_future")
+        timestamp = {**_signal_payload(), "as_of": "2026-04-17T10:00:00+02:00"}
+        signal = validate_strategy_plugin_signal_payload(
+            timestamp, decision_time=datetime(2026, 4, 17, 8, tzinfo=timezone.utc)
+        )
+        self.assertEqual(signal.observation_time_status, "timestamp_not_future")
+        with self.assertRaisesRegex(ValueError, "future"):
+            validate_strategy_plugin_signal_payload(
+                timestamp, decision_time=datetime(2026, 4, 17, 7, tzinfo=timezone.utc)
+            )
+
+    def test_loader_hashes_parsed_bytes_and_verifies_expected_digest(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "signal.json"
+            raw = json.dumps(_signal_payload()).encode("utf-8")
+            path.write_bytes(raw)
+            digest = hashlib.sha256(raw).hexdigest()
+            signal = load_strategy_plugin_signal(str(path), expected_sha256=digest)
+            self.assertEqual(signal.artifact_sha256, digest)
+            self.assertEqual(signal.digest_status, "verified")
+            self.assertEqual(signal.report_summary()["artifact_sha256"], digest)
+            self.assertIsNotNone(datetime.fromisoformat(signal.observed_at).tzinfo)
+            enabled = replace(signal, execution_controls={**signal.execution_controls, "strategy_runtime_metadata_allowed": True})
+            actual_payload = build_strategy_plugin_metadata((enabled,))[signal.plugin]
+            canonical = json.dumps(actual_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+            self.assertEqual(signal.consumer_payload_sha256, hashlib.sha256(canonical.encode()).hexdigest())
+            self.assertEqual(load_strategy_plugin_signal(str(path)).digest_status, "unverified")
+            with self.assertRaisesRegex(ValueError, "sha256 mismatch"):
+                load_strategy_plugin_signal(str(path), expected_sha256="0" * 64)
+            with self.assertRaisesRegex(ValueError, "expected_sha256"):
+                load_strategy_plugin_signal(str(path), expected_sha256="bad")
+
     def test_load_strategy_plugin_signal_rejects_mismatched_mount(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             signal_path = Path(tmp_dir) / "latest_signal.json"
@@ -506,6 +554,36 @@ class StrategyPluginsTests(unittest.TestCase):
             signals = load_configured_strategy_plugin_signals(mounts, strategy_profile="tqqq_growth_income")
 
         self.assertEqual([signal.plugin for signal in signals], ["crisis_response_shadow"])
+
+    def test_configured_loaders_bind_each_selected_reference(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            paths = [Path(tmp_dir) / "first.json", Path(tmp_dir) / "second.json"]
+            payloads = [_signal_payload(), _signal_payload(plugin=PLUGIN_MARKET_REGIME_CONTROL)]
+            for path, payload in zip(paths, payloads):
+                path.write_text(json.dumps(payload), encoding="utf-8")
+            mounts = parse_strategy_plugin_mounts([
+                {"strategy": "tqqq_growth_income", "plugin": payload["plugin"], "signal_path": str(path)}
+                for path, payload in zip(paths, payloads)
+            ])
+            digests = {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+            cutoff = datetime(2026, 4, 17, tzinfo=timezone.utc)
+            signals = load_configured_strategy_plugin_signals(
+                mounts, decision_time=cutoff, expected_sha256_by_reference=digests
+            )
+            self.assertEqual([s.artifact_sha256 for s in signals], [digests[str(p)] for p in paths])
+            self.assertTrue(all(s.digest_status == "verified" for s in signals))
+            with self.assertRaisesRegex(ValueError, "sha256 mismatch"):
+                load_configured_strategy_plugin_signals(
+                    mounts, expected_sha256_by_reference={str(paths[0]): digests[str(paths[1])],
+                                                          str(paths[1]): digests[str(paths[0])]}
+                )
+            with self.assertRaisesRegex(ValueError, "expected_sha256_by_reference"):
+                load_configured_strategy_plugin_signals(mounts, expected_sha256_by_reference={})
+            with self.assertRaisesRegex(ValueError, "expected_sha256_by_reference"):
+                load_configured_strategy_plugin_signals(mounts, expected_sha256_by_reference={str(paths[0]): "bad"})
+            paths[0].write_text(json.dumps({**payloads[0], "as_of": "9999-01-01"}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "future"):
+                load_configured_strategy_plugin_signals(mounts, decision_time=cutoff)
 
     def test_validate_strategy_plugin_signal_payload_rejects_non_shadow_artifact_mode(self):
         with self.assertRaisesRegex(ValueError, "mode must be one of shadow"):
@@ -898,7 +976,21 @@ class StrategyPluginsTests(unittest.TestCase):
                 ]
             )
 
-            signals = load_configured_strategy_plugin_notification_target_signals(targets)
+            digest = hashlib.sha256(signal_path.read_bytes()).hexdigest()
+            signals = load_configured_strategy_plugin_notification_target_signals(
+                targets, decision_time=datetime(2026, 4, 17, tzinfo=timezone.utc),
+                expected_sha256_by_reference={str(signal_path): digest},
+            )
+            self.assertEqual(signals[0].digest_status, "verified")
+            with self.assertRaisesRegex(ValueError, "sha256 mismatch"):
+                load_configured_strategy_plugin_notification_target_signals(
+                    targets, expected_sha256_by_reference={str(signal_path): "0" * 64}
+                )
+            signal_path.write_text(json.dumps({**payload, "as_of": "9999-01-01"}), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "future"):
+                load_configured_strategy_plugin_notification_target_signals(
+                    targets, decision_time=datetime(2026, 4, 17, tzinfo=timezone.utc)
+                )
 
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0].notification_target, GENERAL_MARKET_REGIME_NOTIFICATION_TARGET)

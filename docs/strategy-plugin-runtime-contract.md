@@ -168,6 +168,34 @@ The loader validates:
 - optional `expected_mode` matches `effective_mode`
 - duplicate platform mounts are rejected
 - platform mount config does not set `mode`
+- `as_of` is an ISO calendar date or timezone-aware ISO timestamp
+
+`load_strategy_plugin_signal` accepts an optional `expected_sha256` from a
+trusted release manifest. It hashes the exact bytes parsed and rejects a
+mismatch. Reports include `artifact_sha256` and `digest_status` (`verified` or
+`unverified`); a digest without a trusted expected value proves only the bytes
+observed, not their provenance. The validator operating on an in-memory mapping
+has no byte digest.
+
+An optional timezone-aware `decision_time` rejects an `as_of` after that
+instant, or after its UTC calendar date for date-only values. Reports describe
+the check as `timestamp_not_future` or `date_not_future`. Without a decision
+time the status is `unchecked`, and no wall clock is inferred. A date-only
+comparison does not establish intraday availability, freshness, or point-in-time
+eligibility. Consumers requiring those properties must bind a trusted
+availability time and immutable release identity separately. Existing callers
+that omit the new arguments retain observation behavior, but invalid or missing
+`as_of` values now fail validation. Mutable `latest` paths are not immutable
+replay inputs, even when their observed digest is reported.
+
+These checks do not confer strategy, position, or broker authority. Both
+configured loaders accept `decision_time` and `expected_sha256_by_reference`.
+The latter maps each exact configured signal reference to its trusted digest;
+when supplied, it must cover every enabled, selected reference, and malformed
+entries are rejected. This avoids applying one digest to multiple artifacts and
+does not trust a digest supplied by an artifact. Omitted arguments retain
+unchecked time and unverified digest status. Platform callers must supply both
+values explicitly to obtain both checks.
 
 ## Behavior Boundary
 
