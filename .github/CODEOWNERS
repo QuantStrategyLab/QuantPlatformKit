@@ -9,3 +9,28 @@
 /src/quant_platform_kit/common/port_adapters.py @Pigbibi
 /src/quant_platform_kit/common/execution_translation.py @Pigbibi
 /src/quant_platform_kit/position_sizing.py @Pigbibi
+
+# Risk-sensitive changes require the repository owner.
+/.github/workflows/ @Pigbibi
+/scripts/verify_fractional_dca_execution.py @Pigbibi
+/src/quant_platform_kit/binance/execution.py @Pigbibi
+/src/quant_platform_kit/common/account_risk_budget.py @Pigbibi
+/src/quant_platform_kit/common/execution_capabilities.py @Pigbibi
+/src/quant_platform_kit/common/execution_commands.py @Pigbibi
+/src/quant_platform_kit/common/execution_fills.py @Pigbibi
+/src/quant_platform_kit/common/execution_outcomes.py @Pigbibi
+/src/quant_platform_kit/common/execution_receipts.py @Pigbibi
+/src/quant_platform_kit/common/execution_state.py @Pigbibi
+/src/quant_platform_kit/common/paper_execution_admission.py @Pigbibi
+/src/quant_platform_kit/common/paper_execution_command_consumer.py @Pigbibi
+/src/quant_platform_kit/common/risk_guarded_execution_port.py @Pigbibi
+/src/quant_platform_kit/common/risk_mandates.py @Pigbibi
+/src/quant_platform_kit/common/strategy_risk_state.py @Pigbibi
+/src/quant_platform_kit/execution_kernel/ @Pigbibi
+/src/quant_platform_kit/ibkr/execution.py @Pigbibi
+/src/quant_platform_kit/longbridge/execution.py @Pigbibi
+/src/quant_platform_kit/research_stats/execution_models.py @Pigbibi
+/src/quant_platform_kit/schemas/forward-risk-terminal.v1.schema.json @Pigbibi
+/src/quant_platform_kit/schwab/execution.py @Pigbibi
+/src/quant_platform_kit/strategy_lifecycle/forward_risk_driver.py @Pigbibi
+/src/quant_platform_kit/strategy_lifecycle/non_live_execution_evidence.py @Pigbibi
