@@ -70,6 +70,8 @@ Organization documentation rules are checked by `python scripts/check_style.py`,
 
 ## Do not
 
+- Only the owner, or a reviewer explicitly authorized by the owner, may apply the `owner-approved` label; coding agents must never apply it to their own PRs.
+
 - Do not change a public contract, schema or adapter signature without checking
   the downstream consumers and the compatibility story.
 - Do not bump dependency refs or pins as part of unrelated work.
