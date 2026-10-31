@@ -66,6 +66,20 @@ Organization documentation rules are checked by `python scripts/check_style.py`,
   test pass.
 - Do not rewrite an accepted ADR; add a new one that supersedes it.
 
+<!-- content-boundary:begin -->
+- Public material carries no real resource names or accounts: write
+  `gs://<bucket>/...` and `<account-id>`, and use synthetic values in
+  examples.
+- Read bucket names, accounts and hostnames from `vars.*`, the
+  environment, or protected configuration; do not hard-code them in
+  source, workflows or documents.
+- A hash is not anonymisation: a commit id, digest or truncated
+  identifier that leads back to the real object does not belong in
+  public material.
+- Judge a change by `git diff` and `git ls-files`; `.gitignore` only
+  affects untracked files and is not evidence that nothing leaked.
+<!-- content-boundary:end -->
+
 ## Commits and pull requests
 
 Conventional Commits with an English imperative subject of 72 characters or
