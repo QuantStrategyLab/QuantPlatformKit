@@ -2,9 +2,9 @@
 
 [Specification index](README.md) · [中文](ARCHITECTURE.zh-CN.md). Use the index for topic navigation and the historical plugin boundary when reading legacy mount examples.
 
-> Comprehensive architecture document for the QuantStrategyLab ecosystem.
-> Covers layer responsibilities, data flow, design patterns, and naming conventions across all repositories.
-> Maintained in QuantPlatformKit as the shared reference for all platform and strategy repos.
+> Architecture reference for the QuantStrategyLab ecosystem.
+> Layer responsibilities, data flow, design patterns, and naming conventions across all repositories.
+> Maintained in QuantPlatformKit as the shared reference for platform and strategy repos.
 
 ## 1. System Overview
 
