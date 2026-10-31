@@ -43,7 +43,7 @@ def cycle_evidence(execution: Mapping, orders: Sequence[Mapping], *, dry_run: bo
             break
         for record in records:
             identity = next((record.get(k) for k in ("execution_id", "execId", "tradeId") if record.get(k) is not None), None) if isinstance(record, Mapping) else None
-            if identity is None:
+            if not ((isinstance(identity, str) and identity.strip()) or type(identity) is int):
                 fills_known = False
                 break
             fill_ids.append(str(identity))
@@ -131,11 +131,53 @@ def summary_evidence(summary: Mapping, *, dry_run: bool = False, known_pending: 
     orders = list(summary.get("orders_submitted") or ()) + list(summary.get("option_orders_submitted") or ())
     filled = list(summary.get("orders_filled") or ()) + list(summary.get("option_orders_filled") or ())
     evidence = dict(summary)
+
+    def identities(items):
+        raw = [item.get("broker_order_id") if isinstance(item, Mapping) else None for item in items]
+        if any(not ((isinstance(value, str) and value.strip()) or type(value) is int) for value in raw):
+            return None
+        ids = [str(value) for value in raw]
+        if len(set(ids)) != len(ids):
+            return None
+        return set(ids)
+
+    outcome_keys = ("orders_filled", "option_orders_filled", "orders_pending", "option_orders_pending",
+                    "orders_partially_filled", "option_orders_partially_filled")
+    if any(summary.get(key) for key in outcome_keys):
+        outcomes = [item for key in outcome_keys for item in (summary.get(key) or ())]
+        submitted_ids, outcome_ids = identities(orders), identities(outcomes)
+        if submitted_ids is None or outcome_ids is None or submitted_ids != outcome_ids:
+            result = cycle_evidence(evidence, orders, dry_run=dry_run, known_pending=known_pending)
+            result.update(fill_count=None, routine=False)
+            return result
+        pending = [item for key in outcome_keys[2:] for item in (summary.get(key) or ())]
+        pending_ids = identities(pending)
+        pending_statuses = {"accepted", "submitted", "pending", "pendingsubmit", "apipending",
+                            "apipendingsubmit", "presubmitted", "partiallyfilled", "partial",
+                            "partially_filled", "broker_acknowledged"}
+        if pending and (known_pending is not True or any(
+            str(order.get("status") or "").lower() not in pending_statuses
+            for order in orders if str(order.get("broker_order_id")) in pending_ids
+        )):
+            result = cycle_evidence(evidence, orders, dry_run=dry_run, known_pending=known_pending)
+            result.update(fill_count=None, routine=False)
+            return result
     if (orders and len(orders) == len(filled) and not summary.get("orders_pending")
             and not summary.get("option_orders_pending") and not summary.get("orders_partially_filled")
             and not summary.get("option_orders_partially_filled")):
         # These collections are populated by the existing broker reconciliation.
-        facts = [{**order, "status": "filled"} for order in filled] if all(isinstance(order, Mapping) for order in filled) else orders
+        submitted_ids, filled_ids = identities(orders), identities(filled)
+        if submitted_ids is None or submitted_ids != filled_ids:
+            result = cycle_evidence(evidence, orders, dry_run=dry_run, known_pending=known_pending)
+            result.update(fill_count=None, routine=False)
+            return result
+        facts = [{**order, "status": "filled"} for order in filled]
     else:
+        if filled and not any(summary.get(key) for key in (
+            "orders_pending", "option_orders_pending", "orders_partially_filled", "option_orders_partially_filled"
+        )):
+            result = cycle_evidence(evidence, orders, dry_run=dry_run, known_pending=known_pending)
+            result.update(fill_count=None, routine=False)
+            return result
         facts = orders
     return cycle_evidence(evidence, facts, dry_run=dry_run, known_pending=known_pending)

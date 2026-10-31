@@ -21,6 +21,12 @@ default remains false. This notification classification does not change a raw
 reconciliation receipt or claim that reconciliation or a fill is complete.
 Retain the underlying pending-reconciliation status in the archived summary;
 the projection reports an order submission and leaves unproven fills unknown.
+When `summary_evidence` receives broker outcome collections, their complete,
+unique order identities must match the submitted collection. Missing, duplicate,
+or conflicting identities leave fill counts unknown and the cycle non-routine.
+Non-empty string and integer order IDs are compared in their string form; boolean
+and other values cannot establish identity. Pending outcomes additionally need
+producer proof and compatible submitted statuses.
 The lower-level legacy digest helper retains its existing mode default;
 participating broker integrations explicitly request daily routing.
 
