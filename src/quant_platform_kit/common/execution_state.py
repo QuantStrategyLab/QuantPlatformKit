@@ -826,6 +826,51 @@ class AccountSubmissionGrant:
     release_id: str
 
 
+@dataclass(frozen=True, eq=False)
+class ConditionalPlanningHandle:
+    """Process-local reference for a conditional, non-executable candidate."""
+    strategy_state_sha256: str
+    strategy_intent_sha256: str
+    strategy_session: str
+    input_sha256: str
+
+
+def _joint_strategy_transition(value):
+    from quant_platform_kit.common.strategy_risk_state import StrategyRiskStateTransition
+    try:
+        return StrategyRiskStateTransition.from_dict(value)
+    except (TypeError, ValueError) as exc:
+        raise AccountSubmissionError("invalid joint strategy state") from exc
+
+
+def _joint_strategy_binding(state, profile, owner_id, release_id, state_sha, intent_sha, strategy_session):
+    enrollment = state["strategy_enrollment"]
+    if enrollment is None:
+        if state_sha is not None or intent_sha is not None or strategy_session is not None:
+            raise AccountSubmissionError("strategy state binding requires enrollment")
+        return None
+    transition = _joint_strategy_transition(state["strategy_state"])
+    payload = transition.state
+    intent = payload.get("pending_intent")
+    if (profile != enrollment["profile"] or owner_id != enrollment["owner_id"] or release_id != enrollment["release_id"]
+            or state_sha != transition.transition_sha256 or not isinstance(intent, dict)
+            or strategy_session != transition.effective_session
+            or set(intent) != {"id", "alpha_epoch", "signal_session"}
+            or type(intent["id"]) is not str or not intent["id"]
+            or type(intent["alpha_epoch"]) is not int or intent["alpha_epoch"] <= 0
+            or intent["alpha_epoch"] != payload.get("alpha_epoch")
+            or intent["signal_session"] != transition.effective_session
+            or payload.get("schema_version") != "tqqq_daily_state.v1"
+            or payload.get("session") != transition.effective_session
+            or payload.get("alpha_trend_active") is not True
+            or payload.get("volatility_latch_active") is not False
+            or payload.get("intent_invalidation_reason") not in (None, "new_session")
+            or intent_sha != submission_binding_digest(intent)):
+        raise AccountSubmissionError("strategy state binding mismatch or intent unavailable")
+    return {"strategy_state_sha256": state_sha, "strategy_intent_sha256": intent_sha,
+            "strategy_session": strategy_session}
+
+
 @dataclass(frozen=True, init=False, eq=False)
 class AccountSubmissionSession:
     """Stage B: immutable account arbitration, with no UNKNOWN resolution API.
@@ -851,7 +896,7 @@ class AccountSubmissionSession:
             "owner_id": _submission_text(owner_id), "profile": _submission_text(profile),
             "intent_id": _submission_digest(intent_id), "release_id": _submission_digest(release_id),
             "account_root": "v1/" + submission_binding_digest({"broker": broker, "account_id": account}),
-            "_issued": {}, "_used": set(), "_mutex": threading.RLock(), "_failed": False,
+            "_issued": {}, "_used": set(), "_planning_handles": {}, "_mutex": threading.RLock(), "_failed": False,
             "account_domain": account_domain, "observed_account_id": observed_account_id,
             "broker_identity": broker_identity, "observed_at": observed_at, "decision_at": decision_at,
             "observed_environment": observed_environment, "observed_server": observed_server,
@@ -868,6 +913,15 @@ class AccountSubmissionSession:
                 return self.store._cloud_prefix_for_namespace(self.account_root, _ACCOUNT_SUBMISSION_NAMESPACE)
             return self.store._cloud_uri_for_namespace(suffix.removesuffix(".json"), _ACCOUNT_SUBMISSION_NAMESPACE)
         return Path(self.store.local_dir).expanduser() / _ACCOUNT_SUBMISSION_NAMESPACE / suffix
+
+    def for_intent(self, intent_id):
+        """Create a new session bound to the actual post-risk intent digest."""
+        return AccountSubmissionSession(self.store, broker=self.broker, account_id=self.account_id,
+            owner_id=self.owner_id, profile=self.profile, intent_id=intent_id, release_id=self.release_id,
+            account_domain=self.account_domain, observed_account_id=self.observed_account_id,
+            broker_identity=self.broker_identity, observed_at=self.observed_at, decision_at=self.decision_at,
+            observed_environment=self.observed_environment, observed_server=self.observed_server,
+            observed_currency=self.observed_currency, observed_lifecycle_id=self.observed_lifecycle_id, clock=self.clock)
 
     def _order(self, order) -> tuple[str, float]:
         _, account = _submission_account(self.broker, getattr(order, "account_id", None))
@@ -890,6 +944,10 @@ class AccountSubmissionSession:
             raise AccountSubmissionError("unsupported submission side")
         return submission_binding_digest(descriptor), quantity
 
+    def order_binding_digest(self, order) -> str:
+        """Return the canonical digest used to bind this account's order."""
+        return self._order(order)[0]
+
     @staticmethod
     def _event_hash(event: Mapping[str, Any]) -> str:
         return submission_binding_digest({k: v for k, v in event.items() if k != "event_sha256"})
@@ -908,7 +966,7 @@ class AccountSubmissionSession:
             return "TERMINAL" if filled == quantity else "UNKNOWN"
         if status in _SUBMISSION_PARTIAL:
             return "KNOWN_PENDING" if 0 < filled < quantity else "UNKNOWN"
-        if status in _SUBMISSION_ACK:
+        if status in _SUBMISSION_ACK or status == "accepted":
             return "KNOWN_PENDING"
         return "UNKNOWN"
 
@@ -925,7 +983,7 @@ class AccountSubmissionSession:
                 return path.read_text(encoding="utf-8")
         if len(locations) != len(set(map(str, locations))):
             raise AccountSubmissionError("duplicate account journal sequence")
-        state: dict[str, Any] = {"generation": 0, "head_sha256": "0" * 64, "attempts": {}, "domain_binding": None, "risk_reservations": {}, "equity_observation": None, "snapshot_position_risk": 0.0}
+        state: dict[str, Any] = {"generation": 0, "head_sha256": "0" * 64, "attempts": {}, "domain_binding": None, "risk_reservations": {}, "equity_observation": None, "snapshot_position_risk": 0.0, "strategy_enrollment": None, "strategy_state": None}
         for location in sorted(locations, key=str):
             sequence = state["generation"] + 1
             if str(location) != str(self._location(sequence)):
@@ -952,6 +1010,35 @@ class AccountSubmissionSession:
                 _submission_text(data["account_type"])
                 _submission_text(data["currency"])
                 state["domain_binding"] = data
+            elif event["kind"] == "STRATEGY_STATE_ENROLLED":
+                keys = {"profile", "owner_id", "release_id", "account_domain_key", "legacy_head_sha256",
+                        "authority_receipt_sha256", "transition"}
+                if set(data) != keys or state["strategy_enrollment"] is not None or state["domain_binding"] is None:
+                    raise AccountSubmissionError("invalid strategy state enrollment")
+                transition = _joint_strategy_transition(data["transition"])
+                if (data["account_domain_key"] != state["domain_binding"]["domain_key"]
+                        or data["profile"] != transition.identity.strategy_profile
+                        or data["legacy_head_sha256"] != transition.transition_sha256
+                        or any(a["certainty"] in {"PREPARED", "UNKNOWN", "KNOWN_PENDING"} for a in state["attempts"].values())):
+                    raise AccountSubmissionError("strategy state enrollment mismatch")
+                _submission_text(data["owner_id"])
+                _submission_digest(data["release_id"])
+                _submission_digest(data["authority_receipt_sha256"])
+                state["strategy_enrollment"] = {key: data[key] for key in ("profile", "owner_id", "release_id", "account_domain_key")}
+                state["strategy_state"] = transition.to_dict()
+            elif event["kind"] == "STRATEGY_STATE_ADVANCED":
+                if set(data) != {"profile", "owner_id", "release_id", "transition"} or state["strategy_enrollment"] is None:
+                    raise AccountSubmissionError("invalid strategy state advance")
+                enrolled = state["strategy_enrollment"]
+                if any(data[k] != enrolled[k] for k in ("profile", "owner_id", "release_id")):
+                    raise AccountSubmissionError("strategy state actor mismatch")
+                prior = _joint_strategy_transition(state["strategy_state"])
+                transition = _joint_strategy_transition(data["transition"])
+                if (transition.identity != prior.identity or transition.previous_transition_sha256 != prior.transition_sha256
+                        or transition.effective_session <= prior.effective_session
+                        or any(a["certainty"] in {"PREPARED", "UNKNOWN", "KNOWN_PENDING"} for a in state["attempts"].values())):
+                    raise AccountSubmissionError("strategy state advance conflict")
+                state["strategy_state"] = transition.to_dict()
             elif event["kind"] == "EQUITY_OBSERVED":
                 equity_fields = {"equity", "cash_flow", "peak", "currency", "valuation_at", "source_digest", "covered_fills", "covered_fees", "position_risk", "position_3x_exposure", "protected_equity", "balance", "cash", "account_domain_key", "account_binding", "valid_until", "pending_3x_exposure", "open_orders_complete", "positions", "open_orders_empty"}
                 if set(data) not in (equity_fields, equity_fields | {"pending_order_evidence"}) or state["domain_binding"] is None:
@@ -1048,12 +1135,21 @@ class AccountSubmissionSession:
                 state["snapshot_position_risk"] = position_risk
             elif event["kind"] == "PREPARED":
                 keys = {"attempt_id", "fence", "intent_id", "order_sha256", "release_id", "owner_id", "profile", "quantity"}
-                if set(data) not in (keys, keys | {"reduction", "reduction_source_digest"}) or ("reduction" in data and data["reduction"] is not True):
+                if set(data) not in (keys, keys | {"reduction", "reduction_source_digest"}, keys | {"reduction", "reduction_source_digest", "reduction_kind"}, keys | {"strategy_binding"}) or ("reduction" in data and data["reduction"] is not True) or ("reduction_kind" in data and data["reduction_kind"] != "strategy_position"):
                     raise AccountSubmissionError("invalid prepared fields")
                 for key in ["attempt_id", "fence", "intent_id", "order_sha256", "release_id"]:
                     _submission_digest(data[key])
                 for key in ["owner_id", "profile"]:
                     _submission_text(data[key])
+                if not data.get("reduction"):
+                    supplied = data.get("strategy_binding") or {}
+                    binding = _joint_strategy_binding(state, data["profile"], data["owner_id"], data["release_id"],
+                        supplied.get("strategy_state_sha256"), supplied.get("strategy_intent_sha256"), supplied.get("strategy_session"))
+                    if binding != data.get("strategy_binding"):
+                        raise AccountSubmissionError("strategy state binding mismatch")
+                elif state["strategy_enrollment"] is not None and any(
+                        data[key] != state["strategy_enrollment"][key] for key in ("profile", "owner_id", "release_id")):
+                    raise AccountSubmissionError("strategy reduction actor mismatch")
                 quantity = _submission_number(data["quantity"])
                 if quantity <= 0 or any(a["certainty"] in {"PREPARED", "UNKNOWN"} for a in state["attempts"].values()):
                     raise AccountSubmissionError("prepared event bypasses unresolved account")
@@ -1380,15 +1476,27 @@ class AccountSubmissionSession:
 
     def reserve_reduction(self, order, *, admission) -> AccountSubmissionGrant:
         """Reserve an account-brake reduction from a complete bound snapshot."""
+        return self._reserve_verified_reduction(order, admission=admission, strategy_position=False)
+
+    def reserve_strategy_reduction(self, order) -> AccountSubmissionGrant:
+        """Reserve an independently proven position reduction, without a flip."""
+        return self._reserve_verified_reduction(order, admission=None, strategy_position=True)
+
+    def _reserve_verified_reduction(self, order, *, admission, strategy_position):
         from quant_platform_kit.common.account_domain import (
             _time, account_domain_key, account_domain_matches_broker_identity,
             account_domain_policy_active, validate_account_domain,
         )
         from quant_platform_kit.risk.account_new_risk_gate import NewRiskAdmissionResult, is_proven_risk_reducing_order
         with self._mutex:
-            if self._failed or self.account_domain is None or not isinstance(admission, NewRiskAdmissionResult) or not admission.hard_brake_triggered:
+            if self._failed or self.account_domain is None or (not strategy_position and (not isinstance(admission, NewRiskAdmissionResult) or not admission.hard_brake_triggered)):
                 raise AccountSubmissionError("verified account brake required")
             state = self.read_state()
+            enrollment = state["strategy_enrollment"]
+            if strategy_position and enrollment is None:
+                raise AccountSubmissionError("strategy state enrollment required")
+            if enrollment is not None and any(enrollment[k] != getattr(self, k) for k in ("profile", "owner_id", "release_id")):
+                raise AccountSubmissionError("strategy state enrollment mismatch")
             domain = validate_account_domain(self.account_domain, platform_id=self.broker)
             binding = {"domain_key": account_domain_key(domain), "account_type": domain["policy"]["account_type"], "currency": domain["policy"]["currency"]}
             _, account = _submission_account(self.broker, self.observed_account_id)
@@ -1400,8 +1508,8 @@ class AccountSubmissionSession:
                     or not _time(observed["valuation_at"]) <= _time(self.decision_at) < _time(observed["valid_until"])):
                 raise AccountSubmissionError("complete verified reduction observation required")
             from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
-            if observed["peak"] <= 0 or "DRAWDOWN_BRAKE_TRIPPED" not in evaluate_capital_risk_envelope(
-                    observed["protected_equity"], drawdown_from_peak=max(0.0, 1.0 - observed["equity"] / observed["peak"])).reasons:
+            if not strategy_position and (observed["peak"] <= 0 or "DRAWDOWN_BRAKE_TRIPPED" not in evaluate_capital_risk_envelope(
+                    observed["protected_equity"], drawdown_from_peak=max(0.0, 1.0 - observed["equity"] / observed["peak"])).reasons):
                 raise AccountSubmissionError("independent drawdown brake not verified")
             digest, quantity = self._order(order)
             symbol = str(getattr(order, "symbol", "")).strip().upper()
@@ -1425,18 +1533,143 @@ class AccountSubmissionSession:
                     "intent_id": self.intent_id, "order_sha256": digest, "release_id": self.release_id,
                     "owner_id": self.owner_id, "profile": self.profile, "quantity": quantity, "reduction": True,
                     "reduction_source_digest": observed["source_digest"]}
+            if strategy_position:
+                data["reduction_kind"] = "strategy_position"
             event = self._append(state, "PREPARED", data)
             grant = AccountSubmissionGrant(self.account_root, data["attempt_id"], data["fence"], event["sequence"], event["event_sha256"], self.intent_id, digest, self.release_id)
             self._issued[grant.attempt_id] = grant
             return grant
 
-    def reserve(self, order) -> AccountSubmissionGrant:
+    def _joint_domain(self, state):
+        from quant_platform_kit.common.account_domain import (
+            account_domain_key, account_domain_matches_broker_identity, account_domain_policy_active, validate_account_domain,
+        )
+        if self.account_domain is None:
+            raise AccountSubmissionError("verified account domain required")
+        domain = validate_account_domain(self.account_domain, platform_id=self.broker)
+        _, account = _submission_account(self.broker, self.observed_account_id)
+        if (account != self.account_id or not account_domain_matches_broker_identity(
+                domain, self.broker_identity, observed_environment=self.observed_environment,
+                observed_server=self.observed_server, observed_currency=self.observed_currency,
+                observed_lifecycle_id=self.observed_lifecycle_id)
+                or not account_domain_policy_active(domain, as_of=self.decision_at)):
+            raise AccountSubmissionError("account domain observation mismatch")
+        binding = {"domain_key": account_domain_key(domain), "account_type": domain["policy"]["account_type"],
+                   "currency": domain["policy"]["currency"]}
+        if state["domain_binding"] is None:
+            self._append(state, "DOMAIN_BOUND", binding)
+            state = self.read_state()
+        if state["domain_binding"] != binding:
+            raise AccountSubmissionError("account domain binding mismatch")
+        return state, binding
+
+    def enroll_strategy_state(self, transition, *, legacy_store, migration_authorization):
+        """Migrate an externally authorized legacy head into this account journal.
+
+        The binding is not authentication. The caller must independently
+        verify its authority and the exact legacy head before invoking this.
+        """
+        from quant_platform_kit.common.strategy_risk_state import StrategyRiskStateStore, StrategyRiskStateTransition
+        if (not isinstance(transition, StrategyRiskStateTransition) or not isinstance(legacy_store, StrategyRiskStateStore)
+                or not isinstance(migration_authorization, Mapping)):
+            raise AccountSubmissionError("invalid strategy state migration")
+        if set(migration_authorization) != {"account_domain_key", "account_binding_sha256", "owner_id", "release_id", "legacy_head_sha256", "strategy_identity", "authority_receipt_sha256"}:
+            raise AccountSubmissionError("invalid strategy state migration fields")
+        if (transition.identity.strategy_profile != self.profile
+                or migration_authorization["account_binding_sha256"] != submission_binding_digest({"broker": self.broker, "account_id": self.account_id})
+                or migration_authorization["owner_id"] != self.owner_id
+                or migration_authorization["release_id"] != self.release_id
+                or migration_authorization["strategy_identity"] != transition.identity.to_dict()
+                or migration_authorization["legacy_head_sha256"] != transition.transition_sha256):
+            raise AccountSubmissionError("strategy state migration mismatch")
+        _submission_digest(migration_authorization["authority_receipt_sha256"])
+        from quant_platform_kit.common.account_domain import account_domain_key
+        if self.account_domain is None or migration_authorization["account_domain_key"] != account_domain_key(self.account_domain):
+            raise AccountSubmissionError("strategy state migration domain mismatch")
+        try:
+            legacy_chain = legacy_store.load_chain(transition.identity)
+        except Exception as exc:
+            raise AccountSubmissionError("legacy strategy state unavailable") from exc
+        if not legacy_chain or legacy_chain[-1] != transition:
+            raise AccountSubmissionError("legacy strategy state head mismatch")
+        with self._mutex:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain")
+            state, domain = self._joint_domain(self.read_state())
+            if migration_authorization["account_domain_key"] != domain["domain_key"]:
+                raise AccountSubmissionError("strategy state migration domain mismatch")
+            if state["strategy_enrollment"] is not None or any(
+                    a["certainty"] in {"PREPARED", "UNKNOWN", "KNOWN_PENDING"} for a in state["attempts"].values()):
+                raise AccountSubmissionError("strategy state enrollment conflict")
+            return self._append(state, "STRATEGY_STATE_ENROLLED", {
+                "profile": self.profile, "owner_id": self.owner_id, "release_id": self.release_id,
+                "account_domain_key": domain["domain_key"], "legacy_head_sha256": transition.transition_sha256,
+                "authority_receipt_sha256": migration_authorization["authority_receipt_sha256"],
+                "transition": transition.to_dict()})
+
+    def advance_strategy_state(self, transition):
+        """Append one state transition under the account's dispatch fence."""
+        from quant_platform_kit.common.strategy_risk_state import StrategyRiskStateTransition
+        if not isinstance(transition, StrategyRiskStateTransition):
+            raise AccountSubmissionError("invalid strategy state")
+        with self._mutex:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain")
+            state = self.read_state()
+            if state["strategy_enrollment"] is None:
+                raise AccountSubmissionError("strategy state enrollment mismatch")
+            state, _ = self._joint_domain(state)
+            enrollment = state["strategy_enrollment"]
+            if enrollment is None or any(enrollment[k] != getattr(self, k) for k in ("profile", "owner_id", "release_id")):
+                raise AccountSubmissionError("strategy state enrollment mismatch")
+            prior = _joint_strategy_transition(state["strategy_state"])
+            if (transition.identity != prior.identity or transition.previous_transition_sha256 != prior.transition_sha256
+                    or transition.effective_session <= prior.effective_session
+                    or any(a["certainty"] in {"PREPARED", "UNKNOWN", "KNOWN_PENDING"} for a in state["attempts"].values())):
+                raise AccountSubmissionError("strategy state advance conflict")
+            return self._append(state, "STRATEGY_STATE_ADVANCED", {"profile": self.profile, "owner_id": self.owner_id,
+                "release_id": self.release_id, "transition": transition.to_dict()})
+
+    def conditional_planning_handle(self, *, strategy_state_sha256, strategy_intent_sha256, strategy_session, input_sha256):
+        """Issue a non-executable candidate handle for a confirmed current head."""
+        with self._mutex:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain")
+            state = self.read_state()
+            if state["strategy_enrollment"] is None:
+                raise AccountSubmissionError("strategy state enrollment required")
+            _joint_strategy_binding(state, self.profile, self.owner_id, self.release_id,
+                                    strategy_state_sha256, strategy_intent_sha256, strategy_session)
+            if _joint_strategy_transition(state["strategy_state"]).input_sha256 != _submission_digest(input_sha256):
+                raise AccountSubmissionError("strategy input mismatch")
+            if any(a["certainty"] in {"PREPARED", "UNKNOWN", "KNOWN_PENDING"} for a in state["attempts"].values()):
+                raise AccountSubmissionError("unresolved account submission")
+            handle = ConditionalPlanningHandle(strategy_state_sha256, strategy_intent_sha256, strategy_session, input_sha256)
+            self._planning_handles[id(handle)] = handle
+            return handle
+
+    def validate_conditional_planning_handle(self, handle, *, input_sha256):
+        """Recheck a handle; this never reserves or authorizes an order."""
+        with self._mutex:
+            if self._planning_handles.get(id(handle)) is not handle or handle.input_sha256 != input_sha256:
+                raise AccountSubmissionError("invalid conditional planning handle")
+            state = self.read_state()
+            _joint_strategy_binding(state, self.profile, self.owner_id, self.release_id,
+                                    handle.strategy_state_sha256, handle.strategy_intent_sha256, handle.strategy_session)
+            if self._failed or _joint_strategy_transition(state["strategy_state"]).input_sha256 != input_sha256 or any(
+                    a["certainty"] in {"PREPARED", "UNKNOWN", "KNOWN_PENDING"} for a in state["attempts"].values()):
+                raise AccountSubmissionError("conditional planning handle no longer current")
+            return True
+
+    def reserve(self, order, *, strategy_state_sha256=None, strategy_intent_sha256=None, strategy_session=None) -> AccountSubmissionGrant:
         """Only a fresh acknowledged create can return a grant; never reclaim it."""
         with self._mutex:
             if self._failed:
                 raise AccountSubmissionError("session persistence uncertain; no grant")
             digest, quantity = self._order(order)
             state = self.read_state()
+            strategy_binding = _joint_strategy_binding(state, self.profile, self.owner_id, self.release_id,
+                                                       strategy_state_sha256, strategy_intent_sha256, strategy_session)
             if self.account_domain is not None:
                 from quant_platform_kit.common.account_domain import (
                     account_domain_key, account_domain_matches_broker_identity, account_domain_policy_active, validate_account_domain,
@@ -1481,6 +1714,8 @@ class AccountSubmissionSession:
                 "intent_id": self.intent_id, "order_sha256": digest, "release_id": self.release_id,
                 "owner_id": self.owner_id, "profile": self.profile, "quantity": quantity,
             }
+            if strategy_binding is not None:
+                data["strategy_binding"] = strategy_binding
             event = self._append(state, "PREPARED", data)
             grant = AccountSubmissionGrant(self.account_root, data["attempt_id"], data["fence"],
                                            event["sequence"], event["event_sha256"], self.intent_id, digest, self.release_id)
@@ -1497,6 +1732,11 @@ class AccountSubmissionSession:
         if (not attempt or attempt["fence"] != grant.fence or attempt["generation"] != grant.generation
                 or attempt["event_sha256"] != grant.event_sha256 or attempt["order_sha256"] != grant.order_sha256):
             raise AccountSubmissionError("grant fence/binding mismatch")
+        if state["strategy_enrollment"] is not None and not attempt.get("reduction"):
+            binding = attempt.get("strategy_binding") or {}
+            _joint_strategy_binding(state, self.profile, self.owner_id, self.release_id,
+                                    binding.get("strategy_state_sha256"), binding.get("strategy_intent_sha256"),
+                                    binding.get("strategy_session"))
         return state
 
     def dispatch(self, grant: AccountSubmissionGrant, order, submit: Callable[[], Any], *, record_observation_watermark=False):
