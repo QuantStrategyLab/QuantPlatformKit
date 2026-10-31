@@ -1800,7 +1800,7 @@ class AccountSubmissionSession:
             self.record_observation(grant, report)
         attempt = self.read_state()["attempts"][grant.attempt_id]
         if attempt["certainty"] == "UNKNOWN" and str(getattr(report, "status", "")).strip() in (
-            _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL
+            _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL | {"accepted"}
         ):
             raise AccountSubmissionError("broker result facts are uncertain; original attempt retained")
         return report

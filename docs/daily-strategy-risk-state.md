@@ -60,3 +60,23 @@ or pending broker outcome requires actual reconciliation; elapsed time or a
 summary count does not establish cancellation or a fill. Enrollment does not
 activate an account, authorize an order, authenticate input provenance, or
 replace broker and account controls.
+
+## Broker observation certainty
+
+The Schwab submission adapter preserves an HTTP 408, server error, malformed
+status, or unexpected response as `unknown`. A successful HTTP response without
+a broker order identifier also remains `unknown`. Explicit client-error
+rejections remain distinct. Transport exceptions propagate to the submission
+boundary, which records an unknown outcome before returning the exception.
+
+`AccountSubmissionSession.dispatch` must not return an apparently accepted
+result when its durable observation is unknown. The original reservation stays
+blocking after restart and applies to every strategy using the same physical
+account journal. No timeout, process restart, or subsequent strategy decision
+resolves that reservation.
+
+The current enrollment supports one TQQQ state identity per account journal.
+Tests that reject a competing SOXL writer demonstrate account isolation and
+reservation safety; they do not establish simultaneous TQQQ and SOXL portfolio
+operation. Shared-account adoption requires an explicit allocation and state
+ownership contract, complete broker facts, and end-to-end acceptance.
