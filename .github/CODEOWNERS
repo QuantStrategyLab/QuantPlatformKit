@@ -11,7 +11,8 @@
 /src/quant_platform_kit/position_sizing.py @Pigbibi
 
 # Risk-sensitive changes require the repository owner.
-/.github/workflows/ @Pigbibi
+# Workflow changes are not listed here: risk-gate and the owner-approved label gate them,
+# and a CODEOWNERS entry only caused review-request emails on bot workflow PRs.
 /scripts/verify_fractional_dca_execution.py @Pigbibi
 /src/quant_platform_kit/binance/execution.py @Pigbibi
 /src/quant_platform_kit/common/account_risk_budget.py @Pigbibi
