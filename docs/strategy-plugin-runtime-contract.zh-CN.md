@@ -205,8 +205,26 @@ notification-only 或 shadow-only 证据的 `blocked` 告警。自动消费信�
 `panic_reversal` 或 `taco_rebound`，action 为 `notify_manual_review`、
 `watch` 或 `observe`，且 `error`、`errors`、`risk_halt`、`auth_expired`
 均不为真。这些信号保留在报告中供摘要使用，不立即推送。各通道仍独立检查
-配置与去重。消费仓库更新 kit pin 后获得此规则；更新 pin 不会配置收件人
-或启用生产投递。
+配置与去重。消费仓库更新 kit pin 后获得此规则；更新 pin 不会启用平台配置
+排除的通道。
+
+`StrategyPluginTelegramSettings.from_object()` 在每次转换设置时统一解析凭据
+和收件人。显式传入的对象、mapping 或设置 dataclass 中的非空值优先；缺失值
+按下表从左到右读取第一个非空环境变量：
+
+| 设置 | 环境变量优先级 |
+| --- | --- |
+| Chat IDs | `STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS` → `QSL_GLOBAL_TELEGRAM_CHAT_ID` → `GLOBAL_TELEGRAM_CHAT_ID` |
+| Bot token | `QSL_STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN` → `STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN` → `TELEGRAM_TOKEN` → `TG_TOKEN` |
+
+仅含空白的值视为未设置。Chat IDs 保留现有分隔符与去重规则。任一设置仍缺失时，
+符合资格的告警仍以 `missing_telegram_config` 跳过。Token 不进入设置的 repr，
+也不得出现在日志或投递报告中。`STRATEGY_PLUGIN_ALERT_CHANNELS` 语义不变；组织
+默认配置不会把 Telegram 加入已排除它的通道列表。
+
+发布时，通过消费仓库的正常审查流程更新 kit pin，并在发布前核对所选通道及受保护
+运行环境。没有插件专用覆盖值的消费方现在可以通过已有组织 bot 和 chat 投递符合
+资格的告警。本库改动不会修改消费方配置、部署消费方，也不代表真实通知已实收。
 
 平台仍可选择自己的投递 sink；共享 helper 已提供 email、SMS、push 和
 Telegram 的聚合入口：

@@ -100,6 +100,11 @@ The frozen intent recursively copies and freezes metadata. Credential-like keys
 contents. This is a guard against accidental secret insertion, not a classifier
 for arbitrary opaque strings. Keep all credentials out of intent data.
 
+The plugin alert publisher has its own
+[settings precedence](strategy-plugin-runtime-contract.md#escalated-alerts),
+including org bot and chat defaults. The intent sender below still reads only
+the explicitly named credential source.
+
 Only the send function reads the named environment variable. Pass
 `bot_token_env="STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"` to use the existing
 plugin environment variable, or pass `secret_name` and optional `project_id` to
