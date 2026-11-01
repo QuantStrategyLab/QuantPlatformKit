@@ -1,0 +1,2 @@
+# Test fixture: sha256-style digest in evidence dict, not a credential.
+330f2d5ed01dd5c0d2e5345fcf9316958ceeb07f:tests/test_migrated_strategy_watch.py:generic-api-key:224

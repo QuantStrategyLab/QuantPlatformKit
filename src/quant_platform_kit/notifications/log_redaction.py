@@ -14,9 +14,16 @@ class SensitiveDataFilter(logging.Filter):
     """Remove credential fields, formatted secrets and exception URL credentials."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = redact_sensitive_data(record.msg)
+        # Redact arguments, then the formatted message. Redacting a "%s" template
+        # first could drop its placeholder and make getMessage() raise in a filter.
+        if not isinstance(record.msg, str):
+            record.msg = redact_sensitive_data(record.msg)
         record.args = redact_sensitive_data(record.args)
-        record.msg = redact_sensitive_text(record.getMessage())
+        try:
+            message = record.getMessage()
+        except Exception:
+            message = f"{record.msg} {record.args}"
+        record.msg = redact_sensitive_text(message)
         record.args = ()
         if record.exc_info and record.exc_info[1] is not None:
             record.exc_text = redact_exception(record.exc_info[1])

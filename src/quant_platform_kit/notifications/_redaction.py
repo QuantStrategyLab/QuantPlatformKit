@@ -9,15 +9,15 @@ from collections.abc import Mapping
 
 
 _REDACTED = "<redacted>"
-_TELEGRAM_TOKEN_RE = re.compile(r"\b\d{6,12}:A[A-Za-z0-9_-]{34}\b")
+_TELEGRAM_TOKEN_RE = re.compile(r"\b\d{6,12}:A[A-Za-z0-9_-]{34}(?![A-Za-z0-9_-])")
 _TELEGRAM_BOT_PATH_RE = re.compile(r"(?i)(/bot)([^/\s]+)")
 _SENSITIVE_QUERY_RE = re.compile(
     r"(?i)([?&](?:access[_-]?token|api[_-]?key|auth[_-]?token|key|password|secret|signature|token)=)([^&\s]+)"
 )
 _AUTH_HEADER_RE = re.compile(r"(?i)\b(Bearer|Basic)\s+([A-Za-z0-9._~+/=-]{8,})")
 _ASSIGNMENT_RE = re.compile(
-    r"(?i)(\b[A-Za-z0-9_-]*(?:api[_-]?key|auth[_-]?token|authorization|credential|"
-    r"password|passwd|private[_-]?key|secret|token)[A-Za-z0-9_-]*[\"']?\s*[:=]\s*)"
+    r"(?i)(\b[A-Za-z0-9_-]{0,64}(?:api[_-]?key|auth[_-]?token|authorization|credential|"
+    r"password|passwd|private[_-]?key|secret|token)[A-Za-z0-9_-]{0,64}[\"']?\s*[:=]\s*)"
     r"(?:([\"'])(.*?)\2|([^\s,;}\]]+))"
 )
 

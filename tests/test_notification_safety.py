@@ -316,3 +316,35 @@ def test_redacted_json_preserves_escaping_and_url_boundaries(fake_token):
     assert result["text"] == 'password="<redacted>"'
     assert result["url"] == "https://api.telegram.org/bot<redacted>"
     assert json.loads(result["nested_json"])["token"] == "<redacted>"
+
+
+def test_logging_filter_keeps_percent_placeholders_after_sensitive_names(fake_token):
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.addFilter(SensitiveDataFilter())
+    logger = logging.getLogger("qpk.placeholder-safety")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        logger.info("token=%s", "plain-secret-value")
+        logger.info("password: %s user=%s", "plain-secret-value", "run-1")
+        logger.info("%(api_key)s %(run_id)s", {"api_key": "plain-secret-value", "run_id": "run-1"})
+    finally:
+        logger.removeHandler(handler)
+    output = stream.getvalue()
+    assert "plain-secret-value" not in output
+    assert "run-1" in output and "Logging error" not in output
+
+
+def test_telegram_token_ending_in_separator_is_redacted():
+    token = "123456789:A" + "b" * 33 + "-"
+    assert token not in redact_sensitive_text("value " + token)
+    assert token not in redact_sensitive_text(token + " tail")
+
+
+def test_redaction_is_linear_on_long_hyphenated_text():
+    import time
+
+    started = time.perf_counter()
+    redact_sensitive_text("a-" * 20000)
+    assert time.perf_counter() - started < 2

@@ -4,4 +4,4 @@ useDefault = true
 [[rules]]
 id = "telegram-token-literal"
 description = "Telegram bot token literal without a keyword requirement"
-regex = '''\b\d{6,12}:A[A-Za-z0-9_-]{34}\b'''
+regex = '''\b\d{6,12}:A[A-Za-z0-9_-]{34}(?:[^A-Za-z0-9_-]|$)'''
