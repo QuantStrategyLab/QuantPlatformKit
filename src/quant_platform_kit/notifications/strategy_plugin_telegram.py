@@ -24,7 +24,6 @@ from .telegram import (
 _DEFAULT_TELEGRAM_BODY_MAX_CHARS = 3900
 _MARKET_REGIME_CONTROL_PLUGIN = "market_regime_control"
 _AUTOMATED_POSITION_ACTIONS = frozenset({"defend", "delever"})
-_MANUAL_REVIEW_ACTIONS = frozenset({"notify_manual_review"})
 _ZH_MARKET_REGIME_ROUTE_LABELS = {
     "true_crisis": "黑天鹅",
     "crisis": "黑天鹅",
@@ -167,14 +166,21 @@ def publish_strategy_plugin_telegram_alerts(
     send_notification: Callable[..., bool] = send_strategy_plugin_telegram,
     log_message: Callable[..., Any] = print,
 ) -> StrategyPluginTelegramAlertPublishResult:
+    """Use the same builder eligibility as email, preserving Telegram exclusions.
+
+    Every email-eligible signal is immediately eligible here unless the routine
+    daily-digest rule defers it. Auto-consumable signals remain excluded; the
+    current sidecar policy disables direct position control. Transport settings,
+    per-channel dedupe and delivery failures are independent of eligibility.
+    """
     settings = StrategyPluginTelegramSettings.from_object(telegram_settings)
     del context_label  # The plugin Telegram bot is a unified manual-review channel.
-    manual_review_signals = tuple(
-        signal for signal in signals if _is_manual_review_telegram_signal(signal)
+    telegram_signals = tuple(
+        signal for signal in signals if not _is_auto_consumable_signal(signal)
         and not _routine_observation_to_digest(signal)
     )
     messages = build_strategy_plugin_alert_messages(
-        manual_review_signals,
+        telegram_signals,
         translator=translator,
         strategy_label=strategy_label,
         context_label=None,
@@ -228,33 +234,6 @@ def _routine_observation_to_digest(signal: object) -> bool:
     if route not in {"watch", "opportunity_watch", "panic_reversal", "taco_rebound"} or action not in {"notify_manual_review", "watch", "observe"}:
         return False
     return not any(getattr(signal, key, None) for key in ("error", "errors", "risk_halt", "auth_expired"))
-
-
-def _is_manual_review_telegram_signal(signal: object) -> bool:
-    if _is_auto_consumable_signal(signal):
-        return False
-    target_type = str(getattr(signal, "target_type", None) or "strategy").strip().lower()
-    if target_type == "notification_target":
-        return True
-    action = str(getattr(signal, "suggested_action", None) or "").strip().lower()
-    if action in _AUTOMATED_POSITION_ACTIONS:
-        return True
-    if action in _MANUAL_REVIEW_ACTIONS:
-        return True
-    controls = _signal_execution_controls(signal)
-    policy = _signal_consumption_policy(signal)
-    status = str(
-        controls.get("consumption_evidence_status")
-        or policy.get("evidence_status")
-        or ""
-    ).strip().lower()
-    if status == "notification_only":
-        return True
-    for key in ("capital_impact", "notification_profile"):
-        value = str(controls.get(key) or policy.get(key) or "").strip().lower()
-        if value in {"notification_only", "shadow_only"}:
-            return True
-    return False
 
 
 def _is_auto_consumable_signal(signal: object) -> bool:

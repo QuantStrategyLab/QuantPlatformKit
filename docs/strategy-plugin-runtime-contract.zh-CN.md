@@ -197,6 +197,17 @@ notification target；这类委托告警只从对应 `notification_targets` arti
 `evidence_valid_until`）和 `bounded_budget` 仍是有用的历史证据，但不能
 恢复插件直接控制仓位的权限。
 
+Telegram 与 email 使用相同的共享消息构造资格判断，包括没有
+notification-only 或 shadow-only 证据的 `blocked` 告警。自动消费信号的
+排除规则保留，当前 sidecar 策略下该排除不生效。email 可发送的信号也可
+立即发往 Telegram，但 `QSL_ROUTINE_NOTIFICATION_MODE=daily_digest` 下的
+例行观察继续延后到摘要：route 为 `watch`、`opportunity_watch`、
+`panic_reversal` 或 `taco_rebound`，action 为 `notify_manual_review`、
+`watch` 或 `observe`，且 `error`、`errors`、`risk_halt`、`auth_expired`
+均不为真。这些信号保留在报告中供摘要使用，不立即推送。各通道仍独立检查
+配置与去重。消费仓库更新 kit pin 后获得此规则；更新 pin 不会配置收件人
+或启用生产投递。
+
 平台仍可选择自己的投递 sink；共享 helper 已提供 email、SMS、push 和
 Telegram 的聚合入口：
 

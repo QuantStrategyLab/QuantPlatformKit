@@ -232,6 +232,18 @@ routes. Historical evidence fields such as `evidence_package_id`,
 `evidence_valid_until`, and `bounded_budget` remain useful provenance, but they
 do not restore direct position-control permission.
 
+Telegram uses the same shared message-builder eligibility as email, including
+`blocked` alerts without notification-only or shadow-only evidence. It preserves
+the auto-consumable exclusion (currently inactive under the sidecar policy).
+Email-eligible signals are immediately eligible for Telegram, except when
+`QSL_ROUTINE_NOTIFICATION_MODE=daily_digest` defers routine observations: routes
+`watch`, `opportunity_watch`, `panic_reversal`, or `taco_rebound` with action
+`notify_manual_review`, `watch`, or `observe`, and no truthy `error`, `errors`,
+`risk_halt`, or `auth_expired`. These remain in the signal report for the digest
+and are not pushed immediately. Channel configuration and deduplication still
+apply independently. Consumers receive this rule by updating their kit pin;
+the pin update does not configure recipients or enable production delivery.
+
 Platforms may still choose their delivery sinks, but shared escalation helpers
 are available for email, SMS, push, and Telegram:
 
