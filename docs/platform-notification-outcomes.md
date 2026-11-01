@@ -71,3 +71,93 @@ Platform repositories should:
 - include the resolved stage in persisted run state and API responses
 - render execution blockers consistently in logs and notifications
 - keep broker-specific order payloads, account labels, and transport wiring local
+
+## Credential-free delivery and redaction
+
+`quant_platform_kit.notifications` exports `NotificationIntent`,
+`NotificationReceipt`, `send_notification_intent`, `redact_sensitive_text`,
+`redact_sensitive_data`, `redact_exception`, `SensitiveDataFilter` and
+`install_log_redaction`.
+
+Build an intent from non-credential data and serialize it with `to_dict()`:
+
+```python
+import json
+from quant_platform_kit.notifications import NotificationIntent, send_notification_intent
+
+intent = NotificationIntent(
+    text="Execution complete", run_id="example-run", chat_ids=("example-chat",),
+    dry_run=True, metadata={"source": "scheduler"},
+)
+json.dumps(intent.to_dict())
+receipt = send_notification_intent(intent, bot_token_env="TELEGRAM_TOKEN")
+json.dumps(receipt)
+```
+
+The frozen intent recursively copies and freezes metadata. Credential-like keys
+(such as `token`, `secret`, `password`, `api_key`, `authorization` and
+`private_key`) and credential-shaped strings are rejected without echoing their
+contents. This is a guard against accidental secret insertion, not a classifier
+for arbitrary opaque strings. Keep all credentials out of intent data.
+
+Only the send function reads the named environment variable. Pass
+`bot_token_env="STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"` to use the existing
+plugin environment variable, or pass `secret_name` and optional `project_id` to
+use the existing cloud `get_secret_store().get_secret(...)` abstraction instead.
+An explicit secret name takes precedence; a failed secret lookup does not fall
+back to another identity. A dry run reads no credentials and makes no request.
+No new credential cache or token-bearing settings object is created.
+
+The JSON-compatible receipt has exactly `status`, `http_status`, `sha256`,
+`length`, `run_id` and `ok`. `sha256` hashes the original intent text as UTF-8;
+`length` counts its characters before the existing transport normalization.
+`status` is `sent`, `failed` or `dry_run`; `ok` means every recipient received an
+HTTP success with an affirmative Telegram API acknowledgement, or the dry run
+completed. It does not mean the recipient read the message. `http_status` is
+`null` when no HTTP response was observed or recipients returned different
+statuses. Provider errors and response bodies are never included.
+Persist the receipt when the report does not need message text or chat identifiers.
+
+The existing `send_telegram_message` and `send_strategy_plugin_telegram`
+signatures and boolean return values remain supported. Consumer migration is
+separate and requires updating pinned QPK revisions.
+
+### Logging and text streams
+
+Configure logging first, then install the filter:
+
+```python
+import logging
+from quant_platform_kit.notifications import install_log_redaction
+
+logging.basicConfig(level=logging.INFO)
+install_log_redaction(wrap_streams=True)
+```
+
+Installation is idempotent. It filters the root logger and all current handlers,
+including handlers on child loggers, so propagated records are covered. Call it
+again after adding handlers. It redacts formatted messages, structured arguments,
+cached exception text, chained tracebacks and stack information. Existing
+Telegram error paths use `redact_exception` before printing or recording failures.
+
+The optional stdout/stderr wrappers buffer text until newline or explicit flush,
+redacting a line assembled across multiple writes. Explicit flush ends that
+buffering boundary; do not split credentials across flushes. Binary writes,
+previously captured stream references and handlers installed later require their
+own filtering. The installer does not replace logging configuration.
+
+`redact_sensitive_data` returns a new dict/list/tuple tree, preserving non-secret
+fields. It masks credential-key values, bare Telegram token literals and bot URL
+paths. `redact_sensitive_text` also handles JSON text; `redact_exception` renders
+exception messages and chained causes, including requests/urllib URL errors.
+
+### Repository scanning
+
+`.gitleaks.toml` extends the default rules with `telegram-token-literal`, a pure
+format rule with no keyword requirement. The existing pre-commit and PR/main
+Gitleaks checks discover this configuration automatically. The weekly secret
+scan uses the same configuration across all fetched branches, tags and history,
+including data branches. Findings contain file paths and rule names only; no
+scan report is uploaded or committed. A failed scheduled run uses the existing
+GitHub Actions failure notification mechanism. Repository and organization
+notification settings are unchanged.
