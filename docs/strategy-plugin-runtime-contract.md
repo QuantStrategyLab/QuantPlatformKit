@@ -242,7 +242,30 @@ Email-eligible signals are immediately eligible for Telegram, except when
 `risk_halt`, or `auth_expired`. These remain in the signal report for the digest
 and are not pushed immediately. Channel configuration and deduplication still
 apply independently. Consumers receive this rule by updating their kit pin;
-the pin update does not configure recipients or enable production delivery.
+the pin update does not enable a channel excluded by platform configuration.
+
+`StrategyPluginTelegramSettings.from_object()` resolves credentials and recipients
+once per settings conversion. Nonblank values passed explicitly on an object,
+mapping or settings dataclass win. Missing values use the first nonblank entry
+in the following environment precedence (left to right):
+
+| Setting | Environment precedence |
+| --- | --- |
+| Chat IDs | `STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS` → `QSL_GLOBAL_TELEGRAM_CHAT_ID` → `GLOBAL_TELEGRAM_CHAT_ID` |
+| Bot token | `QSL_STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN` → `STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN` → `TELEGRAM_TOKEN` → `TG_TOKEN` |
+
+Whitespace-only values count as unset. Chat IDs retain the existing separator
+and deduplication rules. If either setting remains missing, eligible alerts
+still skip with `missing_telegram_config`. Tokens are excluded from settings
+repr and must not appear in logs or delivery reports. `STRATEGY_PLUGIN_ALERT_CHANNELS`
+keeps its existing semantics; org defaults do not add Telegram to an excluded
+channel list.
+
+Rollout: update the consumer's kit pin through its normal review process and
+verify its selected channels and protected runtime environment before rollout.
+Consumers with no plugin override can now deliver eligible alerts through their
+existing org bot and chat. This library change does not modify consumer config,
+deploy consumers or prove receipt of a real notification.
 
 Platforms may still choose their delivery sinks, but shared escalation helpers
 are available for email, SMS, push, and Telegram:

@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from quant_platform_kit.notifications.strategy_plugin_alerts import (
     StrategyPluginAlertStateSettings,
@@ -41,6 +42,30 @@ class _NotificationSettings:
 
 
 class StrategyPluginAlertDispatcherTests(unittest.TestCase):
+    def test_org_telegram_fallback_respects_channel_selection(self):
+        environ = {
+            "TELEGRAM_TOKEN": "synthetic-org-credential",
+            "QSL_GLOBAL_TELEGRAM_CHAT_ID": "@synthetic_org",
+        }
+        with patch.dict("os.environ", environ, clear=True):
+            for channels in ("email", "telegram"):
+                with self.subTest(channels=channels):
+                    calls = []
+                    result = publish_strategy_plugin_alerts(
+                        [_alert_signal()],
+                        notification_settings=SimpleNamespace(strategy_plugin_alert_channels=channels),
+                        alert_stores={},
+                        send_email_notification=lambda **_kwargs: True,
+                        send_telegram_notification=lambda **kwargs: calls.append(kwargs) or True,
+                        log_message=lambda *_args, **_kwargs: None,
+                    )
+                    if channels == "email":
+                        self.assertIsNone(result.telegram_result)
+                        self.assertEqual(calls, [])
+                    else:
+                        self.assertEqual(result.telegram_result.sent_count, 1)
+                        self.assertEqual(calls[0]["chat_ids"], ("@synthetic_org",))
+
     def test_publish_strategy_plugin_alerts_dispatches_enabled_channels(self):
         emails = []
         sms_messages = []

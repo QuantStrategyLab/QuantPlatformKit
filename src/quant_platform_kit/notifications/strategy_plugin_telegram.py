@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from quant_platform_kit.common.strategy_plugins import (
@@ -61,14 +62,33 @@ class StrategyPluginTelegramSettings:
     timeout: float = 10.0
 
     @classmethod
-    def from_object(cls, value: object) -> "StrategyPluginTelegramSettings":
+    def from_object(
+        cls, value: object, *, environ: Mapping[str, str] | None = None,
+    ) -> "StrategyPluginTelegramSettings":
+        """Resolve explicit settings, plugin environment overrides, then org defaults."""
+        env = os.environ if environ is None else environ
+        chat_ids = (
+            parse_telegram_chat_ids(
+                value.chat_ids if isinstance(value, cls)
+                else _get_value(value, "strategy_plugin_alert_telegram_chat_ids")
+            )
+            or parse_telegram_chat_ids(env.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"))
+            or parse_telegram_chat_ids(env.get("QSL_GLOBAL_TELEGRAM_CHAT_ID"))
+            or parse_telegram_chat_ids(env.get("GLOBAL_TELEGRAM_CHAT_ID"))
+        )
+        bot_token = _first_non_empty(
+            value.bot_token if isinstance(value, cls)
+            else _get_value(value, "strategy_plugin_alert_telegram_bot_token"),
+            env.get("QSL_STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"),
+            env.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"),
+            env.get("TELEGRAM_TOKEN"),
+            env.get("TG_TOKEN"),
+        )
         if isinstance(value, cls):
-            return value
+            return replace(value, chat_ids=chat_ids, bot_token=bot_token)
         return cls(
-            chat_ids=tuple(
-                parse_telegram_chat_ids(_get_value(value, "strategy_plugin_alert_telegram_chat_ids", ()))
-            ),
-            bot_token=_first_non_empty(_get_value(value, "strategy_plugin_alert_telegram_bot_token")),
+            chat_ids=chat_ids,
+            bot_token=bot_token,
             api_base_url=(
                 _first_non_empty(_get_value(value, "strategy_plugin_alert_telegram_api_base_url"))
                 or DEFAULT_TELEGRAM_BOT_API_BASE_URL
