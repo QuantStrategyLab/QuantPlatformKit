@@ -12,6 +12,8 @@ Read documents at the library revision used by your consumer. These are source-l
 
 ## Runtime contracts
 
+- [Platform notification outcomes](platform-notification-outcomes.md): credential-free intents, receipts and log redaction.
+
 - [Notification routing policy](notification-routing-policy.md): durable daily facts and urgent incidents.
 - [Alpaca public market data collection](alpaca-public-market-data.md): manual, read-only workflow and its secrets.
 - [Platform repository boundaries](platform-repo-boundaries.md) ([中文](platform-repo-boundaries.zh-CN.md)).

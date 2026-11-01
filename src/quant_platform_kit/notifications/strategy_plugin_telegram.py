@@ -13,7 +13,7 @@ from quant_platform_kit.common.strategy_plugins import (
 )
 
 from .alert_marker import CloudAlertMarkerStore, _clean_relative_key
-from ._redaction import redact_sensitive_text
+from ._redaction import redact_exception
 from .digest_routing import daily_digest_enabled
 from .telegram import (
     DEFAULT_TELEGRAM_BOT_API_BASE_URL,
@@ -209,7 +209,7 @@ def publish_strategy_plugin_telegram_alerts(
             store_error = None
         except Exception as exc:
             duplicate = False
-            store_error = f"alert_store_check_failed:{type(exc).__name__}: {redact_sensitive_text(exc)}"
+            store_error = f"alert_store_check_failed:{type(exc).__name__}: {redact_exception(exc)}"
         if duplicate:
             deliveries.append(_delivery(message, status="skipped", reason="duplicate_alert"))
             continue
@@ -305,7 +305,7 @@ def _send_message(
             timeout=settings.timeout,
         )
     except Exception as exc:
-        return False, f"{type(exc).__name__}: {redact_sensitive_text(exc)}"
+        return False, f"{type(exc).__name__}: {redact_exception(exc)}"
     return bool(sent), None
 
 
@@ -415,7 +415,7 @@ def _store_record_error(
             },
         )
     except Exception as exc:
-        return f"alert_store_record_failed:{type(exc).__name__}: {redact_sensitive_text(exc)}"
+        return f"alert_store_record_failed:{type(exc).__name__}: {redact_exception(exc)}"
     return None
 
 
