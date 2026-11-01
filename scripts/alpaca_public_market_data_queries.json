@@ -1,0 +1,160 @@
+{
+  "schema": "alpaca-public-market-data-queries/1",
+  "base_url": "https://data.alpaca.markets",
+  "queries": [
+    {
+      "id": "bars-schd",
+      "path": "/v2/stocks/SCHD/bars",
+      "params": {
+        "timeframe": "1Day",
+        "start": "2026-07-28T00:00:00-04:00",
+        "end": "2026-10-31T00:00:00-04:00",
+        "adjustment": "raw",
+        "feed": "sip",
+        "sort": "asc",
+        "limit": "10000"
+      }
+    },
+    {
+      "id": "bars-dgro",
+      "path": "/v2/stocks/DGRO/bars",
+      "params": {
+        "timeframe": "1Day",
+        "start": "2026-07-28T00:00:00-04:00",
+        "end": "2026-10-31T00:00:00-04:00",
+        "adjustment": "raw",
+        "feed": "sip",
+        "sort": "asc",
+        "limit": "10000"
+      }
+    },
+    {
+      "id": "bars-sgov",
+      "path": "/v2/stocks/SGOV/bars",
+      "params": {
+        "timeframe": "1Day",
+        "start": "2026-07-28T00:00:00-04:00",
+        "end": "2026-10-31T00:00:00-04:00",
+        "adjustment": "raw",
+        "feed": "sip",
+        "sort": "asc",
+        "limit": "10000"
+      }
+    },
+    {
+      "id": "bars-spyi",
+      "path": "/v2/stocks/SPYI/bars",
+      "params": {
+        "timeframe": "1Day",
+        "start": "2026-07-28T00:00:00-04:00",
+        "end": "2026-10-31T00:00:00-04:00",
+        "adjustment": "raw",
+        "feed": "sip",
+        "sort": "asc",
+        "limit": "10000"
+      }
+    },
+    {
+      "id": "bars-qqqi",
+      "path": "/v2/stocks/QQQI/bars",
+      "params": {
+        "timeframe": "1Day",
+        "start": "2026-07-28T00:00:00-04:00",
+        "end": "2026-10-31T00:00:00-04:00",
+        "adjustment": "raw",
+        "feed": "sip",
+        "sort": "asc",
+        "limit": "10000"
+      }
+    },
+    {
+      "id": "bars-boxx",
+      "path": "/v2/stocks/BOXX/bars",
+      "params": {
+        "timeframe": "1Day",
+        "start": "2026-07-28T00:00:00-04:00",
+        "end": "2026-10-31T00:00:00-04:00",
+        "adjustment": "raw",
+        "feed": "sip",
+        "sort": "asc",
+        "limit": "10000"
+      }
+    },
+    {
+      "id": "bars-qqqm",
+      "path": "/v2/stocks/QQQM/bars",
+      "params": {
+        "timeframe": "1Day",
+        "start": "2026-07-28T00:00:00-04:00",
+        "end": "2026-10-31T00:00:00-04:00",
+        "adjustment": "raw",
+        "feed": "sip",
+        "sort": "asc",
+        "limit": "10000"
+      }
+    },
+    {
+      "id": "actions-schd",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "SCHD",
+        "start": "2016-01-04",
+        "end": "2026-10-30"
+      }
+    },
+    {
+      "id": "actions-dgro",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "DGRO",
+        "start": "2016-01-04",
+        "end": "2026-10-30"
+      }
+    },
+    {
+      "id": "actions-sgov",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "SGOV",
+        "start": "2020-05-28",
+        "end": "2026-10-30"
+      }
+    },
+    {
+      "id": "actions-spyi",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "SPYI",
+        "start": "2022-08-30",
+        "end": "2026-10-30"
+      }
+    },
+    {
+      "id": "actions-qqqi",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "QQQI",
+        "start": "2024-01-30",
+        "end": "2026-10-30"
+      }
+    },
+    {
+      "id": "actions-boxx",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "BOXX",
+        "start": "2022-12-28",
+        "end": "2026-10-30"
+      }
+    },
+    {
+      "id": "actions-qqqm",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "QQQM",
+        "start": "2020-10-13",
+        "end": "2026-10-30"
+      }
+    }
+  ]
+}
