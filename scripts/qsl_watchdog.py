@@ -23,22 +23,17 @@ def _telegram_alert(message: str) -> bool:
     chat_id = os.environ.get("GLOBAL_TELEGRAM_CHAT_ID", "").strip()
     if not token or not chat_id:
         return False
-    import json
-    import urllib.request
-    req = urllib.request.Request(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        data=json.dumps({"chat_id": chat_id, "text": message}).encode(),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    from quant_platform_kit.notifications import NotificationIntent, send_notification_intent
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return r.status == 200
-    except Exception:
+        intent = NotificationIntent(text=message, run_id="watchdog", chat_ids=(chat_id,))
+        return send_notification_intent(intent, bot_token_env="TELEGRAM_TOKEN")["ok"]
+    except ValueError:
         return False
 
 
 def main() -> int:
+    from quant_platform_kit.notifications import install_log_redaction
+    install_log_redaction(wrap_streams=True)
     p = argparse.ArgumentParser(description="Universal QSL health watchdog")
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--url", help="HTTP health endpoint URL (e.g. https://svc.run.app or http://vps:8080)")
