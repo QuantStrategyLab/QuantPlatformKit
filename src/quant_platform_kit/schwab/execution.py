@@ -1,11 +1,29 @@
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlsplit
 
 from quant_platform_kit.common.order_status import normalize_order_status_payload
 from quant_platform_kit.common.models import ExecutionReport, OrderIntent
 
 MIN_DOLLAR_BUY_NOTIONAL_USD = 1.0
+
+
+def _order_id_from_location(location: Any) -> str | None:
+    if not isinstance(location, str):
+        return None
+    try:
+        parsed = urlsplit(location)
+    except ValueError:
+        return None
+    valid_uri = (not parsed.scheme and not parsed.netloc) or (
+        parsed.scheme == "https" and bool(parsed.netloc)
+    )
+    match = re.fullmatch(r"(?:/[^/?#]+)*/orders/([0-9]+)", parsed.path)
+    if not valid_uri or parsed.query or parsed.fragment or match is None:
+        return None
+    return match.group(1)
 
 
 def build_equity_dollar_buy_market_order(symbol: str, notional_usd: float) -> dict[str, Any]:
@@ -65,26 +83,31 @@ def submit_equity_order(api_client: Any, account_hash: str, order_intent: OrderI
             )
 
     response = api_client.place_order(account_hash, order)
-    if response.status_code in (200, 201):
+    status_code = getattr(response, "status_code", None)
+    valid_status_code = isinstance(status_code, int) and not isinstance(status_code, bool)
+    if valid_status_code and status_code in (200, 201):
         location = response.headers.get("Location", "")
-        order_id = location.split("/")[-1] if location else None
+        order_id = _order_id_from_location(location)
         return ExecutionReport(
             symbol=order_intent.symbol,
             side=side,
             quantity=reported_quantity,
-            status="accepted",
+            status="accepted" if order_id else "unknown",
             broker_order_id=order_id,
-            raw_payload={"status_code": response.status_code},
+            raw_payload={"status_code": status_code},
         )
 
+    # A timeout or server failure does not establish that no order was accepted.
+    # Preserve uncertainty before the submission journal observes the result.
+    rejected = valid_status_code and 400 <= status_code < 500 and status_code != 408
     return ExecutionReport(
         symbol=order_intent.symbol,
         side=side,
         quantity=reported_quantity,
-        status="rejected",
+        status="rejected" if rejected else "unknown",
         raw_payload={
-            "status_code": response.status_code,
-            "detail": f"{response.status_code} {response.text}",
+            "status_code": status_code,
+            "detail": f"{status_code} {response.text}",
         },
     )
 

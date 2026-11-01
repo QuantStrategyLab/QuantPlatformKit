@@ -5,8 +5,9 @@ strategy owns the deterministic rule that turns a prior state and frozen market
 input into the next state.  A platform may later persist these records, but
 must not infer or alter the strategy rule from execution reports.
 
-The contract is useful for controls such as a post-deleveraging cooldown.  It
-has no broker imports, storage backend, scheduler, allocation, or order path.
+The contract is useful for controls such as a post-deleveraging cooldown. The
+optional create-only store persists transitions; it has no broker imports,
+scheduler, allocation authority, or order path.
 """
 
 from __future__ import annotations
@@ -537,7 +538,87 @@ def build_strategy_risk_state_store_from_env(
     )
 
 
+@dataclass(frozen=True)
+class DailyRiskStateBootstrapAuthorization:
+    """Binding supplied by a caller that has independently authorized genesis.
+
+    This value is not a signature and does not itself establish authorization.
+    """
+
+    identity: StrategyRiskStateIdentity
+    effective_session: str
+    input_sha256: str
+    transition_sha256: str
+
+
+@dataclass(frozen=True)
+class DailyRiskStateResult:
+    """State is present only when the requested operation confirmed it."""
+
+    status: str
+    transition: StrategyRiskStateTransition | None = None
+
+
+def read_daily_strategy_risk_state(
+    store: StrategyRiskStateStore, identity: StrategyRiskStateIdentity,
+) -> DailyRiskStateResult:
+    """Distinguish an absent chain from a storage or integrity failure."""
+    try:
+        chain = store.load_chain(identity)
+    except Exception:
+        return DailyRiskStateResult("unavailable")
+    return DailyRiskStateResult("available", chain[-1]) if chain else DailyRiskStateResult("missing")
+
+
+def coordinate_daily_strategy_risk_state(
+    store: StrategyRiskStateStore,
+    transition: StrategyRiskStateTransition,
+    *,
+    bootstrap_authorization: DailyRiskStateBootstrapAuthorization | None = None,
+) -> DailyRiskStateResult:
+    """Confirm a daily state transition before exposing it to a consumer.
+
+    The caller supplies validated frozen inputs and independently authorizes any
+    bootstrap. This coordinator does not authorize orders or prove session
+    continuity; those remain caller responsibilities.
+    """
+    if not isinstance(transition, StrategyRiskStateTransition):
+        raise TypeError("transition must be a StrategyRiskStateTransition")
+    current = read_daily_strategy_risk_state(store, transition.identity)
+    if current.status == "unavailable":
+        return current
+    if current.status == "missing":
+        if bootstrap_authorization is None:
+            return current
+        expected = DailyRiskStateBootstrapAuthorization(
+            transition.identity, transition.effective_session, transition.input_sha256, transition.transition_sha256
+        )
+        if bootstrap_authorization != expected or transition.previous_transition_sha256 is not None:
+            return DailyRiskStateResult("conflict")
+    else:
+        head = current.transition
+        assert head is not None
+        if head == transition:
+            return DailyRiskStateResult("confirmed", head)
+        if (transition.effective_session <= head.effective_session
+                or transition.previous_transition_sha256 != head.transition_sha256):
+            return DailyRiskStateResult("conflict")
+    try:
+        store.append(transition)
+    except Exception:
+        # A conflict and an uncertain write both leave the proposed state unusable.
+        return DailyRiskStateResult("unavailable")
+    confirmed = read_daily_strategy_risk_state(store, transition.identity)
+    if confirmed.status != "available":
+        return DailyRiskStateResult("unavailable")
+    if confirmed.transition != transition:
+        return DailyRiskStateResult("conflict")
+    return DailyRiskStateResult("confirmed", transition)
+
+
 __all__ = [
+    "DailyRiskStateBootstrapAuthorization",
+    "DailyRiskStateResult",
     "DEFAULT_STRATEGY_RISK_STATE_NAMESPACE",
     "STRATEGY_RISK_STATE_TRANSITION_SCHEMA_VERSION",
     "STRATEGY_RISK_STATE_STORE_SCHEMA_VERSION",
@@ -549,6 +630,8 @@ __all__ = [
     "StrategyRiskStateTransition",
     "build_strategy_risk_state_transition",
     "build_strategy_risk_state_store_from_env",
+    "coordinate_daily_strategy_risk_state",
+    "read_daily_strategy_risk_state",
     "validate_strategy_risk_state_chain",
     "validate_strategy_risk_state_transition",
 ]

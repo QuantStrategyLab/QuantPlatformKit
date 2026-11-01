@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -33,12 +34,14 @@ from .support import (
     _canonical_string,
     _canonical_string_list,
     _finite_number,
+    _logical_evaluation_time,
     _normalized_weight_map,
     _observe,
     _portfolio_current_weights,
     _runtime_risk_limits_rejection,
     _safe_diagnostics,
     _static_gate_total_equity,
+    _utc_timestamp,
 )
 
 logger = logging.getLogger("quant_platform_kit.risk.gate")
@@ -518,6 +521,7 @@ def apply_risk_gate(
     current_portfolio_weights: Mapping[str, float] | None = None,
     cash_only_execution: bool | None = None,
     observer=None,
+    logical_evaluation_time: datetime | None = None,
 ) -> StrategyDecision:
     """Apply hard checks and call RiskEngine.assess exactly once.
 
@@ -529,8 +533,8 @@ def apply_risk_gate(
     ``value_target_exposure_policy=legacy_compatibility`` in diagnostics.
     """
     _observe(observer, "gate", "ENTERED")
+    from quant_platform_kit.risk import gate as _gate
     try:
-        from quant_platform_kit.risk import gate as _gate
         engine_action = _gate.build_risk_engine().assess(
             decision,
             portfolio_snapshot,
@@ -541,7 +545,13 @@ def apply_risk_gate(
         engine_failed = True
     else:
         engine_failed = False
-    now = _gate._utc_now()
+    now, clock_errors = _logical_evaluation_time(logical_evaluation_time, wall_time=_gate._utc_now())
+    if clock_errors:
+        reason = sorted(clock_errors)[0]
+        result = _reject(decision, flag=f"rejected:{reason}", reason=reason, diagnostics={})
+        _observe(observer, "gate", "RETURNED")
+        _observe(observer, "gate_outcome", "REJECT")
+        return result
     try:
         result = _gate._apply_risk_gate_static(
             decision,
@@ -571,6 +581,8 @@ def apply_risk_gate(
             reason="invalid_risk_metadata",
             diagnostics={},
         )
+    if logical_evaluation_time is not None:
+        result = replace(result, diagnostics={**result.diagnostics, "risk_gate_evaluated_at": _utc_timestamp(now)})
     _observe(observer, "gate", "RETURNED")
     if observer is not None:
         try:
