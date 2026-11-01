@@ -155,6 +155,76 @@
         "start": "2020-10-13",
         "end": "2026-10-30"
       }
+    },
+    {
+      "id": "actions-all-schd",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "SCHD",
+        "start": "2026-07-28",
+        "end": "2026-10-30",
+        "data_quality": "all"
+      }
+    },
+    {
+      "id": "actions-all-dgro",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "DGRO",
+        "start": "2026-07-28",
+        "end": "2026-10-30",
+        "data_quality": "all"
+      }
+    },
+    {
+      "id": "actions-all-sgov",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "SGOV",
+        "start": "2026-07-28",
+        "end": "2026-10-30",
+        "data_quality": "all"
+      }
+    },
+    {
+      "id": "actions-all-spyi",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "SPYI",
+        "start": "2026-07-28",
+        "end": "2026-10-30",
+        "data_quality": "all"
+      }
+    },
+    {
+      "id": "actions-all-qqqi",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "QQQI",
+        "start": "2026-07-28",
+        "end": "2026-10-30",
+        "data_quality": "all"
+      }
+    },
+    {
+      "id": "actions-all-boxx",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "BOXX",
+        "start": "2026-07-28",
+        "end": "2026-10-30",
+        "data_quality": "all"
+      }
+    },
+    {
+      "id": "actions-all-qqqm",
+      "path": "/v1/corporate-actions",
+      "params": {
+        "symbols": "QQQM",
+        "start": "2026-07-28",
+        "end": "2026-10-30",
+        "data_quality": "all"
+      }
     }
   ]
 }
