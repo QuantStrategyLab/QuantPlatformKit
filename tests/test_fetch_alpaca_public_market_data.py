@@ -147,13 +147,21 @@ def test_checked_in_config_has_the_expected_read_only_queries():
     config = fetcher.load_config(fetcher.DEFAULT_CONFIG)
     queries = {q["id"]: q for q in config["queries"]}
 
-    assert len(queries) == 14
+    assert len(queries) == 21
     for symbol in ("schd", "dgro", "sgov", "spyi", "qqqi", "boxx", "qqqm"):
         bars = queries[f"bars-{symbol}"]
         assert bars["path"] == f"/v2/stocks/{symbol.upper()}/bars"
         assert bars["params"]["feed"] == "sip" and bars["params"]["adjustment"] == "raw"
         assert bars["params"]["start"].startswith("2026-07-28")
         assert queries[f"actions-{symbol}"]["path"] == "/v1/corporate-actions"
+        supplemental = queries[f"actions-all-{symbol}"]
+        assert supplemental["path"] == "/v1/corporate-actions"
+        assert supplemental["params"] == {
+            "symbols": symbol.upper(),
+            "start": "2026-07-28",
+            "end": "2026-10-30",
+            "data_quality": "all",
+        }
     assert queries["actions-schd"]["params"]["start"] == "2016-01-04"
     assert queries["actions-boxx"]["params"]["start"] == "2022-12-28"
     assert all(q["params"].get("end", "").startswith("2026-10-3") for q in queries.values())
