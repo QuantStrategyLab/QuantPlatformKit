@@ -759,6 +759,8 @@ _ACCOUNT_SUBMISSION_NAMESPACE = "account_submissions"
 _SUBMISSION_ACK = frozenset({"PendingSubmit", "ApiPending", "ApiPendingSubmit", "Submitted", "PreSubmitted"})
 _SUBMISSION_PARTIAL = frozenset({"Partial", "PartiallyFilled"})
 _SUBMISSION_TERMINAL = frozenset({"Filled", "Rejected", "rejected", "Cancelled", "ApiCancelled"})
+_ACCOUNT_SUBMISSION_LOCKS: dict[str, Any] = {}
+_ACCOUNT_SUBMISSION_LOCKS_MUTEX = threading.Lock()
 
 
 class AccountSubmissionError(RuntimeError):
@@ -860,6 +862,11 @@ class AccountSubmissionSession:
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)
+        location = self._location()
+        lock_key = str(location) if store.cloud_prefix_uri else str(location.resolve())
+        with _ACCOUNT_SUBMISSION_LOCKS_MUTEX:
+            account_mutex = _ACCOUNT_SUBMISSION_LOCKS.setdefault(lock_key, threading.RLock())
+        object.__setattr__(self, "_account_mutex", account_mutex)
 
     def _location(self, sequence: int | None = None):
         suffix = self.account_root + "/" + (f"{sequence:020d}.json" if sequence is not None else "")
@@ -1169,13 +1176,22 @@ class AccountSubmissionSession:
         cannot clear it. This method grants no reduction or submission authority.
         """
         from quant_platform_kit.risk.account_new_risk_gate import evaluate_new_risk_admission
-        with self._mutex:
+        from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
+        with self._mutex, self._account_mutex:
             if self._failed:
                 raise AccountSubmissionError("session persistence uncertain")
             if not evaluate_new_risk_admission(snapshot).hard_brake_triggered:
                 raise AccountSubmissionError("circuit breaker OPEN requires a drawdown breach")
             data = {key: None if getattr(snapshot, key) is None else _submission_number(getattr(snapshot, key))
-                    for key in ("equity_usd", "peak_equity_usd", "drawdown_from_peak")}
+                    for key in ("equity_usd", "peak_equity_usd")}
+            drawdown = snapshot.drawdown_from_peak
+            if "INVALID_DRAWDOWN_FAIL_CLOSED" in evaluate_capital_risk_envelope(
+                snapshot.equity_usd, drawdown_from_peak=drawdown,
+            ).reasons:
+                # Admission already verified the independent equity/peak breach.
+                # Store only those valid facts; replay derives their drawdown.
+                drawdown = None
+            data["drawdown_from_peak"] = None if drawdown is None else _submission_number(drawdown)
             data.update(owner_id=self.owner_id, profile=self.profile)
             state = self.read_state()
             if not state["circuit_breaker_open"]:
@@ -1575,36 +1591,48 @@ class AccountSubmissionSession:
                             or observed["source_digest"] != state["attempts"][grant.attempt_id]["reduction_source_digest"]))
                         or not _time(observed["valuation_at"]) <= _time(now_text) < _time(observed["valid_until"])):
                     raise AccountSubmissionError("expired or mismatched domain observation")
-            self._used.add(grant.attempt_id)
-        try:
-            report = submit()
-        except Exception as exc:
-            try:
-                self.record_observation(grant, None)
-            except Exception as persist_exc:
-                exc.add_note("account outcome persistence also failed: " + type(persist_exc).__name__)
-                object.__setattr__(self, "_failed", True)
-            raise
-        if record_observation_watermark:
-            try:
-                now = self.clock()
-                recorded_at = now.isoformat() if isinstance(now, datetime) else now
-                from quant_platform_kit.common.account_domain import _time
-                _time(recorded_at)
-            except Exception:
-                recorded_at = None
-            if recorded_at is not None:
-                self.record_observation(grant, report, recorded_at=recorded_at)
-            else:
-                self.record_observation(grant, report)
-        else:
-            self.record_observation(grant, report)
-        attempt = self.read_state()["attempts"][grant.attempt_id]
-        if attempt["certainty"] == "UNKNOWN" and str(getattr(report, "status", "")).strip() in (
-            _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL
-        ):
-            raise AccountSubmissionError("broker result facts are uncertain; original attempt retained")
-        return report
+            with self._account_mutex:
+                # Validation above can call platform code. Re-read after it and
+                # serialize the final check/submit with OPEN from other sessions
+                # on this account journal in the current process.
+                current = self._owned_grant(grant)
+                attempt = current["attempts"][grant.attempt_id]
+                if attempt["certainty"] != "PREPARED":
+                    raise AccountSubmissionError("grant no longer prepared")
+                if attempt.get("new_risk") and current["circuit_breaker_open"]:
+                    raise AccountSubmissionError("new risk prohibited by circuit breaker")
+                self._used.add(grant.attempt_id)
+                try:
+                    report = submit()
+                except Exception as exc:
+                    try:
+                        self.record_observation(grant, None)
+                    except Exception as persist_exc:
+                        exc.add_note("account outcome persistence also failed: " + type(persist_exc).__name__)
+                        object.__setattr__(self, "_failed", True)
+                    raise
+                # Keep the outcome append in the same critical section so an
+                # OPEN writer cannot race its next sequence with OBSERVED.
+                if record_observation_watermark:
+                    try:
+                        now = self.clock()
+                        recorded_at = now.isoformat() if isinstance(now, datetime) else now
+                        from quant_platform_kit.common.account_domain import _time
+                        _time(recorded_at)
+                    except Exception:
+                        recorded_at = None
+                    if recorded_at is not None:
+                        self.record_observation(grant, report, recorded_at=recorded_at)
+                    else:
+                        self.record_observation(grant, report)
+                else:
+                    self.record_observation(grant, report)
+                attempt = self.read_state()["attempts"][grant.attempt_id]
+                if attempt["certainty"] == "UNKNOWN" and str(getattr(report, "status", "")).strip() in (
+                    _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL
+                ):
+                    raise AccountSubmissionError("broker result facts are uncertain; original attempt retained")
+                return report
 
     def record_observation(self, grant: AccountSubmissionGrant, report, *, recorded_at=None) -> bool:
         """Persist original facts. Exact replay is idempotent, never a new grant."""

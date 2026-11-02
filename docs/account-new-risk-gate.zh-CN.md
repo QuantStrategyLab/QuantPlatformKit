@@ -125,6 +125,9 @@ W1 平台 adapter 已有实现；持久化 OPEN 熔断、实际账户读回和�
 硬刹车事实，在同一物理账户的 `account_submission.v1` 追加日志中写入
 `CIRCUIT_BREAKER_OPEN`。沿用排他创建、连续序号、哈希链及完整读回；不新建状态文件。
 事件只含注入的 equity/peak/drawdown 与调用方身份，不证明其真实来源或资金流口径。
+显式 drawdown 无效但有效 equity/peak 已独立确认越界时，日志保留 equity/peak，
+将 drawdown 记为 null，由读回重新计算回撤并验证 OPEN；无效值不能使该次越界丢失。
+原始观测的数据错误仍由风险门报告，不把无效值当作有效事实。
 
 `read_state()` 增加 `circuit_breaker_open` 布尔字段。合法旧日志初始为 false；已记录
 OPEN 则持续为 true，包括其他 profile 及进程重启。恢复观测、CLOSED、reset 形状事件
@@ -134,6 +137,10 @@ OPEN 则持续为 true，包括其他 profile 及进程重启。恢复观测、C
 reserve，dispatch 也重新检查 OPEN，阻止已准备但尚未发送的新增风险。省略该参数的
 旧调用保持原语义，仍须由各自平台完成类别判断和门控；本次接线范围为 IBKR 的买单。
 OPEN 不创建目标、不产生卖单、不替代既有减仓证明，不改变 UNKNOWN 的含义。
+dispatch 完成订单及账户验证后，在同一账户日志的进程内共享锁中重新读回 OPEN，
+并持锁调用最终 submit；其他 session 的 OPEN 写入使用同一把锁。锁按日志位置区分，
+不随 owner/profile 改变。本锁不提供跨进程或跨主机的分布式互斥；日志排他创建及
+既有账户 owner fence 仍须满足，不能据此声称多个实际写入器已安全协调。
 
 这是追加事件类型：旧版本读取新事件会拒绝，不能把混用旧写入器视为安全迁移。
 消费者升级须先审核库和平台补丁，再单独协调固定版本、旧写入器停止与运行验证；
