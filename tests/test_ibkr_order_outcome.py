@@ -21,7 +21,7 @@ def fill(qty=3, price=52, exec_id='synthetic-exec-1', **overrides):
                   price=price, execId=exec_id, time=NOW)
     values.update(overrides)
     return NS(execution=NS(**values), contract=NS(symbol='TQQQ'),
-              commissionReport=NS(commission=0.35))
+              commissionReport=NS(execId=exec_id, currency='USD', commission=0.35))
 
 
 class Broker:
@@ -163,3 +163,83 @@ def test_shared_identifier_mask_never_exposes_short_ids_or_aliases():
     from quant_platform_kit.notifications._redaction import mask_identifier
     for value in ('73', 'synthetic-account-alias', 'U00000003', None):
         assert mask_identifier(value) == '<redacted>'
+
+
+class ErrorEvent:
+    def __init__(self):
+        self.handlers = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def __isub__(self, handler):
+        self.handlers.remove(handler)
+        return self
+
+    def emit(self):
+        for handler in self.handlers:
+            handler(901, 321, 'synthetic-private-diagnostic', None)
+
+
+@pytest.mark.parametrize('source', ['reqAllOpenOrders', 'reqCompletedOrders', 'reqExecutions'])
+def test_unraised_request_error_fails_closed_and_listener_is_restored(source):
+    broker = Broker(completed=[trade('Filled', 3, 0, 52)])
+    broker.errorEvent = ErrorEvent()
+    broker.RaiseRequestErrors = False
+    original = getattr(broker, source)
+    def failed(*args, **kwargs):
+        broker.errorEvent.emit()
+        return original(*args, **kwargs)
+    setattr(broker, source, failed)
+    with pytest.raises(OrderOutcomeReadError, match='^broker_outcome_read_failed$'):
+        resolve(broker)
+    assert broker.errorEvent.handlers == []
+    assert broker.RaiseRequestErrors is False
+
+
+@pytest.mark.parametrize('report', [NS(commission=0.0, execId='', currency=''),
+                                   NS(commission=1.25, execId='synthetic-other', currency='USD'),
+                                   NS(commission=0.0, execId='synthetic-exec-1', currency='')])
+def test_absent_or_unbound_commission_stays_unknown(report):
+    execution = fill()
+    execution.commissionReport = report
+    assert resolve(Broker(executions=[execution])).commission is None
+
+
+def test_matching_zero_commission_is_known():
+    execution = fill()
+    execution.commissionReport.commission = 0.0
+    assert resolve(Broker(executions=[execution])).commission == 0.0
+
+
+@pytest.mark.parametrize('offset,expected', [(0, 'filled'), (-1, 'unknown')])
+def test_execution_time_uses_broker_second_precision(offset, expected):
+    from datetime import timedelta
+    result = resolve_order_outcome(Broker(executions=[fill(time=NOW + timedelta(seconds=offset))]),
+        '73', account_id='U00000003', client_id=7, symbol='TQQQ', side='sell', quantity=3,
+        submitted_at=NOW.replace(microsecond=123456), execution_filter_factory=NS)
+    assert result.status == expected
+
+
+@pytest.mark.parametrize('permanent', [None, 9900, 9901])
+def test_timeless_terminal_cannot_borrow_open_order_timestamp(permanent):
+    old = trade('Cancelled', 0, 0, filledQuantity=0)
+    old.log = []
+    if permanent is not None:
+        old.order.permId = permanent
+    current = trade(permId=9901)
+    assert resolve(Broker(opened=[current], completed=[old])).status == 'unknown'
+
+
+def test_old_terminal_timestamp_cannot_borrow_newer_open_order_timestamp():
+    from datetime import timedelta
+    old = trade('Cancelled')
+    old.log = [NS(time=NOW - timedelta(seconds=1))]
+    assert resolve(Broker(opened=[trade()], completed=[old])).status == 'unknown'
+
+
+def test_conflicting_execution_permanent_identity_is_unknown():
+    result = resolve(Broker(completed=[trade('Filled', 3, 0, 52, permId=9900)],
+                            executions=[fill(permId=9901)]))
+    assert result.status == 'unknown'

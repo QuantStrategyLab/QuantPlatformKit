@@ -59,14 +59,29 @@ class _QuietOutcomeLogger(logging.LoggerAdapter):
 @contextmanager
 def _quiet_reads(ib):
     originals = []
+    failed = False
+    def on_error(*args):
+        nonlocal failed
+        failed = True
+    # The SDK can end a failed request with [] when RaiseRequestErrors=False.
+    # Observe errors without changing caller configuration or retaining payloads.
+    errors = getattr(ib, 'errorEvent', None)
+    subscribed = False
     try:
+        if errors is not None:
+            errors += on_error
+            subscribed = True
         for owner in (ib, getattr(ib, 'wrapper', None), getattr(ib, 'client', None)):
             logger = getattr(owner, '_logger', None)
             if logger is not None:
                 originals.append((owner, logger))
                 owner._logger = _QuietOutcomeLogger(logger, {})
         yield
+        if failed:
+            raise OrderOutcomeReadError('broker_outcome_read_failed')
     finally:
+        if subscribed:
+            errors -= on_error
         for owner, logger in reversed(originals):
             owner._logger = logger
 
@@ -108,7 +123,8 @@ def resolve_order_outcome(
         raise OrderOutcomeReadError('broker_outcome_read_failed') from None
     try:
         states = []
-        times = []
+        state_times = []
+        identities = set()
         for trade in [*opened, *completed]:
             order = trade.order
             if str(order.orderId) != order_id:
@@ -120,6 +136,9 @@ def resolve_order_outcome(
                 return unknown
             if permanent_id is not None and getattr(order, 'permId', None) != permanent_id:
                 return unknown
+            observed_id = getattr(order, 'permId', None)
+            if observed_id:
+                identities.add(observed_id)
             state = trade.orderStatus
             filled, remaining = _number(state.filled), _number(state.remaining)
             price = _number(state.avgFillPrice) if filled else None
@@ -140,7 +159,8 @@ def resolve_order_outcome(
                         or (filled > 0 and (price is None or price <= 0))):
                     return unknown
                 states.append((str(state.status), filled, remaining, price))
-            times.extend(_time(entry.time) for entry in getattr(trade, 'log', ()) if getattr(entry, 'time', None))
+            state_times.append([_time(entry.time) for entry in getattr(trade, 'log', ())
+                                if getattr(entry, 'time', None)])
         fills: dict[str, tuple[OutcomeFill, float | None, datetime]] = {}
         for item in executions:
             execution = item.execution
@@ -154,21 +174,28 @@ def resolve_order_outcome(
                 return unknown
             if permanent_id is not None and getattr(execution, 'permId', None) != permanent_id:
                 return unknown
+            observed_id = getattr(execution, 'permId', None)
+            if observed_id:
+                identities.add(observed_id)
             at = _time(execution.time)
-            if at < since:
+            if at.replace(microsecond=0) < since.replace(microsecond=0):
                 return unknown
             fill = OutcomeFill(str(execution.execId), _number(execution.shares), _number(execution.price))
             if not fill.execution_id or fill.quantity <= 0 or fill.price <= 0:
                 return unknown
             commission = None
             try:
-                commission = _number(item.commissionReport.commission)
+                report = item.commissionReport
+                if report.execId == fill.execution_id and report.currency:
+                    commission = _number(report.commission)
             except (AttributeError, ValueError, TypeError):
                 pass  # The broker can deliver commission later; never assume zero.
             record = (fill, commission, at)
             if fill.execution_id in fills and fills[fill.execution_id] != record:
                 return unknown
             fills[fill.execution_id] = record
+        if len(identities) > 1:
+            return unknown
         observed = sum(row[0].quantity for row in fills.values())
         if observed > qty:
             return unknown
@@ -185,7 +212,16 @@ def resolve_order_outcome(
             price = (sum(row[0].quantity * row[0].price for row in fills.values()) / observed
                      if observed else None)
             states[index] = (raw, filled, qty - filled, price)
-        terminal_states = [row for row in states if row[0] in {'Filled', 'Cancelled', 'ApiCancelled', 'Rejected'}]
+        terminal_indices = [index for index, row in enumerate(states)
+                            if row[0] in {'Filled', 'Cancelled', 'ApiCancelled', 'Rejected'}]
+        terminal_states = [states[index] for index in terminal_indices]
+        for index in terminal_indices:
+            # A different observation cannot supply freshness for this terminal.
+            own_times = state_times[index]
+            if own_times and max(own_times) < since:
+                return unknown
+            if not own_times and permanent_id is None and not fills:
+                return unknown
         if terminal_states and len(set(terminal_states)) != 1:
             return unknown
         selected = terminal_states[0] if terminal_states else max(states, key=lambda row: row[1], default=None)
@@ -217,8 +253,9 @@ def resolve_order_outcome(
             status = 'pending'
         else:
             return unknown
+        times = list(state_times[states.index(selected)]) if selected else []
         times.extend(row[2] for row in fills.values())
-        if times and max(times) < since:
+        if times and max(times).replace(microsecond=0) < since.replace(microsecond=0):
             return unknown
         if terminal and not times and permanent_id is None:
             return unknown  # An old reused integer ID cannot prove this order.
