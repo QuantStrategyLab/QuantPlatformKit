@@ -26,6 +26,9 @@ def publish_attention_telegram_transition(
     strategy_profile: str,
     locale: object | None = None,
     guard_reason_codes: tuple[str, ...] = (),
+    daily_loss_context: Mapping[str, Any] | None = None,
+    occurred_at: object | None = None,
+    run_url: str | None = None,
     previous_level: AttentionLevel | str | None = None,
     previous_reason_codes: Sequence[str] | None = None,
     already_sent_keys: Sequence[str] | None = None,
@@ -68,6 +71,9 @@ def publish_attention_telegram_transition(
         strategy_profile=strategy_profile,
         decision=decision,
         guard_reason_codes=guard_reason_codes,
+        daily_loss_context=daily_loss_context,
+        occurred_at=occurred_at,
+        run_url=run_url,
     )
     sender = telegram_sender or _default_telegram_sender
     try:
