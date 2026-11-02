@@ -89,8 +89,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         "attention_next_console_optional": "下一步：可在管理站查看详情",
         "attention_next_open_console_confirm": "下一步：打开管理站确认意图（确认意图不等于放行实盘）",
         "attention_next_open_console_resume": "下一步：打开管理站处理恢复 / 复位（需授权）",
-        "attention_next_review_daily_loss": "下一步：在管理站核对当日净值、资金进出和亏损上限；保持禁止新增风险，确认意图不会解除保护",
-        "attention_next_inspect_guard_reason": "下一步：在管理站查看该次运行的风控原因码和账户状态；保持保护，确认意图不会解除保护",
+        "attention_next_review_daily_loss": "下一步：在管理站核对当日净值、资金进出和亏损上限；保持禁止新增风险",
+        "attention_next_inspect_guard_reason": "下一步：在管理站查看该次运行的风控原因码和账户状态；保持禁止新增风险",
     },
     "en": {
         "runtime_guard_title": "[Runtime Guard] {name}",
@@ -164,8 +164,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         "attention_next_console_optional": "Next: review details in the management console if needed",
         "attention_next_open_console_confirm": "Next: open the management console to confirm intent (confirming intent does not enable live)",
         "attention_next_open_console_resume": "Next: open the management console for recovery / reset (authorization required)",
-        "attention_next_review_daily_loss": "Next: review today's equity, cash flows and daily-loss limit in the console; keep new risk blocked. Confirming intent does not release the guard",
-        "attention_next_inspect_guard_reason": "Next: inspect this run's guard reason codes and account state; keep protections active. Confirming intent does not release the guard",
+        "attention_next_review_daily_loss": "Next: review today's equity, cash flows and daily-loss limit in the console; keep new risk blocked",
+        "attention_next_inspect_guard_reason": "Next: inspect this run's guard reason codes and account state; keep protections active",
     },
 }
 

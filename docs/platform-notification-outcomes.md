@@ -166,3 +166,28 @@ including data branches. Findings contain file paths and rule names only; no
 scan report is uploaded or committed. A failed scheduled run uses the existing
 GitHub Actions failure notification mechanism. Repository and organization
 notification settings are unchanged.
+
+## Risk-block attention messages
+
+`risk.attention.render_attention_compact` and the shared Telegram publisher render
+broker, a masked account suffix (at most two characters), strategy, status, every
+reason code with a localized explanation, optional financial evidence, SGT run
+time, a caller-supplied HTTPS console run link, and one action line. Chinese
+variants and English use the same fields. Missing or invalid evidence is shown
+as unknown; a missing link is explicit. Links are never built from account IDs,
+and URL credentials, query strings and fragments are not displayed.
+
+The optional display arguments are `daily_loss_context`, `occurred_at` (an aware
+datetime or ISO timestamp), and `run_url`. Existing callers remain valid.
+`daily_loss_context` accepts `daily_loss_fact_status`, `daily_loss_usd`,
+`max_daily_loss_usd`, and `daily_loss_baseline_as_of`. A loss is displayed only
+when its fact status is `verified`; it is described as baseline-relative loss,
+not assumed to be intraday trading P&L. Limits must be explicit, never inferred
+from account equity. These fields do not change admission or notification dedup.
+
+Consumers need a coordinated QPK pin update before the new fields take effect.
+Schwab's adapter uses `render_attention_notification` as a feature marker and
+retains its legacy rendering until that update. Its existing notification report
+context supplies `started_at` and, when available, `console_run_url`. A console
+producer must supply the actual run URL; the renderer does not invent a route.
+Rollout and pin changes are separate from this presentation patch.

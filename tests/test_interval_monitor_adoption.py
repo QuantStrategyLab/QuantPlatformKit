@@ -300,7 +300,7 @@ class IntervalMonitorAdoptionTests(unittest.TestCase):
                 root = Path(tmp); store = PerformanceStore(local_root=root / "store")
                 store.save_backtest_result(replace(baseline(), sharpe_ratio=.1, cagr=.01, max_drawdown=-.01))
                 kwargs = {} if ref is None else {"baseline_coverage_by_profile": {"coverage_case": ref}}
-                with patch("quant_platform_kit.strategy_lifecycle.performance_monitor.compare_with_backtest",
+                with patch("quant_platform_kit.strategy_lifecycle.performance_metrics.compare_with_backtest",
                            return_value={"sharpe_deviation": .6}) as compare:
                     result = run_monitor("crypto", collector=collector(root, receipts(gap=True)), store=store,
                                          windows=(126,), min_observations=2, source_revision="a" * 40,
