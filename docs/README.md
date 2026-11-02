@@ -12,6 +12,8 @@ Read documents at the library revision used by your consumer. These are source-l
 
 ## Runtime contracts
 
+- [One-time setup intent](strategy-release-runtime-contract.zh-CN.md#一次确认的自动化-setup-intent): immutable, non-executing owner scope and Decisions handoff; no runtime adoption or activation authority.
+
 - [Platform notification outcomes](platform-notification-outcomes.md): credential-free intents, receipts and log redaction.
 
 - [Notification routing policy](notification-routing-policy.md): durable daily facts and urgent incidents.
