@@ -1,0 +1,7 @@
+{
+  "synthetic": true,
+  "scenario": "TQQQ SELL 3: acknowledged, then broker-confirmed fill",
+  "pending": {"status": "Submitted", "filled": 0, "remaining": 3, "price": 0},
+  "terminal": {"status": "Filled", "filled": 3, "remaining": 0, "price": 52},
+  "execution": {"qty": 3, "price": 52, "exec_id": "synthetic-exec-1"}
+}

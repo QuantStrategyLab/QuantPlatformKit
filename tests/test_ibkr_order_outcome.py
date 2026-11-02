@@ -49,11 +49,15 @@ def resolve(broker, **kwargs):
 
 
 def test_pending_then_filled_tqqq_sell_three():
-    b = Broker(opened=[trade()])
+    import json
+    from pathlib import Path
+    replay = json.loads((Path(__file__).parent / 'fixtures/ibkr-tqqq-sell-three.json').read_text())
+    assert replay['synthetic'] is True
+    b = Broker(opened=[trade(**replay['pending'])])
     assert resolve(b).status == 'pending'
     b.opened = []
-    b.completed = [trade('Filled', 3, 0, 52)]
-    b.executions = [fill()]
+    b.completed = [trade(**replay['terminal'])]
+    b.executions = [fill(**replay['execution'])]
     result = resolve(b)
     assert (result.status, result.filled_qty, result.remaining, result.avg_price) == ('filled', 3, 0, 52)
     assert result.terminal and result.commission == 0.35
