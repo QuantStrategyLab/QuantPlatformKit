@@ -151,7 +151,9 @@ def _decision(value, subject, digest):
     _require(value['actor_type'] == 'human' and value['outcome'] in ('confirmed', 'rejected'))
     # Match the bundled schema before freezing the original timestamp strings.
     for key in ('reviewed_at', 'effective_at', 'expires_at'):
-        _require(isinstance(value[key], str) and re.search(r'(Z|[+-][0-9]{2}:[0-9]{2})$', value[key]) is not None)
+        _require(isinstance(value[key], str) and re.fullmatch(
+            r'[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt](?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]'
+            r'(?:\.[0-9]+)?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])', value[key]) is not None)
     _require(_time(value['reviewed_at']) <= _time(value['effective_at']) < _time(value['expires_at']))
 
 

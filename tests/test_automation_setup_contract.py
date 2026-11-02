@@ -5,9 +5,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator, FormatChecker
 
 from quant_platform_kit.common.automation_setup import SetupIntent, classify_setup_intent
+
+FORMAT_CHECKER = FormatChecker()
+assert 'date-time' in FORMAT_CHECKER.checkers
+
+
+def decision_schema_validator():
+    schema = json.loads((Path(__file__).parents[1] / 'src/quant_platform_kit/schemas/automation-setup-intent.v1.schema.json').read_text())
+    return Draft202012Validator(schema, format_checker=FORMAT_CHECKER)
+
 
 NOW = datetime(2026, 11, 3, tzinfo=timezone.utc)
 REF = '00000000-0000-4000-8000-000000000001'
@@ -282,10 +291,80 @@ def test_schema_invalid_decision_timestamp_rejected(field, path, suffix):
 @pytest.mark.parametrize('field', ['reviewed_at', 'effective_at', 'expires_at'])
 @pytest.mark.parametrize('suffix', ['Z', '+00:00', '+01:00', '-04:00'])
 def test_decision_timestamp_constructor_read_schema_parity(field, suffix):
-    schema = json.loads((Path(__file__).parents[1] / 'src/quant_platform_kit/schemas/automation-setup-intent.v1.schema.json').read_text())
     encoded = intent().to_dict()
     encoded['decision'][field] = encoded['decision'][field][:-1] + suffix
-    validator = Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+    validator = decision_schema_validator()
+    validator.validate(encoded)
+    obj = SetupIntent.create(encoded['subject'], encoded['decision'])
+    assert obj.to_dict() == encoded
+    validator.validate(obj.to_dict())
+    assert SetupIntent.from_dict(encoded).to_dict() == encoded
+    assert obj.to_dict()['grants_live'] is obj.to_dict()['grants_execution_authority'] is False
+
+
+@pytest.mark.parametrize('field', ['reviewed_at', 'effective_at', 'expires_at'])
+@pytest.mark.parametrize('path', ['create', 'read'])
+@pytest.mark.parametrize('form', [
+    'basic_date', 'space_separator', 'missing_seconds', 'week_date',
+    'unicode_separator', 'comma_fraction', 'offset_minutes', 'invalid_date',
+    'hour_24', 'minute_60', 'second_60', 'offset_hour_24', 'trailing_newline',
+])
+def test_complete_decision_datetime_rejected(field, path, form):
+    encoded = intent().to_dict()
+    original = encoded['decision'][field]
+    forms = {
+        'basic_date': original[:10].replace('-', '') + original[10:],
+        'space_separator': original.replace('T', ' '),
+        'missing_seconds': original.replace('T00:00:00', 'T00:00'),
+        'week_date': '2026-W44-7' + original[10:],
+        'unicode_separator': original.replace('T', '\u2603'),
+        'comma_fraction': original.replace('00:00:00', '00:00:00,5'),
+        'offset_minutes': original[:-1] + '+00:60',
+        'invalid_date': '2026-02-30' + original[10:],
+        'hour_24': original.replace('T00', 'T24'),
+        'minute_60': original.replace('00:00:00', '00:60:00'),
+        'second_60': original.replace('00:00:00', '00:00:60'),
+        'offset_hour_24': original[:-1] + '+24:00',
+        'trailing_newline': original + '\n',
+    }
+    value = forms[form]
+    encoded['decision'][field] = value
+    validator = decision_schema_validator()
+    errors = list(validator.iter_errors(encoded))
+    # rfc3339-validator's end anchor permits a final newline; the boundary must not.
+    if form != 'trailing_newline':
+        assert errors
+        assert not validator.format_checker.conforms(value, 'date-time')
+    with pytest.raises(ValueError, match='^invalid setup intent$') as error:
+        if path == 'create':
+            SetupIntent.create(encoded['subject'], encoded['decision'])
+        else:
+            SetupIntent.from_dict(encoded)
+    assert value not in str(error.value)
+    assert error.value.__cause__ is None
+
+
+def test_datetime_oracle_is_active():
+    validator = decision_schema_validator()
+    assert 'date-time' in validator.format_checker.checkers
+    assert validator.format_checker.conforms('2026-11-01T00:00:00Z', 'date-time')
+    assert not validator.format_checker.conforms('20261101T00:00:00Z', 'date-time')
+    assert not validator.format_checker.conforms('2026-11-01 00:00:00Z', 'date-time')
+    assert not validator.format_checker.conforms('2026-11-01T00:00Z', 'date-time')
+
+
+@pytest.mark.parametrize('field', ['reviewed_at', 'effective_at', 'expires_at'])
+@pytest.mark.parametrize('form', ['fraction', 'lower_t', 'long_fraction', 'fraction_offset'])
+def test_complete_decision_datetime_preserves_valid_strings(field, form):
+    encoded = intent().to_dict()
+    original = encoded['decision'][field]
+    encoded['decision'][field] = {
+        'fraction': original[:-1] + '.123Z',
+        'lower_t': original.replace('T', 't'),
+        'long_fraction': original[:-1] + '.123456789Z',
+        'fraction_offset': original[:-1] + '.5+01:30',
+    }[form]
+    validator = decision_schema_validator()
     validator.validate(encoded)
     obj = SetupIntent.create(encoded['subject'], encoded['decision'])
     assert obj.to_dict() == encoded
