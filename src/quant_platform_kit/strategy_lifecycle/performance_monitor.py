@@ -2,6 +2,8 @@
 
 Collects daily strategy returns, computes rolling metrics for all configured windows,
 and persists StrategyPerformanceSnapshot records to the performance store.
+Recording requires only the core installation; numeric monitoring requires the
+``research`` extra (pandas and NumPy), loaded when monitoring is invoked.
 """
 
 from __future__ import annotations
@@ -13,11 +15,12 @@ from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import Any, Mapping, Sequence
-
-import pandas as pd
+import sys as _sys
+from importlib import import_module as _import_module
 
 logger = logging.getLogger(__name__)
 
+from quant_platform_kit.backtest.config import DEFAULT_WINDOWS
 from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.contracts import (
     StrategyPerformanceSnapshot,
@@ -25,18 +28,47 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     normalize_interval_return_coverage,
     resolve_return_observation_contract,
 )
-from quant_platform_kit.strategy_lifecycle.performance_metrics import (
-    DEFAULT_WINDOWS,
-    annualization_basis_is_comparable,
-    compare_with_backtest,
-    compute_window_metrics,
-    normalize_return_series,
-)
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
-from quant_platform_kit.strategy_lifecycle.return_collector import (
-    ReturnCollector,
-    resolve_strategy_benchmark,
-)
+
+# Keep historical re-exports lazy, including the pandas module alias.
+_LAZY_EXPORTS = {
+    "pd": ("pandas", None),
+    "ReturnCollector": ("quant_platform_kit.strategy_lifecycle.return_collector", "ReturnCollector"),
+    "resolve_strategy_benchmark": (
+        "quant_platform_kit.strategy_lifecycle.return_collector", "resolve_strategy_benchmark"),
+    **{name: ("quant_platform_kit.strategy_lifecycle.performance_metrics", name) for name in (
+        "annualization_basis_is_comparable", "compare_with_backtest",
+        "compute_window_metrics", "normalize_return_series",
+    )},
+}
+# get_type_hints evaluates annotations in globals(), bypassing module __getattr__.
+# A module-qualified reference invokes lazy lookup and returns the original class.
+_monitor_module = _sys.modules[__name__]
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute = _LAZY_EXPORTS[name]
+    try:
+        # Check directly: pandas may wrap a missing NumPy in a generic ImportError.
+        _import_module("numpy")
+        _import_module("pandas")
+        module = _import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"pandas", "numpy"}:
+            raise
+        raise ImportError(
+            f"{name} requires pandas and NumPy; "
+            "install quant-platform-kit[research]"
+        ) from exc
+    value = module if attribute is None else getattr(module, attribute)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY_EXPORTS))
 
 _SOURCE_REVISION_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SOURCE_REVISION_SENTINELS = frozenset(
@@ -121,6 +153,8 @@ def resolve_lifecycle_stream_id(
 
 
 def _is_valid_series(series: object, *, min_observations: int = 10) -> bool:
+    import pandas as pd
+
     if not isinstance(series, pd.Series):
         return False
     return len(series.dropna()) >= min_observations
@@ -135,7 +169,7 @@ def run_monitor(
     min_observations: int = 10,
     fail_on_empty: bool = True,
     store: PerformanceStore | None = None,
-    collector: ReturnCollector | None = None,
+    collector: _monitor_module.ReturnCollector | None = None,
     strategy_benchmarks: Mapping[str, str] | None = None,
     require_explicit_benchmark: bool = False,
     live_stream_id: str | None = None,
@@ -178,6 +212,20 @@ def run_monitor(
     Returns:
         List of StrategyPerformanceSnapshot objects generated.
     """
+    # Recording stays dependency-free; numerical monitoring requires [research].
+    import pandas as pd
+
+    from quant_platform_kit.strategy_lifecycle.performance_metrics import (
+        annualization_basis_is_comparable,
+        compare_with_backtest,
+        compute_window_metrics,
+        normalize_return_series,
+    )
+    from quant_platform_kit.strategy_lifecycle.return_collector import (
+        ReturnCollector,
+        resolve_strategy_benchmark,
+    )
+
     requested = required_start_at is not None or required_end_at is not None
     if requested:
         from quant_platform_kit.strategy_lifecycle.live_equity import _parse_interval_timestamp
@@ -553,3 +601,6 @@ def try_record_platform_execution(
         )
     except Exception as exc:  # pragma: no cover
         logger.warning("PerformanceMonitor.record_execution failed: %s", exc)
+
+
+__all__ = sorted({name for name in globals() if not name.startswith("_")} | set(_LAZY_EXPORTS))
