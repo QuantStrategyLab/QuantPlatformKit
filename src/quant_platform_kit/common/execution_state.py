@@ -9,6 +9,7 @@ import uuid
 import hashlib
 import os
 import re
+import stat
 import tempfile
 from collections.abc import Callable, Mapping
 from contextlib import contextmanager
@@ -856,6 +857,7 @@ class AccountSubmissionSession:
             "intent_id": _submission_digest(intent_id), "release_id": _submission_digest(release_id),
             "account_root": "v1/" + submission_binding_digest({"broker": broker, "account_id": account}),
             "_issued": {}, "_used": set(), "_mutex": threading.RLock(), "_failed": False,
+            "_writer_identity": None,
             "account_domain": account_domain, "observed_account_id": observed_account_id,
             "broker_identity": broker_identity, "observed_at": observed_at, "decision_at": decision_at,
             "observed_environment": observed_environment, "observed_server": observed_server,
@@ -878,6 +880,8 @@ class AccountSubmissionSession:
         ObjectStore has no release/CAS contract: claim permanent process ownership
         instead. No lease expiry or automatic takeover can authorize a restart.
         """
+        if self._failed:
+            raise AccountSubmissionError("session persistence uncertain")
         if self.store.cloud_prefix_uri:
             location = self.store._cloud_uri_for_namespace(
                 self.account_root, "account_writer_ownership",
@@ -885,31 +889,70 @@ class AccountSubmissionSession:
             # PID distinguishes forked children, which inherit the random token.
             token = f"{_ACCOUNT_WRITER_TOKEN}:{os.getpid()}"
             payload = json.dumps({"kind": "WRITER_OWNERSHIP", "token": token})
+            identity = (location, payload)
+
+            def confirm_writer():
+                try:
+                    if objects.read_text(location) != payload:
+                        raise ValueError("different writer")
+                except Exception as exc:
+                    object.__setattr__(self, "_failed", True)
+                    raise AccountSubmissionError("exclusive account writer identity lost or unknown") from exc
+
             try:
                 objects = self.store._object_store()
-                created = objects.create_text(location, payload, "application/json")
-                if created is not True and created is not False:
-                    raise ValueError("unknown create result")
-                if objects.read_text(location) != payload:
-                    raise ValueError("different writer")
+                if self._writer_identity is None:
+                    created = objects.create_text(location, payload, "application/json")
+                    if created is not True and created is not False:
+                        raise ValueError("unknown create result")
+                elif self._writer_identity != identity:
+                    raise ValueError("writer identity changed")
+                confirm_writer()
             except Exception as exc:
+                object.__setattr__(self, "_failed", True)
                 raise AccountSubmissionError("exclusive account writer not established") from exc
-            yield
+            object.__setattr__(self, "_writer_identity", identity)
+            yield confirm_writer
+            confirm_writer()
             return
         fd = None
         try:
             import fcntl
             location = self._location().resolve() / "writer.lock"
             location.parent.mkdir(parents=True, exist_ok=True)
-            fd = os.open(location, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            # Creation is initial setup only. A known lock must never be
+            # recreated: another process may still hold its detached inode.
+            flags = os.O_RDWR | os.O_NOFOLLOW
+            if self._writer_identity is None:
+                flags |= os.O_CREAT
+            fd = os.open(location, flags, 0o600)
+            acquired = os.fstat(fd)
+            identity = (str(location), acquired.st_dev, acquired.st_ino)
+            if self._writer_identity is not None and self._writer_identity != identity:
+                raise AccountSubmissionError("exclusive account writer identity changed")
             fcntl.flock(fd, fcntl.LOCK_EX)
-        except (ImportError, OSError):
+        except (ImportError, OSError, AccountSubmissionError):
             if fd is not None:
                 os.close(fd)
             object.__setattr__(self, "_failed", True)
             raise
         try:
-            yield
+            def confirm_writer():
+                try:
+                    held = os.fstat(fd)
+                    named = os.stat(location, follow_symlinks=False)
+                    if (not stat.S_ISREG(named.st_mode) or held.st_nlink != 1
+                            or (held.st_dev, held.st_ino) != identity[1:]
+                            or (named.st_dev, named.st_ino) != identity[1:]):
+                        raise ValueError("lock pathname no longer names the locked inode")
+                except (OSError, ValueError) as exc:
+                    object.__setattr__(self, "_failed", True)
+                    raise AccountSubmissionError("exclusive account writer identity lost or unknown") from exc
+
+            confirm_writer()
+            object.__setattr__(self, "_writer_identity", identity)
+            yield confirm_writer
+            confirm_writer()
         finally:
             os.close(fd)
 
@@ -1222,13 +1265,19 @@ class AccountSubmissionSession:
         """
         from quant_platform_kit.risk.account_new_risk_gate import evaluate_new_risk_admission
         from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
-        with self._mutex, self._account_mutex, self._writer_guard():
+        with self._mutex, self._account_mutex, self._writer_guard() as confirm_writer:
             if self._failed:
                 raise AccountSubmissionError("session persistence uncertain")
             if not evaluate_new_risk_admission(snapshot).hard_brake_triggered:
                 raise AccountSubmissionError("circuit breaker OPEN requires a drawdown breach")
-            data = {key: None if getattr(snapshot, key) is None else _submission_number(getattr(snapshot, key))
-                    for key in ("equity_usd", "peak_equity_usd")}
+            peak = snapshot.peak_equity_usd
+            # A supplemental input error cannot erase an independently valid
+            # explicit drawdown breach. Replay validates the remaining facts.
+            if peak is not None and (isinstance(peak, bool) or not isinstance(peak, (int, float))
+                                     or not math.isfinite(float(peak)) or peak <= 0):
+                peak = None
+            data = {"equity_usd": _submission_number(snapshot.equity_usd),
+                    "peak_equity_usd": None if peak is None else _submission_number(peak)}
             drawdown = snapshot.drawdown_from_peak
             if "INVALID_DRAWDOWN_FAIL_CLOSED" in evaluate_capital_risk_envelope(
                 snapshot.equity_usd, drawdown_from_peak=drawdown,
@@ -1239,6 +1288,7 @@ class AccountSubmissionSession:
             data["drawdown_from_peak"] = None if drawdown is None else _submission_number(drawdown)
             data.update(owner_id=self.owner_id, profile=self.profile)
             state = self.read_state()
+            confirm_writer()
             if not state["circuit_breaker_open"]:
                 self._append(state, "CIRCUIT_BREAKER_OPEN", data)
 
@@ -1648,23 +1698,27 @@ class AccountSubmissionSession:
                     raise AccountSubmissionError("new risk prohibited by circuit breaker")
                 # Acquire cross-process exclusion after the preliminary read;
                 # only a read inside this guard may authorize the broker write.
-                with self._writer_guard():
+                with self._writer_guard() as confirm_writer:
                     current = self._owned_grant(grant)
                     attempt = current["attempts"][grant.attempt_id]
                     if attempt["certainty"] != "PREPARED":
                         raise AccountSubmissionError("grant no longer prepared")
                     if attempt.get("new_risk") and current["circuit_breaker_open"]:
                         raise AccountSubmissionError("new risk prohibited by circuit breaker")
+                    confirm_writer()
                     self._used.add(grant.attempt_id)
                     try:
+                        confirm_writer()
                         report = submit()
                     except Exception as exc:
                         try:
+                            confirm_writer()
                             self.record_observation(grant, None)
                         except Exception as persist_exc:
                             exc.add_note("account outcome persistence also failed: " + type(persist_exc).__name__)
                             object.__setattr__(self, "_failed", True)
                         raise
+                    confirm_writer()
                     # Keep the outcome append in the same critical section so an
                     # OPEN writer cannot race its next sequence with OBSERVED.
                     if record_observation_watermark:
