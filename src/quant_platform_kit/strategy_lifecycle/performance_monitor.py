@@ -2,6 +2,8 @@
 
 Collects daily strategy returns, computes rolling metrics for all configured windows,
 and persists StrategyPerformanceSnapshot records to the performance store.
+Recording requires only the core installation; numeric monitoring requires the
+``research`` extra (pandas and NumPy), loaded when monitoring is invoked.
 """
 
 from __future__ import annotations
@@ -12,12 +14,11 @@ import re
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
-from typing import Any, Mapping, Sequence
-
-import pandas as pd
+from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 logger = logging.getLogger(__name__)
 
+from quant_platform_kit.backtest.config import DEFAULT_WINDOWS
 from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.contracts import (
     StrategyPerformanceSnapshot,
@@ -25,18 +26,10 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     normalize_interval_return_coverage,
     resolve_return_observation_contract,
 )
-from quant_platform_kit.strategy_lifecycle.performance_metrics import (
-    DEFAULT_WINDOWS,
-    annualization_basis_is_comparable,
-    compare_with_backtest,
-    compute_window_metrics,
-    normalize_return_series,
-)
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
-from quant_platform_kit.strategy_lifecycle.return_collector import (
-    ReturnCollector,
-    resolve_strategy_benchmark,
-)
+
+if TYPE_CHECKING:
+    from quant_platform_kit.strategy_lifecycle.return_collector import ReturnCollector
 
 _SOURCE_REVISION_SHA = re.compile(r"^[0-9a-f]{40}$")
 _SOURCE_REVISION_SENTINELS = frozenset(
@@ -121,6 +114,8 @@ def resolve_lifecycle_stream_id(
 
 
 def _is_valid_series(series: object, *, min_observations: int = 10) -> bool:
+    import pandas as pd
+
     if not isinstance(series, pd.Series):
         return False
     return len(series.dropna()) >= min_observations
@@ -178,6 +173,20 @@ def run_monitor(
     Returns:
         List of StrategyPerformanceSnapshot objects generated.
     """
+    # Recording stays dependency-free; numerical monitoring requires [research].
+    import pandas as pd
+
+    from quant_platform_kit.strategy_lifecycle.performance_metrics import (
+        annualization_basis_is_comparable,
+        compare_with_backtest,
+        compute_window_metrics,
+        normalize_return_series,
+    )
+    from quant_platform_kit.strategy_lifecycle.return_collector import (
+        ReturnCollector,
+        resolve_strategy_benchmark,
+    )
+
     requested = required_start_at is not None or required_end_at is not None
     if requested:
         from quant_platform_kit.strategy_lifecycle.live_equity import _parse_interval_timestamp

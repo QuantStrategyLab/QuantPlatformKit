@@ -497,6 +497,14 @@ Notifications are dispatched through a shared `NotificationPublisher` that wraps
 | `health_dashboard` | Aggregate health metrics across platforms |
 | `audit_log` | Immutable audit log for strategy changes |
 
+`performance_monitor.PerformanceMonitor.record` and `record_execution`, along
+with its domain, stream and provenance helpers, work with the core installation.
+Numeric monitoring through `run_monitor` requires the `research` extra
+(`pip install 'quant-platform-kit[research]'`). Its pandas, metrics and return
+collector imports are deferred until invocation; recording payloads and metric
+calculations retain their existing semantics. Consumers pinned to older QPK
+revisions need a separate pin update to receive this import fix.
+
 ## 5. Naming Conventions
 
 ### 5.1 Repository Names
