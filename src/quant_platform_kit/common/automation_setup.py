@@ -9,7 +9,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from uuid import UUID
 
@@ -110,6 +110,9 @@ def _subject(value):
     release = t['strategy_release']; _object(release, _RELEASE)
     for key in ('release_id', 'strategy_revision'): _label(release[key])
     for key in _RELEASE - {'release_id', 'strategy_revision', 'effective_session'}: _sha(release[key])
+    session = release['effective_session']
+    _require(isinstance(session, str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', session) is not None)
+    _require(date.fromisoformat(session).isoformat() == session)
     identity = build_strategy_release_identity(release)
     build_runtime_target(**{**t, 'strategy_release': identity})
     c = value['control']; _object(c, _CONTROL)
@@ -120,6 +123,8 @@ def _subject(value):
     _require(type(c['cash_policy']) is dict and not (set(c['cash_policy']) - {
         'cash_only', 'reserved_cash_ratio', 'reserved_cash_floor_usd'}))
     _require(all(type(v) in (bool, int, float) for v in c['cash_policy'].values()))
+    if 'cash_only' in c['cash_policy']:
+        _require(type(c['cash_policy']['cash_only']) is bool)
     RuntimeControl.from_mapping(c)
     _require(isinstance(value['currency'], str) and re.fullmatch('[A-Z]{3}', value['currency']) is not None)
     for key in ('amount', 'cap'):
@@ -173,9 +178,10 @@ class SetupIntent:
     @classmethod
     def create(cls, subject: dict, decision: dict | None = None) -> SetupIntent:
         try:
+            _subject(subject)
             return cls(_canonical(dict(schema_version=VERSION, subject=subject, subject_sha256=_digest(subject),
                                        decision=decision, grants_live=False, grants_execution_authority=False)))
-        except (ValueError, TypeError, OverflowError):
+        except (ValueError, TypeError, KeyError, OverflowError, AttributeError):
             raise ValueError(redact_sensitive_text('invalid setup intent')) from None
 
     @classmethod

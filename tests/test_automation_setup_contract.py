@@ -194,3 +194,68 @@ def test_serialized_and_summary_views_exclude_sensitive_input():
     assert 'account_refs' not in classify(obj)
     assert 'actor_ref' not in classify(obj)
     assert fake not in repr(obj)
+
+
+@pytest.mark.parametrize('field,value', [
+    ('cash_only', 0), ('cash_only', 1), ('cash_only', 0.0),
+    ('cash_only', 1.0), ('cash_only', None), ('cash_only', 'true'),
+    ('effective_session', 20261101), ('effective_session', None),
+    ('effective_session', '20261101'), ('effective_session', '2026-W44-7'),
+    ('effective_session', '2026-11-01T00:00:00'),
+    ('effective_session', '2026-02-30'),
+])
+def test_invalid_scalar_rejected_before_hashing(field, value, monkeypatch):
+    from quant_platform_kit.common import automation_setup
+
+    s = subject()
+    if field == 'cash_only':
+        s['control']['cash_policy'][field] = value
+    else:
+        s['target']['strategy_release'][field] = value
+    hashed = []
+    original = automation_setup._digest
+
+    def track_digest(data):
+        hashed.append(data)
+        return original(data)
+
+    monkeypatch.setattr(automation_setup, '_digest', track_digest)
+    with pytest.raises(ValueError, match='^invalid setup intent$') as error:
+        SetupIntent.create(s)
+    assert error.value.__cause__ is None
+    assert hashed == []
+
+
+@pytest.mark.parametrize('cash_only', [False, True])
+@pytest.mark.parametrize('effective_session', ['2026-11-01', '2024-02-29'])
+def test_constructor_scalar_schema_parity(cash_only, effective_session):
+    schema = json.loads((Path(__file__).parents[1] / 'src/quant_platform_kit/schemas/automation-setup-intent.v1.schema.json').read_text())
+    s = subject()
+    s['control']['cash_policy']['cash_only'] = cash_only
+    s['target']['strategy_release']['effective_session'] = effective_session
+    obj = SetupIntent.create(s)
+    encoded = obj.to_dict()
+    Draft202012Validator(schema).validate(encoded)
+    assert encoded['subject'] == s
+    assert SetupIntent.from_dict(encoded).to_dict() == encoded
+    assert encoded['grants_live'] is encoded['grants_execution_authority'] is False
+
+
+@pytest.mark.parametrize('field,value', [
+    ('cash_only', 0), ('cash_only', 1), ('effective_session', 20261101),
+    ('effective_session', '20261101'), ('effective_session', '2026-W44-7'),
+])
+def test_schema_invalid_scalars_rejected_on_read(field, value):
+    import hashlib
+
+    encoded = intent(decision=False).to_dict()
+    s = encoded['subject']
+    if field == 'cash_only':
+        s['control']['cash_policy'][field] = value
+    else:
+        s['target']['strategy_release'][field] = value
+    encoded['subject_sha256'] = hashlib.sha256(
+        json.dumps(s, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+    ).hexdigest()
+    with pytest.raises(ValueError, match='^invalid setup intent$'):
+        SetupIntent.from_dict(encoded)
