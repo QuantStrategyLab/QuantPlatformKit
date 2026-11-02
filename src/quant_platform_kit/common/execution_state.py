@@ -11,6 +11,7 @@ import os
 import re
 import tempfile
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fractions import Fraction
@@ -761,6 +762,7 @@ _SUBMISSION_PARTIAL = frozenset({"Partial", "PartiallyFilled"})
 _SUBMISSION_TERMINAL = frozenset({"Filled", "Rejected", "rejected", "Cancelled", "ApiCancelled"})
 _ACCOUNT_SUBMISSION_LOCKS: dict[str, Any] = {}
 _ACCOUNT_SUBMISSION_LOCKS_MUTEX = threading.Lock()
+_ACCOUNT_WRITER_TOKEN = uuid.uuid4().hex
 
 
 class AccountSubmissionError(RuntimeError):
@@ -867,6 +869,49 @@ class AccountSubmissionSession:
         with _ACCOUNT_SUBMISSION_LOCKS_MUTEX:
             account_mutex = _ACCOUNT_SUBMISSION_LOCKS.setdefault(lock_key, threading.RLock())
         object.__setattr__(self, "_account_mutex", account_mutex)
+
+    @contextmanager
+    def _writer_guard(self):
+        """Exclude OPEN writers through submit, or deny when exclusion is unknown.
+
+        Local journals use the same kernel lock in every cooperating process.
+        ObjectStore has no release/CAS contract: claim permanent process ownership
+        instead. No lease expiry or automatic takeover can authorize a restart.
+        """
+        if self.store.cloud_prefix_uri:
+            location = self.store._cloud_uri_for_namespace(
+                self.account_root, "account_writer_ownership",
+            )
+            # PID distinguishes forked children, which inherit the random token.
+            token = f"{_ACCOUNT_WRITER_TOKEN}:{os.getpid()}"
+            payload = json.dumps({"kind": "WRITER_OWNERSHIP", "token": token})
+            try:
+                objects = self.store._object_store()
+                created = objects.create_text(location, payload, "application/json")
+                if created is not True and created is not False:
+                    raise ValueError("unknown create result")
+                if objects.read_text(location) != payload:
+                    raise ValueError("different writer")
+            except Exception as exc:
+                raise AccountSubmissionError("exclusive account writer not established") from exc
+            yield
+            return
+        fd = None
+        try:
+            import fcntl
+            location = self._location().resolve() / "writer.lock"
+            location.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(location, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            if fd is not None:
+                os.close(fd)
+            object.__setattr__(self, "_failed", True)
+            raise
+        try:
+            yield
+        finally:
+            os.close(fd)
 
     def _location(self, sequence: int | None = None):
         suffix = self.account_root + "/" + (f"{sequence:020d}.json" if sequence is not None else "")
@@ -1177,7 +1222,7 @@ class AccountSubmissionSession:
         """
         from quant_platform_kit.risk.account_new_risk_gate import evaluate_new_risk_admission
         from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
-        with self._mutex, self._account_mutex:
+        with self._mutex, self._account_mutex, self._writer_guard():
             if self._failed:
                 raise AccountSubmissionError("session persistence uncertain")
             if not evaluate_new_risk_admission(snapshot).hard_brake_triggered:
@@ -1601,38 +1646,47 @@ class AccountSubmissionSession:
                     raise AccountSubmissionError("grant no longer prepared")
                 if attempt.get("new_risk") and current["circuit_breaker_open"]:
                     raise AccountSubmissionError("new risk prohibited by circuit breaker")
-                self._used.add(grant.attempt_id)
-                try:
-                    report = submit()
-                except Exception as exc:
+                # Acquire cross-process exclusion after the preliminary read;
+                # only a read inside this guard may authorize the broker write.
+                with self._writer_guard():
+                    current = self._owned_grant(grant)
+                    attempt = current["attempts"][grant.attempt_id]
+                    if attempt["certainty"] != "PREPARED":
+                        raise AccountSubmissionError("grant no longer prepared")
+                    if attempt.get("new_risk") and current["circuit_breaker_open"]:
+                        raise AccountSubmissionError("new risk prohibited by circuit breaker")
+                    self._used.add(grant.attempt_id)
                     try:
-                        self.record_observation(grant, None)
-                    except Exception as persist_exc:
-                        exc.add_note("account outcome persistence also failed: " + type(persist_exc).__name__)
-                        object.__setattr__(self, "_failed", True)
-                    raise
-                # Keep the outcome append in the same critical section so an
-                # OPEN writer cannot race its next sequence with OBSERVED.
-                if record_observation_watermark:
-                    try:
-                        now = self.clock()
-                        recorded_at = now.isoformat() if isinstance(now, datetime) else now
-                        from quant_platform_kit.common.account_domain import _time
-                        _time(recorded_at)
-                    except Exception:
-                        recorded_at = None
-                    if recorded_at is not None:
-                        self.record_observation(grant, report, recorded_at=recorded_at)
+                        report = submit()
+                    except Exception as exc:
+                        try:
+                            self.record_observation(grant, None)
+                        except Exception as persist_exc:
+                            exc.add_note("account outcome persistence also failed: " + type(persist_exc).__name__)
+                            object.__setattr__(self, "_failed", True)
+                        raise
+                    # Keep the outcome append in the same critical section so an
+                    # OPEN writer cannot race its next sequence with OBSERVED.
+                    if record_observation_watermark:
+                        try:
+                            now = self.clock()
+                            recorded_at = now.isoformat() if isinstance(now, datetime) else now
+                            from quant_platform_kit.common.account_domain import _time
+                            _time(recorded_at)
+                        except Exception:
+                            recorded_at = None
+                        if recorded_at is not None:
+                            self.record_observation(grant, report, recorded_at=recorded_at)
+                        else:
+                            self.record_observation(grant, report)
                     else:
                         self.record_observation(grant, report)
-                else:
-                    self.record_observation(grant, report)
-                attempt = self.read_state()["attempts"][grant.attempt_id]
-                if attempt["certainty"] == "UNKNOWN" and str(getattr(report, "status", "")).strip() in (
-                    _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL
-                ):
-                    raise AccountSubmissionError("broker result facts are uncertain; original attempt retained")
-                return report
+                    attempt = self.read_state()["attempts"][grant.attempt_id]
+                    if attempt["certainty"] == "UNKNOWN" and str(getattr(report, "status", "")).strip() in (
+                        _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL
+                    ):
+                        raise AccountSubmissionError("broker result facts are uncertain; original attempt retained")
+                    return report
 
     def record_observation(self, grant: AccountSubmissionGrant, report, *, recorded_at=None) -> bool:
         """Persist original facts. Exact replay is idempotent, never a new grant."""
