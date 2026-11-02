@@ -9,8 +9,10 @@ import uuid
 import hashlib
 import os
 import re
+import stat
 import tempfile
 from collections.abc import Callable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from fractions import Fraction
@@ -759,6 +761,9 @@ _ACCOUNT_SUBMISSION_NAMESPACE = "account_submissions"
 _SUBMISSION_ACK = frozenset({"PendingSubmit", "ApiPending", "ApiPendingSubmit", "Submitted", "PreSubmitted"})
 _SUBMISSION_PARTIAL = frozenset({"Partial", "PartiallyFilled"})
 _SUBMISSION_TERMINAL = frozenset({"Filled", "Rejected", "rejected", "Cancelled", "ApiCancelled"})
+_ACCOUNT_SUBMISSION_LOCKS: dict[str, Any] = {}
+_ACCOUNT_SUBMISSION_LOCKS_MUTEX = threading.Lock()
+_ACCOUNT_WRITER_TOKEN = uuid.uuid4().hex
 
 
 class AccountSubmissionError(RuntimeError):
@@ -852,6 +857,7 @@ class AccountSubmissionSession:
             "intent_id": _submission_digest(intent_id), "release_id": _submission_digest(release_id),
             "account_root": "v1/" + submission_binding_digest({"broker": broker, "account_id": account}),
             "_issued": {}, "_used": set(), "_mutex": threading.RLock(), "_failed": False,
+            "_writer_identity": None,
             "account_domain": account_domain, "observed_account_id": observed_account_id,
             "broker_identity": broker_identity, "observed_at": observed_at, "decision_at": decision_at,
             "observed_environment": observed_environment, "observed_server": observed_server,
@@ -860,6 +866,95 @@ class AccountSubmissionSession:
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)
+        location = self._location()
+        lock_key = str(location) if store.cloud_prefix_uri else str(location.resolve())
+        with _ACCOUNT_SUBMISSION_LOCKS_MUTEX:
+            account_mutex = _ACCOUNT_SUBMISSION_LOCKS.setdefault(lock_key, threading.RLock())
+        object.__setattr__(self, "_account_mutex", account_mutex)
+
+    @contextmanager
+    def _writer_guard(self):
+        """Exclude OPEN writers through submit, or deny when exclusion is unknown.
+
+        Local journals use the same kernel lock in every cooperating process.
+        ObjectStore has no release/CAS contract: claim permanent process ownership
+        instead. No lease expiry or automatic takeover can authorize a restart.
+        """
+        if self._failed:
+            raise AccountSubmissionError("session persistence uncertain")
+        if self.store.cloud_prefix_uri:
+            location = self.store._cloud_uri_for_namespace(
+                self.account_root, "account_writer_ownership",
+            )
+            # PID distinguishes forked children, which inherit the random token.
+            token = f"{_ACCOUNT_WRITER_TOKEN}:{os.getpid()}"
+            payload = json.dumps({"kind": "WRITER_OWNERSHIP", "token": token})
+            identity = (location, payload)
+
+            def confirm_writer():
+                try:
+                    if objects.read_text(location) != payload:
+                        raise ValueError("different writer")
+                except Exception as exc:
+                    object.__setattr__(self, "_failed", True)
+                    raise AccountSubmissionError("exclusive account writer identity lost or unknown") from exc
+
+            try:
+                objects = self.store._object_store()
+                if self._writer_identity is None:
+                    created = objects.create_text(location, payload, "application/json")
+                    if created is not True and created is not False:
+                        raise ValueError("unknown create result")
+                elif self._writer_identity != identity:
+                    raise ValueError("writer identity changed")
+                confirm_writer()
+            except Exception as exc:
+                object.__setattr__(self, "_failed", True)
+                raise AccountSubmissionError("exclusive account writer not established") from exc
+            object.__setattr__(self, "_writer_identity", identity)
+            yield confirm_writer
+            confirm_writer()
+            return
+        fd = None
+        try:
+            import fcntl
+            location = self._location().resolve() / "writer.lock"
+            location.parent.mkdir(parents=True, exist_ok=True)
+            # Creation is initial setup only. A known lock must never be
+            # recreated: another process may still hold its detached inode.
+            flags = os.O_RDWR | os.O_NOFOLLOW
+            if self._writer_identity is None:
+                flags |= os.O_CREAT
+            fd = os.open(location, flags, 0o600)
+            acquired = os.fstat(fd)
+            identity = (str(location), acquired.st_dev, acquired.st_ino)
+            if self._writer_identity is not None and self._writer_identity != identity:
+                raise AccountSubmissionError("exclusive account writer identity changed")
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except (ImportError, OSError, AccountSubmissionError):
+            if fd is not None:
+                os.close(fd)
+            object.__setattr__(self, "_failed", True)
+            raise
+        try:
+            def confirm_writer():
+                try:
+                    held = os.fstat(fd)
+                    named = os.stat(location, follow_symlinks=False)
+                    if (not stat.S_ISREG(named.st_mode) or held.st_nlink != 1
+                            or (held.st_dev, held.st_ino) != identity[1:]
+                            or (named.st_dev, named.st_ino) != identity[1:]):
+                        raise ValueError("lock pathname no longer names the locked inode")
+                except (OSError, ValueError) as exc:
+                    object.__setattr__(self, "_failed", True)
+                    raise AccountSubmissionError("exclusive account writer identity lost or unknown") from exc
+
+            confirm_writer()
+            object.__setattr__(self, "_writer_identity", identity)
+            yield confirm_writer
+            confirm_writer()
+        finally:
+            os.close(fd)
 
     def _location(self, sequence: int | None = None):
         suffix = self.account_root + "/" + (f"{sequence:020d}.json" if sequence is not None else "")
@@ -925,7 +1020,7 @@ class AccountSubmissionSession:
                 return path.read_text(encoding="utf-8")
         if len(locations) != len(set(map(str, locations))):
             raise AccountSubmissionError("duplicate account journal sequence")
-        state: dict[str, Any] = {"generation": 0, "head_sha256": "0" * 64, "attempts": {}, "domain_binding": None, "risk_reservations": {}, "equity_observation": None, "snapshot_position_risk": 0.0}
+        state: dict[str, Any] = {"generation": 0, "head_sha256": "0" * 64, "attempts": {}, "domain_binding": None, "risk_reservations": {}, "equity_observation": None, "snapshot_position_risk": 0.0, "circuit_breaker_open": False}
         for location in sorted(locations, key=str):
             sequence = state["generation"] + 1
             if str(location) != str(self._location(sequence)):
@@ -945,7 +1040,21 @@ class AccountSubmissionSession:
             data = event["data"]
             if not isinstance(data, dict):
                 raise AccountSubmissionError("invalid account event data")
-            if event["kind"] == "DOMAIN_BOUND":
+            if event["kind"] == "CIRCUIT_BREAKER_OPEN":
+                from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
+                if set(data) != {"equity_usd", "peak_equity_usd", "drawdown_from_peak", "owner_id", "profile"} or state["circuit_breaker_open"]:
+                    raise AccountSubmissionError("invalid or duplicate circuit breaker OPEN")
+                _submission_text(data["owner_id"])
+                _submission_text(data["profile"])
+                equity = _submission_number(data["equity_usd"])
+                peak = None if data["peak_equity_usd"] is None else _submission_number(data["peak_equity_usd"])
+                drawdown = None if data["drawdown_from_peak"] is None else _submission_number(data["drawdown_from_peak"])
+                if drawdown is None and peak is not None and peak > 0:
+                    drawdown = max(0.0, 1.0 - equity / peak)
+                if "DRAWDOWN_BRAKE_TRIPPED" not in evaluate_capital_risk_envelope(equity, drawdown_from_peak=drawdown).reasons:
+                    raise AccountSubmissionError("circuit breaker OPEN requires a drawdown breach")
+                state["circuit_breaker_open"] = True
+            elif event["kind"] == "DOMAIN_BOUND":
                 if set(data) != {"domain_key", "account_type", "currency"} or state["domain_binding"] is not None:
                     raise AccountSubmissionError("invalid or duplicate domain binding")
                 _submission_digest(data["domain_key"])
@@ -1048,8 +1157,10 @@ class AccountSubmissionSession:
                 state["snapshot_position_risk"] = position_risk
             elif event["kind"] == "PREPARED":
                 keys = {"attempt_id", "fence", "intent_id", "order_sha256", "release_id", "owner_id", "profile", "quantity"}
-                if set(data) not in (keys, keys | {"reduction", "reduction_source_digest"}) or ("reduction" in data and data["reduction"] is not True):
+                if set(data) not in (keys, keys | {"reduction", "reduction_source_digest"}, keys | {"new_risk"}) or ("reduction" in data and data["reduction"] is not True):
                     raise AccountSubmissionError("invalid prepared fields")
+                if "new_risk" in data and (data["new_risk"] is not True or state["circuit_breaker_open"]):
+                    raise AccountSubmissionError("new risk prepared while circuit breaker OPEN")
                 for key in ["attempt_id", "fence", "intent_id", "order_sha256", "release_id"]:
                     _submission_digest(data[key])
                 for key in ["owner_id", "profile"]:
@@ -1145,6 +1256,41 @@ class AccountSubmissionSession:
             object.__setattr__(self, "_failed", True)
             raise
         return event
+
+    def record_circuit_breaker_open(self, *, snapshot):
+        """Latch an observed drawdown breach in the existing account journal.
+
+        OPEN is admission-only. Recovery, timeouts and caller CLOSED/reset flags
+        cannot clear it. This method grants no reduction or submission authority.
+        """
+        from quant_platform_kit.risk.account_new_risk_gate import evaluate_new_risk_admission
+        from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
+        with self._mutex, self._account_mutex, self._writer_guard() as confirm_writer:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain")
+            if not evaluate_new_risk_admission(snapshot).hard_brake_triggered:
+                raise AccountSubmissionError("circuit breaker OPEN requires a drawdown breach")
+            peak = snapshot.peak_equity_usd
+            # A supplemental input error cannot erase an independently valid
+            # explicit drawdown breach. Replay validates the remaining facts.
+            if peak is not None and (isinstance(peak, bool) or not isinstance(peak, (int, float))
+                                     or not math.isfinite(float(peak)) or peak <= 0):
+                peak = None
+            data = {"equity_usd": _submission_number(snapshot.equity_usd),
+                    "peak_equity_usd": None if peak is None else _submission_number(peak)}
+            drawdown = snapshot.drawdown_from_peak
+            if "INVALID_DRAWDOWN_FAIL_CLOSED" in evaluate_capital_risk_envelope(
+                snapshot.equity_usd, drawdown_from_peak=drawdown,
+            ).reasons:
+                # Admission already verified the independent equity/peak breach.
+                # Store only those valid facts; replay derives their drawdown.
+                drawdown = None
+            data["drawdown_from_peak"] = None if drawdown is None else _submission_number(drawdown)
+            data.update(owner_id=self.owner_id, profile=self.profile)
+            state = self.read_state()
+            confirm_writer()
+            if not state["circuit_breaker_open"]:
+                self._append(state, "CIRCUIT_BREAKER_OPEN", data)
 
     def record_account_equity(self, *, snapshot, cash_flow, baseline_confirmed=False):
         """Record a complete account equity observation with cash-flow-adjusted peak."""
@@ -1430,13 +1576,15 @@ class AccountSubmissionSession:
             self._issued[grant.attempt_id] = grant
             return grant
 
-    def reserve(self, order) -> AccountSubmissionGrant:
+    def reserve(self, order, *, new_risk=False) -> AccountSubmissionGrant:
         """Only a fresh acknowledged create can return a grant; never reclaim it."""
         with self._mutex:
             if self._failed:
                 raise AccountSubmissionError("session persistence uncertain; no grant")
             digest, quantity = self._order(order)
             state = self.read_state()
+            if type(new_risk) is not bool or (new_risk and state["circuit_breaker_open"]):
+                raise AccountSubmissionError("new risk prohibited by circuit breaker")
             if self.account_domain is not None:
                 from quant_platform_kit.common.account_domain import (
                     account_domain_key, account_domain_matches_broker_identity, account_domain_policy_active, validate_account_domain,
@@ -1481,6 +1629,8 @@ class AccountSubmissionSession:
                 "intent_id": self.intent_id, "order_sha256": digest, "release_id": self.release_id,
                 "owner_id": self.owner_id, "profile": self.profile, "quantity": quantity,
             }
+            if new_risk:
+                data["new_risk"] = True
             event = self._append(state, "PREPARED", data)
             grant = AccountSubmissionGrant(self.account_root, data["attempt_id"], data["fence"],
                                            event["sequence"], event["event_sha256"], self.intent_id, digest, self.release_id)
@@ -1512,6 +1662,8 @@ class AccountSubmissionSession:
                 raise AccountSubmissionError("wrong order or already-used grant")
             if state["attempts"][grant.attempt_id]["certainty"] != "PREPARED":
                 raise AccountSubmissionError("grant no longer prepared")
+            if state["attempts"][grant.attempt_id].get("new_risk") and state["circuit_breaker_open"]:
+                raise AccountSubmissionError("new risk prohibited by circuit breaker")
             if self.account_domain is not None:
                 from quant_platform_kit.common.account_domain import (
                     _time, account_domain_key, account_domain_matches_broker_identity,
@@ -1534,36 +1686,61 @@ class AccountSubmissionSession:
                             or observed["source_digest"] != state["attempts"][grant.attempt_id]["reduction_source_digest"]))
                         or not _time(observed["valuation_at"]) <= _time(now_text) < _time(observed["valid_until"])):
                     raise AccountSubmissionError("expired or mismatched domain observation")
-            self._used.add(grant.attempt_id)
-        try:
-            report = submit()
-        except Exception as exc:
-            try:
-                self.record_observation(grant, None)
-            except Exception as persist_exc:
-                exc.add_note("account outcome persistence also failed: " + type(persist_exc).__name__)
-                object.__setattr__(self, "_failed", True)
-            raise
-        if record_observation_watermark:
-            try:
-                now = self.clock()
-                recorded_at = now.isoformat() if isinstance(now, datetime) else now
-                from quant_platform_kit.common.account_domain import _time
-                _time(recorded_at)
-            except Exception:
-                recorded_at = None
-            if recorded_at is not None:
-                self.record_observation(grant, report, recorded_at=recorded_at)
-            else:
-                self.record_observation(grant, report)
-        else:
-            self.record_observation(grant, report)
-        attempt = self.read_state()["attempts"][grant.attempt_id]
-        if attempt["certainty"] == "UNKNOWN" and str(getattr(report, "status", "")).strip() in (
-            _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL
-        ):
-            raise AccountSubmissionError("broker result facts are uncertain; original attempt retained")
-        return report
+            with self._account_mutex:
+                # Validation above can call platform code. Re-read after it and
+                # serialize the final check/submit with OPEN from other sessions
+                # on this account journal in the current process.
+                current = self._owned_grant(grant)
+                attempt = current["attempts"][grant.attempt_id]
+                if attempt["certainty"] != "PREPARED":
+                    raise AccountSubmissionError("grant no longer prepared")
+                if attempt.get("new_risk") and current["circuit_breaker_open"]:
+                    raise AccountSubmissionError("new risk prohibited by circuit breaker")
+                # Acquire cross-process exclusion after the preliminary read;
+                # only a read inside this guard may authorize the broker write.
+                with self._writer_guard() as confirm_writer:
+                    current = self._owned_grant(grant)
+                    attempt = current["attempts"][grant.attempt_id]
+                    if attempt["certainty"] != "PREPARED":
+                        raise AccountSubmissionError("grant no longer prepared")
+                    if attempt.get("new_risk") and current["circuit_breaker_open"]:
+                        raise AccountSubmissionError("new risk prohibited by circuit breaker")
+                    confirm_writer()
+                    self._used.add(grant.attempt_id)
+                    try:
+                        confirm_writer()
+                        report = submit()
+                    except Exception as exc:
+                        try:
+                            confirm_writer()
+                            self.record_observation(grant, None)
+                        except Exception as persist_exc:
+                            exc.add_note("account outcome persistence also failed: " + type(persist_exc).__name__)
+                            object.__setattr__(self, "_failed", True)
+                        raise
+                    confirm_writer()
+                    # Keep the outcome append in the same critical section so an
+                    # OPEN writer cannot race its next sequence with OBSERVED.
+                    if record_observation_watermark:
+                        try:
+                            now = self.clock()
+                            recorded_at = now.isoformat() if isinstance(now, datetime) else now
+                            from quant_platform_kit.common.account_domain import _time
+                            _time(recorded_at)
+                        except Exception:
+                            recorded_at = None
+                        if recorded_at is not None:
+                            self.record_observation(grant, report, recorded_at=recorded_at)
+                        else:
+                            self.record_observation(grant, report)
+                    else:
+                        self.record_observation(grant, report)
+                    attempt = self.read_state()["attempts"][grant.attempt_id]
+                    if attempt["certainty"] == "UNKNOWN" and str(getattr(report, "status", "")).strip() in (
+                        _SUBMISSION_ACK | _SUBMISSION_PARTIAL | _SUBMISSION_TERMINAL
+                    ):
+                        raise AccountSubmissionError("broker result facts are uncertain; original attempt retained")
+                    return report
 
     def record_observation(self, grant: AccountSubmissionGrant, report, *, recorded_at=None) -> bool:
         """Persist original facts. Exact replay is idempotent, never a new grant."""
