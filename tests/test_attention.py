@@ -92,7 +92,8 @@ class AttentionEvaluationTest(unittest.TestCase):
         self.assertNotIn("原因：已禁止新增风险", text)
         self.assertIn("下一步", text)
         self.assertIn("管理站", text)
-        self.assertIn("确认意图不会解除保护", text)
+        self.assertIn("保持禁止新增风险", text)
+        self.assertNotIn("确认意图", text)
         self.assertNotIn("accept", text)
 
     def test_compact_localizes_drift_critical_reason_zh_and_en(self) -> None:

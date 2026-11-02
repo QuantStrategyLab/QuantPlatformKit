@@ -180,8 +180,11 @@ def render_attention_compact(
     strategy_profile: str,
     decision: AttentionDecision,
     guard_reason_codes: tuple[str, ...] = (),
+    daily_loss_context: Mapping[str, Any] | None = None,
+    occurred_at: object | None = None,
+    run_url: str | None = None,
 ) -> str:
-    """Four-line operator message: identity / result / reason / next step."""
+    """Operator message with display-only evidence; missing facts remain unknown."""
 
     from quant_platform_kit.common.display_names import display_name
     from quant_platform_kit.common.operational_notification_localization import (
@@ -189,6 +192,8 @@ def render_attention_compact(
         operational_notification_text,
         resolve_operational_notification_locale,
     )
+
+    from quant_platform_kit.risk.attention_display import attention_details, masked_account
 
     lang = resolve_operational_notification_locale(locale)
     level = decision.level
@@ -208,14 +213,17 @@ def render_attention_compact(
         lang,
         "attention_title",
         platform=display_name("platforms", platform, lang),
-        account=display_name("accounts", account_alias, lang, platform=platform),
-        strategy=display_name("strategies", strategy_profile, lang),
+        account=masked_account(account_alias, lang),
+        strategy=display_name("strategies", strategy_profile, lang, fallback="策略" if lang == "zh" else "Strategy"),
     )
     result_key = _result_text_key(level, decision.reason_codes)
     result = operational_notification_text(lang, result_key)
     descriptions = []
     for code in reasons:
         explanation = localize_attention_reason_code(lang, code)
+        if str(platform).lower() == "schwab" and code == "DAILY_LOSS_LIMIT_EXCEEDED":
+            explanation = ("相对基准净值的下降达到配置上限" if lang == "zh" else
+                           "The decline relative to the equity baseline reached the configured limit")
         if explanation == code:
             explanation = operational_notification_text(lang, "attention_reason_unknown")
         descriptions.append(f"{code}: {explanation}")
@@ -228,12 +236,21 @@ def render_attention_compact(
     if level is AttentionLevel.ACTION:
         if "DAILY_LOSS_LIMIT_EXCEEDED" in reasons:
             next_key = "review_daily_loss"
-        elif "new_risk_prohibited" in reasons:
+        elif "new_risk_prohibited" in decision.reason_codes:
             next_key = "inspect_guard_reason"
     next_step = operational_notification_text(lang, f"attention_next_{next_key}")
-    return f"{emoji} {title}\n{result}\n{reason_line}\n{next_step}"
+    context = daily_loss_context
+    if "DAILY_LOSS_LIMIT_EXCEEDED" in reasons and not context:
+        context = {"daily_loss_fact_status": "unknown"}
+    details = attention_details(
+        locale=lang, daily_loss_context=context,
+        occurred_at=occurred_at, run_url=run_url,
+    )
+    return "\n".join((f"{emoji} {title}", result, reason_line, *details, next_step))
 
 
+# Feature marker for pinned consumers that retain a legacy renderer until rollout.
+render_attention_notification = render_attention_compact
 format_attention_compact_message = render_attention_compact
 
 
