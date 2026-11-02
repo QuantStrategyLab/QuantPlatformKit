@@ -76,14 +76,22 @@ def publish_attention_telegram_transition(
         run_url=run_url,
     )
     sender = telegram_sender or _default_telegram_sender
+    # Logging must never expose the account-bearing deduplication key.
+    log_key = attention_transition_key(
+        platform=platform,
+        account_alias="redacted",
+        strategy_profile=strategy_profile,
+        level=decision.level,
+        primary_reason=primary,
+    )
     try:
         ok = bool(sender(text=text, alert_key=alert_key))
     except Exception as exc:  # noqa: BLE001
-        log_message(f"attention_telegram_failed key={alert_key} error={type(exc).__name__}")
+        log_message(f"attention_telegram_failed key={log_key} error={type(exc).__name__}")
         counts["failed"] += 1
         return counts
     if not ok:
-        log_message(f"attention_telegram_skipped key={alert_key} reason=telegram_not_configured_or_false")
+        log_message(f"attention_telegram_skipped key={log_key} reason=telegram_not_configured_or_false")
         counts["skipped"] += 1
         return counts
     counts["sent"] += 1
