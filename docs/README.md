@@ -12,7 +12,6 @@ Read documents at the library revision used by your consumer. These are source-l
 
 ## Runtime contracts
 
-- [IBKR read-only order outcomes](ibkr-order-outcomes.md): identity-bound terminal observations without execution authority.
 
 - [Platform notification outcomes](platform-notification-outcomes.md): credential-free intents, receipts and log redaction.
 
@@ -22,6 +21,8 @@ Read documents at the library revision used by your consumer. These are source-l
 - [Lifecycle policy](strategy-lifecycle-policy.md) ([中文](strategy-lifecycle-policy.zh-CN.md)).
 - [Pending order evidence v1](pending-order-evidence-v1.md): optional journal evidence without budget release.
 - [Paper execution consumer](paper-execution-command-consumer.md), [portfolio action matrix](strategy-portfolio-action-matrix.md) and [evidence package](evidence-package-template.md).
+
+- [IBKR read-only order outcomes](ibkr-order-outcomes.md): identity-bound terminal observations without execution authority.
 
 ## Historical compatibility
 

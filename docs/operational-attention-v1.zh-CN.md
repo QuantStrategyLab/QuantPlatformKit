@@ -18,6 +18,10 @@
 - `publish_attention_telegram_transition` — ACTION/HALT 跃迁才发 TG
 - `build_drift_alert` / `publish_drift_alerts`：WATCH 不建页；Telegram 走真实 `send_telegram_message`；缺配置记 `skipped` 并打日志（不再吞异常）
 
+Attention Telegram 发送异常或返回 False 时，日志键的账户段固定显示为 `redacted`。
+发送、成功记录和重复通知判断仍使用原始去重键；失败或跳过不记成功 marker。
+消费方须通过后续协调的 QPK pin 更新采用此修复，旧 pin 不会自动获得日志脱敏。
+
 ## 分级
 
 | Level | 例 | TG |
