@@ -259,3 +259,36 @@ def test_schema_invalid_scalars_rejected_on_read(field, value):
     ).hexdigest()
     with pytest.raises(ValueError, match='^invalid setup intent$'):
         SetupIntent.from_dict(encoded)
+
+
+@pytest.mark.parametrize('field', ['reviewed_at', 'effective_at', 'expires_at'])
+@pytest.mark.parametrize('path', ['create', 'read'])
+@pytest.mark.parametrize('suffix', ['+0000', '', '+00', '+00:00:00'])
+def test_schema_invalid_decision_timestamp_rejected(field, path, suffix):
+    schema = json.loads((Path(__file__).parents[1] / 'src/quant_platform_kit/schemas/automation-setup-intent.v1.schema.json').read_text())
+    encoded = intent().to_dict()
+    value = encoded['decision'][field][:-1] + suffix
+    encoded['decision'][field] = value
+    assert list(Draft202012Validator(schema).iter_errors(encoded))
+    with pytest.raises(ValueError, match='^invalid setup intent$') as error:
+        if path == 'create':
+            SetupIntent.create(encoded['subject'], encoded['decision'])
+        else:
+            SetupIntent.from_dict(encoded)
+    assert value not in str(error.value)
+    assert error.value.__cause__ is None
+
+
+@pytest.mark.parametrize('field', ['reviewed_at', 'effective_at', 'expires_at'])
+@pytest.mark.parametrize('suffix', ['Z', '+00:00', '+01:00', '-04:00'])
+def test_decision_timestamp_constructor_read_schema_parity(field, suffix):
+    schema = json.loads((Path(__file__).parents[1] / 'src/quant_platform_kit/schemas/automation-setup-intent.v1.schema.json').read_text())
+    encoded = intent().to_dict()
+    encoded['decision'][field] = encoded['decision'][field][:-1] + suffix
+    validator = Draft202012Validator(schema, format_checker=Draft202012Validator.FORMAT_CHECKER)
+    validator.validate(encoded)
+    obj = SetupIntent.create(encoded['subject'], encoded['decision'])
+    assert obj.to_dict() == encoded
+    validator.validate(obj.to_dict())
+    assert SetupIntent.from_dict(encoded).to_dict() == encoded
+    assert obj.to_dict()['grants_live'] is obj.to_dict()['grants_execution_authority'] is False

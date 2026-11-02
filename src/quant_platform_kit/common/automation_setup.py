@@ -149,6 +149,9 @@ def _decision(value, subject, digest):
     _integer(value['revision']); _integer(value['state_version'])
     _require(value['subject_sha256'] == digest and value['revision'] == subject['revision'])
     _require(value['actor_type'] == 'human' and value['outcome'] in ('confirmed', 'rejected'))
+    # Match the bundled schema before freezing the original timestamp strings.
+    for key in ('reviewed_at', 'effective_at', 'expires_at'):
+        _require(isinstance(value[key], str) and re.search(r'(Z|[+-][0-9]{2}:[0-9]{2})$', value[key]) is not None)
     _require(_time(value['reviewed_at']) <= _time(value['effective_at']) < _time(value['expires_at']))
 
 
