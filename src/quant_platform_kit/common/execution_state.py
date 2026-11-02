@@ -925,7 +925,7 @@ class AccountSubmissionSession:
                 return path.read_text(encoding="utf-8")
         if len(locations) != len(set(map(str, locations))):
             raise AccountSubmissionError("duplicate account journal sequence")
-        state: dict[str, Any] = {"generation": 0, "head_sha256": "0" * 64, "attempts": {}, "domain_binding": None, "risk_reservations": {}, "equity_observation": None, "snapshot_position_risk": 0.0}
+        state: dict[str, Any] = {"generation": 0, "head_sha256": "0" * 64, "attempts": {}, "domain_binding": None, "risk_reservations": {}, "equity_observation": None, "snapshot_position_risk": 0.0, "circuit_breaker_open": False}
         for location in sorted(locations, key=str):
             sequence = state["generation"] + 1
             if str(location) != str(self._location(sequence)):
@@ -945,7 +945,21 @@ class AccountSubmissionSession:
             data = event["data"]
             if not isinstance(data, dict):
                 raise AccountSubmissionError("invalid account event data")
-            if event["kind"] == "DOMAIN_BOUND":
+            if event["kind"] == "CIRCUIT_BREAKER_OPEN":
+                from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
+                if set(data) != {"equity_usd", "peak_equity_usd", "drawdown_from_peak", "owner_id", "profile"} or state["circuit_breaker_open"]:
+                    raise AccountSubmissionError("invalid or duplicate circuit breaker OPEN")
+                _submission_text(data["owner_id"])
+                _submission_text(data["profile"])
+                equity = _submission_number(data["equity_usd"])
+                peak = None if data["peak_equity_usd"] is None else _submission_number(data["peak_equity_usd"])
+                drawdown = None if data["drawdown_from_peak"] is None else _submission_number(data["drawdown_from_peak"])
+                if drawdown is None and peak is not None and peak > 0:
+                    drawdown = max(0.0, 1.0 - equity / peak)
+                if "DRAWDOWN_BRAKE_TRIPPED" not in evaluate_capital_risk_envelope(equity, drawdown_from_peak=drawdown).reasons:
+                    raise AccountSubmissionError("circuit breaker OPEN requires a drawdown breach")
+                state["circuit_breaker_open"] = True
+            elif event["kind"] == "DOMAIN_BOUND":
                 if set(data) != {"domain_key", "account_type", "currency"} or state["domain_binding"] is not None:
                     raise AccountSubmissionError("invalid or duplicate domain binding")
                 _submission_digest(data["domain_key"])
@@ -1048,8 +1062,10 @@ class AccountSubmissionSession:
                 state["snapshot_position_risk"] = position_risk
             elif event["kind"] == "PREPARED":
                 keys = {"attempt_id", "fence", "intent_id", "order_sha256", "release_id", "owner_id", "profile", "quantity"}
-                if set(data) not in (keys, keys | {"reduction", "reduction_source_digest"}) or ("reduction" in data and data["reduction"] is not True):
+                if set(data) not in (keys, keys | {"reduction", "reduction_source_digest"}, keys | {"new_risk"}) or ("reduction" in data and data["reduction"] is not True):
                     raise AccountSubmissionError("invalid prepared fields")
+                if "new_risk" in data and (data["new_risk"] is not True or state["circuit_breaker_open"]):
+                    raise AccountSubmissionError("new risk prepared while circuit breaker OPEN")
                 for key in ["attempt_id", "fence", "intent_id", "order_sha256", "release_id"]:
                     _submission_digest(data[key])
                 for key in ["owner_id", "profile"]:
@@ -1145,6 +1161,25 @@ class AccountSubmissionSession:
             object.__setattr__(self, "_failed", True)
             raise
         return event
+
+    def record_circuit_breaker_open(self, *, snapshot):
+        """Latch an observed drawdown breach in the existing account journal.
+
+        OPEN is admission-only. Recovery, timeouts and caller CLOSED/reset flags
+        cannot clear it. This method grants no reduction or submission authority.
+        """
+        from quant_platform_kit.risk.account_new_risk_gate import evaluate_new_risk_admission
+        with self._mutex:
+            if self._failed:
+                raise AccountSubmissionError("session persistence uncertain")
+            if not evaluate_new_risk_admission(snapshot).hard_brake_triggered:
+                raise AccountSubmissionError("circuit breaker OPEN requires a drawdown breach")
+            data = {key: None if getattr(snapshot, key) is None else _submission_number(getattr(snapshot, key))
+                    for key in ("equity_usd", "peak_equity_usd", "drawdown_from_peak")}
+            data.update(owner_id=self.owner_id, profile=self.profile)
+            state = self.read_state()
+            if not state["circuit_breaker_open"]:
+                self._append(state, "CIRCUIT_BREAKER_OPEN", data)
 
     def record_account_equity(self, *, snapshot, cash_flow, baseline_confirmed=False):
         """Record a complete account equity observation with cash-flow-adjusted peak."""
@@ -1430,13 +1465,15 @@ class AccountSubmissionSession:
             self._issued[grant.attempt_id] = grant
             return grant
 
-    def reserve(self, order) -> AccountSubmissionGrant:
+    def reserve(self, order, *, new_risk=False) -> AccountSubmissionGrant:
         """Only a fresh acknowledged create can return a grant; never reclaim it."""
         with self._mutex:
             if self._failed:
                 raise AccountSubmissionError("session persistence uncertain; no grant")
             digest, quantity = self._order(order)
             state = self.read_state()
+            if type(new_risk) is not bool or (new_risk and state["circuit_breaker_open"]):
+                raise AccountSubmissionError("new risk prohibited by circuit breaker")
             if self.account_domain is not None:
                 from quant_platform_kit.common.account_domain import (
                     account_domain_key, account_domain_matches_broker_identity, account_domain_policy_active, validate_account_domain,
@@ -1481,6 +1518,8 @@ class AccountSubmissionSession:
                 "intent_id": self.intent_id, "order_sha256": digest, "release_id": self.release_id,
                 "owner_id": self.owner_id, "profile": self.profile, "quantity": quantity,
             }
+            if new_risk:
+                data["new_risk"] = True
             event = self._append(state, "PREPARED", data)
             grant = AccountSubmissionGrant(self.account_root, data["attempt_id"], data["fence"],
                                            event["sequence"], event["event_sha256"], self.intent_id, digest, self.release_id)
@@ -1512,6 +1551,8 @@ class AccountSubmissionSession:
                 raise AccountSubmissionError("wrong order or already-used grant")
             if state["attempts"][grant.attempt_id]["certainty"] != "PREPARED":
                 raise AccountSubmissionError("grant no longer prepared")
+            if state["attempts"][grant.attempt_id].get("new_risk") and state["circuit_breaker_open"]:
+                raise AccountSubmissionError("new risk prohibited by circuit breaker")
             if self.account_domain is not None:
                 from quant_platform_kit.common.account_domain import (
                     _time, account_domain_key, account_domain_matches_broker_identity,

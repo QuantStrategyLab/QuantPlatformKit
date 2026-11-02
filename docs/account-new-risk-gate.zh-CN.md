@@ -118,3 +118,24 @@ W1 平台 adapter 已有实现；持久化 OPEN 熔断、实际账户读回和�
 `target_vol=None` 使用既有默认值；显式非正数、非有限数、布尔值或非数值会禁止新增风险。非法 realized volatility、drawdown 或 equity 同样禁止新增风险。信封数值缩放仅用于诊断，执行方必须检查 `new_risk_allowed` 和原因。
 
 `NewRiskAdmissionResult` 新增默认 false 的 `risk_input_invalid` 和 `hard_brake_triggered`。数据错误且没有可信 drawdown 硬刹车时，`combined_scale=None` 不表示零仓位；可信硬刹车同时存在时，两个标记均为 true，缩放保留 0。`apply_envelope_to_sized_weight` 对数据错误返回 `None`，可信硬刹车同时存在时返回 0。调用方必须处理可选返回值；升级前应完成消费者动作联测。
+
+## 账户日志中的持久化回撤 OPEN
+
+`AccountSubmissionSession.record_circuit_breaker_open(snapshot=...)` 接受现有回撤门确认的
+硬刹车事实，在同一物理账户的 `account_submission.v1` 追加日志中写入
+`CIRCUIT_BREAKER_OPEN`。沿用排他创建、连续序号、哈希链及完整读回；不新建状态文件。
+事件只含注入的 equity/peak/drawdown 与调用方身份，不证明其真实来源或资金流口径。
+
+`read_state()` 增加 `circuit_breaker_open` 布尔字段。合法旧日志初始为 false；已记录
+OPEN 则持续为 true，包括其他 profile 及进程重启。恢复观测、CLOSED、reset 形状事件
+都不能清除它；本次不提供复位 API。无效输入、冲突、损坏或未确认写入须禁止新增风险。
+
+平台使用 `reserve(order, new_risk=True)` 将新增风险类别写入 PREPARED；OPEN 时拒绝
+reserve，dispatch 也重新检查 OPEN，阻止已准备但尚未发送的新增风险。省略该参数的
+旧调用保持原语义，仍须由各自平台完成类别判断和门控；本次接线范围为 IBKR 的买单。
+OPEN 不创建目标、不产生卖单、不替代既有减仓证明，不改变 UNKNOWN 的含义。
+
+这是追加事件类型：旧版本读取新事件会拒绝，不能把混用旧写入器视为安全迁移。
+消费者升级须先审核库和平台补丁，再单独协调固定版本、旧写入器停止与运行验证；
+本次不修改任何依赖固定版本或部署配置。离线合成日志不能证明真实初始状态、旧写入器
+已停止、实际消费者已升级或实盘行为；这些验收保持 NOT_PROVEN。
