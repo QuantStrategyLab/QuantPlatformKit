@@ -25,6 +25,10 @@ def publish_attention_telegram_transition(
     account_alias: str,
     strategy_profile: str,
     locale: object | None = None,
+    guard_reason_codes: tuple[str, ...] = (),
+    daily_loss_context: Mapping[str, Any] | None = None,
+    occurred_at: object | None = None,
+    run_url: str | None = None,
     previous_level: AttentionLevel | str | None = None,
     previous_reason_codes: Sequence[str] | None = None,
     already_sent_keys: Sequence[str] | None = None,
@@ -66,16 +70,28 @@ def publish_attention_telegram_transition(
         account_alias=account_alias,
         strategy_profile=strategy_profile,
         decision=decision,
+        guard_reason_codes=guard_reason_codes,
+        daily_loss_context=daily_loss_context,
+        occurred_at=occurred_at,
+        run_url=run_url,
     )
     sender = telegram_sender or _default_telegram_sender
+    # Logging must never expose the account-bearing deduplication key.
+    log_key = attention_transition_key(
+        platform=platform,
+        account_alias="redacted",
+        strategy_profile=strategy_profile,
+        level=decision.level,
+        primary_reason=primary,
+    )
     try:
         ok = bool(sender(text=text, alert_key=alert_key))
     except Exception as exc:  # noqa: BLE001
-        log_message(f"attention_telegram_failed key={alert_key} error={type(exc).__name__}")
+        log_message(f"attention_telegram_failed key={log_key} error={type(exc).__name__}")
         counts["failed"] += 1
         return counts
     if not ok:
-        log_message(f"attention_telegram_skipped key={alert_key} reason=telegram_not_configured_or_false")
+        log_message(f"attention_telegram_skipped key={log_key} reason=telegram_not_configured_or_false")
         counts["skipped"] += 1
         return counts
     counts["sent"] += 1

@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import date
 from typing import Any, Mapping
 
 import numpy as np
 
+from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.backtest_orchestrator import BacktestOrchestrator
 from quant_platform_kit.strategy_lifecycle.contracts import (
     BacktestResult,
@@ -19,8 +20,7 @@ from quant_platform_kit.strategy_lifecycle.param_search_space import get_search_
 from quant_platform_kit.strategy_lifecycle.performance_store import PerformanceStore
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 # ── Grid Search ─────────────────────────────────────────────────────

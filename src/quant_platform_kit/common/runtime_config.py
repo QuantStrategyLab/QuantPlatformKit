@@ -40,15 +40,34 @@ def resolve_bool_value(raw_value: str | None) -> bool:
     return str(raw_value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
 
 
+_STRICT_TRUE_VALUES = frozenset({"1", "true", "yes", "y", "on"})
+_STRICT_FALSE_VALUES = frozenset({"0", "false", "no", "n", "off"})
+
+
+def _parse_safety_bool(raw_value: str, name: str) -> bool:
+    """Parse a safety flag strictly.
+
+    Safety flags (dry-run, cash-only) must never interpret a typo such as
+    ``"ture"`` as ``False``; an unrecognised value raises so the runtime fails
+    closed at start-up instead of silently trading live or on margin.
+    """
+    value = str(raw_value).strip().lower()
+    if value in _STRICT_TRUE_VALUES:
+        return True
+    if value in _STRICT_FALSE_VALUES:
+        return False
+    raise ValueError(f"{name} must be boolean, got {raw_value!r}")
+
+
 def _resolve_optional_bool_env(
     env: Mapping[str, str | None],
     name: str,
 ) -> bool | None:
-    """Internal helper: resolve bool from a Mapping (not os.environ)."""
+    """Internal helper: resolve a strict bool from a Mapping (not os.environ)."""
     raw_value = env.get(f"QSL_{name}") or env.get(name)
     if raw_value is None or str(raw_value).strip() == "":
         return None
-    return resolve_bool_value(raw_value)
+    return _parse_safety_bool(raw_value, name)
 
 
 def resolve_cash_only_execution_env(
@@ -79,11 +98,14 @@ def resolve_dry_run_env(
     *,
     default: bool = True,
 ) -> bool:
-    """Resolve a dry-run env flag; unset values default to dry-run (safe)."""
+    """Resolve a dry-run env flag; unset values default to dry-run (safe).
+
+    Unrecognised values raise ``ValueError`` instead of being read as live.
+    """
     raw_value = env.get(f"QSL_{name}") or env.get(name)
     if raw_value is None or str(raw_value).strip() == "":
         return default
-    return resolve_bool_value(raw_value)
+    return _parse_safety_bool(raw_value, name)
 
 
 def resolve_optional_float_env(

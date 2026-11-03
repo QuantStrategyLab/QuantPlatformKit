@@ -8,6 +8,7 @@ Telegram, email, or another notification channel.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 
 from quant_platform_kit.common.notification_localization import resolve_notification_locale
 
@@ -25,6 +26,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "lookback_hours": "检查范围：过去 {value} 小时",
         "issues": "问题：",
         "technical_details": "技术详情（原文）：",
+        "technical_details_in_logs": "排查详情请查看工作流或云端运行日志。",
         "recent_reports": "最近检查的回执（原文）：",
         "latest_runtime_run": "最近一次运行：",
         "workflow": "工作流：{value}",
@@ -59,7 +61,18 @@ _TEXTS: dict[str, dict[str, str]] = {
         "attention_result_new_risk_prohibited": "结果：已禁止新增风险",
         "attention_reason": "原因：{code}",
         "attention_reason_none": "无",
-        "attention_reason_new_risk_prohibited": "已禁止新增风险",
+        "attention_reason_unknown": "无法解释此原因码，请查看该次运行的风控记录",
+        "attention_reason_new_risk_prohibited": "风控已拦截；调用方未提供具体原因码",
+        "attention_reason_DAILY_LOSS_LIMIT_EXCEEDED": "当日亏损达到配置上限，已拦截新增风险",
+        "attention_reason_DAILY_LOSS_UNKNOWN_FAIL_CLOSED": "当日亏损或上限无法核实，暂不允许新增风险",
+        "attention_reason_OBSERVATION_NOT_COMPLETE": "账户快照不完整",
+        "attention_reason_RECONCILIATION_NOT_VERIFIED": "账户对账尚未核实",
+        "attention_reason_CIRCUIT_BREAKER_OPEN": "熔断保护已开启",
+        "attention_reason_EQUITY_UNKNOWN_FAIL_CLOSED": "账户净值无法核实",
+        "attention_reason_SNAPSHOT_VALIDATION_FAIL_CLOSED": "账户快照未通过校验",
+        "attention_reason_CAPITAL_ENVELOPE_NEW_RISK_PROHIBITED": "资金风险约束不允许新增风险",
+        "attention_reason_broker_outcome_unknown": "券商订单结果未知，禁止重复提交",
+        "attention_reason_RECONCILE_ONLY": "账户处于仅对账状态",
         "attention_reason_drift_critical": "生产偏离严重（CRITICAL）",
         "attention_reason_drift_review": "生产偏离待审（REVIEW）",
         "attention_reason_drift_watch": "生产偏离观察（WATCH）",
@@ -76,6 +89,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         "attention_next_console_optional": "下一步：可在管理站查看详情",
         "attention_next_open_console_confirm": "下一步：打开管理站确认意图（确认意图不等于放行实盘）",
         "attention_next_open_console_resume": "下一步：打开管理站处理恢复 / 复位（需授权）",
+        "attention_next_review_daily_loss": "下一步：在管理站核对当日净值、资金进出和亏损上限；保持禁止新增风险",
+        "attention_next_inspect_guard_reason": "下一步：在管理站查看该次运行的风控原因码和账户状态；保持禁止新增风险",
     },
     "en": {
         "runtime_guard_title": "[Runtime Guard] {name}",
@@ -86,6 +101,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "lookback_hours": "Lookback: {value} hours",
         "issues": "Issues:",
         "technical_details": "Technical details (original):",
+        "technical_details_in_logs": "See the workflow or cloud runtime logs for diagnostic details.",
         "recent_reports": "Recent reports (original):",
         "latest_runtime_run": "Latest runtime run:",
         "workflow": "Workflow: {value}",
@@ -120,7 +136,18 @@ _TEXTS: dict[str, dict[str, str]] = {
         "attention_result_new_risk_prohibited": "Result: new risk additions prohibited",
         "attention_reason": "Reason: {code}",
         "attention_reason_none": "none",
-        "attention_reason_new_risk_prohibited": "new risk additions prohibited",
+        "attention_reason_unknown": "unrecognized reason code; inspect this run's guard record",
+        "attention_reason_new_risk_prohibited": "a risk guard blocked additions; the caller did not provide the specific reason code",
+        "attention_reason_DAILY_LOSS_LIMIT_EXCEEDED": "daily loss reached the configured limit; new risk additions were blocked",
+        "attention_reason_DAILY_LOSS_UNKNOWN_FAIL_CLOSED": "daily loss or its limit could not be verified; new risk remains blocked",
+        "attention_reason_OBSERVATION_NOT_COMPLETE": "account snapshot is incomplete",
+        "attention_reason_RECONCILIATION_NOT_VERIFIED": "account reconciliation is not verified",
+        "attention_reason_CIRCUIT_BREAKER_OPEN": "the circuit breaker is open",
+        "attention_reason_EQUITY_UNKNOWN_FAIL_CLOSED": "account equity could not be verified",
+        "attention_reason_SNAPSHOT_VALIDATION_FAIL_CLOSED": "account snapshot validation failed",
+        "attention_reason_CAPITAL_ENVELOPE_NEW_RISK_PROHIBITED": "capital risk limits prohibit new risk additions",
+        "attention_reason_broker_outcome_unknown": "broker order outcome is unknown; do not resubmit",
+        "attention_reason_RECONCILE_ONLY": "the account is in reconcile-only mode",
         "attention_reason_drift_critical": "production drift critical",
         "attention_reason_drift_review": "production drift review",
         "attention_reason_drift_watch": "production drift watch",
@@ -137,6 +164,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         "attention_next_console_optional": "Next: review details in the management console if needed",
         "attention_next_open_console_confirm": "Next: open the management console to confirm intent (confirming intent does not enable live)",
         "attention_next_open_console_resume": "Next: open the management console for recovery / reset (authorization required)",
+        "attention_next_review_daily_loss": "Next: review today's equity, cash flows and daily-loss limit in the console; keep new risk blocked",
+        "attention_next_inspect_guard_reason": "Next: inspect this run's guard reason codes and account state; keep protections active",
     },
 }
 
@@ -203,9 +232,10 @@ def format_operational_alert(
 ) -> str:
     """Build a concise localized operator notification.
 
-    ``recent_reports`` and ``technical_details`` are expressly labelled as
-    original diagnostic text.  They may contain broker or cloud-provider
-    wording and therefore must not be presented as localized summaries.
+    ``technical_details`` signals that diagnostic material exists in the source
+    logs. Raw exceptions and provider audit payloads stay out of the delivered
+    message; the workflow URL remains available for investigation.
+    ``recent_reports`` retains its existing labelled receipt-summary format.
     """
 
     title_key = f"{str(alert_type).strip()}_title"
@@ -229,12 +259,7 @@ def format_operational_alert(
             ]
         )
     if technical_details:
-        lines.extend(
-            [
-                operational_notification_text(locale, "technical_details"),
-                *(str(item) for item in technical_details),
-            ]
-        )
+        lines.append(operational_notification_text(locale, "technical_details_in_logs"))
     if workflow_url:
         lines.append(operational_notification_text(locale, "workflow", value=str(workflow_url)))
     return "\n".join(line for line in lines if line)
@@ -259,3 +284,100 @@ def format_operational_heartbeat_status(
             str(detail or ""),
         )
     )
+
+
+# A separate opt-in renderer: legacy entrypoints above retain their exact output.
+_RECEIPT_TEXTS = {
+    "zh": {
+        "title": "[执行回执检查]",
+        "observed_at": "检查时间：{value}",
+        "due_at": "最近应执行时间：{value}",
+        "orders": "本轮提交订单：{value}",
+        "unknown": "未知",
+        "run": "运行记录：{value}",
+        "category": "{label}：{count} 份",
+        "accepted": "回执符合既有验收要求",
+        "blocked_run": "已运行但执行被阻断",
+        "strategy_risk_rejected": "本轮已运行但被风控拦截",
+        "skipped_before_due": "早于最近应执行时间，已跳过",
+        "skipped_outside_window": "不在检查窗口内，已跳过",
+        "receipt_missing": "缺少执行回执",
+        "receipt_stale": "执行回执已过期",
+        "receipt_unacceptable": "执行回执不符合既有验收要求",
+        "auth_failure": "认证失败",
+        "unknown_category": "回执分类未知",
+    },
+    "en": {
+        "title": "[Execution receipt check]",
+        "observed_at": "Checked at: {value}",
+        "due_at": "Latest execution due: {value}",
+        "orders": "Orders submitted this run: {value}",
+        "unknown": "Unknown",
+        "run": "Run record: {value}",
+        "category": "{label}: {count} report(s)",
+        "accepted": "Receipt meets existing acceptance rules",
+        "blocked_run": "Run observed but execution blocked",
+        "strategy_risk_rejected": "Run observed but blocked by strategy risk checks",
+        "skipped_before_due": "Skipped before latest execution due",
+        "skipped_outside_window": "Skipped outside the check window",
+        "receipt_missing": "Execution receipt missing",
+        "receipt_stale": "Execution receipt stale",
+        "receipt_unacceptable": "Execution receipt fails existing acceptance rules",
+        "auth_failure": "Authentication failed",
+        "unknown_category": "Receipt category unknown",
+    },
+}
+
+
+def format_sgt_time(value: datetime | None, *, locale: object | None = None) -> str:
+    """Format an aware datetime without silently assigning a missing timezone."""
+    from zoneinfo import ZoneInfo
+
+    normalized = resolve_operational_notification_locale(locale)
+    if value is None:
+        return _RECEIPT_TEXTS[normalized]["unknown"]
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("notification_time_timezone_missing")
+    stamp = value.astimezone(ZoneInfo("Asia/Singapore")).strftime("%Y-%m-%d %H:%M:%S")
+    return stamp + ("（新加坡时间）" if normalized == "zh" else " SGT")
+
+
+def format_receipt_alert(
+    *, locale: object | None, categories: Mapping[str, int | None],
+    observed_at: datetime | None = None, due_at: datetime | None = None,
+    orders_submitted_count: int | None = None,
+    run_url: str | None = None,
+) -> str:
+    """Render caller-proven receipt categories only; never infer acceptance.
+
+    Raw report URIs, account names and diagnostic text are not accepted fields.
+    Unknown category tokens are not echoed. Counts refer to inspected reports;
+    orders_submitted_count refers only to the caller's single proven run.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    normalized = resolve_operational_notification_locale(locale)
+    text = _RECEIPT_TEXTS[normalized]
+    lines = [text["title"], text["observed_at"].format(value=format_sgt_time(observed_at, locale=normalized)),
+             text["due_at"].format(value=format_sgt_time(due_at, locale=normalized))]
+    known_categories = {"accepted", "blocked_run", "strategy_risk_rejected", "skipped_before_due",
+                        "skipped_outside_window", "receipt_missing", "receipt_stale",
+                        "receipt_unacceptable", "auth_failure"}
+    for category, count in categories.items():
+        if count is not None and (type(count) is not int or count < 0):
+            raise ValueError("notification_receipt_count_invalid")
+        if count == 0:
+            continue
+        label = text[category] if category in known_categories else text["unknown_category"]
+        lines.append(text["category"].format(label=label, count=text["unknown"] if count is None else count))
+    if orders_submitted_count is not None and (type(orders_submitted_count) is not int or orders_submitted_count < 0):
+        raise ValueError("notification_order_count_invalid")
+    lines.append(text["orders"].format(value=text["unknown"] if orders_submitted_count is None else orders_submitted_count))
+    if run_url:
+        parsed = urlsplit(run_url)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+            raise ValueError("notification_run_url_invalid")
+        # Links are supplied by the caller, never reconstructed from account IDs.
+        safe_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        lines.append(text["run"].format(value=safe_url))
+    return "\n".join(lines)

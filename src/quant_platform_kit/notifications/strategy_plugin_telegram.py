@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from quant_platform_kit.common.strategy_plugins import (
@@ -13,7 +14,8 @@ from quant_platform_kit.common.strategy_plugins import (
 )
 
 from .alert_marker import CloudAlertMarkerStore, _clean_relative_key
-from ._redaction import redact_sensitive_text
+from ._redaction import redact_exception
+from .digest_routing import daily_digest_enabled
 from .telegram import (
     DEFAULT_TELEGRAM_BOT_API_BASE_URL,
     parse_telegram_chat_ids,
@@ -23,7 +25,6 @@ from .telegram import (
 _DEFAULT_TELEGRAM_BODY_MAX_CHARS = 3900
 _MARKET_REGIME_CONTROL_PLUGIN = "market_regime_control"
 _AUTOMATED_POSITION_ACTIONS = frozenset({"defend", "delever"})
-_MANUAL_REVIEW_ACTIONS = frozenset({"notify_manual_review"})
 _ZH_MARKET_REGIME_ROUTE_LABELS = {
     "true_crisis": "黑天鹅",
     "crisis": "黑天鹅",
@@ -61,14 +62,33 @@ class StrategyPluginTelegramSettings:
     timeout: float = 10.0
 
     @classmethod
-    def from_object(cls, value: object) -> "StrategyPluginTelegramSettings":
+    def from_object(
+        cls, value: object, *, environ: Mapping[str, str] | None = None,
+    ) -> "StrategyPluginTelegramSettings":
+        """Resolve explicit settings, plugin environment overrides, then org defaults."""
+        env = os.environ if environ is None else environ
+        chat_ids = (
+            parse_telegram_chat_ids(
+                value.chat_ids if isinstance(value, cls)
+                else _get_value(value, "strategy_plugin_alert_telegram_chat_ids")
+            )
+            or parse_telegram_chat_ids(env.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"))
+            or parse_telegram_chat_ids(env.get("QSL_GLOBAL_TELEGRAM_CHAT_ID"))
+            or parse_telegram_chat_ids(env.get("GLOBAL_TELEGRAM_CHAT_ID"))
+        )
+        bot_token = _first_non_empty(
+            value.bot_token if isinstance(value, cls)
+            else _get_value(value, "strategy_plugin_alert_telegram_bot_token"),
+            env.get("QSL_STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"),
+            env.get("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"),
+            env.get("TELEGRAM_TOKEN"),
+            env.get("TG_TOKEN"),
+        )
         if isinstance(value, cls):
-            return value
+            return replace(value, chat_ids=chat_ids, bot_token=bot_token)
         return cls(
-            chat_ids=tuple(
-                parse_telegram_chat_ids(_get_value(value, "strategy_plugin_alert_telegram_chat_ids", ()))
-            ),
-            bot_token=_first_non_empty(_get_value(value, "strategy_plugin_alert_telegram_bot_token")),
+            chat_ids=chat_ids,
+            bot_token=bot_token,
             api_base_url=(
                 _first_non_empty(_get_value(value, "strategy_plugin_alert_telegram_api_base_url"))
                 or DEFAULT_TELEGRAM_BOT_API_BASE_URL
@@ -166,13 +186,21 @@ def publish_strategy_plugin_telegram_alerts(
     send_notification: Callable[..., bool] = send_strategy_plugin_telegram,
     log_message: Callable[..., Any] = print,
 ) -> StrategyPluginTelegramAlertPublishResult:
+    """Use the same builder eligibility as email, preserving Telegram exclusions.
+
+    Every email-eligible signal is immediately eligible here unless the routine
+    daily-digest rule defers it. Auto-consumable signals remain excluded; the
+    current sidecar policy disables direct position control. Transport settings,
+    per-channel dedupe and delivery failures are independent of eligibility.
+    """
     settings = StrategyPluginTelegramSettings.from_object(telegram_settings)
     del context_label  # The plugin Telegram bot is a unified manual-review channel.
-    manual_review_signals = tuple(
-        signal for signal in signals if _is_manual_review_telegram_signal(signal)
+    telegram_signals = tuple(
+        signal for signal in signals if not _is_auto_consumable_signal(signal)
+        and not _routine_observation_to_digest(signal)
     )
     messages = build_strategy_plugin_alert_messages(
-        manual_review_signals,
+        telegram_signals,
         translator=translator,
         strategy_label=strategy_label,
         context_label=None,
@@ -201,7 +229,7 @@ def publish_strategy_plugin_telegram_alerts(
             store_error = None
         except Exception as exc:
             duplicate = False
-            store_error = f"alert_store_check_failed:{type(exc).__name__}: {redact_sensitive_text(exc)}"
+            store_error = f"alert_store_check_failed:{type(exc).__name__}: {redact_exception(exc)}"
         if duplicate:
             deliveries.append(_delivery(message, status="skipped", reason="duplicate_alert"))
             continue
@@ -217,31 +245,15 @@ def publish_strategy_plugin_telegram_alerts(
     return result
 
 
-def _is_manual_review_telegram_signal(signal: object) -> bool:
-    if _is_auto_consumable_signal(signal):
+def _routine_observation_to_digest(signal: object) -> bool:
+    """Routine observations remain in the persisted signal report, without a push."""
+    if not daily_digest_enabled():
         return False
-    target_type = str(getattr(signal, "target_type", None) or "strategy").strip().lower()
-    if target_type == "notification_target":
-        return True
-    action = str(getattr(signal, "suggested_action", None) or "").strip().lower()
-    if action in _AUTOMATED_POSITION_ACTIONS:
-        return True
-    if action in _MANUAL_REVIEW_ACTIONS:
-        return True
-    controls = _signal_execution_controls(signal)
-    policy = _signal_consumption_policy(signal)
-    status = str(
-        controls.get("consumption_evidence_status")
-        or policy.get("evidence_status")
-        or ""
-    ).strip().lower()
-    if status == "notification_only":
-        return True
-    for key in ("capital_impact", "notification_profile"):
-        value = str(controls.get(key) or policy.get(key) or "").strip().lower()
-        if value in {"notification_only", "shadow_only"}:
-            return True
-    return False
+    route = str(getattr(signal, "canonical_route", "") or "").lower()
+    action = str(getattr(signal, "suggested_action", "") or "").lower()
+    if route not in {"watch", "opportunity_watch", "panic_reversal", "taco_rebound"} or action not in {"notify_manual_review", "watch", "observe"}:
+        return False
+    return not any(getattr(signal, key, None) for key in ("error", "errors", "risk_halt", "auth_expired"))
 
 
 def _is_auto_consumable_signal(signal: object) -> bool:
@@ -313,7 +325,7 @@ def _send_message(
             timeout=settings.timeout,
         )
     except Exception as exc:
-        return False, f"{type(exc).__name__}: {redact_sensitive_text(exc)}"
+        return False, f"{type(exc).__name__}: {redact_exception(exc)}"
     return bool(sent), None
 
 
@@ -423,7 +435,7 @@ def _store_record_error(
             },
         )
     except Exception as exc:
-        return f"alert_store_record_failed:{type(exc).__name__}: {redact_sensitive_text(exc)}"
+        return f"alert_store_record_failed:{type(exc).__name__}: {redact_exception(exc)}"
     return None
 
 

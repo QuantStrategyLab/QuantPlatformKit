@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from .display_names import display_name
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
@@ -323,6 +324,8 @@ COMMON_ZH_NOTIFICATION_REPLACEMENTS: tuple[NotificationReplacement, ...] = (
     ("no_selection", "无入选标的"),
     ("outside_execution_window", "当前不在执行窗口"),
     ("insufficient_buying_power", "购买力不足"),
+    ("insufficient_cash_for_whole_share", "现金不足以买入一整股"),
+    ("insufficient_cash", "可用现金不足"),
     ("missing_price", "缺少报价"),
     ("no_equity", "等待净值"),
     ("fail_closed", "关闭执行"),
@@ -573,6 +576,9 @@ def resolve_strategy_display_name(
     ``metadata.canonical_profile`` must be the canonical id, not an alias.
     """
     locale_key = _normalize_locale(locale)
+    configured = display_name("strategies", metadata.canonical_profile, locale_key)
+    if configured != metadata.canonical_profile:
+        return configured
 
     # 1. Check localized_display_names from catalog metadata (canonical source)
     localized = metadata.localized_display_names

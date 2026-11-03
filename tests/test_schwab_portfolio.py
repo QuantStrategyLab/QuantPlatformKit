@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import types
 import unittest
+from copy import deepcopy
 from unittest.mock import patch
 
 from quant_platform_kit.risk.engine import RiskEngine
@@ -416,6 +417,114 @@ class SchwabPortfolioTests(unittest.TestCase):
                 with self.assertRaises(ValueError) as raised:
                     self._snapshot_with_balances(balances)
                 self.assertEqual(f"Invalid Schwab balance: {field}", str(raised.exception))
+
+class SchwabPositionQuantityFactsTests(unittest.TestCase):
+    def _snapshot(self, rows, *, symbols=("TQQQ",)):
+        payload = FakeClient().get_account("abc123", "POSITIONS").json()
+        if rows is _MISSING:
+            del payload["securitiesAccount"]["positions"]
+        else:
+            payload["securitiesAccount"]["positions"] = rows
+        payload["securitiesAccount"]["currentBalances"]["cashAvailableForTrading"] = 100_000
+        original = deepcopy(payload)
+        owner = SchwabPortfolioTests()
+        with owner._install_fake_schwab_module(), patch.object(
+            FakeClient, "get_account", return_value=FakeResponse(payload)
+        ) as get_account:
+            snapshot = fetch_account_snapshot(FakeClient(), strategy_symbols=symbols)
+        self.assertEqual(1, get_account.call_count)
+        self.assertEqual(original, payload)
+        return snapshot
+
+    @staticmethod
+    def _row(**fields):
+        return {"instrument": {"symbol": "TQQQ", "assetType": "EQUITY"},
+                "marketValue": 1000, "longQuantity": 10, **fields}
+
+    def test_reports_long_short_and_settlement_fields_without_neting_or_sellable_inference(self):
+        snapshot = self._snapshot([self._row(shortQuantity=3, settledLongQuantity=8, settledShortQuantity=2)])
+        facts = snapshot.metadata["schwab_position_quantities"]
+        self.assertEqual({"TQQQ": "10"}, facts["long_quantities"])
+        self.assertEqual({"TQQQ": "3"}, facts["short_quantities"])
+        self.assertEqual({"longQuantity": "10", "shortQuantity": "3", "settledLongQuantity": "8",
+                          "settledShortQuantity": "2"}, facts["records"][0]["reported_quantities"])
+        self.assertEqual(10, snapshot.positions[0].quantity)  # legacy sizing unchanged, not net7
+        self.assertNotIn("sellable_quantities", snapshot.metadata)
+        self.assertNotIn("sellable_quantities", facts)
+
+    def test_missing_or_invalid_short_never_becomes_known_zero(self):
+        for value in (_MISSING, None, False, -1, "NaN", "Infinity", {}, "1e-10000"):
+            with self.subTest(value=value):
+                row = self._row()
+                if value is not _MISSING:
+                    row["shortQuantity"] = value
+                facts = self._snapshot([row]).metadata["schwab_position_quantities"]
+                self.assertNotIn("TQQQ", facts["short_quantities"])
+                self.assertIn("shortQuantity", facts["records"][0]["unavailable_fields"])
+        facts = self._snapshot([self._row(shortQuantity="0.00")]).metadata["schwab_position_quantities"]
+        self.assertEqual("0.00", facts["short_quantities"]["TQQQ"])
+
+    def test_missing_long_and_absent_symbol_are_not_zero_holdings(self):
+        row = self._row(shortQuantity=0)
+        del row["longQuantity"]
+        facts = self._snapshot([row]).metadata["schwab_position_quantities"]
+        self.assertNotIn("TQQQ", facts["long_quantities"])
+        self.assertEqual({}, self._snapshot([]).metadata["schwab_position_quantities"]["long_quantities"])
+        self.assertTrue(self._snapshot([]).metadata["schwab_position_quantities"]["positions_field_present"])
+        missing = self._snapshot(_MISSING).metadata["schwab_position_quantities"]
+        self.assertFalse(missing["positions_field_present"])
+        self.assertEqual({}, missing["long_quantities"])
+
+    def test_duplicate_or_unqualified_units_are_not_aggregated_into_share_maps(self):
+        facts = self._snapshot([self._row(shortQuantity=0), self._row(longQuantity=2, shortQuantity=0)]).metadata["schwab_position_quantities"]
+        self.assertEqual(2, len(facts["records"]))
+        self.assertEqual(["TQQQ"], facts["ambiguous_symbols"])
+        self.assertNotIn("TQQQ", facts["long_quantities"])
+        for asset_type in (None, "OPTION", {"unexpected": "object"}):
+            row = self._row(shortQuantity=0)
+            row["instrument"]["assetType"] = asset_type
+            facts = self._snapshot([row]).metadata["schwab_position_quantities"]
+            self.assertEqual("10", facts["records"][0]["reported_quantities"]["longQuantity"])
+            self.assertEqual({}, facts["long_quantities"])
+
+    def test_same_response_scope_digest_and_observation_window_are_preserved(self):
+        from datetime import datetime
+        snapshot = self._snapshot([self._row(longQuantity="0.125", shortQuantity=0)])
+        facts = snapshot.metadata["schwab_position_quantities"]
+        self.assertEqual(snapshot.metadata["source_digest_sha256"], facts["source_digest_sha256"])
+        self.assertEqual("0.125", facts["long_quantities"]["TQQQ"])
+        start = datetime.fromisoformat(facts["observation_started_at"])
+        end = datetime.fromisoformat(facts["observation_completed_at"])
+        self.assertIsNotNone(start.tzinfo)
+        self.assertLessEqual(start, end)
+        self.assertEqual(snapshot.as_of, end)
+        self.assertEqual("client_observation_window", facts["time_semantics"])
+        self.assertFalse(facts["orders_observed"])
+        from quant_platform_kit.common.execution_translation import build_value_target_portfolio_inputs_from_snapshot
+        self.assertIsNone(build_value_target_portfolio_inputs_from_snapshot(snapshot).sellable_quantities)
+
+    def test_real_quantity_consumer_rejects_observed_short_and_unknown_sellable(self):
+        from quant_platform_kit.common.long_only_reduce import (
+            LongOnlyReduceOnlyFinding, validate_long_only_reduce_only_order,
+        )
+        from quant_platform_kit.common.models import OrderIntent
+        for short in (0, 3):
+            facts = self._snapshot([self._row(shortQuantity=short, settledLongQuantity=10)]).metadata["schwab_position_quantities"]
+            result = validate_long_only_reduce_only_order(
+                OrderIntent("TQQQ", "sell", 1), long_quantities=facts["long_quantities"],
+                short_quantities=facts["short_quantities"], sellable_quantities={}, allowed_symbols=("TQQQ",),
+            )
+            self.assertFalse(result.approved)  # settled shares/cash are not availability
+            self.assertIn(LongOnlyReduceOnlyFinding.SELLABLE_QUANTITY_UNAVAILABLE.value, result.findings)
+            if short:
+                self.assertIn(LongOnlyReduceOnlyFinding.SHORT_QUANTITY_PRESENT.value, result.findings)
+
+    def test_requested_symbols_do_not_create_a_whole_account_position_view(self):
+        other = {**self._row(shortQuantity=0), "instrument": {"symbol": "XYZ", "assetType": "EQUITY"}}
+        facts = self._snapshot([self._row(shortQuantity=0), other]).metadata["schwab_position_quantities"]
+        self.assertEqual(["TQQQ"], [r["symbol"] for r in facts["records"]])
+        self.assertNotIn("XYZ", facts["long_quantities"])
+
 
 if __name__ == "__main__":
     unittest.main()

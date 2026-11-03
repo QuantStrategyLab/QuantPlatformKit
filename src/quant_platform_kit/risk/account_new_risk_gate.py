@@ -32,7 +32,9 @@ from enum import Enum
 import math
 from typing import Protocol
 
-from quant_platform_kit.risk.capital_risk_envelope import evaluate_capital_risk_envelope
+from quant_platform_kit.risk.capital_risk_envelope import (
+    INVALID_RISK_INPUT_REASONS, evaluate_capital_risk_envelope,
+)
 from quant_platform_kit.risk.contracts import RuntimeRiskLimits
 from quant_platform_kit.risk.production_drift_new_risk import (
     production_drift_new_risk_reasons,
@@ -97,6 +99,8 @@ _ENVELOPE_PROHIBIT_REASONS = frozenset(
     {
         "INVALID_EQUITY_FAIL_CLOSED",
         "INVALID_DRAWDOWN_FAIL_CLOSED",
+        "INVALID_REALIZED_VOL_FAIL_CLOSED",
+        "INVALID_TARGET_VOL_FAIL_CLOSED",
         "DRAWDOWN_BRAKE_TRIPPED",
     }
 )
@@ -110,6 +114,8 @@ class NewRiskAdmissionResult:
     live_authority_granted: bool = False
     circuit_breaker_reset: bool = False
     account_enablement_changed: bool = False
+    risk_input_invalid: bool = False
+    hard_brake_triggered: bool = False
 
 
 def validate_injected_snapshot(
@@ -168,12 +174,31 @@ def _evaluate_capital_axis(
         realized_vol=snapshot.realized_vol,
         drawdown_from_peak=drawdown,
     )
+    peak = snapshot.peak_equity_usd
+    peak_invalid = peak is not None and (
+        isinstance(peak, bool) or not isinstance(peak, (int, float))
+        or not math.isfinite(float(peak)) or float(peak) <= 0.0
+    )
+    if peak_invalid:
+        reasons = [code for code in envelope.reasons if code in _ENVELOPE_PROHIBIT_REASONS]
+        if "INVALID_DRAWDOWN_FAIL_CLOSED" not in reasons:
+            reasons.append("INVALID_DRAWDOWN_FAIL_CLOSED")
+        return reasons, 0.0 if "DRAWDOWN_BRAKE_TRIPPED" in reasons else None
+    # An invalid explicit drawdown must not hide an independently observed peak brake.
+    if "INVALID_DRAWDOWN_FAIL_CLOSED" in envelope.reasons and snapshot.peak_equity_usd is not None and isinstance(snapshot.equity_usd, (int, float)) and not isinstance(snapshot.equity_usd, bool) and math.isfinite(float(snapshot.equity_usd)):
+        peak_drawdown = _derive_drawdown_from_peak(snapshot.equity_usd, snapshot.peak_equity_usd, None)
+        peak_envelope = evaluate_capital_risk_envelope(snapshot.equity_usd, drawdown_from_peak=peak_drawdown)
+        if "DRAWDOWN_BRAKE_TRIPPED" in peak_envelope.reasons:
+            reasons = [code for code in envelope.reasons if code in _ENVELOPE_PROHIBIT_REASONS]
+            return [*reasons, "DRAWDOWN_BRAKE_TRIPPED"], 0.0
     if envelope.new_risk_allowed:
         return [], envelope.combined_scale
     reasons = [code for code in envelope.reasons if code in _ENVELOPE_PROHIBIT_REASONS]
     if not reasons:
         reasons = ["CAPITAL_ENVELOPE_NEW_RISK_PROHIBITED"]
-    return reasons, envelope.combined_scale
+    data_error = bool(INVALID_RISK_INPUT_REASONS.intersection(reasons))
+    scale = None if data_error and "DRAWDOWN_BRAKE_TRIPPED" not in reasons else envelope.combined_scale
+    return reasons, scale
 
 
 def _evaluate_daily_loss_axis(
@@ -231,6 +256,8 @@ def evaluate_new_risk_admission(
             disposition=NewRiskDisposition.NEW_RISK_PROHIBITED,
             reason_codes=tuple(reasons),
             combined_scale=combined_scale,
+            risk_input_invalid=bool(INVALID_RISK_INPUT_REASONS.intersection(reasons)) or "EQUITY_UNKNOWN_FAIL_CLOSED" in reasons,
+            hard_brake_triggered="DRAWDOWN_BRAKE_TRIPPED" in reasons,
         )
     return NewRiskAdmissionResult(
         disposition=NewRiskDisposition.ALLOW_NEW_RISK,
@@ -263,5 +290,30 @@ __all__ = [
     "ReconciliationSnapshotReader",
     "evaluate_new_risk_admission",
     "evaluate_new_risk_from_reader",
+    "is_proven_risk_reducing_order",
     "validate_injected_snapshot",
 ]
+
+
+def is_proven_risk_reducing_order(
+    position: object, side: str, quantity: object, *, pending_quantity: object = None
+) -> bool:
+    """Prove every possible fill stays between the current position and zero.
+
+    Pending quantity is signed and already committed in the same direction;
+    unknown or opposing pending exposure cannot establish this proof.
+    """
+    values = (position, quantity, pending_quantity)
+    if any(
+        isinstance(value, bool) or not isinstance(value, (int, float))
+        or not math.isfinite(float(value)) for value in values
+    ):
+        return False
+    pos, qty, pending = map(float, values)
+    if qty <= 0 or side not in ("buy", "sell"):
+        return False
+    if pos > 0 and side == "sell" and pending <= 0:
+        return qty - pending <= pos
+    if pos < 0 and side == "buy" and pending >= 0:
+        return qty + pending <= -pos
+    return False

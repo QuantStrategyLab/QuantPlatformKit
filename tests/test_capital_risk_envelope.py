@@ -239,3 +239,24 @@ class ApplyCombinedScaleToTargetsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class InvalidTargetContractTests(unittest.TestCase):
+    def test_invalid_target_prohibits_and_never_creates_a_target(self):
+        import json
+        from dataclasses import asdict
+        for value in (0, -1, float('nan'), float('inf'), -float('inf'), True, 'bad'):
+            with self.subTest(value=value):
+                env = evaluate_capital_risk_envelope(40000, realized_vol=0.3, target_vol=value)
+                self.assertFalse(env.new_risk_allowed)
+                self.assertIn('INVALID_TARGET_VOL_FAIL_CLOSED', env.reasons)
+                self.assertIsNone(apply_envelope_to_sized_weight(0.5, env))
+                json.dumps(asdict(env), allow_nan=False)
+
+    def test_none_is_default_and_independent_brake_survives(self):
+        self.assertEqual(evaluate_capital_risk_envelope(40000, target_vol=None), evaluate_capital_risk_envelope(40000))
+        env = evaluate_capital_risk_envelope(40000, target_vol=0, realized_vol=float('nan'), drawdown_from_peak=0.2)
+        self.assertFalse(env.new_risk_allowed)
+        self.assertIn('INVALID_TARGET_VOL_FAIL_CLOSED', env.reasons)
+        self.assertIn('INVALID_REALIZED_VOL_FAIL_CLOSED', env.reasons)
+        self.assertIn('DRAWDOWN_BRAKE_TRIPPED', env.reasons)
+        self.assertEqual(apply_envelope_to_sized_weight(0.5, env), 0.0)

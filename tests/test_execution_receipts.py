@@ -169,3 +169,15 @@ class ExecutionReceiptTest(unittest.TestCase):
             ),
             ("no_action", "not_applicable"),
         )
+
+    def test_dry_run_failure_remains_visible_without_claiming_submission(self) -> None:
+        for submission_attempted in (False, True):
+            with self.subTest(submission_attempted=submission_attempted):
+                self.assertEqual(
+                    resolve_execution_receipt_fact(
+                        dry_run=True,
+                        submission_attempted=submission_attempted,
+                        failed=True,
+                    ),
+                    ("failed", "not_applicable"),
+                )

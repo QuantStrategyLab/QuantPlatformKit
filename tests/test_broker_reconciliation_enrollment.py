@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 
 import pytest
 
@@ -11,8 +13,10 @@ from quant_platform_kit.common.broker_reconciliation import build_broker_reconci
 from quant_platform_kit.common.broker_reconciliation_enrollment import (
     BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION,
     BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION,
+    BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION,
     BrokerReconciliationBaselineCandidate,
     BrokerReconciliationEnrollmentFinding,
+    build_initial_enrollment_candidate,
     calculate_broker_reconciliation_baseline_candidate_sha256,
     canonical_broker_reconciliation_baseline_candidate_json,
     evaluate_broker_reconciliation_baseline_enrollment,
@@ -215,6 +219,72 @@ def test_candidate_schema_versions_do_not_silently_change_provenance_semantics()
     v2_without_provenance["schema_version"] = BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION
     with pytest.raises(ValueError, match="invalid fields"):
         BrokerReconciliationBaselineCandidate.from_dict(v2_without_provenance)
+
+
+def test_initial_candidate_binds_facts_and_does_not_fill_missing_surfaces() -> None:
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    base = evaluate_broker_reconciliation_baseline_enrollment(
+        [_evidence(observed_at=start)], now=start, source_receipts_sha256=_digest("1"),
+    ).candidate
+    assert base is not None
+    payload = base.to_dict()
+    payload.update(schema_version=BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION,
+                   mode="initial_enrollment", facts_sha256=_digest("2"),
+                   coverage={"positions": "complete", "cash": "complete", "open_orders": "complete",
+                             "recent_executions": "unknown", "local_execution_ledger": "partial"},
+                   recent_executions_sha256=None, local_execution_ledger_sha256=None)
+    payload["candidate_sha256"] = calculate_broker_reconciliation_baseline_candidate_sha256(payload)
+    candidate = BrokerReconciliationBaselineCandidate.from_dict(payload)
+    assert candidate.to_dict() == payload
+    with pytest.raises(ValueError, match="explicit confirmation"):
+        _ = candidate.expected_digests
+    for field, value in (("facts_sha256", _digest("3")), ("coverage", {**payload["coverage"], "cash": "partial"})):
+        changed = {**payload, field: value}
+        with pytest.raises(ValueError):
+            BrokerReconciliationBaselineCandidate.from_dict(changed)
+    with pytest.raises(ValueError, match="incomplete initial surface"):
+        calculate_broker_reconciliation_baseline_candidate_sha256({**payload, "recent_executions_sha256": _digest("4")})
+
+
+def test_initial_candidate_is_not_a_claim_of_prior_reconciliation() -> None:
+    from quant_platform_kit.common.reconciliation_recovery import evaluate_reconciliation_recovery_activation
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    evidence = _evidence(observed_at=start, positions_match=False, cash_match=False)
+    coverage = dict.fromkeys(("positions", "cash", "open_orders", "recent_executions", "local_execution_ledger"), "complete")
+    candidate = build_initial_enrollment_candidate(evidence, source_receipts_sha256=_digest("1"),
+                                                   facts_sha256=_digest("2"), coverage=coverage, now=start)
+    assert candidate.mode == "initial_enrollment"
+    old_path = evaluate_reconciliation_recovery_activation(recovery_id="synthetic-recovery", candidate=candidate,
+        confirmation=None, current_evidence=evidence, current_live_continuity_state="RECONCILE_ONLY", now=start)
+    assert old_path.transition_plan is None
+    for bad, now in ((_evidence(observed_at=start, account_identity_match=False), start),
+                     (_evidence(observed_at=start, runtime_target_sha256=_digest("8")), start),
+                     (evidence, start + timedelta(hours=1))):
+        with pytest.raises(ValueError):
+            build_initial_enrollment_candidate(bad, source_receipts_sha256=_digest("1"),
+                                               facts_sha256=_digest("2"), coverage=coverage, now=now)
+
+
+def test_initial_activation_needs_bound_confirmation_and_fresh_unchanged_observation() -> None:
+    from quant_platform_kit.common.reconciliation_recovery import evaluate_reconciliation_recovery_activation
+    start = datetime(2026, 8, 30, 8, 0, tzinfo=timezone.utc)
+    coverage = dict.fromkeys(("positions", "cash", "open_orders", "recent_executions", "local_execution_ledger"), "complete")
+    candidate = build_initial_enrollment_candidate(_evidence(observed_at=start), source_receipts_sha256=_digest("1"),
+                                                   facts_sha256=_digest("2"), coverage=coverage, now=start)
+    confirmation = {"schema_version": "qsl_initial_enrollment_confirmation.v1", "mode": "initial_enrollment",
+                    "recovery_id": "synthetic-recovery", "candidate_sha256": candidate.candidate_sha256,
+                    "facts_sha256": _digest("2"), "confirmed_at": "2026-08-30T08:01:00Z", "confirmed_by": "synthetic-user",
+                    "no_order": True, "execution_authority_granted": False}
+    confirmation["confirmation_sha256"] = hashlib.sha256(json.dumps(confirmation, ensure_ascii=True, sort_keys=True,
+        separators=(",", ":")).encode()).hexdigest()
+    def evaluate(evidence, receipt=confirmation):
+        return evaluate_reconciliation_recovery_activation(recovery_id="synthetic-recovery", candidate=candidate,
+            confirmation=receipt, current_evidence=evidence, current_live_continuity_state="RECONCILE_ONLY",
+            now=start + timedelta(minutes=3))
+    assert evaluate(_evidence(observed_at=start + timedelta(minutes=2), positions_match=False)).transition_plan is not None
+    assert evaluate(_evidence(observed_at=start)).transition_plan is None
+    assert evaluate(_evidence(observed_at=start + timedelta(minutes=2), cash_sha256=_digest("8"))).transition_plan is None
+    assert evaluate(_evidence(observed_at=start + timedelta(minutes=2)), {**confirmation, "facts_sha256": _digest("3")}).transition_plan is None
 
 
 @pytest.mark.parametrize("separation", [None, timedelta(seconds=1)])

@@ -7,7 +7,7 @@ HEALTH_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "qpk-github-app-health.y
 DOWNSTREAM_WORKFLOW_PATH = (
     ROOT / ".github" / "workflows" / "open-downstream-qpk-pin-prs.yml"
 )
-AUTH_DOC_PATH = ROOT / "docs" / "qpk_repo_sync_auth.zh-CN.md"
+AUTH_DOC_PATH = ROOT / "docs" / "qpk-repo-sync-auth.zh-CN.md"
 
 EXPECTED_REPOS = (
     "QuantPlatformKit",

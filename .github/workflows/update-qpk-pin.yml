@@ -97,6 +97,6 @@ jobs:
           The staged QPK pin update passed candidate verification, but PR creation failed.
 
           Ensure `QSL_REPO_SYNC_TOKEN` is configured as a **QuantPlatformKit repository secret**
-          (see `docs/qpk_repo_sync_auth.zh-CN.md`). Org policy blocks `GITHUB_TOKEN` PR creation.
+          (see `docs/qpk-repo-sync-auth.zh-CN.md`). Org policy blocks `GITHUB_TOKEN` PR creation.
           MD
           echo "::warning::QPK pin update PR was not created because repository policy blocks GitHub Actions PR creation."

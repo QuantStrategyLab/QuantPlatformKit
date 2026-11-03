@@ -18,6 +18,47 @@ _MAX_CASH_BALANCE_INTEGER_DIGITS = 15
 _MAX_CASH_BALANCE_FRACTION_DIGITS = 8
 
 
+def _inventory_scalar(value: Any) -> Any:
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (str, int, float, Decimal)) and len(str(value)) <= 64:
+        return value
+    return None
+
+
+def _native_stock_inventory(account: dict[str, Any]) -> dict[str, Any]:
+    """Keep bounded reporting fields from this response, before strategy filtering.
+
+    This is not the strategy position set and is never used for sizing. Missing
+    fields stay missing; malformed/oversized lists cannot become an empty set.
+    """
+    native = account.get("positions")
+    observation: dict[str, Any] = {
+        "positions_field_present": "positions" in account,
+        "native_positions_count": len(native) if isinstance(native, list) else None,
+    }
+    if "positions" not in account:
+        return observation
+    observation["positions"] = None
+    if not isinstance(native, list) or len(native) > 512:
+        return observation
+    rows = []
+    for raw in native:
+        if not isinstance(raw, dict):
+            rows.append(None)
+            continue
+        row = {key: _inventory_scalar(raw[key]) for key in
+               ("longQuantity", "shortQuantity", "marketValue") if key in raw}
+        if "instrument" in raw:
+            instrument = raw["instrument"]
+            row["instrument"] = ({key: _inventory_scalar(instrument[key]) for key in
+                                  ("assetType", "symbol") if key in instrument}
+                                 if isinstance(instrument, dict) else None)
+        rows.append(row)
+    observation["positions"] = rows
+    return observation
+
+
 def _payload_digest(payload: Any) -> str:
     """Bind a normalized snapshot to the broker response without retaining it."""
 
@@ -97,6 +138,82 @@ def _optional_account_type(value: Any) -> str | None:
     return value
 
 
+def _position_quantity_text(value: Any) -> str | None:
+    """Keep an exact nonnegative reported quantity, without inventing zero."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str, Decimal)):
+        return None
+    text = str(value)
+    if len(text) > 128:
+        return None
+    try:
+        quantity = Decimal(text)
+        representable = float(quantity)
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
+        return None
+    if not quantity.is_finite() or quantity < 0 or not math.isfinite(representable):
+        return None
+    if quantity != 0 and representable == 0:
+        return None  # Underflow must not become a known zero in float consumers.
+    return str(quantity)
+
+
+def _position_quantity_facts(rows, *, source_digest, started_at, completed_at, positions_field_present):
+    """Same-response facts only; no sellable, order coverage or trade permission.
+
+    Settlement fields remain literal reported fields.  They are not an
+    assertion of available-to-sell shares.  Share maps require an unambiguous
+    EQUITY row; other units and duplicate rows remain explicit observations.
+    """
+    fields = ("longQuantity", "shortQuantity", "settledLongQuantity", "settledShortQuantity")
+    records = []
+    long_quantities = {}
+    short_quantities = {}
+    seen = set()
+    ambiguous = set()
+    for row in rows:
+        symbol = row["instrument"]["symbol"]
+        asset_type = row["instrument"].get("assetType")
+        if not isinstance(asset_type, str):
+            asset_type = None
+        reported = {}
+        unavailable = {}
+        for field in fields:
+            if field not in row:
+                unavailable[field] = "missing"
+                continue
+            value = _position_quantity_text(row[field])
+            if value is None:
+                unavailable[field] = "invalid"
+            else:
+                reported[field] = value
+        records.append({"symbol": symbol, "asset_type": asset_type,
+                        "reported_quantities": reported, "unavailable_fields": unavailable})
+        if symbol in seen:
+            ambiguous.add(symbol)
+        seen.add(symbol)
+        if asset_type == "EQUITY":
+            if "longQuantity" in reported:
+                long_quantities[symbol] = reported["longQuantity"]
+            if "shortQuantity" in reported:
+                short_quantities[symbol] = reported["shortQuantity"]
+    for symbol in ambiguous:
+        long_quantities.pop(symbol, None)
+        short_quantities.pop(symbol, None)
+    return {
+        "records": records,
+        "long_quantities": long_quantities,
+        "short_quantities": short_quantities,
+        "ambiguous_symbols": sorted(ambiguous),
+        "source_digest_sha256": source_digest,
+        "observation_started_at": started_at.isoformat(),
+        "observation_completed_at": completed_at.isoformat(),
+        "observation_window_valid": completed_at >= started_at,
+        "positions_field_present": positions_field_present,
+        "time_semantics": "client_observation_window",
+        "orders_observed": False,
+    }
+
+
 def _resolve_buying_power(balances: dict[str, Any], *, cash_available_for_trading: float) -> tuple[float, str]:
     """Map broker buying-power fields without inventing leverage.
 
@@ -124,6 +241,7 @@ def fetch_account_snapshot(
 ) -> PortfolioSnapshot:
     from schwab import client
 
+    observation_started_at = datetime.now(timezone.utc)
     account_numbers = decode_response_json(
         _request_with_retries(api_client.get_account_numbers),
         "Account numbers",
@@ -169,6 +287,7 @@ def fetch_account_snapshot(
 
     allowed_symbols = set(strategy_symbols)
     positions = []
+    quantity_rows = []
     all_position_market_value = 0.0
     for raw_position in account.get("positions", []):
         symbol = raw_position["instrument"]["symbol"]
@@ -176,6 +295,7 @@ def fetch_account_snapshot(
         all_position_market_value += market_value
         if allowed_symbols and symbol not in allowed_symbols:
             continue
+        quantity_rows.append(raw_position)
         positions.append(
             Position(
                 symbol=symbol,
@@ -195,13 +315,21 @@ def fetch_account_snapshot(
         total_equity = cash_for_equity + all_position_market_value
         total_equity_source = "cash_available_plus_all_position_market_values"
 
+    observation_completed_at = datetime.now(timezone.utc)
+    source_digest = _payload_digest(account_payload)
     metadata: dict[str, Any] = {
         "account_hash": account_hash,
         "cash_available_for_trading": cash_for_equity,
         "cash_available_for_withdrawal": raw_withdrawable,
         "buying_power_source": buying_power_source,
         "total_equity_source": total_equity_source,
-        "source_digest_sha256": _payload_digest(account_payload),
+        "source_digest_sha256": source_digest,
+        "schwab_position_quantities": _position_quantity_facts(
+            quantity_rows, source_digest=source_digest,
+            started_at=observation_started_at, completed_at=observation_completed_at,
+            positions_field_present=isinstance(account.get("positions"), list),
+        ),
+        "broker_stock_inventory": _native_stock_inventory(account),
     }
     broker_account_type = _optional_account_type(account.get("type"))
     if broker_account_type is not None:
@@ -213,7 +341,7 @@ def fetch_account_snapshot(
         metadata["broker_cash_balance_source"] = "cashBalance"
 
     return PortfolioSnapshot(
-        as_of=datetime.now(timezone.utc),
+        as_of=observation_completed_at,
         total_equity=total_equity,
         buying_power=buying_power,
         cash_balance=cash_for_equity,

@@ -58,7 +58,7 @@ class RuntimeCommandGateTests(unittest.TestCase):
             loaded_at="2026-08-24T20:00:00Z",
         )
 
-    def test_valid_due_command_with_matching_release_is_active(self) -> None:
+    def test_valid_due_command_with_matching_release_is_active_and_enforced_by_default(self) -> None:
         decision = evaluate_runtime_command_gate(
             action=RuntimeCommandAction.SUBMIT,
             exposure_effect=RuntimeCommandExposureEffect.INCREASES,
@@ -66,9 +66,9 @@ class RuntimeCommandGateTests(unittest.TestCase):
             as_of_session="2026-08-25",
             runtime_release_receipt=self.receipt,
             expected_strategy_release=self.release,
-            policy=_strict_policy(),
         )
 
+        self.assertEqual(decision.enforcement, RuntimeCommandGateEnforcement.ENFORCE)
         self.assertEqual(decision.mode, RuntimeCommandGateMode.ACTIVE)
         self.assertTrue(decision.policy_allows)
         self.assertTrue(decision.broker_write_allowed)
@@ -121,7 +121,22 @@ class RuntimeCommandGateTests(unittest.TestCase):
         self.assertTrue(cancel.broker_write_allowed)
         self.assertTrue(query.broker_write_allowed)
 
-    def test_release_mismatch_is_observed_without_blocking_until_enforced(self) -> None:
+    def test_default_policy_halts_submit_with_unreconciled_broker_outcome(self) -> None:
+        decision = evaluate_runtime_command_gate(
+            action="submit",
+            exposure_effect="reduces",
+            command=self.command,
+            command_state=ExecutionCommandState.RECONCILIATION_REQUIRED,
+            as_of_session="2026-08-25",
+            runtime_release_receipt=self.receipt,
+            expected_strategy_release=self.release,
+        )
+
+        self.assertEqual(decision.mode, RuntimeCommandGateMode.HALTED)
+        self.assertFalse(decision.broker_write_allowed)
+        self.assertIn("broker_outcome_unknown", decision.reasons)
+
+    def test_release_mismatch_blocks_even_with_explicit_observe_policy(self) -> None:
         observed = evaluate_runtime_command_gate(
             action="submit",
             exposure_effect="increases",
@@ -129,13 +144,17 @@ class RuntimeCommandGateTests(unittest.TestCase):
             as_of_session="2026-08-25",
             runtime_release_receipt=self.receipt,
             expected_strategy_release=_release_identity(release_id="soxl-p2-v4.20260824"),
+            policy=RuntimeCommandGatePolicy(enforcement=RuntimeCommandGateEnforcement.OBSERVE),
         )
 
+        self.assertEqual(observed.enforcement, RuntimeCommandGateEnforcement.OBSERVE)
         self.assertEqual(observed.mode, RuntimeCommandGateMode.HALTED)
         self.assertTrue(observed.would_block)
-        self.assertTrue(observed.broker_write_allowed)
+        self.assertFalse(observed.broker_write_allowed)
         self.assertIn("release_identity_mismatch", observed.reasons)
-        self.assertTrue(observed.to_receipt()["would_block"])
+        receipt = observed.to_receipt()
+        self.assertFalse(receipt["broker_write_allowed"])
+        self.assertTrue(receipt["would_block"])
 
     def test_late_command_and_unknown_exposure_cannot_pass_strict_gate(self) -> None:
         decision = evaluate_runtime_command_gate(

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from .display_names import display_name
+from .notification_localization import translator_uses_zh
+
 import hashlib
 import json
 import tempfile
@@ -788,6 +791,8 @@ def validate_strategy_plugin_signal_payload(
     schema_version = _optional_string(payload.get("schema_version")) or ""
     definitions = normalize_strategy_plugin_definitions(plugin_definitions)
     definition = definitions.get(plugin)
+    if definition is not None and definition.supported_schema_versions and not schema_version:
+        raise ValueError(f"strategy plugin {plugin} artifact schema_version is required")
     validate_strategy_plugin_schema_version(
         plugin=plugin,
         schema_version=schema_version,
@@ -1649,6 +1654,8 @@ def build_strategy_plugin_alert_messages(
             )
         elif strategy:
             display_target_label = translate_strategy_plugin_value("strategy", strategy, translator=translator)
+        # Presentation only: target_label still supplies alert keys and machine metadata.
+        display_target_label = display_name("strategies", getattr(signal, "strategy", None) or strategy, "zh" if translator and translator_uses_zh(translator) else "en", fallback=display_target_label)
         display_context = _strategy_plugin_alert_display_context(
             context,
             signal,
@@ -1675,7 +1682,7 @@ def build_strategy_plugin_alert_messages(
             translator,
             "strategy_plugin_alert_subject",
             fallback="Strategy plugin alert: {plugin} | {route}",
-            strategy=target_label,
+            strategy=display_target_label,
             plugin=plugin,
             route=translated_route,
         )

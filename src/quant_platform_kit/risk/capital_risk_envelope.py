@@ -30,6 +30,11 @@ from quant_platform_kit.strategy_lifecycle.research_promotion_cycle import (
 
 DEFAULT_TARGET_VOL_ANNUAL = 0.20
 
+INVALID_RISK_INPUT_REASONS = frozenset({
+    "INVALID_EQUITY_FAIL_CLOSED", "INVALID_TARGET_VOL_FAIL_CLOSED",
+    "INVALID_REALIZED_VOL_FAIL_CLOSED", "INVALID_DRAWDOWN_FAIL_CLOSED",
+})
+
 # Equity band rows (USD absolute; design draft frozen for D1 unit proof).
 # Predicate order in ``_resolve_band``: <50k | <250k | ≤1M | >1M.
 _BAND_UNDER_50K = (
@@ -185,7 +190,7 @@ def evaluate_capital_risk_envelope(
     realized_vol: float | None = None,
     drawdown_from_peak: float | None = None,
     risk_preference: str | None = None,
-    target_vol: float = DEFAULT_TARGET_VOL_ANNUAL,
+    target_vol: float | None = DEFAULT_TARGET_VOL_ANNUAL,
 ) -> CapitalRiskEnvelope:
     """Map injected equity (and optional vol/DD) to a capital-risk envelope.
 
@@ -227,16 +232,17 @@ def evaluate_capital_risk_envelope(
             risk_preference=preference,
         )
 
-    if (
+    target_invalid = target_vol is not None and (
         isinstance(target_vol, bool)
         or not isinstance(target_vol, (int, float))
         or not math.isfinite(float(target_vol))
         or float(target_vol) <= 0.0
-    ):
+    )
+    if target_invalid:
         reasons.append("INVALID_TARGET_VOL_FAIL_CLOSED")
         target = DEFAULT_TARGET_VOL_ANNUAL
     else:
-        target = float(target_vol)
+        target = DEFAULT_TARGET_VOL_ANNUAL if target_vol is None else float(target_vol)
 
     equity = float(equity_usd)
     band_id, capital_scale, dd_brake, max_3x, hitl, lev_summary = _resolve_band(equity)
@@ -262,7 +268,7 @@ def evaluate_capital_risk_envelope(
             new_leverage_requires_hitl=hitl,
             summary=lev_summary,
         ),
-        new_risk_allowed=new_risk_allowed,
+        new_risk_allowed=new_risk_allowed and not target_invalid and "INVALID_REALIZED_VOL_FAIL_CLOSED" not in vol_reasons,
         reasons=tuple(reasons),
         dd_brake=dd_brake,
         risk_preference=preference,
@@ -300,7 +306,7 @@ def evaluate_multi_account_envelope_view(
     accounts: Iterable[Mapping[str, Any]],
     *,
     risk_preference: str | None = None,
-    target_vol: float = DEFAULT_TARGET_VOL_ANNUAL,
+    target_vol: float | None = DEFAULT_TARGET_VOL_ANNUAL,
 ) -> MultiAccountCapitalEnvelopeView:
     """Project per-account and aggregate envelopes without execution authority."""
     summaries: list[AccountCapitalEnvelopeSummary] = []
@@ -366,7 +372,7 @@ def evaluate_multi_account_envelope_view(
 def apply_envelope_to_sized_weight(
     sized_weight: float,
     envelope: CapitalRiskEnvelope | Any,
-) -> float:
+) -> float | None:
     """Multiply a post-promotion/plugin sized weight by envelope; only shrinks.
 
     Result is in ``[0, 1]`` and never exceeds ``sized_weight`` when sized_weight
@@ -381,6 +387,8 @@ def apply_envelope_to_sized_weight(
         return 0.0
     if not isinstance(envelope, CapitalRiskEnvelope):
         return 0.0
+    if bool(INVALID_RISK_INPUT_REASONS.intersection(envelope.reasons)) and "DRAWDOWN_BRAKE_TRIPPED" not in envelope.reasons:
+        return None
     scale = _clamp_unit(float(envelope.combined_scale))
     out = float(sized_weight) * scale
     if not math.isfinite(out) or out < 0.0:

@@ -33,6 +33,10 @@ BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION = (
 BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION = (
     "broker_reconciliation_baseline_candidate.v2"
 )
+BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION = (
+    "broker_reconciliation_baseline_candidate.v3"
+)
+_INITIAL_SURFACES = ("positions", "cash", "open_orders", "recent_executions", "local_execution_ledger")
 DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_AGE = timedelta(minutes=30)
 DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MIN_SEPARATION = timedelta(minutes=1)
 DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_SPAN = timedelta(minutes=15)
@@ -111,12 +115,14 @@ def _candidate_payload(value: Mapping[str, object]) -> dict[str, object]:
         required_fields = required
     elif schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION:
         required_fields = required | {"source_receipts_sha256"}
+    elif schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION:
+        required_fields = required | {"source_receipts_sha256", "mode", "facts_sha256", "coverage"}
     else:
         raise ValueError("unsupported baseline candidate schema version")
     if set(value) != required_fields:
         raise ValueError("baseline candidate has invalid fields")
     source = value["source_evidence_sha256"]
-    minimum = 1 if schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION else 2
+    minimum = 2 if schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION else 1
     if not isinstance(source, (tuple, list)) or len(source) < minimum:
         raise ValueError(f"source_evidence_sha256 must contain at least {minimum} receipts")
     normalized_source = tuple(sorted({_digest(item, field_name="source_evidence_sha256") for item in source}))
@@ -126,6 +132,8 @@ def _candidate_payload(value: Mapping[str, object]) -> dict[str, object]:
     last = _normalize_time(value["last_observed_at"])
     if first > last:
         raise ValueError("first_observed_at must not be after last_observed_at")
+    if schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION and first != last:
+        raise ValueError("initial enrollment must bind one observation")
     required_text = (
         "platform_id",
         "strategy_profile",
@@ -137,10 +145,18 @@ def _candidate_payload(value: Mapping[str, object]) -> dict[str, object]:
         "first_observed_at": _iso(first),
         "last_observed_at": _iso(last),
     }
-    if schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION:
+    if schema_version != BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION:
         normalized["source_receipts_sha256"] = _digest(
             value["source_receipts_sha256"], field_name="source_receipts_sha256"
         )
+    coverage = None
+    if schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION:
+        coverage = value["coverage"]
+        if value["mode"] != "initial_enrollment" or not isinstance(coverage, Mapping) or set(coverage) != set(_INITIAL_SURFACES):
+            raise ValueError("initial enrollment mode or coverage is invalid")
+        if any(not isinstance(status, str) or status not in {"complete", "partial", "unknown"} for status in coverage.values()):
+            raise ValueError("initial enrollment coverage is invalid")
+        normalized.update(mode="initial_enrollment", facts_sha256=_digest(value["facts_sha256"], field_name="facts_sha256"), coverage=dict(coverage))
     for field_name in required_text:
         text = value[field_name]
         if not isinstance(text, str) or text != text.strip() or not text or len(text) > 128:
@@ -155,6 +171,13 @@ def _candidate_payload(value: Mapping[str, object]) -> dict[str, object]:
         "recent_executions_sha256",
         "local_execution_ledger_sha256",
     ):
+        if coverage is not None and field_name.endswith("_sha256") and field_name.removesuffix("_sha256") in coverage:
+            status = coverage[field_name.removesuffix("_sha256")]
+            if status != "complete":
+                if value[field_name] is not None:
+                    raise ValueError("incomplete initial surface must not have a digest")
+                normalized[field_name] = None
+                continue
         normalized[field_name] = _digest(value[field_name], field_name=field_name)
     return normalized
 
@@ -185,20 +208,25 @@ class BrokerReconciliationBaselineCandidate:
     source_evidence_sha256: tuple[str, ...]
     first_observed_at: datetime | str
     last_observed_at: datetime | str
-    positions_sha256: str
-    cash_sha256: str
-    open_orders_sha256: str
-    recent_executions_sha256: str
-    local_execution_ledger_sha256: str
+    positions_sha256: str | None
+    cash_sha256: str | None
+    open_orders_sha256: str | None
+    recent_executions_sha256: str | None
+    local_execution_ledger_sha256: str | None
     candidate_sha256: str
     source_receipts_sha256: str | None = None
     schema_version: str = BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION
+    mode: str | None = None
+    facts_sha256: str | None = None
+    coverage: Mapping[str, str] | tuple[tuple[str, str], ...] | None = None
 
     def __post_init__(self) -> None:
         payload = _candidate_payload(self.to_dict())
         for field_name, value in payload.items():
             if field_name in {"first_observed_at", "last_observed_at"}:
                 object.__setattr__(self, field_name, _normalize_time(value))
+            elif field_name == "coverage":
+                object.__setattr__(self, field_name, tuple(sorted(value.items())))
             elif field_name != "schema_version":
                 object.__setattr__(self, field_name, value)
         digest = _digest(self.candidate_sha256, field_name="candidate_sha256")
@@ -208,6 +236,11 @@ class BrokerReconciliationBaselineCandidate:
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
+        if isinstance(payload["coverage"], tuple):
+            payload["coverage"] = dict(payload["coverage"])
+        if payload["schema_version"] != BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION:
+            for field_name in ("mode", "facts_sha256", "coverage"):
+                del payload[field_name]
         if (
             payload["schema_version"] == BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION
             and payload["source_receipts_sha256"] is None
@@ -225,6 +258,9 @@ class BrokerReconciliationBaselineCandidate:
     @property
     def expected_digests(self) -> dict[str, str]:
         """Exact broker-state digests a private controller must later verify."""
+
+        if self.schema_version == BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION:
+            raise ValueError("initial enrollment requires explicit confirmation before transition")
 
         return {
             "positions_sha256": self.positions_sha256,
@@ -292,6 +328,38 @@ def _build_candidate(samples: tuple[BrokerReconciliationEvidence, ...], *, sourc
     if source_receipts_sha256 is not None:
         draft["schema_version"] = BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION
         draft["source_receipts_sha256"] = source_receipts_sha256
+    draft["candidate_sha256"] = calculate_broker_reconciliation_baseline_candidate_sha256(draft)
+    return BrokerReconciliationBaselineCandidate.from_dict(draft)
+
+
+def build_initial_enrollment_candidate(
+    evidence: BrokerReconciliationEvidence | Mapping[str, object], *, source_receipts_sha256: str,
+    facts_sha256: str, coverage: Mapping[str, str], now: datetime | None = None,
+    max_age: timedelta = DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_AGE,
+) -> BrokerReconciliationBaselineCandidate:
+    """Bind an initial observation for human review, without establishing a baseline.
+
+    The caller must independently authenticate the receipt and the displayed facts.
+    Missing surfaces remain absent and cannot be consumed as expected digests.
+    """
+    if max_age <= timedelta(0):
+        raise ValueError("initial enrollment max age must be positive")
+    sample = _coerce_evidence(evidence)
+    reference_now = _normalize_time(now or datetime.now(timezone.utc))
+    if sample.observed_at > reference_now or reference_now - sample.observed_at > max_age:
+        raise ValueError("initial enrollment evidence is stale")
+    if not sample.broker_connected or not sample.account_identity_match:
+        raise ValueError("initial enrollment identity or connection is unavailable")
+    if sample.baseline_target_sha256 != sample.runtime_target_sha256:
+        raise ValueError("initial enrollment target does not match")
+    if not isinstance(coverage, Mapping) or set(coverage) != set(_INITIAL_SURFACES):
+        raise ValueError("initial enrollment coverage is invalid")
+    draft = _build_candidate((sample,), source_receipts_sha256=_digest(source_receipts_sha256, field_name="source_receipts_sha256")).to_dict()
+    draft.update(schema_version=BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION,
+                 mode="initial_enrollment", facts_sha256=facts_sha256, coverage=dict(coverage))
+    for surface, status in coverage.items():
+        if status != "complete":
+            draft[f"{surface}_sha256"] = None
     draft["candidate_sha256"] = calculate_broker_reconciliation_baseline_candidate_sha256(draft)
     return BrokerReconciliationBaselineCandidate.from_dict(draft)
 
@@ -370,12 +438,14 @@ def evaluate_broker_reconciliation_baseline_enrollment(
 __all__ = [
     "BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION",
     "BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION",
+    "BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION",
     "DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_AGE",
     "DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_SPAN",
     "DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MIN_SEPARATION",
     "BrokerReconciliationBaselineCandidate",
     "BrokerReconciliationEnrollmentEvaluation",
     "BrokerReconciliationEnrollmentFinding",
+    "build_initial_enrollment_candidate",
     "calculate_broker_reconciliation_baseline_candidate_sha256",
     "canonical_broker_reconciliation_baseline_candidate_json",
     "evaluate_broker_reconciliation_baseline_enrollment",

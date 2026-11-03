@@ -385,7 +385,13 @@ class StrategyRiskStateStore:
         return tuple(transitions)
 
     def append(self, transition: StrategyRiskStateTransition) -> StrategyRiskStateAppendResult:
-        """Append a transition exactly once, rejecting stale or competing writers."""
+        """Append a transition exactly once, rejecting stale or competing writers.
+
+        The receipt's chain_length counts the durable prefix observed or
+        confirmed by this call: the loaded chain for an existing duplicate,
+        or that prefix plus the target confirmed by create or readback.
+        Concurrent later successors need not be included.
+        """
 
         if not isinstance(transition, StrategyRiskStateTransition):
             raise TypeError("transition must be a StrategyRiskStateTransition")
@@ -423,7 +429,7 @@ class StrategyRiskStateStore:
             return StrategyRiskStateAppendResult(
                 status=StrategyRiskStateAppendStatus.ALREADY_APPENDED,
                 transition=transition,
-                chain_length=len(chain) + (0 if chain else 1),
+                chain_length=len(chain) + 1,
             )
         raise StrategyRiskStateChainError("risk-state append conflicts with an already-recorded successor")
 

@@ -5,6 +5,15 @@ QuantStrategyLab repositories.  New cross-cutting additions (contracts,
 artifacts, indicators, etc.) should be placed here rather than duplicated.
 """
 
+from .us_equity_sessions import (
+    DEFAULT_US_EQUITY_SESSION_WINDOWS,
+    US_EQUITY_TIMEZONE,
+    Session,
+    SessionWindow,
+    classify_session,
+    session_enabled,
+    session_gate,
+)
 from .notification_localization import (
     COMMON_ZH_NOTIFICATION_REPLACEMENTS,
     format_notification_account_label,
@@ -229,12 +238,14 @@ from .broker_reconciliation import (
 from .broker_reconciliation_enrollment import (
     BROKER_RECONCILIATION_BASELINE_CANDIDATE_SCHEMA_VERSION,
     BROKER_RECONCILIATION_BASELINE_CANDIDATE_V2_SCHEMA_VERSION,
+    BROKER_RECONCILIATION_BASELINE_CANDIDATE_V3_SCHEMA_VERSION,
     DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_AGE,
     DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MAX_SPAN,
     DEFAULT_BROKER_RECONCILIATION_ENROLLMENT_MIN_SEPARATION,
     BrokerReconciliationBaselineCandidate,
     BrokerReconciliationEnrollmentEvaluation,
     BrokerReconciliationEnrollmentFinding,
+    build_initial_enrollment_candidate,
     calculate_broker_reconciliation_baseline_candidate_sha256,
     canonical_broker_reconciliation_baseline_candidate_json,
     evaluate_broker_reconciliation_baseline_enrollment,
@@ -331,6 +342,13 @@ from .strategy_plugins import (
 )
 
 __all__ = [
+    "DEFAULT_US_EQUITY_SESSION_WINDOWS",
+    "US_EQUITY_TIMEZONE",
+    "Session",
+    "SessionWindow",
+    "classify_session",
+    "session_enabled",
+    "session_gate",
     "ACCOUNT_IDENTITY_RECEIPT_SCHEMA_VERSION",
     "AccountIdentityBlockedError",
     "AccountIdentityDecision",

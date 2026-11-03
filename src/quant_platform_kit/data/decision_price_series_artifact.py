@@ -17,6 +17,7 @@ from math import isfinite
 import re
 from typing import Any
 
+from quant_platform_kit.common.jsonio import strict_json_loads
 from quant_platform_kit.common.models import PricePoint, PriceSeries
 
 from .decision_data_binding import (
@@ -55,19 +56,6 @@ def _canonical(value: object) -> bytes:
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
-
-
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            _invalid()
-        result[key] = value
-    return result
-
-
-def _reject_nonfinite_constant(_: str) -> None:
-    _invalid()
 
 
 def _require_exact_mapping(value: object, keys: frozenset[str]) -> dict[str, object]:
@@ -208,11 +196,7 @@ def read_decision_price_series_artifact_json(payload: bytes | str) -> dict[str, 
             payload = payload.decode("utf-8")
         if not isinstance(payload, str):
             _invalid()
-        parsed = json.loads(
-            payload,
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=_reject_nonfinite_constant,
-        )
+        parsed = strict_json_loads(payload)
         return validate_decision_price_series_artifact(parsed)
     except (InvalidDecisionDataArtifact, UnicodeDecodeError, TypeError, ValueError, json.JSONDecodeError):
         raise InvalidDecisionDataArtifact("invalid decision price-series artifact") from None

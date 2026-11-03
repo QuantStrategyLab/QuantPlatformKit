@@ -1,0 +1,33 @@
+name: Documentation check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: Documentation check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # The checker runs before the tests because a rule that stopped working
+      # would otherwise report a clean repository. The tests are the only thing
+      # that notices the difference between "no findings" and "no checking".
+      - name: Test the documentation checker
+        run: python scripts/test_style.py
+      - name: Check documentation rules
+        run: python scripts/check_style.py --phase 2

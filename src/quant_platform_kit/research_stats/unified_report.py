@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from statistics import NormalDist, stdev
 from typing import Iterable
@@ -102,14 +102,15 @@ def _computed(name: str, value: float, **details: object) -> StatResult:
     return StatResult(name, "COMPUTED", value, details=details)
 
 
-def _psr(returns: tuple[float, ...], benchmark: float, floor: int) -> StatResult:
+def _psr(returns: tuple[float, ...], benchmark: float, floor: int, *, excess_basis: bool = False) -> StatResult:
     try:
-        return probabilistic_sharpe_ratio(returns, sr_benchmark=benchmark, min_observations=floor)
+        return probabilistic_sharpe_ratio(returns, sr_benchmark=benchmark, min_observations=floor,
+                                         **({"input_basis": "excess_returns"} if excess_basis else {}))
     except (ArithmeticError, ValueError):
         return _missing("probabilistic_sharpe_ratio", "numerical_failure")
 
 
-def _dsr(returns: tuple[float, ...], trials: TrialEvidence | None, floor: int) -> StatResult:
+def _dsr(returns: tuple[float, ...], trials: TrialEvidence | None, floor: int, *, excess_basis: bool = False) -> StatResult:
     name = "deflated_sharpe_ratio"
     if trials is None:
         return _missing(name, "missing_trial_evidence")
@@ -121,7 +122,7 @@ def _dsr(returns: tuple[float, ...], trials: TrialEvidence | None, floor: int) -
         threshold = expected_max_sharpe(trials.sharpe_variance, trials.cumulative_total)
         if not threshold.computed:
             return _missing(name, threshold.reason_code or "uncomputable", **details)
-        result = _psr(returns, threshold.value, floor)
+        result = _psr(returns, threshold.value, floor, excess_basis=excess_basis)
         details.update(result.details)
         details["expected_max_sharpe"] = threshold.value
         return StatResult(name, result.status, result.value, result.reason_code, details)
@@ -202,6 +203,12 @@ def build_unified_net_report(
     trials: TrialEvidence | None = None, sr_benchmark: float = 0.0,
     confidence: float = .95, min_observations: int = DEFAULT_MIN_OBSERVATIONS,
     include_outcome_diagnostics: bool = False,
+    periods_per_year: int | None = None,
+    sharpe_basis: str = "legacy_net_rf0_v1",
+    risk_free_returns: Iterable[object] | None = None,
+    risk_free_source: str | None = None,
+    calendar_id: str | None = None,
+    include_max_drawdown_recovery: bool = False,
 ) -> UnifiedNetReport:
     """Summarize validated same-period net returns; never fill/drop observations.
 
@@ -214,12 +221,55 @@ def build_unified_net_report(
     the arithmetic mean includes every observation. Default eight metrics and
     all existing metric values remain unchanged.
     No files, accounts, ledgers, policy, orders or budgets are read or written.
+
+    An explicit ``periods_per_year`` opts into geometric net CAGR and Calmar
+    on this exact sample. The initial NAV is not an extra return observation.
+    No drawdown makes Calmar undefined, never infinity or an automatic pass.
+
+    The default is the byte-compatible legacy assumption of zero rf, not new
+    qualified excess-return evidence. Opt into net_wealth_excess_sharpe_v2
+    with an explicit calendar and periods_per_year. Its same-period simple rf
+    series is subtracted only for Sharpe inference, never from net wealth.
+    Missing rf disables only that inference. sr_benchmark is a dimensionless
+    Sharpe null threshold, not a risk-free return. No rf is inferred from cash.
+    Supplied TrialEvidence must summarize the same excess-return convention;
+    as with legacy evidence, its ledger provenance is caller asserted only.
+
+    Optional max-drawdown recovery metrics reuse the exact net-path diagnostic
+    contract on actual net returns, never excess returns. They are observation
+    index differences with event/censor details, not calendar durations. Legacy
+    default reports and existing metric values/details are unchanged. Full
+    details survive to_dict; the existing metric_entries projection omits them.
     """
     if type(include_outcome_diagnostics) is not bool:
         raise ResearchInputError("include_outcome_diagnostics must be boolean")
+    if type(include_max_drawdown_recovery) is not bool:
+        raise ResearchInputError("include_max_drawdown_recovery must be boolean")
+    annualization = None if periods_per_year is None else positive_int(periods_per_year, "periods_per_year")
     net = simple_returns(net_returns, "net_returns")
     if not net:
         raise ResearchInputError("net_returns must be nonempty")
+    if sharpe_basis not in ("legacy_net_rf0_v1", "net_wealth_excess_sharpe_v2"):
+        raise ResearchInputError("unknown sharpe_basis")
+    explicit = sharpe_basis == "net_wealth_excess_sharpe_v2"
+    excess = net
+    if not explicit:
+        if risk_free_returns is not None or risk_free_source is not None or calendar_id is not None:
+            raise ResearchInputError("rf/calendar inputs require explicit v2 basis")
+    else:
+        if annualization is None or not isinstance(calendar_id, str) or not calendar_id.strip():
+            raise ResearchInputError("explicit basis requires periods_per_year and calendar_id")
+        if risk_free_returns is None:
+            if risk_free_source is not None:
+                raise ResearchInputError("risk_free_source without risk_free_returns")
+            excess = None
+        else:
+            rf = simple_returns(risk_free_returns, "risk_free_returns")
+            if len(rf) != len(net):
+                raise ResearchInputError("risk_free_returns must align exactly with net_returns")
+            if not isinstance(risk_free_source, str) or not risk_free_source.strip():
+                raise ResearchInputError("explicit rf requires risk_free_source")
+            excess = tuple(r - f for r, f in zip(net, rf))
     gross = None if gross_returns is None else simple_returns(gross_returns, "gross_returns")
     if gross is not None and (len(gross) != len(net) or any(
             b > a and b - a > _cost_roundoff_bound(a) for a, b in zip(gross, net))):
@@ -233,17 +283,21 @@ def build_unified_net_report(
         raise ResearchInputError("confidence must be in (.5, 1)")
     logs = tuple(math.log1p(r) for r in net)
     growth = _computed("net_log_growth_per_period", math.fsum(logs) / len(net))
-    if len(net) < floor:
+    if excess is None:
+        sharpe = _missing("sharpe_per_period", "missing_risk_free_returns")
+    elif len(net) < floor:
         sharpe = _missing("sharpe_per_period", "insufficient_observations")
     else:
         try:
-            std = stdev(net)
+            std = stdev(excess)
             sharpe = (_missing("sharpe_per_period", "zero_variance") if std == 0 else
-                      _computed("sharpe_per_period", (math.fsum(net) / len(net)) / std, ddof=1))
+                      _computed("sharpe_per_period", (math.fsum(excess) / len(net)) / std, ddof=1))
         except (ArithmeticError, ValueError):
             sharpe = _missing("sharpe_per_period", "numerical_failure")
-    psr = _psr(net, benchmark, floor)
-    dsr = _dsr(net, trials, floor)
+    psr = (_missing("probabilistic_sharpe_ratio", "missing_risk_free_returns") if excess is None
+           else _psr(excess, benchmark, floor, excess_basis=explicit))
+    dsr = (_missing("deflated_sharpe_ratio", "missing_risk_free_returns") if excess is None
+           else _dsr(excess, trials, floor, excess_basis=explicit))
     mintrl = _mintrl(psr, benchmark, level, floor)
     # Each observation has mass 1/n. Integrate exactly the worst 5% mass,
     # splitting the boundary observation rather than rounding up its count.
@@ -281,6 +335,41 @@ def build_unified_net_report(
     metrics = (growth, sharpe, psr, dsr, mintrl, cvar, drawdown, drag)
     if include_outcome_diagnostics:
         metrics += _outcome_diagnostics(net)
+    if annualization is not None:
+        details = dict(definition_version="qpk.net_compounding.v1", periods_per_year=annualization,
+                       observations=len(net), initial_nav_is_observation=False,
+                       input_basis="same_window_net_simple_returns", report_only=True)
+        try:
+            cagr_value = math.expm1(growth.value * annualization)
+            cagr = (_computed("net_cagr", cagr_value, **details) if math.isfinite(cagr_value) else
+                    _missing("net_cagr", "numerical_failure", **details))
+        except (ArithmeticError, ValueError):
+            cagr = _missing("net_cagr", "numerical_failure", **details)
+        if worst == 0.0:
+            calmar = _missing("net_calmar_ratio", "zero_drawdown", **details)
+        elif not cagr.computed:
+            calmar = _missing("net_calmar_ratio", "cagr_uncomputable", **details)
+        else:
+            ratio = cagr.value / abs(worst)
+            calmar = (_computed("net_calmar_ratio", ratio, **details) if math.isfinite(ratio) else
+                      _missing("net_calmar_ratio", "numerical_failure", **details))
+        metrics += (cagr, calmar)
+    if include_max_drawdown_recovery:
+        from quant_platform_kit.research_stats.net_path_diagnostics import build_net_path_diagnostics
+        path = build_net_path_diagnostics(net, include_max_drawdown_recovery=True)
+        metrics += tuple(path.metric(name) for name in (
+            "max_drawdown_peak_to_recovery_observations",
+            "max_drawdown_trough_to_recovery_observations"))
+    if explicit:
+        inference = {"sharpe_per_period", "probabilistic_sharpe_ratio", "deflated_sharpe_ratio",
+                     "minimum_track_record_periods"}
+        metrics = tuple(replace(m, details={**m.details, "return_basis": sharpe_basis,
+                            "input_basis": "net_minus_same_period_rf" if m.name in inference
+                                           else "actual_net_simple_returns",
+                            "calendar_id": calendar_id, "periods_per_year": annualization,
+                            "risk_free_source": risk_free_source,
+                            "risk_free_frequency": "same_as_net_returns" if excess is not None else None})
+                        for m in metrics)
     return UnifiedNetReport(len(net), metrics,
                             trials.cumulative_total if trials else None,
                             trials.ledger_sha256 if trials else None)

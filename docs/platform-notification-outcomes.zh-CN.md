@@ -1,0 +1,66 @@
+# 平台通知与执行结果语义
+
+[English](platform-notification-outcomes.md)
+
+平台运行时应复用 `quant_platform_kit` 里的共享执行结果和通知 envelope
+helper，不要在每个仓库里各自定义一套 stage 或通知投递语义。
+
+## 执行 Stage
+
+`quant_platform_kit.common.execution_outcomes` 定义了平台持久层、API 返回、
+日志和通知共用的 strategy-run stage：
+
+| Stage | 是否终态 | 含义 |
+| --- | --- | --- |
+| `ORDERS_PLANNED` | 否 | 已生成执行计划，尚未完成执行。 |
+| `DRY_RUN_COMPLETED` | 否 | 模拟运行完成，没有提交真实订单。 |
+| `NO_ACTION` | 否 | 实盘周期完成，但不需要下单。 |
+| `SUBMITTED` | 是 | 已提交一个或多个真实订单。 |
+| `EXECUTION_BLOCKED` | 否 | 因可重试的执行阻塞导致没有提交订单。 |
+| `PARTIAL_SUBMITTED` | 否 | 部分订单已提交，但仍有执行阻塞需要关注。 |
+| `FUNDING_BLOCKED` | 否 | 资金不足，未提交订单；仅在执行窗口内允许重试。 |
+| `RECONCILED` | 是 | 已由平台自己的 reconciliation 流程完成核对。 |
+| `COMPLETED` | 是 | 已由平台自己的流程标记为完成。 |
+
+终态会阻止同一账户、同一 profile、同一周期重复提交实盘订单。非终态执行阻塞
+可以在策略执行窗口仍然开放时，由平台运行时后续重试。
+
+## 跳过原因
+
+中文通知将现金不足原因码显示为中文，执行报告中保存的原始原因码不变。
+运行告警显示中文摘要和工作流链接，不再把异常原文或云审计 JSON 贴入消息；
+排查使用既有工作流和云端日志。下游平台须在准确运行基线上采用这部分通知补丁，
+显示变化才会生效。
+
+共享 helper 默认把这些 skipped-order reason 视为执行阻塞：
+
+- `buy_quantity_zero`
+- `insufficient_cash`
+- `insufficient_cash_for_whole_share`
+- `quote_unavailable`
+- `sell_quantity_zero`
+
+当 `insufficient_cash` 或 `insufficient_cash_for_whole_share` 是唯一阻塞原因，并且没有
+任何真实订单已提交时，该周期会记为可重试的 `FUNDING_BLOCKED`。平台只可在策略执行窗口
+仍开放时重试，且必须在第一次向券商发送请求前取得持久化的 create-only 提交锁。券商已受理、
+待处理或结果未知的订单永不自动重发。
+
+## 通知 Envelope
+
+`quant_platform_kit.notifications.events` 提供：
+
+- `RenderedNotification(detailed_text, compact_text)`
+- `NotificationPublisher(log_message, send_message)`
+- `publish_rendered_notification(...)`
+
+各平台可以保留券商自己的通知布局和订单细节，但应通过共享 envelope 投递，
+使日志和用户通知具备一致的交付契约。
+
+## 平台仓库职责
+
+平台仓库应当：
+
+- 使用共享 stage 常量和 stage 解析 helper
+- 在持久状态和 API 返回中包含解析后的 stage
+- 在日志和通知里一致展示执行阻塞
+- 将券商专属订单 payload、账户标签和传输层逻辑留在本仓库内

@@ -18,8 +18,10 @@ dependencies = []
 dev = [
   "pytest",
   "pytest-cov",
+  "requests",
   "ruff",
   "jsonschema>=4.18,<5",
+  "rfc3339-validator>=0.1.4,<1",
   "numpy",
   "pandas",
 ]
@@ -42,7 +44,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-quant_platform_kit = ["schemas/*.json"]
+quant_platform_kit = ["schemas/*.json", "common/display_names.json"]
 
 [tool.ruff]
 target-version = "py310"

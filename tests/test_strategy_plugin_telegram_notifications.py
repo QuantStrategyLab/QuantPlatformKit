@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
+import pytest
+
 from quant_platform_kit.common.notification_localization import STRATEGY_PLUGIN_I18N
 from quant_platform_kit.notifications.strategy_plugin_telegram import (
     StrategyPluginTelegramSettings,
@@ -13,6 +15,117 @@ from quant_platform_kit.notifications.telegram import (
     send_strategy_plugin_telegram,
     send_telegram_message,
 )
+
+
+_CHAT_ENV_KEYS = (
+    "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
+    "QSL_GLOBAL_TELEGRAM_CHAT_ID",
+    "GLOBAL_TELEGRAM_CHAT_ID",
+)
+_TOKEN_ENV_KEYS = (
+    "QSL_STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN",
+    "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN",
+    "TELEGRAM_TOKEN",
+    "TG_TOKEN",
+)
+
+
+@pytest.fixture(autouse=True)
+def _clear_telegram_environment(monkeypatch):
+    for key in (*_CHAT_ENV_KEYS, *_TOKEN_ENV_KEYS):
+        monkeypatch.delenv(key, raising=False)
+
+
+@pytest.mark.parametrize("chat_index", range(len(_CHAT_ENV_KEYS)))
+@pytest.mark.parametrize("token_index", range(len(_TOKEN_ENV_KEYS)))
+def test_settings_environment_precedence(chat_index, token_index):
+    environ = {key: f"@synthetic_chat_{i}" for i, key in enumerate(_CHAT_ENV_KEYS)}
+    environ.update({key: f"synthetic-credential-{i}" for i, key in enumerate(_TOKEN_ENV_KEYS)})
+    # Blank higher-priority entries must not hide the next configured value.
+    for key in (*_CHAT_ENV_KEYS[:chat_index], *_TOKEN_ENV_KEYS[:token_index]):
+        environ[key] = " \t\n"
+    settings = StrategyPluginTelegramSettings.from_object(
+        SimpleNamespace(
+            strategy_plugin_alert_telegram_chat_ids=" \t\n",
+            strategy_plugin_alert_telegram_bot_token=" \t\n",
+        ),
+        environ=environ,
+    )
+    assert settings.chat_ids == (environ[_CHAT_ENV_KEYS[chat_index]],)
+    assert settings.bot_token == environ[_TOKEN_ENV_KEYS[token_index]]
+    assert settings.missing_fields() == ()
+
+
+@pytest.mark.parametrize("kind", ("object", "mapping", "dataclass"))
+def test_explicit_settings_override_environment(kind):
+    values = dict(
+        strategy_plugin_alert_telegram_chat_ids="@synthetic_override",
+        strategy_plugin_alert_telegram_bot_token="synthetic-explicit-credential",
+    )
+    value = SimpleNamespace(**values) if kind == "object" else values
+    if kind == "dataclass":
+        value = StrategyPluginTelegramSettings(
+            chat_ids=("@synthetic_override",),
+            bot_token=values["strategy_plugin_alert_telegram_bot_token"],
+            timeout=2.5,
+            parse_mode="HTML",
+        )
+    settings = StrategyPluginTelegramSettings.from_object(
+        value,
+        environ={**{key: "@synthetic_org" for key in _CHAT_ENV_KEYS},
+                 **{key: "synthetic-org-credential" for key in _TOKEN_ENV_KEYS}},
+    )
+    assert settings.chat_ids == ("@synthetic_override",)
+    assert settings.bot_token == values["strategy_plugin_alert_telegram_bot_token"]
+    if kind == "dataclass":
+        assert settings == value
+
+
+@pytest.mark.parametrize("blank", (None, "", " \t\n"))
+def test_unconfigured_settings_still_report_missing_fields(blank):
+    settings = StrategyPluginTelegramSettings.from_object(
+        {"strategy_plugin_alert_telegram_chat_ids": blank,
+         "strategy_plugin_alert_telegram_bot_token": blank},
+        environ={key: blank for key in (*_CHAT_ENV_KEYS, *_TOKEN_ENV_KEYS)},
+    )
+    assert settings.missing_fields() == (
+        "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
+        "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN",
+    )
+    assert not settings.is_configured
+
+
+def test_partial_dataclass_settings_fill_only_missing_values():
+    value = StrategyPluginTelegramSettings(
+        chat_ids=("@synthetic_override",), bot_token=" \t", timeout=2.5,
+    )
+    settings = StrategyPluginTelegramSettings.from_object(
+        value, environ={"TELEGRAM_TOKEN": "synthetic-org-credential",
+                        "QSL_GLOBAL_TELEGRAM_CHAT_ID": "@synthetic_org"},
+    )
+    assert settings.chat_ids == value.chat_ids
+    assert settings.bot_token == "synthetic-org-credential"
+    assert settings.timeout == 2.5
+
+
+def test_publish_uses_org_environment_without_exposing_credentials(monkeypatch):
+    credential = "synthetic-org-credential"
+    monkeypatch.setenv("TELEGRAM_TOKEN", credential)
+    monkeypatch.setenv("QSL_GLOBAL_TELEGRAM_CHAT_ID", "@synthetic_org")
+    calls, logs = [], []
+    settings = StrategyPluginTelegramSettings.from_object(SimpleNamespace())
+    result = publish_strategy_plugin_telegram_alerts(
+        [_alert_signal()], telegram_settings=SimpleNamespace(),
+        send_notification=lambda **kwargs: calls.append(kwargs) or True,
+        log_message=lambda text, **_kwargs: logs.append(text),
+    )
+    assert result.sent_count == 1
+    assert calls[0]["bot_token"] == credential
+    assert calls[0]["chat_ids"] == ("@synthetic_org",)
+    assert credential not in repr(settings)
+    assert credential not in repr(result)
+    assert credential not in json.dumps(result.to_report_fields())
+    assert credential not in "\n".join(logs)
 
 
 def _alert_signal():
@@ -291,3 +404,16 @@ class StrategyPluginTelegramNotificationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_daily_digest_suppresses_only_classified_routine_observations(monkeypatch):
+    from quant_platform_kit.notifications.strategy_plugin_telegram import _routine_observation_to_digest
+    signal = _alert_signal()
+    monkeypatch.delenv("QSL_ROUTINE_NOTIFICATION_MODE", raising=False)
+    assert not _routine_observation_to_digest(signal)
+    monkeypatch.setenv("QSL_ROUTINE_NOTIFICATION_MODE", "daily_digest")
+    assert _routine_observation_to_digest(signal)
+    signal.canonical_route = "risk_off"
+    assert not _routine_observation_to_digest(signal)
+    signal.canonical_route = "unknown"
+    assert not _routine_observation_to_digest(signal)

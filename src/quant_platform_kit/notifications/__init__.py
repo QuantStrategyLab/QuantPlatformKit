@@ -53,7 +53,13 @@ from ._email import parse_email_recipients, send_smtp_email
 from .events import NotificationPublisher, RenderedNotification, publish_rendered_notification
 from .push import parse_push_recipients, send_ntfy_push, send_pushover_push, send_strategy_plugin_push
 from .sms import normalize_sms_recipient, parse_sms_recipients, send_twilio_sms
-from .telegram import parse_telegram_chat_ids, send_strategy_plugin_telegram, send_telegram_message
+from ._redaction import redact_exception, redact_sensitive_data, redact_sensitive_text
+from .intent import NotificationIntent
+from .log_redaction import SensitiveDataFilter, install_log_redaction
+from .telegram import (
+    NotificationReceipt, parse_telegram_chat_ids, send_notification_intent,
+    send_strategy_plugin_telegram, send_telegram_message,
+)
 from .strategy_plugin_alerts import (
     StrategyPluginAlertChannelStores,
     StrategyPluginAlertPublishResult,
@@ -110,6 +116,14 @@ from .webhook import (
 )
 
 __all__ = [
+    "NotificationIntent",
+    "NotificationReceipt",
+    "SensitiveDataFilter",
+    "install_log_redaction",
+    "redact_exception",
+    "redact_sensitive_data",
+    "redact_sensitive_text",
+    "send_notification_intent",
     # renderer_base
     "as_float_or_none",
     "build_timing_audit_lines",

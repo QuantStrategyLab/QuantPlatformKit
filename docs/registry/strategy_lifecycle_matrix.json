@@ -79,8 +79,8 @@
       "stages": {
         "p0": {"status": "not_started", "evidence_refs": [], "evidence_class": "not_applicable"},
         "p1": {"status": "contract_ready", "evidence_refs": ["UsEquityStrategies/src/us_equity_strategies/strategies/tecl_xlk_trend_income.py"], "evidence_class": "contract"},
-        "p2": {"status": "parked", "evidence_refs": ["docs/strategy_portfolio_action_matrix.md", "docs/strategy_lifecycle_terminology.zh-CN.md"], "note": "当前策略保持 research_active：可继续自动研究与 shadow 准备，但尚未形成 successor 冻结配置。"},
-        "p3": {"status": "parked", "evidence_refs": ["docs/strategy_portfolio_action_matrix.md"], "note": "未注册统一 P3 证据包，不进入 promotion。"},
+        "p2": {"status": "parked", "evidence_refs": ["docs/strategy-portfolio-action-matrix.md", "docs/strategy-lifecycle-terminology.zh-CN.md"], "note": "当前策略保持 research_active：可继续自动研究与 shadow 准备，但尚未形成 successor 冻结配置。"},
+        "p3": {"status": "parked", "evidence_refs": ["docs/strategy-portfolio-action-matrix.md"], "note": "未注册统一 P3 证据包，不进入 promotion。"},
         "p4": {"status": "deferred", "evidence_refs": []},
         "p5": {"status": "deferred", "evidence_refs": []},
         "p6": {"status": "deferred", "evidence_refs": []}

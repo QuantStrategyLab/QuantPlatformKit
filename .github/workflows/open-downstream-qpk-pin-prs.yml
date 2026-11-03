@@ -180,7 +180,7 @@ jobs:
           migration, `QSL_REPO_SYNC_TOKEN` remains a temporary fallback only.
 
           Org-level secrets are **not** injected reliably into this public repo on GitHub Free.
-          Configure a **repository secret** instead (see `docs/qpk_repo_sync_auth.zh-CN.md`).
+          Configure a **repository secret** instead (see `docs/qpk-repo-sync-auth.zh-CN.md`).
 
           Quick bootstrap (org admin, local `gh` login):
 

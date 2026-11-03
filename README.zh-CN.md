@@ -1,5 +1,7 @@
 # QuantPlatformKit
 
+[规范索引](docs/README.md)：架构主题、开发规范英文概要与历史兼容入口。
+
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
@@ -39,6 +41,19 @@ python -m pip install -e .
 python -m pytest -q
 ```
 
+## 配置
+
+Set these environment variables before running `scripts/sync_strategy_config.py`. Missing values stop the command before cloud access.
+
+| Variable | Purpose | Required | Default |
+|---|---|---|---|
+| `IBKR_GCP_PROJECT_ID` | IBKR Cloud Run and Scheduler project | For IBKR sync | none |
+| `IBKR_SCHEDULER_SERVICE_ACCOUNT` | IBKR Scheduler OIDC identity | For IBKR sync | none |
+| `SCHWAB_GCP_PROJECT_ID` | Schwab Cloud Run and Scheduler project | For Schwab sync | none |
+| `SCHWAB_SCHEDULER_SERVICE_ACCOUNT` | Schwab Scheduler OIDC identity | For Schwab sync | none |
+| `LONGBRIDGE_GCP_PROJECT_ID` | LongBridge Cloud Run and Scheduler project | For LongBridge sync | none |
+| `LONGBRIDGE_SCHEDULER_SERVICE_ACCOUNT` | LongBridge Scheduler OIDC identity | For LongBridge sync | none |
+
 ## 策略生命周期 CLI
 
 `quant-lifecycle` 是策略监控、漂移检测、优化、更新和 dashboard 的共享生命周期入口。
@@ -55,11 +70,11 @@ quant-lifecycle dashboard --format all
 
 ## 延伸文档
 
-- [`docs/strategy_lifecycle_policy.zh-CN.md`](docs/strategy_lifecycle_policy.zh-CN.md)
-- [`docs/strategy_portfolio_action_matrix.zh-CN.md`](docs/strategy_portfolio_action_matrix.zh-CN.md)
-- [`docs/evidence_package_template.zh-CN.md`](docs/evidence_package_template.zh-CN.md)
-- [`docs/cross_asset_research_driver.zh-CN.md`](docs/cross_asset_research_driver.zh-CN.md)
-- [`docs/cross_asset_forward_risk_driver.zh-CN.md`](docs/cross_asset_forward_risk_driver.zh-CN.md)
+- [`docs/strategy-lifecycle-policy.zh-CN.md`](docs/strategy-lifecycle-policy.zh-CN.md)
+- [`docs/strategy-portfolio-action-matrix.zh-CN.md`](docs/strategy-portfolio-action-matrix.zh-CN.md)
+- [`docs/evidence-package-template.zh-CN.md`](docs/evidence-package-template.zh-CN.md)
+- [`docs/cross-asset-research-driver.zh-CN.md`](docs/cross-asset-research-driver.zh-CN.md)
+- [`docs/cross-asset-forward-risk-driver.zh-CN.md`](docs/cross-asset-forward-risk-driver.zh-CN.md)
 
 ## 云服务抽象层
 
@@ -78,3 +93,11 @@ quant-lifecycle dashboard --format all
 ## v1 迁移
 
 v1 已删除 `quant_platform_kit.strategy_contracts`。策略 contract 请改从 `quant_platform_kit.common.strategy_contracts` 导入；执行转换和 runtime input 分别从其对应的 `common` 模块导入。不会提供兼容 facade。
+
+### AI 任务服务升级
+
+生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/task-service-v2.zh-CN.md)。该说明保留尚未发布或部署的本地迁移基线，不作为当前部署状态。
+
+## 参与贡献
+
+见 [CONTRIBUTING.md](CONTRIBUTING.md)。AI 助手与维护者遵循 [AGENTS.md](AGENTS.md)。

@@ -179,18 +179,30 @@ def render_attention_compact(
     account_alias: str,
     strategy_profile: str,
     decision: AttentionDecision,
+    guard_reason_codes: tuple[str, ...] = (),
+    daily_loss_context: Mapping[str, Any] | None = None,
+    occurred_at: object | None = None,
+    run_url: str | None = None,
 ) -> str:
-    """Four-line operator message: identity / result / reason / next step."""
+    """Operator message with display-only evidence; missing facts remain unknown."""
 
+    from quant_platform_kit.common.display_names import display_name
     from quant_platform_kit.common.operational_notification_localization import (
         localize_attention_reason_code,
         operational_notification_text,
         resolve_operational_notification_locale,
     )
 
+    from quant_platform_kit.risk.attention_display import attention_details, masked_account
+
     lang = resolve_operational_notification_locale(locale)
     level = decision.level
-    reason = decision.reason_codes[0] if decision.reason_codes else "none"
+    # Presentation-only evidence from the guard; never change the decision,
+    # notification transition identity, or permission to submit an order.
+    reasons = tuple(dict.fromkeys((
+        *guard_reason_codes,
+        *(code for code in decision.reason_codes if not guard_reason_codes or code != "new_risk_prohibited"),
+    ))) or ("none",)
     emoji = {
         AttentionLevel.OK: "✅",
         AttentionLevel.WATCH: "👀",
@@ -200,21 +212,45 @@ def render_attention_compact(
     title = operational_notification_text(
         lang,
         "attention_title",
-        platform=platform,
-        account=account_alias,
-        strategy=strategy_profile,
+        platform=display_name("platforms", platform, lang),
+        account=masked_account(account_alias, lang),
+        strategy=display_name("strategies", strategy_profile, lang, fallback="策略" if lang == "zh" else "Strategy"),
     )
     result_key = _result_text_key(level, decision.reason_codes)
     result = operational_notification_text(lang, result_key)
+    descriptions = []
+    for code in reasons:
+        explanation = localize_attention_reason_code(lang, code)
+        if str(platform).lower() == "schwab" and code == "DAILY_LOSS_LIMIT_EXCEEDED":
+            explanation = ("相对基准净值的下降达到配置上限" if lang == "zh" else
+                           "The decline relative to the equity baseline reached the configured limit")
+        if explanation == code:
+            explanation = operational_notification_text(lang, "attention_reason_unknown")
+        descriptions.append(f"{code}: {explanation}")
     reason_line = operational_notification_text(
         lang,
         "attention_reason",
-        code=localize_attention_reason_code(lang, reason),
+        code="; ".join(descriptions),
     )
-    next_step = operational_notification_text(lang, f"attention_next_{decision.next_step_key}")
-    return f"{emoji} {title}\n{result}\n{reason_line}\n{next_step}"
+    next_key = decision.next_step_key
+    if level is AttentionLevel.ACTION:
+        if "DAILY_LOSS_LIMIT_EXCEEDED" in reasons:
+            next_key = "review_daily_loss"
+        elif "new_risk_prohibited" in decision.reason_codes:
+            next_key = "inspect_guard_reason"
+    next_step = operational_notification_text(lang, f"attention_next_{next_key}")
+    context = daily_loss_context
+    if "DAILY_LOSS_LIMIT_EXCEEDED" in reasons and not context:
+        context = {"daily_loss_fact_status": "unknown"}
+    details = attention_details(
+        locale=lang, daily_loss_context=context,
+        occurred_at=occurred_at, run_url=run_url,
+    )
+    return "\n".join((f"{emoji} {title}", result, reason_line, *details, next_step))
 
 
+# Feature marker for pinned consumers that retain a legacy renderer until rollout.
+render_attention_notification = render_attention_compact
 format_attention_compact_message = render_attention_compact
 
 
@@ -360,4 +396,3 @@ def _optional_positive_unit(value: object) -> float | None:
     if number != number or number <= 0.0 or number > 1.0:
         return None
     return number
-

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from quant_platform_kit.common.jsonio import utc_now_iso
 from quant_platform_kit.strategy_lifecycle.audit_log import record_audit_entry
 from quant_platform_kit.strategy_lifecycle.config_writer import write_params_to_config
 from quant_platform_kit.strategy_lifecycle.contracts import OptimizationProposal, UpdateStage
@@ -16,8 +17,7 @@ from quant_platform_kit.strategy_lifecycle.shadow_validator import ShadowValidat
 from quant_platform_kit.strategy_lifecycle.update_policy import UpdatePolicy
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+_now_iso = utc_now_iso
 
 
 def _load_proposal(proposal_path: str) -> OptimizationProposal | None:

@@ -68,6 +68,20 @@ def _uncomputable(name: str, reason: str, **details: object) -> StatResult:
     return StatResult(name=name, status=STATUS_UNCOMPUTABLE, value=None, reason_code=reason, details=details)
 
 
+def _inference_returns(returns: Iterable[object], input_basis: str) -> tuple[float, ...]:
+    """Keep legacy wealth bounds; explicitly declared excess is finite signed data."""
+    if input_basis == "simple_returns":
+        return simple_returns(returns)
+    if input_basis != "excess_returns":
+        raise ResearchInputError("input_basis must be simple_returns or excess_returns")
+    if isinstance(returns, (str, bytes)):
+        raise ResearchInputError("excess_returns must be a sequence of numbers")
+    try:
+        return tuple(finite_float(value, f"excess_returns[{i}]") for i, value in enumerate(returns))
+    except TypeError as exc:
+        raise ResearchInputError("excess_returns must be a sequence of numbers") from exc
+
+
 def _moments(returns: Sequence[float]) -> tuple[float, float, float, float]:
     """Return (per-period Sharpe, sample std, skewness, non-excess kurtosis).
 
@@ -106,15 +120,21 @@ def probabilistic_sharpe_ratio(
     *,
     sr_benchmark: object = 0.0,
     min_observations: int = DEFAULT_MIN_OBSERVATIONS,
+    input_basis: str = "simple_returns",
 ) -> StatResult:
     """PSR: probability that the true per-period Sharpe exceeds ``sr_benchmark``.
 
     ``PSR = Φ((SR − SR*)·√(n−1) / √(1 − γ3·SR + (γ4−1)/4·SR²))``.
+
+    The default retains the legacy simple-return bound (> -1). Explicit
+    ``input_basis="excess_returns"`` accepts finite signed observations,
+    including <= -1: differential returns are not a compounding wealth path.
+    Neither mode infers/subtracts rf, drops observations, or changes the math.
     """
     name = "probabilistic_sharpe_ratio"
     try:
         floor = positive_int(min_observations, "min_observations", minimum=3)
-        series = simple_returns(returns)
+        series = _inference_returns(returns, input_basis)
         benchmark = finite_float(sr_benchmark, "sr_benchmark")
     except ResearchInputError as exc:
         return _uncomputable(name, "invalid_input", message=str(exc))
@@ -132,6 +152,8 @@ def probabilistic_sharpe_ratio(
         "skewness": skew,
         "kurtosis": kurt,
     }
+    if input_basis == "excess_returns":
+        details["input_basis"] = input_basis
     if value is None:
         return _uncomputable(name, reason or "uncomputable", **details)
     details["z_score"] = z
@@ -172,6 +194,7 @@ def deflated_sharpe_ratio(
     *,
     n_effective_trials: int | None = None,
     min_observations: int = DEFAULT_MIN_OBSERVATIONS,
+    input_basis: str = "simple_returns",
 ) -> StatResult:
     """DSR: PSR evaluated against the expected maximum Sharpe of all trials.
 
@@ -180,11 +203,14 @@ def deflated_sharpe_ratio(
     ``n_effective_trials`` may override the trial count (e.g. after
     clustering correlated trials) but never below two. Fewer than two trials,
     zero trial-Sharpe variance or too few observations are ``UNCOMPUTABLE``.
+    Explicit ``input_basis="excess_returns"`` has the same finite-signed
+    semantics as PSR; trial Sharpes must use that same excess basis. Default
+    validation and all legacy outputs are unchanged.
     """
     name = "deflated_sharpe_ratio"
     try:
         floor = positive_int(min_observations, "min_observations", minimum=3)
-        series = simple_returns(returns)
+        series = _inference_returns(returns, input_basis)
         if isinstance(trial_sharpes, (str, bytes)):
             raise ResearchInputError("trial_sharpes must be a sequence of numbers")
         trials = [finite_float(v, f"trial_sharpes[{i}]") for i, v in enumerate(list(trial_sharpes))]
@@ -228,6 +254,8 @@ def deflated_sharpe_ratio(
         "skewness": skew,
         "kurtosis": kurt,
     }
+    if input_basis == "excess_returns":
+        details["input_basis"] = input_basis
     if value is None:
         return _uncomputable(name, reason or "uncomputable", **details)
     details["z_score"] = z

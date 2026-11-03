@@ -46,9 +46,15 @@ order, or automatically liquidates a position.
 
 ## Staged activation
 
-`RuntimeCommandGatePolicy` is `observe` by default. It emits the exact
-would-block result without changing an existing broker call. A platform may
-switch to `enforce` only after its adapter has passed paper tests covering:
+`RuntimeCommandGatePolicy` is `enforce` by default, and
+`broker_write_allowed` returns only the gate's `policy_allows` result.
+Selecting `observe` explicitly does not grant write permission: a denied
+decision still returns `broker_write_allowed=False` and records
+`would_block=True` in its receipt. `observe` exists only to emit and persist
+that would-block evidence for diagnostics; it is not a bypass.
+
+An adapter must pass paper tests covering the checks below before it relies on
+the gate's allowing path:
 
 1. durable command creation and create-only claim;
 2. exact release-receipt matching;

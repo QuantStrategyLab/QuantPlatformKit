@@ -1,0 +1,109 @@
+{
+  "baseline_sha": "b9b41bf24d5d482532d1b85151c67998fd1730c4",
+  "observations": {
+    "immediate:False": {
+      "calls": [
+        [
+          "runtime",
+          {},
+          "existing text"
+        ]
+      ],
+      "report": {},
+      "result": "sender-result",
+      "defer_healthy": false,
+      "signals": [
+        "watch",
+        "trade"
+      ]
+    },
+    "immediate:True": {
+      "calls": [
+        [
+          "runtime",
+          {},
+          "existing text"
+        ]
+      ],
+      "report": {},
+      "result": "sender-result",
+      "defer_healthy": false,
+      "signals": [
+        "watch",
+        "trade"
+      ]
+    },
+    "daily_digest:False": {
+      "calls": [],
+      "report": {
+        "notifications": [
+          {
+            "delivery_status": "deferred_digest",
+            "transport_acknowledged": false,
+            "sink": "telegram",
+            "routine_order": false
+          }
+        ]
+      },
+      "result": false,
+      "defer_healthy": true,
+      "signals": [
+        "trade"
+      ]
+    },
+    "daily_digest:True": {
+      "calls": [],
+      "report": {
+        "notifications": [
+          {
+            "delivery_status": "deferred_digest",
+            "transport_acknowledged": false,
+            "sink": "telegram",
+            "routine_order": true
+          }
+        ]
+      },
+      "result": false,
+      "defer_healthy": true,
+      "signals": [
+        "trade"
+      ]
+    },
+    "invalid:False": {
+      "calls": [
+        [
+          "runtime",
+          {},
+          "existing text"
+        ]
+      ],
+      "report": {},
+      "result": "sender-result",
+      "defer_healthy": false,
+      "signals": [
+        "watch",
+        "trade"
+      ]
+    },
+    "invalid:True": {
+      "calls": [
+        [
+          "runtime",
+          {},
+          "existing text"
+        ]
+      ],
+      "report": {},
+      "result": "sender-result",
+      "defer_healthy": false,
+      "signals": [
+        "watch",
+        "trade"
+      ]
+    },
+    "alert:zh": "[执行回执心跳] runtime\n检查范围：过去 36 小时\n问题：\n- existing diagnostic\n最近检查的回执（原文）：\noriginal report\n最近一次运行：\noriginal run\n技术详情（原文）：\noriginal detail\n工作流：https://example.test/run/1",
+    "heartbeat:zh": "[执行回执心跳] runtime\n状态：正常\nexisting detail",
+    "alert:en": "[Execution Report Heartbeat] runtime\nLookback: 36 hours\nIssues:\n- existing diagnostic\nRecent reports (original):\noriginal report\nLatest runtime run:\noriginal run\nTechnical details (original):\noriginal detail\nWorkflow: https://example.test/run/1",
+    "heartbeat:en": "[Execution Report Heartbeat] runtime\nStatus: normal\nexisting detail"
+  }
+}

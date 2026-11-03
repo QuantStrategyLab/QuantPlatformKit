@@ -1,5 +1,7 @@
 # QuantPlatformKit
 
+[Specification index](docs/README.md) — architecture topics, development-standard overview and historical compatibility.
+
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
@@ -38,6 +40,19 @@ It supports the system but does not decide which strategy should be live. Strate
 python -m pip install -e .
 python -m pytest -q
 ```
+
+## Configuration
+
+Set these environment variables before running `scripts/sync_strategy_config.py`. Missing values stop the command before cloud access.
+
+| Variable | Purpose | Required | Default |
+|---|---|---|---|
+| `IBKR_GCP_PROJECT_ID` | IBKR Cloud Run and Scheduler project | For IBKR sync | none |
+| `IBKR_SCHEDULER_SERVICE_ACCOUNT` | IBKR Scheduler OIDC identity | For IBKR sync | none |
+| `SCHWAB_GCP_PROJECT_ID` | Schwab Cloud Run and Scheduler project | For Schwab sync | none |
+| `SCHWAB_SCHEDULER_SERVICE_ACCOUNT` | Schwab Scheduler OIDC identity | For Schwab sync | none |
+| `LONGBRIDGE_GCP_PROJECT_ID` | LongBridge Cloud Run and Scheduler project | For LongBridge sync | none |
+| `LONGBRIDGE_SCHEDULER_SERVICE_ACCOUNT` | LongBridge Scheduler OIDC identity | For LongBridge sync | none |
 
 ## Strategy lifecycle CLI
 
@@ -103,25 +118,39 @@ rw.update_secret("my-token", "new-token-value")
 ```
 
 ## Useful docs
-- [`docs/strategy_lifecycle_policy.md`](docs/strategy_lifecycle_policy.md)
-- [`docs/paper_execution_command_consumer.md`](docs/paper_execution_command_consumer.md)
-- [`docs/strategy_portfolio_action_matrix.md`](docs/strategy_portfolio_action_matrix.md)
-- [`docs/evidence_package_template.md`](docs/evidence_package_template.md)
+- [`docs/strategy-lifecycle-policy.md`](docs/strategy-lifecycle-policy.md)
+- [`docs/paper-execution-command-consumer.md`](docs/paper-execution-command-consumer.md)
+- [`docs/strategy-portfolio-action-matrix.md`](docs/strategy-portfolio-action-matrix.md)
+- [`docs/evidence-package-template.md`](docs/evidence-package-template.md)
 
-- [`docs/platform_notification_outcomes.md`](docs/platform_notification_outcomes.md)
-- [`docs/platform_notification_outcomes.zh-CN.md`](docs/platform_notification_outcomes.zh-CN.md)
-- [`docs/platform_repo_boundaries.md`](docs/platform_repo_boundaries.md)
-- [`docs/platform_repo_boundaries.zh-CN.md`](docs/platform_repo_boundaries.zh-CN.md)
+- [`docs/platform-notification-outcomes.md`](docs/platform-notification-outcomes.md)
+- [`docs/platform-notification-outcomes.zh-CN.md`](docs/platform-notification-outcomes.zh-CN.md)
+- [`docs/platform-repo-boundaries.md`](docs/platform-repo-boundaries.md)
+- [`docs/platform-repo-boundaries.zh-CN.md`](docs/platform-repo-boundaries.zh-CN.md)
 - [`docs/quantconnect.md`](docs/quantconnect.md)
-- [`docs/strategy_plugin_runtime_contract.md`](docs/strategy_plugin_runtime_contract.md)
-- [`docs/strategy_plugin_runtime_contract.zh-CN.md`](docs/strategy_plugin_runtime_contract.zh-CN.md)
-- [`docs/us_equity_cross_platform_strategy_spec.md`](docs/us_equity_cross_platform_strategy_spec.md)
+- [`docs/strategy-plugin-runtime-contract.md`](docs/strategy-plugin-runtime-contract.md)
+- [`docs/strategy-plugin-runtime-contract.zh-CN.md`](docs/strategy-plugin-runtime-contract.zh-CN.md)
+- [`docs/us-equity-cross-platform-strategy-spec.md`](docs/us-equity-cross-platform-strategy-spec.md)
+
+## Schwab reporting snapshots
+
+The Schwab reader preserves `metadata.broker_stock_inventory` from its existing
+account response before strategy-symbol filtering. It records field presence,
+native row count and bounded stock-reporting fields; missing or malformed data
+remains unknown, while an explicit valid empty list can establish an empty stock
+scope. Strategy positions, balances and the original response digest are unchanged.
+Consumers adopt this optional metadata through an explicitly pinned QPK revision
+and project it using the same snapshot time, without an additional broker read.
 
 ## Community and security
 
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for pull request scope, local verification, and documentation expectations.
 - Follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for maintainer and contributor conduct.
 - Report credential, automation, broker, exchange, or cloud-resource vulnerabilities through [SECURITY.md](SECURITY.md); do not open public issues for secrets or live-execution risk.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). AI assistants and maintainers follow [AGENTS.md](AGENTS.md).
 
 ## License
 
@@ -131,6 +160,8 @@ See [LICENSE](LICENSE).
 
 `quant_platform_kit.strategy_contracts` was removed in v1. Import strategy contracts from `quant_platform_kit.common.strategy_contracts`, execution translation from `quant_platform_kit.common.execution_translation`, and runtime inputs from `quant_platform_kit.common.runtime_inputs`. No compatibility facade is provided.
 
-### AI 任务服务升级
+### AI task-service upgrade
 
-生命周期 AI 调用的本地 2.0 迁移使用通用任务接口，区分 API 与常驻助手。新路由配置、批准客户端产物、原任务恢复及研究权限边界见 [迁移说明](docs/ai-service/TASK-SERVICE-V2.zh-CN.md)。本次版本尚未发布或部署。
+The local 2.0 migration uses the generic task interface for lifecycle AI calls and distinguishes API tasks from persistent assistants. See the [Chinese migration note](docs/ai-service/task-service-v2.zh-CN.md) for route configuration, approved client artifacts, original-task recovery and research authority boundaries. That note describes an unpublished, undeployed local migration baseline; it is not a current deployment readback.
+
+Display/notification naming configuration: [display names](docs/display-names.md).

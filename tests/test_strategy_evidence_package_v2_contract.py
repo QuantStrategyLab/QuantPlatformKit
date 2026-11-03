@@ -256,7 +256,7 @@ def _payload(
         },
         "risk_assessment": {
             "status": "PASS",
-            "standard_id": "docs/strategy_promotion_risk_standard.zh-CN.md",
+            "standard_id": "docs/strategy-promotion-risk-standard.zh-CN.md",
             "standard_sha256": "f" * 64,
         },
         "digests": {

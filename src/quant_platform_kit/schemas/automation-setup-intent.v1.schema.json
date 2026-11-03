@@ -1,0 +1,420 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "automation_setup_intent.v1"
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "setup_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "predecessor_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "account_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "platform_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+            },
+            "strategy_profile": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+            },
+            "dry_run_only": {
+              "type": "boolean"
+            },
+            "execution_environment": {
+              "enum": [
+                "dry_run",
+                "paper",
+                "live"
+              ]
+            },
+            "strategy_release": {
+              "type": "object",
+              "properties": {
+                "release_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+                },
+                "strategy_revision": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+                },
+                "effective_session": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "manifest_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "config_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "risk_policy_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "evidence_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "plugin_bundle_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "required": [
+                "release_id",
+                "strategy_revision",
+                "effective_session",
+                "manifest_sha256",
+                "config_sha256",
+                "risk_policy_sha256",
+                "evidence_sha256",
+                "plugin_bundle_sha256"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "platform_id",
+            "strategy_profile",
+            "dry_run_only",
+            "execution_environment",
+            "strategy_release"
+          ],
+          "additionalProperties": false
+        },
+        "control": {
+          "type": "object",
+          "properties": {
+            "target_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "platform_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+            },
+            "strategy_profile": {
+              "type": "string",
+              "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+            },
+            "enabled": {
+              "const": false
+            },
+            "mode": {
+              "enum": [
+                "dry_run",
+                "paper",
+                "live"
+              ]
+            },
+            "risk_limits_ref": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "cash_policy": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cash_only": {
+                  "type": "boolean"
+                },
+                "reserved_cash_ratio": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "reserved_cash_floor_usd": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": [
+            "target_id",
+            "platform_id",
+            "strategy_profile",
+            "enabled",
+            "mode",
+            "risk_limits_ref",
+            "cash_policy"
+          ],
+          "additionalProperties": false
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$"
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+        },
+        "cap": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+        },
+        "amount_basis": {
+          "enum": [
+            "one_time",
+            "standing_plan"
+          ]
+        },
+        "plan_ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fee_treatment": {
+          "enum": [
+            "included",
+            "outside_amount"
+          ]
+        },
+        "reserve_treatment": {
+          "enum": [
+            "included",
+            "outside_amount"
+          ]
+        },
+        "instruments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "rebalance",
+              "buy",
+              "sell",
+              "dca"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "policy_ref": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "paper_min_sessions": {
+          "type": "integer",
+          "enum": [
+            3,
+            4,
+            5
+          ]
+        }
+      },
+      "required": [
+        "setup_id",
+        "revision",
+        "predecessor_sha256",
+        "account_refs",
+        "target",
+        "control",
+        "currency",
+        "amount",
+        "cap",
+        "amount_basis",
+        "plan_ref",
+        "fee_treatment",
+        "reserve_treatment",
+        "instruments",
+        "actions",
+        "policy_ref",
+        "paper_min_sessions"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "revision": {
+                "const": 1
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "predecessor_sha256": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "predecessor_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "amount_basis": {
+                "const": "one_time"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "plan_ref": {
+                "type": "null"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "plan_ref": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "subject_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "decision": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "decision_ref": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "subject_sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "actor_ref": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "actor_type": {
+              "const": "human"
+            },
+            "outcome": {
+              "enum": [
+                "confirmed",
+                "rejected"
+              ]
+            },
+            "reviewed_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$"
+            },
+            "effective_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$"
+            },
+            "expires_at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$"
+            },
+            "state_version": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "epoch": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          "required": [
+            "decision_ref",
+            "subject_sha256",
+            "revision",
+            "actor_ref",
+            "actor_type",
+            "outcome",
+            "reviewed_at",
+            "effective_at",
+            "expires_at",
+            "state_version",
+            "epoch"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "grants_live": {
+      "const": false
+    },
+    "grants_execution_authority": {
+      "const": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "subject",
+    "subject_sha256",
+    "decision",
+    "grants_live",
+    "grants_execution_authority"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Non-executing automation setup intent v1",
+  "description": "Structure only. Use SetupIntent for digest, amount, target/control and temporal consistency. A decision or caller evidence is never execution authority."
+}
