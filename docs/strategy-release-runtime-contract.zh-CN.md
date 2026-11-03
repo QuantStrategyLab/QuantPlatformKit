@@ -31,6 +31,9 @@ instrument/action 范围、policy_ref 和显式环境。账户真实映射由下
 禁止传入账户选择器、账户别名、主机、凭据或自由文本。
 目标和 release 使用既有公开构建器校验，control 使用既有 RuntimeControl 校验，
 且必须 disabled。控制储备不是确认的预算。LIVE 只能表示请求意图，不能启用。
+release_id 沿用发布合同的 3–128 字符格式，允许字母或数字开头及点、下划线、连字符；
+strategy_revision 为 1–64 字符，允许相同字符及数字开头的提交版本。
+两者均拒绝空白、路径分隔符、控制字符和超长输入，并保留共享敏感信息检查。
 初始 revision 为 1；后续 revision 必须引用前一 subject 摘要。
 摘要绑定内容，不认证所有者，也不匿名化真实资源。
 

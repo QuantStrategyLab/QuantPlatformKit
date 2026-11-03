@@ -371,3 +371,58 @@ def test_complete_decision_datetime_preserves_valid_strings(field, form):
     validator.validate(obj.to_dict())
     assert SetupIntent.from_dict(encoded).to_dict() == encoded
     assert obj.to_dict()['grants_live'] is obj.to_dict()['grants_execution_authority'] is False
+
+
+# Format-faithful fake counterpart of the dotted release in test_strategy_release.py.
+@pytest.mark.parametrize('field,value', [
+    ('release_id', 'fake-p2-v3.20261104'),
+    ('release_id', '1' + 'r' * 127),
+    ('strategy_revision', '2' + 'a' * 39),
+])
+def test_existing_release_identity_can_bind_setup(field, value):
+    from quant_platform_kit.common.strategy_release import build_strategy_release_identity
+
+    s = subject()
+    s['target']['strategy_release'][field] = value
+    identity = build_strategy_release_identity(s['target']['strategy_release'])
+    assert identity.to_dict()[field] == value
+    obj = SetupIntent.create(s)
+    assert obj.to_dict()['subject']['target']['strategy_release'][field] == value
+    assert not list(decision_schema_validator().iter_errors(obj.to_dict()))
+    assert obj.to_dict()['grants_live'] is obj.to_dict()['grants_execution_authority'] is False
+
+
+@pytest.mark.parametrize('field,value', [
+    ('release_id', 'fake-p2-v3.20261104'),
+    ('release_id', '1' + 'r' * 127),
+    ('strategy_revision', '2' + 'a' * 39),
+])
+def test_schema_accepts_existing_release_identity(field, value):
+    data = intent().to_dict()
+    data['subject']['target']['strategy_release'][field] = value
+    assert not list(decision_schema_validator().iter_errors(data))
+
+
+@pytest.mark.parametrize('field,limit', [('release_id', 128), ('strategy_revision', 64)])
+@pytest.mark.parametrize('value', ['', ' ', ' fake', 'fake ', 'fake/release',
+    r'fake\release', 'fake\n', 'fake\tvalue', 'fake\x00value', 'fake?token=fake', None])
+def test_malformed_release_labels_fail_closed(field, limit, value):
+    s = subject()
+    s['target']['strategy_release'][field] = value
+    with pytest.raises(ValueError, match='^invalid setup intent$') as error:
+        SetupIntent.create(s)
+    assert error.value.__cause__ is None
+    data = intent().to_dict()
+    data['subject']['target']['strategy_release'][field] = value
+    assert list(decision_schema_validator().iter_errors(data))
+
+
+@pytest.mark.parametrize('field,limit', [('release_id', 128), ('strategy_revision', 64)])
+def test_overlength_release_labels_fail_closed(field, limit):
+    s = subject()
+    s['target']['strategy_release'][field] = 'r' * (limit + 1)
+    with pytest.raises(ValueError, match='^invalid setup intent$'):
+        SetupIntent.create(s)
+    data = intent().to_dict()
+    data['subject']['target']['strategy_release'][field] = 'r' * (limit + 1)
+    assert list(decision_schema_validator().iter_errors(data))
