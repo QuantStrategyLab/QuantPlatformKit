@@ -292,3 +292,31 @@ def test_same_currency_duplicate_is_idempotent():
 def test_same_currency_distinct_executions_sum_fees():
     result = resolve(Broker(executions=[fill(1), fill(2, exec_id='synthetic-exec-2')]))
     assert result.status == 'filled' and result.commission == 0.7
+
+
+@pytest.mark.parametrize('source', ['reqAllOpenOrders', 'reqCompletedOrders', 'reqExecutions'])
+@pytest.mark.parametrize('disabled', [False, True])
+def test_decoder_diagnostic_sink_fails_closed_and_restores(source, disabled, caplog):
+    import logging
+    broker = Broker(completed=[trade('Filled', 3, 0, 52)])
+    logger = logging.getLogger('synthetic-outcome-decoder')
+    decoder = NS(logger=logger)
+    broker.client = NS(decoder=decoder)
+    original_read = getattr(broker, source)
+    def failed(*args, **kwargs):
+        decoder.logger.exception('synthetic-private-payload U00000003')
+        return original_read(*args, **kwargs)
+    setattr(broker, source, failed)
+    previous_disabled = logger.disabled
+    logger.disabled = disabled
+    try:
+        with pytest.raises(OrderOutcomeReadError, match='^broker_outcome_read_failed$'):
+            resolve(broker)
+        assert decoder.logger is logger
+        assert 'synthetic-private-payload' not in caplog.text
+        assert 'U00000003' not in caplog.text
+        setattr(broker, source, original_read)
+        assert resolve(broker).terminal
+        assert decoder.logger is logger
+    finally:
+        logger.disabled = previous_disabled

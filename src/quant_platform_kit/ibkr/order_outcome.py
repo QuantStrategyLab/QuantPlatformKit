@@ -50,10 +50,15 @@ def _time(value: Any) -> datetime:
 
 
 class _QuietOutcomeLogger(logging.LoggerAdapter):
+    def __init__(self, logger, on_failure=None):
+        super().__init__(logger, {})
+        self.on_failure = on_failure
+
     def log(self, level, msg, *args, **kwargs):
         # SDK callback messages can embed complete account-bound executions.
         # The caller receives a fixed read failure instead of raw diagnostics.
-        return
+        if self.on_failure is not None and level >= logging.ERROR:
+            self.on_failure()
 
 
 @contextmanager
@@ -71,19 +76,25 @@ def _quiet_reads(ib):
         if errors is not None:
             errors += on_error
             subscribed = True
-        for owner in (ib, getattr(ib, 'wrapper', None), getattr(ib, 'client', None)):
-            logger = getattr(owner, '_logger', None)
+        client = getattr(ib, 'client', None)
+        sinks = [(ib, '_logger'), (getattr(ib, 'wrapper', None), '_logger'),
+                 (client, '_logger'), (getattr(client, 'decoder', None), 'logger')]
+        for owner, attribute in sinks:
+            logger = getattr(owner, attribute, None)
             if logger is not None:
-                originals.append((owner, logger))
-                owner._logger = _QuietOutcomeLogger(logger, {})
+                originals.append((owner, attribute, logger))
+                # Decoder catches failures without raising or emitting errorEvent.
+                # Observe its error calls even when normal logging is disabled.
+                failure = on_error if attribute == 'logger' else None
+                setattr(owner, attribute, _QuietOutcomeLogger(logger, failure))
         yield
         if failed:
             raise OrderOutcomeReadError('broker_outcome_read_failed')
     finally:
         if subscribed:
             errors -= on_error
-        for owner, logger in reversed(originals):
-            owner._logger = logger
+        for owner, attribute, logger in reversed(originals):
+            setattr(owner, attribute, logger)
 
 
 def resolve_order_outcome(

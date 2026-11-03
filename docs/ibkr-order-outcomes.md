@@ -27,7 +27,10 @@ inconsistent facts, naive timestamps and ambiguous `Inactive` statuses remain
 unknown. Transport failures raise `OrderOutcomeReadError` with a fixed diagnostic;
 callers must not treat a partial source snapshot as success. SDK error events
 observed during the three reads also fail the observation, including when the
-SDK returns an empty list instead of raising. The temporary listener is removed
+SDK returns an empty list instead of raising. Decoder error diagnostics also fail
+the read, including SDK exceptions swallowed before emitting an error event. Raw
+SDK diagnostics are suppressed during the reads; decoder and other SDK loggers
+are restored afterward, on both success and failure. The temporary listener is removed
 on success or failure; the caller's `RaiseRequestErrors` setting is unchanged.
 
 The `ib_insync` completed-order callback supplies an empty `OrderStatus`. Its
