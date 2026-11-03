@@ -76,3 +76,8 @@ def redact_sensitive_data(obj: object) -> object:
 def redact_exception(exc: BaseException) -> str:
     """Render a traceback and its chained causes without credential-shaped text."""
     return redact_sensitive_text("".join(traceback.format_exception(type(exc), exc, exc.__traceback__)))
+
+
+def mask_identifier(value: object) -> str:
+    """Fully mask a known identifier, including aliases and short numeric IDs."""
+    return _REDACTED

@@ -1,5 +1,6 @@
 from .connection import connect_ib, ensure_event_loop
 from .execution import submit_order_intent
+from .order_outcome import OrderOutcome, OutcomeFill, OrderOutcomeReadError, resolve_order_outcome
 from .market_data import (
     AdjustedHistoricalCandle,
     StrictAdjustedHistoryDiagnostic,
@@ -23,6 +24,7 @@ from .runtime_inputs import (
 )
 
 __all__ = [
+    "OrderOutcome", "OutcomeFill", "OrderOutcomeReadError", "resolve_order_outcome",
     "AdjustedHistoricalCandle",
     "StrictAdjustedHistoryDiagnostic",
     "StrictAdjustedHistoryError",

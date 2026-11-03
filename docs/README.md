@@ -23,6 +23,8 @@ Read documents at the library revision used by your consumer. These are source-l
 - [Pending order evidence v1](pending-order-evidence-v1.md): optional journal evidence without budget release.
 - [Paper execution consumer](paper-execution-command-consumer.md), [portfolio action matrix](strategy-portfolio-action-matrix.md) and [evidence package](evidence-package-template.md).
 
+- [IBKR read-only order outcomes](ibkr-order-outcomes.md): identity-bound terminal observations without execution authority.
+
 ## Historical compatibility
 
 - [Legacy plugin runtime contract](strategy-plugin-runtime-contract.md) ([中文](strategy-plugin-runtime-contract.zh-CN.md)): **HISTORICAL / no authority effect**. Retained for replay and migration troubleshooting; not the current platform-mount specification.
