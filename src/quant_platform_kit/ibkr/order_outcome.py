@@ -107,7 +107,9 @@ def resolve_order_outcome(
         since = _time(submitted_at)
         if (not order_id.isdecimal() or int(order_id) <= 0 or not account_id
                 or type(client_id) is not int or client_id < 0 or qty <= 0
-                or side.lower() not in {'buy', 'sell'} or not symbol):
+                or side.lower() not in {'buy', 'sell'} or not symbol
+                or (permanent_id is not None
+                    and (type(permanent_id) is not int or permanent_id <= 0))):
             return unknown
     except (ValueError, TypeError, OverflowError):
         return unknown
@@ -124,6 +126,8 @@ def resolve_order_outcome(
     try:
         states = []
         state_times = []
+        state_ids = []
+        execution_ids = []
         identities = set()
         for trade in [*opened, *completed]:
             order = trade.order
@@ -138,7 +142,10 @@ def resolve_order_outcome(
                 return unknown
             observed_id = getattr(order, 'permId', None)
             if observed_id:
+                if type(observed_id) is not int or observed_id <= 0:
+                    return unknown
                 identities.add(observed_id)
+            state_ids.append(observed_id)
             state = trade.orderStatus
             filled, remaining = _number(state.filled), _number(state.remaining)
             price = _number(state.avgFillPrice) if filled else None
@@ -161,7 +168,7 @@ def resolve_order_outcome(
                 states.append((str(state.status), filled, remaining, price))
             state_times.append([_time(entry.time) for entry in getattr(trade, 'log', ())
                                 if getattr(entry, 'time', None)])
-        fills: dict[str, tuple[OutcomeFill, float | None, datetime]] = {}
+        fills: dict[str, tuple[OutcomeFill, tuple[float, str] | None, datetime]] = {}
         for item in executions:
             execution = item.execution
             if str(execution.orderId) != order_id:
@@ -176,7 +183,10 @@ def resolve_order_outcome(
                 return unknown
             observed_id = getattr(execution, 'permId', None)
             if observed_id:
+                if type(observed_id) is not int or observed_id <= 0:
+                    return unknown
                 identities.add(observed_id)
+            execution_ids.append(observed_id)
             at = _time(execution.time)
             if at.replace(microsecond=0) < since.replace(microsecond=0):
                 return unknown
@@ -186,8 +196,9 @@ def resolve_order_outcome(
             commission = None
             try:
                 report = item.commissionReport
-                if report.execId == fill.execution_id and report.currency:
-                    commission = _number(report.commission)
+                if (report.execId == fill.execution_id and isinstance(report.currency, str)
+                        and report.currency.strip()):
+                    commission = (_number(report.commission), report.currency)
             except (AttributeError, ValueError, TypeError):
                 pass  # The broker can deliver commission later; never assume zero.
             record = (fill, commission, at)
@@ -220,8 +231,15 @@ def resolve_order_outcome(
             own_times = state_times[index]
             if own_times and max(own_times) < since:
                 return unknown
-            if not own_times and permanent_id is None and not fills:
-                return unknown
+            if not own_times:
+                # A timeless terminal must bind to the caller's stable identity
+                # or to every execution supplying its current fill evidence.
+                state_id = state_ids[index]
+                if (type(state_id) is not int or state_id <= 0
+                        or not (state_id == permanent_id or
+                                (execution_ids and all(type(value) is int and value == state_id
+                                                       for value in execution_ids)))):
+                    return unknown
         if terminal_states and len(set(terminal_states)) != 1:
             return unknown
         selected = terminal_states[0] if terminal_states else max(states, key=lambda row: row[1], default=None)
@@ -259,8 +277,10 @@ def resolve_order_outcome(
             return unknown
         if terminal and not times and permanent_id is None:
             return unknown  # An old reused integer ID cannot prove this order.
-        commission = (sum(row[1] for row in fills.values())
-                      if fills and all(row[1] is not None for row in fills.values()) else None)
+        fees = [row[1] for row in fills.values()]
+        commission = (sum(fee[0] for fee in fees)
+                      if fees and all(fee is not None for fee in fees)
+                      and len({fee[1] for fee in fees}) == 1 else None)
         return OrderOutcome(order_id, status, filled, remaining, price, commission,
                             max(times).isoformat() if times else None, terminal,
                             tuple(row[0] for _, row in sorted(fills.items())))

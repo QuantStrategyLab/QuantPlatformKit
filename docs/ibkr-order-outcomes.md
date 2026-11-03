@@ -19,8 +19,10 @@ obligation. A cancellation can be terminal with a positive filled quantity.
 Missing quantities/prices stay `None`; no requested quantity is promoted to a
 fill. Missing commission reports stay unknown. A known fee requires a matching
 execution ID, a populated report currency and a finite commission; a matching
-zero is valid. `last_update` is a broker observation timestamp, never the local
-query time. Empty sources, mismatched or
+zero is valid. Currency participates in duplicate comparison; conflicting reports
+remain unknown. Fees are summed only when every report uses the same currency;
+mixed currencies leave commission unknown without conversion. `last_update` is a
+broker observation timestamp, never the local query time. Empty sources, mismatched or
 inconsistent facts, naive timestamps and ambiguous `Inactive` statuses remain
 unknown. Transport failures raise `OrderOutcomeReadError` with a fixed diagnostic;
 callers must not treat a partial source snapshot as success. SDK error events
@@ -31,7 +33,10 @@ on success or failure; the caller's `RaiseRequestErrors` setting is unchanged.
 The `ib_insync` completed-order callback supplies an empty `OrderStatus`. Its
 zero defaults are not fill facts. The resolver requires explicit
 `order.filledQuantity` and/or matching executions. Without a broker timestamp,
-a stable permanent ID is required for a zero-fill terminal observation.
+a positive, non-Boolean integer permanent ID must bind that terminal to the
+caller's supplied permanent ID or to every matching execution. An unbound
+terminal cannot borrow execution freshness, including for partial cancellations.
+Invalid supplied permanent IDs leave the outcome unknown.
 Each terminal observation must supply its own freshness evidence; an open order's
 log cannot date a timeless terminal. Conflicting observed permanent IDs remain
 unknown even when the caller has no permanent ID. Execution freshness compares

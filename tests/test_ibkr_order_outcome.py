@@ -125,9 +125,9 @@ def test_invalid_timestamp_and_old_execution_are_unknown():
 
 
 def test_real_completed_order_shape_uses_executions_not_default_zeroes():
-    completed = trade('Filled', 0, 0, 0, filledQuantity=3)
+    completed = trade('Filled', 0, 0, 0, filledQuantity=3, permId=9901)
     completed.log = []
-    result = resolve(Broker(completed=[completed], executions=[fill()]))
+    result = resolve(Broker(completed=[completed], executions=[fill(permId=9901)]))
     assert result.status == 'filled' and result.filled_qty == 3
 
 
@@ -243,3 +243,52 @@ def test_conflicting_execution_permanent_identity_is_unknown():
     result = resolve(Broker(completed=[trade('Filled', 3, 0, 52, permId=9900)],
                             executions=[fill(permId=9901)]))
     assert result.status == 'unknown'
+
+
+@pytest.mark.parametrize('permanent', [None, 0, -1, True, 1.0, '9901'])
+def test_invalid_permanent_id_cannot_date_timeless_terminal(permanent):
+    old = trade('Cancelled', 0, 0, filledQuantity=0, permId=permanent)
+    old.log = []
+    result = resolve(Broker(completed=[old]), permanent_id=permanent)
+    assert result.status == 'unknown' and not result.terminal
+
+
+@pytest.mark.parametrize('trade_id', [None, 0, -1, True, 9902])
+def test_timeless_cancel_cannot_borrow_unbound_execution(trade_id):
+    old = trade('Cancelled', 0, 0, filledQuantity=1, permId=trade_id)
+    old.log = []
+    result = resolve(Broker(completed=[old], executions=[fill(1, permId=9901)]))
+    assert result.status == 'unknown' and not result.terminal
+
+
+@pytest.mark.parametrize('permanent', [None, 9901])
+def test_timeless_partial_cancel_positive_execution_binding(permanent):
+    current = trade('Cancelled', 0, 0, filledQuantity=1, permId=9901)
+    current.log = []
+    result = resolve(Broker(completed=[current], executions=[fill(1, permId=9901)]),
+                     permanent_id=permanent)
+    assert result.status == 'cancelled' and result.terminal and result.filled_qty == 1
+
+
+def test_duplicate_commission_currency_conflict_is_unknown():
+    first, second = fill(), fill()
+    second.commissionReport.currency = 'EUR'
+    result = resolve(Broker(executions=[first, second]))
+    assert result.status == 'unknown' and result.commission is None
+
+
+def test_mixed_commission_currencies_are_not_summed():
+    first, second = fill(1), fill(2, exec_id='synthetic-exec-2')
+    second.commissionReport.currency = 'EUR'
+    result = resolve(Broker(executions=[first, second]))
+    assert result.status == 'filled' and result.commission is None
+
+
+def test_same_currency_duplicate_is_idempotent():
+    first = fill()
+    assert resolve(Broker(executions=[first, fill()])) == resolve(Broker(executions=[first]))
+
+
+def test_same_currency_distinct_executions_sum_fees():
+    result = resolve(Broker(executions=[fill(1), fill(2, exec_id='synthetic-exec-2')]))
+    assert result.status == 'filled' and result.commission == 0.7
