@@ -23,6 +23,12 @@ EVENT_KINDS = frozenset({
 })
 ROUTINE_EVENT_KINDS = frozenset({"routine_cycle", "healthy_heartbeat"})
 ORDER_EVENT_KINDS = frozenset({"order_submitted", "fill"})
+# Additional P10 facts are opt-in for the asset-management channel. Legacy
+# users of the public transport and router keep their existing semantics.
+ASSET_MANAGEMENT_DIGEST_KINDS = ROUTINE_EVENT_KINDS | ORDER_EVENT_KINDS | frozenset({
+    "recovery", "maintenance_reminder", "research_candidate", "strategy_signal",
+})
+EVENT_KINDS = EVENT_KINDS | ASSET_MANAGEMENT_DIGEST_KINDS
 SGT = ZoneInfo("Asia/Singapore")
 
 
@@ -157,13 +163,21 @@ def route_notification_event(
     event: NotificationEvent, *, env: Mapping[str, object], flag_key: str,
     persist_candidate: Callable[[dict[str, object]], bool],
     legacy: Callable[[], object], immediate: Callable[[], object],
+    asset_management: bool = False,
 ) -> RoutingResult:
     """Persist before deferral. Alert delivery survives candidate-write failure.
 
     The immediate callback owns durable incident reservation and receipt ACK.
     Callers must inspect candidate_persisted; deferral is never delivery.
     """
-    route = select_notification_route(event_kind=event.event_kind, env=env, flag_key=flag_key)
+    if asset_management:
+        if not isinstance(event, NotificationEvent):
+            raise ValueError("notification_structured_event_required")
+        route = "digest_candidate" if event.event_kind in ASSET_MANAGEMENT_DIGEST_KINDS else "immediate"
+        if route == "digest_candidate" and event.incident_reason and event.event_kind != "recovery":
+            raise ValueError("notification_routine_incident_conflict")
+    else:
+        route = select_notification_route(event_kind=event.event_kind, env=env, flag_key=flag_key)
     if route == "legacy":
         return RoutingResult(route, False, legacy())
     if route == "digest_candidate":
@@ -182,6 +196,23 @@ def route_notification_event(
         # A routine evidence-store failure cannot suppress a real alert.
         persisted = False
     return RoutingResult(route, persisted, immediate())
+
+
+def route_asset_management_event(
+    event: NotificationEvent, *,
+    persist_candidate: Callable[[dict[str, object]], bool],
+    publish_error: Callable[[NotificationEvent], object],
+) -> RoutingResult:
+    """P10 channel boundary: only structured errors reach the incident owner.
+
+    The producer must establish classification before calling. Expected blocks
+    still need their existing producer proof; a bare evidence string is not
+    sufficient to defer them. Unknown kinds remain errors. publish_error owns
+    durable incident reservation/receipts, exactly as the existing router does.
+    No release flag can turn normal asset-management facts into an instant send.
+    """
+    return route_notification_event(event, env={}, flag_key="asset_management", asset_management=True,
+        persist_candidate=persist_candidate, legacy=lambda: None, immediate=lambda: publish_error(event))
 
 
 class IncidentMarkerStore(Protocol):
