@@ -202,7 +202,9 @@ def allocate_tag(
             if not _journal_valid(data):
                 return Refusal('STATE_UNAVAILABLE')
             result = _reserve(data, scope, operation, candidate, preferred, tag, existing)
-            if isinstance(result, Refusal):
+            # Persist a newly initialized journal even on occupancy refusal.
+            # An empty existing journal still fails validation above.
+            if isinstance(result, Refusal) and not (created and not text):
                 return result
             if not _same_file(path, stream.fileno()):
                 return Refusal('STATE_UNAVAILABLE')

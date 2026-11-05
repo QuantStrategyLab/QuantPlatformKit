@@ -57,6 +57,26 @@ def test_cloud_revision_match_without_local_ownership_is_not_owned(tmp_path):
     assert allocate(tmp_path, existing_tags={'cand-abcdef01': 'fake-revision-one'}) == api().Refusal('TAG_OCCUPIED')
 
 
+@pytest.mark.parametrize('occupant', [None, 'fake-foreign-revision', 'fake-revision-one'])
+def test_initial_occupancy_refusal_keeps_journal_usable(tmp_path, occupant):
+    tags = {'cand-abcdef01': occupant}
+    assert allocate(tmp_path, existing_tags=tags) == api().Refusal('TAG_OCCUPIED')
+    data = json.loads((tmp_path / 'tags.json').read_text())
+    assert api()._journal_valid(data)
+    assert not any(data['scopes'].values())
+    assert tags == {'cand-abcdef01': occupant}
+    assert isinstance(allocate(tmp_path, service_name='unrelated-service'), api().AllocatedTag)
+    assert isinstance(allocate(tmp_path, preferred_tag='other-tag', operation_id='fake-run-two'), api().AllocatedTag)
+
+
+def test_initial_occupancy_refusal_requires_durable_journal(tmp_path, monkeypatch):
+    def fail_fsync(_):
+        raise OSError('fake-private-path')
+
+    monkeypatch.setattr(api().os, 'fsync', fail_fsync)
+    assert allocate(tmp_path, existing_tags={'cand-abcdef01': None}) == api().Refusal('STATE_UNAVAILABLE')
+
+
 def test_owned_tag_and_zero_percent_tags_are_preserved(tmp_path):
     allocated = allocate(tmp_path)
     # Tag inventories include ALL entries, including zero-percent tags.

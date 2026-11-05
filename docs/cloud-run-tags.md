@@ -16,6 +16,8 @@ mapping, and a private job-local `state_path`.
 - A fitting preferred tag is selected only when free or bound to this exact
   operation and candidate in the journal. A cloud revision match alone does
   not prove ownership. Foreign or unknown occupancy returns `TAG_OCCUPIED`.
+  The first occupancy refusal durably initializes the journal without reserving
+  a tag, so unrelated allocations can continue using the same journal.
 - With headroom 1–12, an oversized preferred tag becomes one deterministic
   hash-derived legal tag, no longer than headroom. Collisions return
   `TAG_RESERVED` or `TAG_OCCUPIED`; there is no retry search or overwrite.
