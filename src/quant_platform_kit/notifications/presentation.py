@@ -33,7 +33,8 @@ def next_step_text(locale: str, *, needs_review: bool) -> str:
 
 def render_operator_message(*, title: str, locale: str, result: Sequence[str],
                             scope: Sequence[str], evidence: Sequence[str], coverage: Sequence[str],
-                            next_step: Sequence[str], max_units: int | None = None) -> str:
+                            next_step: Sequence[str], max_units: int | None = None,
+                            required_evidence: Sequence[str] = ()) -> str:
     """Keep result, scope, coverage and next step before optional evidence.
 
     Truncation is explicit and cannot remove a section or imply full coverage.
@@ -56,13 +57,14 @@ def render_operator_message(*, title: str, locale: str, result: Sequence[str],
     if max_units < 256:
         raise ValueError("notification_budget_too_small")
     omitted = 0
-    original = groups[2]
-    groups[2] = []
+    original = [line for line in groups[2] if line not in required_evidence]
+    required = list(dict.fromkeys(required_evidence))
+    groups[2] = required.copy()
     suffix = "部分证据已省略；请查看运行记录。" if locale == "zh" else "Some evidence omitted; inspect the source run."
-    groups[2] = [suffix]
+    groups[2] = required + [suffix]
     if len(assemble().encode("utf-16-le")) // 2 > max_units:
         raise ValueError("notification_required_fields_exceed_budget")
-    groups[2] = []
+    groups[2] = required.copy()
     for line in original:
         groups[2].append(line)
         groups[2].append(suffix)

@@ -46,3 +46,12 @@ def test_budget_keeps_coverage_and_next_step_and_reports_omission():
     with pytest.raises(ValueError, match="required_fields_exceed_budget"):
         render_operator_message(title="Synthetic", locale="en", result=["x" * 300], scope=[], evidence=[],
                                 coverage=[], next_step=[], max_units=256)
+
+
+def test_required_diagnostics_survive_before_optional_context():
+    text = render_operator_message(title="Synthetic", locale="en", result=["Needs review"], scope=["One run"],
+        evidence=["optional " * 1000, "Persistence failed"], coverage=["Unknown"], next_step=["Review source"],
+        required_evidence=["Persistence failed"], max_units=256)
+    assert "Persistence failed" in text
+    assert text.count("Persistence failed") == 1
+    assert "omitted" in text
