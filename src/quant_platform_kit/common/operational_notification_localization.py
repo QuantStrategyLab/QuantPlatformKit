@@ -395,7 +395,8 @@ def format_receipt_alert(
 
     # A category count is a count of inspected reports, never an order/fill total.
     attention = not categories or any(
-        category != "accepted" and (count is None or count > 0)
+        category not in {"accepted", "skipped_before_due", "skipped_outside_window"}
+        and (count is None or count > 0)
         for category, count in categories.items()
     ) or categories.get("accepted") in (None, 0)
     return render_operator_message(

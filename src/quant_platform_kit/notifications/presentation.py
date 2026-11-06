@@ -59,7 +59,10 @@ def render_operator_message(*, title: str, locale: str, result: Sequence[str],
     omitted = 0
     original = [line for line in groups[2] if line not in required_evidence]
     required = list(dict.fromkeys(required_evidence))
-    groups[2] = required.copy()
+    groups[2] = required + original
+    complete = assemble()
+    if len(complete.encode("utf-16-le")) // 2 <= max_units:
+        return complete
     suffix = "部分证据已省略；请查看运行记录。" if locale == "zh" else "Some evidence omitted; inspect the source run."
     groups[2] = required + [suffix]
     if len(assemble().encode("utf-16-le")) // 2 > max_units:

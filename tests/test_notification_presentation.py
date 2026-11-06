@@ -64,3 +64,41 @@ def test_block_cause_codes_have_canonical_explanations(code, locale):
     text = localize_attention_reason_code(locale, code)
     assert text != code
     assert "unknown" not in text.lower()
+
+
+@pytest.mark.parametrize("locale", ["zh", "en"])
+@pytest.mark.parametrize("category", ["skipped_before_due", "skipped_outside_window"])
+@pytest.mark.parametrize("count", [3, None])
+def test_accepted_receipt_with_routine_skips_needs_no_action(locale, category, count):
+    text = format_receipt_alert(locale=locale, categories={"accepted": 1, category: count})
+    assert ("无需操作" if locale == "zh" else "No action required") in text
+    assert ("已观察到符合要求的回执" if locale == "zh" else "Acceptable receipt observed") in text
+
+
+@pytest.mark.parametrize("category", ["receipt_missing", "receipt_stale", "blocked_run",
+    "strategy_risk_rejected", "receipt_unacceptable", "auth_failure", "unknown_category"])
+@pytest.mark.parametrize("count", [1, None])
+def test_accepted_receipt_with_real_or_unknown_fault_still_needs_review(category, count):
+    text = format_receipt_alert(locale="en", categories={"accepted": 1, category: count})
+    assert "Receipt evidence needs review" in text
+
+
+@pytest.mark.parametrize("accepted", [None, 0])
+def test_routine_skips_without_accepted_receipt_still_need_review(accepted):
+    text = format_receipt_alert(locale="en", categories={"accepted": accepted, "skipped_before_due": 3})
+    assert "Receipt evidence needs review" in text
+
+
+@pytest.mark.parametrize("required", [False, True])
+@pytest.mark.parametrize("message_units", [246, 256])
+def test_complete_fitting_message_keeps_diagnostic_without_omission(required, message_units):
+    fields = dict(title="Diagnostic", locale="en", result=["Needs review"], scope=["One run"],
+                  evidence=["Diagnostic: "], coverage=["Unknown"], next_step=["Review source"])
+    empty = render_operator_message(**fields)
+    diagnostic = "Diagnostic: " + "x" * (message_units - len(empty.encode("utf-16-le")) // 2)
+    fields["evidence"] = [diagnostic]
+    if required:
+        fields["required_evidence"] = [diagnostic]
+    complete = render_operator_message(**fields)
+    assert len(complete.encode("utf-16-le")) // 2 == message_units
+    assert render_operator_message(**fields, max_units=256) == complete
