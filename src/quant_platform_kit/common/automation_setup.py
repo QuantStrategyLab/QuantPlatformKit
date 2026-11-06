@@ -72,9 +72,9 @@ def _sha(value):
     _require(isinstance(value, str) and re.fullmatch('[a-f0-9]{64}', value) is not None)
 
 
-def _label(value):
+def _label(value, pattern='[A-Za-z][A-Za-z0-9_-]{0,63}'):
     # Contract labels, never account selectors, URLs, free text or hostnames.
-    _require(isinstance(value, str) and re.fullmatch('[A-Za-z][A-Za-z0-9_-]{0,63}', value) is not None)
+    _require(isinstance(value, str) and re.fullmatch(pattern, value) is not None)
     _require(redact_sensitive_text(value) == value)
 
 
@@ -108,7 +108,8 @@ def _subject(value):
     _require(type(t['dry_run_only']) is bool)
     _require(t['execution_environment'] in ('dry_run', 'paper', 'live'))
     release = t['strategy_release']; _object(release, _RELEASE)
-    for key in ('release_id', 'strategy_revision'): _label(release[key])
+    _label(release['release_id'], '[A-Za-z0-9][A-Za-z0-9._-]{2,127}')
+    _label(release['strategy_revision'], '[A-Za-z0-9][A-Za-z0-9._-]{0,63}')
     for key in _RELEASE - {'release_id', 'strategy_revision', 'effective_session'}: _sha(release[key])
     session = release['effective_session']
     _require(isinstance(session, str) and re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', session) is not None)
