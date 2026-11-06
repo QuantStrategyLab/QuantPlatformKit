@@ -81,3 +81,30 @@ def redact_exception(exc: BaseException) -> str:
 def mask_identifier(value: object) -> str:
     """Fully mask a known identifier, including aliases and short numeric IDs."""
     return _REDACTED
+
+
+def notification_run_link(value: object, *, allowed_hosts: tuple[str, ...] = (),
+                          private_identifiers: tuple[str, ...] = ()) -> str | None:
+    """Accept an explicit approved HTTPS run link, dropping query and fragment.
+
+    Arbitrary diagnostic URLs are not evidence links. Never reconstruct a link
+    from a private identity or return credential/resource-bearing URLs.
+    """
+    from urllib.parse import unquote, urlsplit, urlunsplit
+
+    if not isinstance(value, str) or not value or len(value) > 800 or any(ord(c) < 33 for c in value):
+        return None
+    try:
+        parsed = urlsplit(value)
+        if (parsed.scheme != "https" or parsed.hostname not in allowed_hosts
+                or parsed.username or parsed.password or parsed.port not in (None, 443)):
+            return None
+        safe = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+        decoded = unquote(safe)
+        if any(identifier and identifier in decoded for identifier in private_identifiers):
+            return None
+        if redact_sensitive_text(decoded) != decoded:
+            return None
+        return safe
+    except ValueError:
+        return None
