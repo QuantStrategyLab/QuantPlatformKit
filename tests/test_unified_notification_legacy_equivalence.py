@@ -1,4 +1,4 @@
-"""Retain historical golden output, allowing only the diagnostic-display change."""
+"""Retain routing golden evidence while migrating operator display sections."""
 import json
 from datetime import datetime
 from pathlib import Path
@@ -45,7 +45,7 @@ def test_flags_off_existing_entrypoints_sends_and_calls_match_main(monkeypatch, 
 
 
 @pytest.mark.parametrize('locale', ['zh', 'en'])
-def test_existing_renderers_and_publisher_preserve_content_except_raw_diagnostics(monkeypatch, locale):
+def test_existing_renderers_keep_facts_and_publisher_routing_in_unified_sections(monkeypatch, locale):
     for flag in FLAGS:
         monkeypatch.delenv(flag, raising=False)
     message = format_operational_alert(locale=locale, alert_type='execution_report_heartbeat', name='runtime',
@@ -59,14 +59,19 @@ def test_existing_renderers_and_publisher_preserve_content_except_raw_diagnostic
     }[locale]
     assert expected.count(original) == 1
     expected = expected.replace(original, replacement, 1)
-    assert message.encode() == expected.encode()
+    # Copy migration changes layout, while every legacy non-raw fact remains.
+    for line in expected.splitlines():
+        assert line in message
+    sections = ("结果", "范围", "证据", "覆盖", "下一步") if locale == "zh" else ("Result", "Scope", "Evidence", "Coverage", "Next step")
+    assert all(section in message for section in sections)
+    assert "original detail" not in message
     heartbeat = format_operational_heartbeat_status(locale=locale, name='runtime', detail='existing detail')
     assert heartbeat.encode() == GOLDEN['observations'][f'heartbeat:{locale}'].encode()
     calls = []
     publisher = NotificationPublisher(log_message=lambda text: calls.append(('log', text)),
                                       send_message=lambda text: calls.append(('send', text)) or True)
     assert publisher.publish(RenderedNotification(message, heartbeat))
-    assert calls == [('log', expected), ('send', heartbeat)]
+    assert calls == [('log', message), ('send', heartbeat)]
 
 
 @pytest.mark.parametrize('kind', ['real_error', 'auth_failure', 'order_status_unknown', 'receipt_missing',

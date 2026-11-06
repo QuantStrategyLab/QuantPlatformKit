@@ -78,6 +78,9 @@ _TEXTS: dict[str, dict[str, str]] = {
         "attention_reason_drift_watch": "生产偏离观察（WATCH）",
         "attention_reason_drift_status_unknown": "生产偏离状态未知",
         "attention_reason_operational_uncertain": "运行状态不确定 / 故障",
+        "attention_reason_blocked_run": "本轮已运行，执行被阻断",
+        "attention_reason_strategy_risk_rejected": "本轮策略风控未通过",
+        "attention_reason_empty_position_decision": "本轮策略目标仓位为空",
         "attention_reason_hard_park": "硬停（需授权恢复）",
         "attention_reason_mandate_dd_exhausted": "授权回撤额度已用尽",
         "attention_reason_mandate_dd_elevated": "授权回撤接近上限",
@@ -153,6 +156,9 @@ _TEXTS: dict[str, dict[str, str]] = {
         "attention_reason_drift_watch": "production drift watch",
         "attention_reason_drift_status_unknown": "production drift status unknown",
         "attention_reason_operational_uncertain": "operational uncertainty / fault",
+        "attention_reason_blocked_run": "Run observed; execution blocked",
+        "attention_reason_strategy_risk_rejected": "Strategy risk checks rejected this run",
+        "attention_reason_empty_position_decision": "Strategy target positions are empty for this run",
         "attention_reason_hard_park": "hard park (authorized recovery required)",
         "attention_reason_mandate_dd_exhausted": "mandate drawdown budget exhausted",
         "attention_reason_mandate_dd_elevated": "mandate drawdown elevated",
@@ -238,31 +244,36 @@ def format_operational_alert(
     ``recent_reports`` retains its existing labelled receipt-summary format.
     """
 
+    from quant_platform_kit.notifications.presentation import (
+        next_step_text, render_operator_message, safe_run_url,
+    )
+
+    lang = resolve_operational_notification_locale(locale)
+    zh = lang == "zh"
     title_key = f"{str(alert_type).strip()}_title"
-    lines = [operational_notification_text(locale, title_key, name=str(name or "runtime"))]
-    for key, value in (context or {}).items():
-        lines.append(operational_notification_text(locale, str(key), value=value))
-    if issues:
-        lines.extend([operational_notification_text(locale, "issues"), *(f"- {item}" for item in issues)])
+    title = operational_notification_text(locale, title_key, name=str(name or "runtime"))
+    scope = [operational_notification_text(locale, str(key), value=value)
+             for key, value in (context or {}).items()]
+    evidence = [operational_notification_text(locale, "issues"), *(f"- {item}" for item in issues)] if issues else []
     if recent_reports:
-        lines.extend(
-            [
-                operational_notification_text(locale, "recent_reports"),
-                *(str(item) for item in recent_reports),
-            ]
-        )
+        evidence.extend([operational_notification_text(locale, "recent_reports"), *map(str, recent_reports)])
     if latest_runtime_run:
-        lines.extend(
-            [
-                operational_notification_text(locale, "latest_runtime_run"),
-                *(str(item) for item in latest_runtime_run),
-            ]
-        )
+        evidence.extend([operational_notification_text(locale, "latest_runtime_run"), *map(str, latest_runtime_run)])
     if technical_details:
-        lines.append(operational_notification_text(locale, "technical_details_in_logs"))
-    if workflow_url:
-        lines.append(operational_notification_text(locale, "workflow", value=str(workflow_url)))
-    return "\n".join(line for line in lines if line)
+        evidence.append(operational_notification_text(locale, "technical_details_in_logs"))
+    link = safe_run_url(workflow_url)
+    evidence.append(operational_notification_text(locale, "workflow", value=link) if link else
+                    ("运行记录：未提供运行链接" if zh else "Run record: run link not provided"))
+    return render_operator_message(
+        title=title, locale=lang,
+        result=["需核对；告警不代表订单或成交结果" if zh else
+                "Needs review; an alert does not establish order or fill outcomes"],
+        scope=scope,
+        evidence=evidence,
+        coverage=["范围仅限本次检查；订单：未知；成交：未知" if zh else
+                  "This check only; orders: unknown; fills: unknown"],
+        next_step=[next_step_text(lang, needs_review=True)],
+    )
 
 
 def format_operational_heartbeat_status(
@@ -380,4 +391,20 @@ def format_receipt_alert(
         # Links are supplied by the caller, never reconstructed from account IDs.
         safe_url = urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
         lines.append(text["run"].format(value=safe_url))
-    return "\n".join(lines)
+    from quant_platform_kit.notifications.presentation import next_step_text, render_operator_message
+
+    # A category count is a count of inspected reports, never an order/fill total.
+    attention = not categories or any(
+        category not in {"accepted", "skipped_before_due", "skipped_outside_window"}
+        and (count is None or count > 0)
+        for category, count in categories.items()
+    ) or categories.get("accepted") in (None, 0)
+    return render_operator_message(
+        title=lines[0], locale=normalized,
+        result=[("回执证据需核对" if attention else "已观察到符合要求的回执") if normalized == "zh" else
+                ("Receipt evidence needs review" if attention else "Acceptable receipt observed")],
+        scope=lines[1:3], evidence=lines[3:],
+        coverage=["仅列已检查回执；成交：未知" if normalized == "zh" else
+                  "Inspected receipts only; fills: unknown"],
+        next_step=[next_step_text(normalized, needs_review=attention)],
+    )
