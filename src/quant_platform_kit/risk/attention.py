@@ -246,7 +246,16 @@ def render_attention_compact(
         locale=lang, daily_loss_context=context,
         occurred_at=occurred_at, run_url=run_url,
     )
-    return "\n".join((f"{emoji} {title}", result, reason_line, *details, next_step))
+    from quant_platform_kit.notifications.presentation import render_operator_message
+
+    return render_operator_message(
+        title=f"{emoji} {title}", locale=lang, result=[result],
+        scope=[line for line in details if line.startswith(("运行时间：", "Run time:"))],
+        evidence=[reason_line, *[line for line in details if not line.startswith(("运行时间：", "Run time:"))]],
+        coverage=["单次运行；订单：未知；成交：未知" if lang == "zh" else
+                  "Single run; orders: unknown; fills: unknown"],
+        next_step=[next_step],
+    )
 
 
 # Feature marker for pinned consumers that retain a legacy renderer until rollout.

@@ -12,10 +12,13 @@ Read documents at the library revision used by your consumer. These are source-l
 
 ## Runtime contracts
 
+- [Cloud Run revision tags](cloud-run-tags.md): pinned offline allocation, exact-target warmup policy and caller restore requirements.
+
 - [One-time setup intent](strategy-release-runtime-contract.zh-CN.md#一次确认的自动化-setup-intent): immutable, non-executing owner scope and Decisions handoff; no runtime adoption or activation authority.
 
 - [Platform notification outcomes](platform-notification-outcomes.md): credential-free intents, receipts and log redaction.
 
+- [Unified operator format](unified-operator-format.md): five sections, count semantics and display-only rollout.
 - [Notification routing policy](notification-routing-policy.md): durable daily facts and urgent incidents.
 - [Alpaca public market data collection](alpaca-public-market-data.md): manual, read-only workflow and its secrets.
 - [Platform repository boundaries](platform-repo-boundaries.md) ([中文](platform-repo-boundaries.zh-CN.md)).
