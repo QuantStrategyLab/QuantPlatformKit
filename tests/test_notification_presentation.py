@@ -55,3 +55,12 @@ def test_required_diagnostics_survive_before_optional_context():
     assert "Persistence failed" in text
     assert text.count("Persistence failed") == 1
     assert "omitted" in text
+
+
+@pytest.mark.parametrize("code", ["blocked_run", "strategy_risk_rejected", "empty_position_decision"])
+@pytest.mark.parametrize("locale", ["zh", "en"])
+def test_block_cause_codes_have_canonical_explanations(code, locale):
+    from quant_platform_kit.common.operational_notification_localization import localize_attention_reason_code
+    text = localize_attention_reason_code(locale, code)
+    assert text != code
+    assert "unknown" not in text.lower()
