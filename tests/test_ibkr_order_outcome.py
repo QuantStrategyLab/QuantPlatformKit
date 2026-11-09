@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from quant_platform_kit.ibkr.order_outcome import resolve_order_outcome, OrderOutcomeReadError
+from quant_platform_kit.ibkr.order_outcome import OutcomeFill, resolve_order_outcome, OrderOutcomeReadError
 
 NOW = datetime(2026, 11, 3, 14, 31, tzinfo=timezone.utc)
 
@@ -320,3 +320,60 @@ def test_decoder_diagnostic_sink_fails_closed_and_restores(source, disabled, cap
         assert decoder.logger is logger
     finally:
         logger.disabled = previous_disabled
+
+
+def test_fill_contract_is_backward_compatible_and_json_serializable():
+    from dataclasses import asdict
+    import json
+    legacy = OutcomeFill('synthetic', 1, 52)
+    assert legacy.occurred_at is None and legacy.currency is None
+    assert json.loads(json.dumps(asdict(legacy)))['occurred_at'] is None
+
+
+def test_execution_time_and_contract_currency_are_preserved():
+    from datetime import timedelta
+    execution = fill(time=NOW.astimezone(timezone(timedelta(hours=8))))
+    execution.contract.currency = 'USD'
+    result = resolve(Broker(executions=[execution]))
+    assert result.fills[0].occurred_at == '2026-11-03T14:31:00Z'
+    assert result.fills[0].currency == 'USD'
+    from dataclasses import asdict
+    import json
+    serialized = json.loads(json.dumps(asdict(result)))['fills'][0]
+    assert serialized['occurred_at'] == '2026-11-03T14:31:00Z'
+    assert serialized['currency'] == 'USD'
+
+
+@pytest.mark.parametrize('currency', [None, '', 'usd', 'US', 'USDT', 'U$D', 'ÜSD', 123])
+def test_absent_or_invalid_contract_currency_is_unknown(currency):
+    execution = fill()
+    execution.contract.currency = currency
+    result = resolve(Broker(executions=[execution]))
+    assert result.status == 'filled' and result.fills[0].currency is None
+
+
+def test_execution_contract_currency_conflict_is_unknown():
+    first, second = fill(), fill()
+    first.contract.currency, second.contract.currency = 'USD', 'EUR'
+    assert resolve(Broker(executions=[first, second])).status == 'unknown'
+
+
+def test_execution_time_conflict_is_unknown():
+    from datetime import timedelta
+    assert resolve(Broker(executions=[fill(), fill(time=NOW + timedelta(seconds=1))])).status == 'unknown'
+
+
+def test_missing_contract_currency_attribute_is_unknown():
+    result = resolve(Broker(executions=[fill()]))
+    assert result.status == 'filled'
+    assert result.fills[0].currency is None
+
+
+def test_equivalent_timezone_duplicate_execution_is_deduplicated():
+    from datetime import timedelta
+    first, second = fill(), fill(time=NOW.astimezone(timezone(timedelta(hours=8))))
+    first.contract.currency = second.contract.currency = 'USD'
+    result = resolve(Broker(executions=[first, second]))
+    assert result.status == 'filled'
+    assert len(result.fills) == 1
+    assert result.fills[0].occurred_at == '2026-11-03T14:31:00Z'
