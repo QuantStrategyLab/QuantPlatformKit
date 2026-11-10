@@ -18,6 +18,8 @@ class OutcomeFill:
     execution_id: str
     quantity: float
     price: float
+    occurred_at: str | None = None
+    currency: str | None = None
 
 
 @dataclass(frozen=True)
@@ -201,7 +203,12 @@ def resolve_order_outcome(
             at = _time(execution.time)
             if at.replace(microsecond=0) < since.replace(microsecond=0):
                 return unknown
-            fill = OutcomeFill(str(execution.execId), _number(execution.shares), _number(execution.price))
+            currency = getattr(item.contract, 'currency', None)
+            if not (isinstance(currency, str) and len(currency) == 3
+                    and currency.isascii() and currency.isalpha() and currency.isupper()):
+                currency = None
+            fill = OutcomeFill(str(execution.execId), _number(execution.shares), _number(execution.price),
+                               at.isoformat().replace('+00:00', 'Z'), currency)
             if not fill.execution_id or fill.quantity <= 0 or fill.price <= 0:
                 return unknown
             commission = None
