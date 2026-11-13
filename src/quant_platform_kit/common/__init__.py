@@ -11,7 +11,8 @@ module:
 Prefer ``quant_platform_kit.common.<module>`` or the subpackages above over
 ``from quant_platform_kit.common import ...`` in new in-repo code. Add new
 domain APIs via a dedicated subpackage re-export layer, not new bulk imports
-here.
+here. ``scripts/check_common_facade_imports.py`` enforces the line budget and
+subpackage export integrity; use ``--strict`` when hunting wide facade imports.
 """
 
 from .us_equity_sessions import (

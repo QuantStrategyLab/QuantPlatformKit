@@ -5,7 +5,9 @@ Checks:
   1. common/__init__.py stays within a line budget (blocks unbounded facade growth).
   2. Topic subpackages ``execution`` and ``reconciliation`` import cleanly and
      expose every name listed in their ``__all__``.
-  3. Optionally (--strict) fail on wide ``from quant_platform_kit.common import``
+  3. ``execution_kernel.platform_http`` documents the Wave2 thin-main template
+     (module map + explicit re-export rules).
+  4. Optionally (--strict) fail on wide ``from quant_platform_kit.common import``
      in src/ outside ``common/`` itself (legacy code may still use the facade).
 
 Usage:
@@ -21,13 +23,37 @@ import importlib
 import sys
 from pathlib import Path
 
-# Baseline recorded during refactor/untangle-p0-p2; shrink over time as the facade slims.
-COMMON_INIT_LINE_BUDGET = 650
+# Baseline after #782; keep closed so new APIs land in subpackages, not here.
+COMMON_INIT_LINE_BUDGET = 620
 
 FORBIDDEN_IMPORT_PREFIX = "from quant_platform_kit.common import"
 SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", "build", "dist"}
 
-SUBPACKAGES = ("quant_platform_kit.execution", "quant_platform_kit.reconciliation")
+SUBPACKAGES = (
+    "quant_platform_kit.execution",
+    "quant_platform_kit.reconciliation",
+    "quant_platform_kit.execution_kernel",
+)
+
+PLATFORM_HTTP_MODULE_KEYS = frozenset(
+    {
+        "main",
+        "http_routes",
+        "runtime_wiring",
+        "notifications_runtime",
+        "strategy_plugins_runtime",
+        "platform_entry",
+    }
+)
+PLATFORM_THIN_MAIN_RULE_KEYS = frozenset(
+    {
+        "explicit_reexports",
+        "all_list",
+        "no_star_api",
+        "entry_bind",
+        "behavior",
+    }
+)
 
 
 def repo_root_from_script() -> Path:
@@ -61,6 +87,34 @@ def check_subpackage_exports(package_name: str) -> list[str]:
     for name in exported:
         if not hasattr(module, name):
             errors.append(f"{package_name}: __all__ lists missing name {name!r}")
+    return errors
+
+
+def check_platform_http_template() -> list[str]:
+    errors: list[str] = []
+    try:
+        from quant_platform_kit.execution_kernel.platform_http import (
+            describe_platform_http_modules,
+            describe_platform_thin_main_rules,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return [f"failed to import platform_http template: {exc}"]
+
+    modules = describe_platform_http_modules()
+    missing_modules = PLATFORM_HTTP_MODULE_KEYS - frozenset(modules)
+    if missing_modules:
+        errors.append(
+            "platform_http.describe_platform_http_modules missing keys: "
+            + ", ".join(sorted(missing_modules))
+        )
+
+    rules = describe_platform_thin_main_rules()
+    missing_rules = PLATFORM_THIN_MAIN_RULE_KEYS - frozenset(rules)
+    if missing_rules:
+        errors.append(
+            "platform_http.describe_platform_thin_main_rules missing keys: "
+            + ", ".join(sorted(missing_rules))
+        )
     return errors
 
 
@@ -121,6 +175,7 @@ def main() -> int:
     errors.extend(check_common_line_budget(root))
     for package in SUBPACKAGES:
         errors.extend(check_subpackage_exports(package))
+    errors.extend(check_platform_http_template())
 
     wide_import_hits = check_forbidden_wide_imports(root)
     if wide_import_hits:

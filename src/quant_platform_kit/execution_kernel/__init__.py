@@ -10,7 +10,11 @@ from .guards import (
     deny_live_submit_without_durable_identity,
     deny_new_cycle_when_submission_unknown,
 )
-from .platform_http import PlatformHttpSurface, describe_platform_http_modules
+from .platform_http import (
+    PlatformHttpSurface,
+    describe_platform_http_modules,
+    describe_platform_thin_main_rules,
+)
 from .types import (
     ExecutionGuardDecision,
     ExecutionMode,
@@ -32,4 +36,5 @@ __all__ = [
     "deny_live_submit_without_durable_identity",
     "deny_new_cycle_when_submission_unknown",
     "describe_platform_http_modules",
+    "describe_platform_thin_main_rules",
 ]

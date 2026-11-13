@@ -4,8 +4,15 @@ Implementation modules remain under ``quant_platform_kit.common`` for now.
 Import from this package in new code instead of the ``common`` facade.
 
 For pure submission guards (no I/O), see ``quant_platform_kit.execution_kernel``.
+For platform HTTP thin-main layout, see
+``quant_platform_kit.execution_kernel.platform_http``.
 """
 
+from quant_platform_kit.common.account_identity import (
+    ACCOUNT_IDENTITY_RECEIPT_SCHEMA_VERSION,
+    AccountIdentityGuardedExecutionPort,
+    evaluate_account_identity,
+)
 from quant_platform_kit.common.capital_base import (
     CAPITAL_BASE_CONTRACT_VERSION,
     CapitalBaseBinding,
@@ -16,6 +23,20 @@ from quant_platform_kit.common.capital_base import (
     CapitalValuationBasis,
     build_capital_base_snapshot,
     validate_capital_base,
+)
+from quant_platform_kit.common.execution_capabilities import (
+    FRACTIONAL_SHARE_EXECUTION_CAPABILITY,
+    FRACTIONAL_SHARE_EXECUTION_SKIP_REASON,
+    NOTIONAL_TO_WHOLE_SHARE_COMPAT_SKIP_REASON,
+    definition_requires_fractional_share_execution,
+    fractional_share_execution_unsupported_reason,
+    notional_buy_compat_mode_enabled,
+    platform_supports_fractional_share_execution,
+)
+from quant_platform_kit.common.execution_fills import (
+    EXECUTION_FILL_SCHEMA_VERSION,
+    ExecutionFillAccumulation,
+    accumulate_execution_fills,
 )
 from quant_platform_kit.common.execution_commands import (
     DEFAULT_EXECUTION_COMMAND_NAMESPACE,
@@ -77,6 +98,12 @@ from quant_platform_kit.common.long_only_reduce import (
     LongOnlyReduceOnlyValidation,
     validate_long_only_reduce_only_order,
 )
+from quant_platform_kit.common.order_status import (
+    available_sell_quantity,
+    compute_confirmed_sell_release_value,
+    is_confirmed_fill_status,
+    normalize_order_status_payload,
+)
 from quant_platform_kit.common.paper_execution_admission import (
     PAPER_RISK_ADMISSION_RECEIPT_INTENT_FIELD,
     PAPER_RISK_ADMISSION_RECEIPT_SCHEMA_VERSION,
@@ -98,12 +125,19 @@ from quant_platform_kit.common.paper_execution_command_consumer import (
     build_paper_execution_command_binding,
     consume_due_paper_execution_commands,
 )
+from quant_platform_kit.common.pending_order_evidence import (
+    validate_pending_order_evidence,
+)
 from quant_platform_kit.common.reduce_only_command_admission import (
     REDUCE_ONLY_ORDER_DIGEST_FIELD,
     ReduceOnlyCommandAdmission,
     ReduceOnlyCommandFinding,
     build_reduce_only_order_digest,
     evaluate_reduce_only_command_admission,
+)
+from quant_platform_kit.common.risk_guarded_execution_port import (
+    RiskGuardedExecutionPort,
+    RiskGuardedExecutionRejected,
 )
 from quant_platform_kit.common.runtime_command_gate import (
     RUNTIME_COMMAND_GATE_RECEIPT_SCHEMA_VERSION,
@@ -117,8 +151,19 @@ from quant_platform_kit.common.runtime_command_gate import (
     evaluate_runtime_command_gate,
     normalize_runtime_command_integrity_findings,
 )
+from quant_platform_kit.common.runtime_target import (
+    RuntimeExecutionEnvironment,
+    resolve_runtime_execution_environment,
+)
+from quant_platform_kit.common.strategy_release import (
+    RUNTIME_LOADED_RECEIPT_SCHEMA_VERSION,
+    build_runtime_loaded_receipt,
+    validate_runtime_loaded_receipt,
+)
 
 __all__ = [
+    "ACCOUNT_IDENTITY_RECEIPT_SCHEMA_VERSION",
+    "AccountIdentityGuardedExecutionPort",
     "CAPITAL_BASE_CONTRACT_VERSION",
     "CapitalBaseBinding",
     "CapitalBaseFinding",
@@ -136,6 +181,7 @@ __all__ = [
     "EXECUTION_COMMAND_EVENT_SCHEMA_VERSION",
     "EXECUTION_COMMAND_SCHEMA_VERSION",
     "EXECUTION_COMMAND_STRATEGY_RELEASE_FIELD",
+    "EXECUTION_FILL_SCHEMA_VERSION",
     "EXECUTION_LEDGER_DIGEST_SCHEMA_VERSION",
     "EXECUTION_RECEIPT_BROKER_CONFIRMATIONS",
     "EXECUTION_RECEIPT_OUTCOMES",
@@ -144,9 +190,13 @@ __all__ = [
     "ExecutionCommandEvent",
     "ExecutionCommandState",
     "ExecutionCommandStore",
+    "ExecutionFillAccumulation",
     "ExecutionMarkerStore",
+    "FRACTIONAL_SHARE_EXECUTION_CAPABILITY",
+    "FRACTIONAL_SHARE_EXECUTION_SKIP_REASON",
     "LongOnlyReduceOnlyFinding",
     "LongOnlyReduceOnlyValidation",
+    "NOTIONAL_TO_WHOLE_SHARE_COMPAT_SKIP_REASON",
     "PAPER_EXECUTION_COMMAND_CONSUMER_SCHEMA_VERSION",
     "PAPER_RISK_ADMISSION_RECEIPT_INTENT_FIELD",
     "PAPER_RISK_ADMISSION_RECEIPT_SCHEMA_VERSION",
@@ -160,8 +210,11 @@ __all__ = [
     "PaperRiskAdmissionReceipt",
     "REDUCE_ONLY_ORDER_DIGEST_FIELD",
     "RUNTIME_COMMAND_GATE_RECEIPT_SCHEMA_VERSION",
+    "RUNTIME_LOADED_RECEIPT_SCHEMA_VERSION",
     "ReduceOnlyCommandAdmission",
     "ReduceOnlyCommandFinding",
+    "RiskGuardedExecutionPort",
+    "RiskGuardedExecutionRejected",
     "RuntimeCommandAction",
     "RuntimeCommandExposureEffect",
     "RuntimeCommandGateDecision",
@@ -169,6 +222,7 @@ __all__ = [
     "RuntimeCommandGateMode",
     "RuntimeCommandGatePolicy",
     "RuntimeCommandIntegrityFinding",
+    "RuntimeExecutionEnvironment",
     "STAGE_COMPLETED",
     "STAGE_DRY_RUN_COMPLETED",
     "STAGE_EXECUTION_BLOCKED",
@@ -179,35 +233,49 @@ __all__ = [
     "STAGE_RECONCILED",
     "STAGE_SUBMITTED",
     "TERMINAL_EXECUTION_COMMAND_STATES",
+    "accumulate_execution_fills",
     "attach_execution_receipt",
     "attach_runtime_execution_receipt",
+    "available_sell_quantity",
     "build_capital_base_snapshot",
     "build_execution_command_store_from_env",
     "build_execution_receipt",
     "build_paper_execution_command_binding",
     "build_paper_risk_admission_receipt",
     "build_reduce_only_order_digest",
+    "build_runtime_loaded_receipt",
     "calculate_execution_receipt_sha256",
     "calculate_paper_risk_admission_receipt_sha256",
     "canonical_execution_receipt_json",
     "canonical_paper_risk_admission_receipt_json",
+    "compute_confirmed_sell_release_value",
     "consume_due_paper_execution_commands",
+    "definition_requires_fractional_share_execution",
+    "evaluate_account_identity",
     "evaluate_paper_execution_admission",
     "evaluate_reduce_only_command_admission",
     "evaluate_runtime_command_gate",
     "filter_execution_blocking_skips",
+    "fractional_share_execution_unsupported_reason",
+    "is_confirmed_fill_status",
     "is_funding_block",
     "is_retryable_strategy_run_stage",
     "is_terminal_funding_block",
     "is_terminal_strategy_run_stage",
+    "normalize_order_status_payload",
     "normalize_runtime_command_integrity_findings",
     "normalize_skip_reason",
     "normalize_stage",
+    "notional_buy_compat_mode_enabled",
+    "platform_supports_fractional_share_execution",
     "resolve_execution_receipt_fact",
+    "resolve_runtime_execution_environment",
     "resolve_strategy_run_stage",
     "validate_capital_base",
     "validate_execution_command_release_binding",
     "validate_execution_command_transition",
     "validate_execution_receipt",
     "validate_long_only_reduce_only_order",
+    "validate_pending_order_evidence",
+    "validate_runtime_loaded_receipt",
 ]
