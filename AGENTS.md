@@ -41,6 +41,11 @@ pin this repository, so a behaviour change needs a coordinated rollout note.
 
 Organization documentation rules are checked by `python scripts/check_style.py`, which also runs in CI as the `Documentation check` job.
 
+Prefer focused import paths over the `quant_platform_kit.common` facade in new
+code: `quant_platform_kit.execution`, `quant_platform_kit.reconciliation`, or
+`quant_platform_kit.common.<module>`. Guard with
+`PYTHONPATH=src python scripts/check_common_facade_imports.py`.
+
 ## Naming and documentation
 
 - Developer documentation is English by default; Chinese siblings use

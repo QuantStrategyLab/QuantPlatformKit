@@ -1,8 +1,17 @@
 """Shared domain models, ports, strategy contracts, plugin helpers, and pipeline contracts.
 
-This package provides the foundational types and utilities used across all
-QuantStrategyLab repositories.  New cross-cutting additions (contracts,
-artifacts, indicators, etc.) should be placed here rather than duplicated.
+QuantPlatformKit is organized as ports and adapters; ``common`` historically
+re-exported many domains through this facade. That remains for compatibility,
+but new code should import from focused subpackages instead of growing this
+module:
+
+- ``quant_platform_kit.execution`` — execution commands, receipts, admission, gates
+- ``quant_platform_kit.reconciliation`` — broker reconciliation, recovery, live continuity
+
+Prefer ``quant_platform_kit.common.<module>`` or the subpackages above over
+``from quant_platform_kit.common import ...`` in new in-repo code. Add new
+domain APIs via a dedicated subpackage re-export layer, not new bulk imports
+here.
 """
 
 from .us_equity_sessions import (
