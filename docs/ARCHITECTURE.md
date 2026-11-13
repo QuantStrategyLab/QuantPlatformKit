@@ -98,7 +98,9 @@ QuantStrategyLab is a multi-broker, multi-market quantitative trading system. It
 | Cloud Abstraction | `cloud/` | Provider-agnostic interfaces for secrets, storage, document DB. Implementations: GCP, AWS, Azure, Local, Env. Switch via `QSL_CLOUD_PROVIDER` |
 | Notifications | `notifications/` | Multi-channel notification pipeline: Email, SMS, Push, Telegram, Webhook. Shared envelope (`RenderedNotification`, `NotificationPublisher`) for consistent delivery |
 | Strategy Lifecycle | `strategy_lifecycle/` | Backtest orchestration, drift detection, performance monitoring, AI review, rollback management, health scoring, return collection, audit logging |
-| Runtime Contracts | `common/` | Strategy contracts, execution outcomes, runtime assembly, runtime reports, execution state, cash sweep, plugin artifact parsing |
+| Runtime Contracts | `common/` | Strategy contracts, runtime assembly, runtime reports, plugin artifact parsing (legacy wide re-exports; prefer subpackages below) |
+| Execution contracts | `execution/`, `execution_kernel/` | Commands, receipts, outcomes, paper admission, runtime command gate (`execution/`); pure no-I/O submit guards (`execution_kernel/`) |
+| Reconciliation | `reconciliation/` | Broker reconciliation evidence, enrollment, recovery workflows, live continuity |
 | Strategy Plugins | `common/strategy_plugins.py` | Plugin signal parsing, compatibility checks, alert generation |
 | Portfolio Ports | `common/ports.py` | Port interfaces for market data, portfolio snapshots, execution, notifications |
 
