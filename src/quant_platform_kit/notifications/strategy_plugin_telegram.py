@@ -16,6 +16,10 @@ from quant_platform_kit.common.strategy_plugins import (
 from .alert_marker import CloudAlertMarkerStore, _clean_relative_key
 from ._redaction import redact_exception
 from .digest_routing import daily_digest_enabled
+from .renderer_base import render_asset_management_error
+from .unified_contract import (
+    ASSET_MANAGEMENT_DIGEST_KINDS, CandidatePersistenceError, IncidentTracker, NotificationEvent, route_asset_management_event,
+)
 from .telegram import (
     DEFAULT_TELEGRAM_BOT_API_BASE_URL,
     parse_telegram_chat_ids,
@@ -185,6 +189,9 @@ def publish_strategy_plugin_telegram_alerts(
     alert_store: StrategyPluginTelegramAlertMarkerStore | object | None = None,
     send_notification: Callable[..., bool] = send_strategy_plugin_telegram,
     log_message: Callable[..., Any] = print,
+    asset_management_event_factory: Callable[[object], NotificationEvent] | None = None,
+    persist_candidate: Callable[[dict[str, object]], bool] | None = None,
+    asset_management_incident_tracker: IncidentTracker | None = None,
 ) -> StrategyPluginTelegramAlertPublishResult:
     """Use the same builder eligibility as email, preserving Telegram exclusions.
 
@@ -194,6 +201,11 @@ def publish_strategy_plugin_telegram_alerts(
     per-channel dedupe and delivery failures are independent of eligibility.
     """
     settings = StrategyPluginTelegramSettings.from_object(telegram_settings)
+    if asset_management_event_factory is not None:
+        return _publish_asset_management_signals(
+            signals, event_factory=asset_management_event_factory, persist_candidate=persist_candidate,
+            tracker=asset_management_incident_tracker, settings=settings, send_notification=send_notification,
+        )
     del context_label  # The plugin Telegram bot is a unified manual-review channel.
     telegram_signals = tuple(
         signal for signal in signals if not _is_auto_consumable_signal(signal)
@@ -243,6 +255,69 @@ def publish_strategy_plugin_telegram_alerts(
     result = StrategyPluginTelegramAlertPublishResult(tuple(deliveries))
     _log_publish_result(result, log_message=log_message)
     return result
+
+
+def _publish_asset_management_signals(signals, *, event_factory, persist_candidate, tracker,
+                                      settings, send_notification):
+    """Explicit asset-management use only; other plugin channels keep parity.
+
+    A durable incident tracker is mandatory for errors. Pending/uncertain sends
+    survive restart and are never retried merely because no ACK was returned.
+    The producer archives its original signals; the factory binds each fact to
+    the same real source run. Candidate persistence is not delivery.
+    """
+    if persist_candidate is None:
+        raise CandidatePersistenceError("notification_candidate_writer_required")
+    deliveries = []
+    for signal in signals:
+        event = event_factory(signal)
+        if not isinstance(event, NotificationEvent):
+            raise ValueError("notification_structured_event_required")
+        if event.event_kind == "recovery" and event.incident_reason and tracker is None:
+            raise RuntimeError("notification_durable_incident_tracker_required")
+        if event.event_kind in ASSET_MANAGEMENT_DIGEST_KINDS and any(
+            getattr(signal, key, None) for key in ("error", "errors", "risk_halt", "auth_expired")
+        ):
+            raise ValueError("notification_routine_incident_conflict")
+
+        def publish_error(fact):
+            if tracker is None:
+                raise RuntimeError("notification_durable_incident_tracker_required")
+            incident = fact if fact.incident_reason else replace(fact, incident_reason="unclassified_event")
+            # Check transport before reserving: missing configuration is a
+            # failure, not a successful delivery or an ambiguous send attempt.
+            if settings.missing_fields():
+                raise RuntimeError("notification_transport_configuration_missing")
+            decision = tracker.observe(incident, state=incident.event_kind)
+            if decision.action == "coverage_unknown":
+                raise RuntimeError("notification_incident_identity_unknown")
+            key = decision.transition_key or ""
+            if decision.action != "send":
+                return StrategyPluginTelegramAlertDelivery(key, "", "skipped", reason="duplicate_alert")
+            message = StrategyPluginAlertMessage(subject="", body=render_asset_management_error(fact), alert_key=key)
+            sent, error = _send_message(send_notification, message, settings)
+            # A transport boolean is not a receipt. Both false and exceptions
+            # are ambiguous; preserve the reservation and never blindly retry.
+            tracker.record_delivery(decision)
+            return StrategyPluginTelegramAlertDelivery(key, "", "pending" if sent else "failed",
+                reason=None if sent else "send_failed",
+                error="notification_transport_unconfirmed" if error else None,
+                metadata={"delivery_status": "uncertain", "transport_acknowledged": False,
+                          "transport_attempted": True})
+
+        result = route_asset_management_event(event, persist_candidate=persist_candidate, publish_error=publish_error)
+        if result.route == "digest_candidate":
+            if event.event_kind == "recovery" and event.incident_reason:
+                decision = tracker.observe(event, state="recovered", severity=0, recovered=True)
+                if decision.action == "coverage_unknown":
+                    raise RuntimeError("notification_incident_identity_unknown")
+            deliveries.append(StrategyPluginTelegramAlertDelivery("", "", "deferred_digest",
+                metadata={"candidate_persisted": True, "transport_acknowledged": False}))
+        else:
+            if not result.candidate_persisted:
+                raise CandidatePersistenceError("notification_candidate_write_unconfirmed")
+            deliveries.append(result.result)
+    return StrategyPluginTelegramAlertPublishResult(tuple(deliveries))
 
 
 def _routine_observation_to_digest(signal: object) -> bool:

@@ -689,4 +689,62 @@ __all__ = [
     "format_dashboard_from_sources",
     # i18n key aliases (Phase 2)
     "resolve_i18n_key",
+    "render_asset_management_error",
 ]
+
+
+def render_asset_management_error(event, *, locale: object = "zh-CN", run_url: str | None = None,
+                                  allowed_run_hosts: tuple[str, ...] = ()) -> str:
+    """Fixed P10 error body. Raw identity/diagnostics never become display text.
+
+    Counts are caller-proven single-run observations, not inferred from event
+    names or money. This renderer performs no IO and makes no delivery claim.
+    """
+    from quant_platform_kit.common.display_names import display_name
+    from quant_platform_kit.common.operational_notification_localization import (
+        format_sgt_time, localize_attention_reason_code, resolve_operational_notification_locale,
+    )
+    from ._redaction import notification_run_link, redact_sensitive_text
+    from .unified_contract import ASSET_MANAGEMENT_DIGEST_KINDS, NotificationEvent
+
+    if not isinstance(event, NotificationEvent) or event.event_kind in ASSET_MANAGEMENT_DIGEST_KINDS:
+        raise ValueError("notification_error_event_required")
+    lang = resolve_operational_notification_locale(locale)
+    zh = lang == "zh"
+    unknown = "未知" if zh else "unknown"
+    unavailable = "运行链接不可用" if zh else "Run link unavailable"
+    platforms = {"ibkr": "IBKR", "schwab": "Schwab", "charles_schwab": "Schwab",
+                 "firstrade": "Firstrade", "longbridge": "LongBridge", "binance": "Binance"}
+    platform = platforms.get(event.platform_id, unknown)
+    strategy = display_name("strategies", event.strategy_profile, lang, fallback=unknown)
+    private = tuple(value for value in (event.opaque_account_uid, event.target_id, event.source_run_id)
+                    if isinstance(value, str) and value)
+    if any(value in strategy for value in private):
+        strategy = unknown
+    strategy = redact_sensitive_text(strategy).replace("\n", " ").replace("\r", " ")[:120]
+    reason = event.incident_reason or event.event_kind
+    reasons = {
+        "empty_position_decision": ("策略决策不可用", "Strategy decision unavailable"),
+        "receipt_missing": ("缺少执行回执", "Execution receipt missing"),
+        "receipt_stale": ("执行回执已过期", "Execution receipt stale"),
+        "receipt_unacceptable": ("执行回执不符合验收要求", "Execution receipt unacceptable"),
+        "auth_failure": ("认证失败", "Authentication failed"),
+        "order_status_unknown": ("订单结果未知", "Order outcome unknown"),
+    }
+    if reason in reasons:
+        problem = reasons[reason][0 if zh else 1]
+    else:
+        translated = localize_attention_reason_code(lang, reason)
+        problem = translated if translated != reason else ("运行异常，具体原因未核实" if zh else "Operational error; reason unverified")
+    link = notification_run_link(run_url, allowed_hosts=allowed_run_hosts, private_identifiers=private) or unavailable
+    count = str(event.order_count) if event.coverage_status == "known" and event.order_count is not None else unknown
+    stamp = format_sgt_time(event.occurred_at, locale=lang)
+    if zh:
+        return "\n".join(("【资产管理｜运行错误】", f"时间：{stamp}", f"平台 / 策略：{platform} / {strategy}",
+            f"问题：{problem}", f"影响：是否提交订单：{count}；是否有待处理订单：未知",
+            f"证据：{link}", "处理：查看本次运行记录，核实输入；未恢复前保持执行保护",
+            "投递状态以回执为准"))
+    return "\n".join(("[Asset management | Runtime error]", f"Time: {stamp}", f"Platform / strategy: {platform} / {strategy}",
+        f"Problem: {problem}", f"Impact: Orders submitted: {count}; pending orders: unknown",
+        f"Evidence: {link}", "Action: inspect this run and verify inputs; keep execution protections active",
+        "Delivery status requires a receipt"))
