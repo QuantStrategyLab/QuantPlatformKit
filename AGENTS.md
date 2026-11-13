@@ -43,8 +43,11 @@ Organization documentation rules are checked by `python scripts/check_style.py`,
 
 Prefer focused import paths over the `quant_platform_kit.common` facade in new
 code: `quant_platform_kit.execution`, `quant_platform_kit.reconciliation`, or
-`quant_platform_kit.common.<module>`. Guard with
-`PYTHONPATH=src python scripts/check_common_facade_imports.py`.
+`quant_platform_kit.common.<module>`. Do not add bulk re-exports to
+`common/__init__.py`. Platform thin-main layout lives in
+`execution_kernel/platform_http.py`. Guard with
+`PYTHONPATH=src python scripts/check_common_facade_imports.py` (and
+`tests/test_common_facade_imports.py`).
 
 ## Naming and documentation
 
