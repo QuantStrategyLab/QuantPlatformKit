@@ -7,7 +7,7 @@ packaged as standalone functions for the strategy lifecycle system.
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 import pandas as pd
@@ -16,6 +16,9 @@ from quant_platform_kit.strategy_lifecycle.contracts import (
     WindowPerformance,
     validate_periods_per_year,
 )
+
+if TYPE_CHECKING:
+    from quant_platform_kit.strategy_lifecycle.contracts import BacktestResult
 
 # Standard rolling windows (in trading days)
 DEFAULT_WINDOWS: tuple[int, ...] = (21, 63, 126, 252, 756)

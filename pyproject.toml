@@ -51,7 +51,7 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
-ignore = ["E701", "E702", "E741", "F841", "F821", "B008", "F401", "F601", "E402"]
+ignore = ["E701", "E702", "E741", "F841", "B008", "F401", "E402"]
 
 [tool.coverage.run]
 branch = true

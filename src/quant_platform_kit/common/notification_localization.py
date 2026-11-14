@@ -234,7 +234,6 @@ STRATEGY_PLUGIN_I18N: dict[str, dict[str, str]] = {
         "strategy_plugin_situation_delever_delever": "De-lever: a de-lever signal is active and risk exposure should be reduced under strategy rules.",
         "strategy_plugin_situation_notify_manual_review": "Manual review: the plugin found a market state that needs human judgment.",
         "strategy_plugin_situation_default": "State notice: the plugin found a market state that needs attention.",
-        "strategy_plugin_recommendation_default": "Review manually first, then decide whether the action belongs to strategy rules or a manual process; do not treat the plugin notice as a trade instruction.",
         "strategy_plugin_recommendation_market_regime_control_watch_watch_only": "Check the trigger, recent volatility, and current leverage; this watch notice does not change allocations automatically, and any position change should come from the strategy run or an explicit manual decision.",
         "strategy_plugin_recommendation_market_regime_control_risk_reduced_delever": "Check the strategy run, account constraints, and de-lever thresholds; if the strategy-side automatic rule fired, execution belongs to the strategy notification and position adapter.",
         "strategy_plugin_recommendation_market_regime_control_risk_off_defend": "Pause opportunity adds and confirm whether defensive exposure matches strategy rules; wait for the risk-off state to clear before resuming offensive signals.",
