@@ -1,0 +1,11 @@
+{
+  "contract-boundary-check": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python3 -c \"import json, pathlib, subprocess, sys; raw = sys.stdin.read().strip(); data = json.loads(raw) if raw else {}; data.get('continuationActive') and (print(json.dumps({'decision': 'allow'})) or sys.exit(0)); r = subprocess.run('python3 -m ruff check . && python3 -m pytest -q tests/test_architecture_boundaries.py && python3 scripts/check_style.py', shell=True, cwd=pathlib.Path.cwd().parent, capture_output=True, text=True); print(json.dumps({'decision': 'allow'} if r.returncode == 0 else {'decision': 'continue', 'reason': 'Boundary/style checks failed: ' + (r.stdout + chr(10) + r.stderr).strip()[-1000:]}))\"",
+        "timeout": 15
+      }
+    ]
+  }
+}

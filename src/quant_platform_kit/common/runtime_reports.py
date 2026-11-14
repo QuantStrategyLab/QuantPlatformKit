@@ -411,4 +411,3 @@ def build_runtime_report_gcs_uri(
     if not effective_prefix:
         raise ValueError("cloud_prefix_uri or gcs_prefix_uri is required")
     return build_runtime_report_cloud_uri(report, cloud_prefix_uri=effective_prefix)
-    return bucket, object_name.strip("/")
