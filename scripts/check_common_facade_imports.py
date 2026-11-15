@@ -33,6 +33,7 @@ SUBPACKAGES = (
     "quant_platform_kit.execution",
     "quant_platform_kit.reconciliation",
     "quant_platform_kit.execution_kernel",
+    "quant_platform_kit.markets",
 )
 
 PLATFORM_HTTP_MODULE_KEYS = frozenset(
