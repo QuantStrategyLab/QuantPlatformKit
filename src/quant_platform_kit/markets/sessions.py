@@ -33,6 +33,7 @@ class MarketPhase(str, Enum):
     OVERNIGHT = "overnight"
     PRE_MARKET = "pre_market"
     PRE_OPEN_AUCTION = "pre_open_auction"
+    PRE_OPEN_BLOCKING = "pre_open_blocking"
     REGULAR = "regular"
     MORNING_CONTINUOUS = "morning_continuous"
     LUNCH_BREAK = "lunch_break"
@@ -56,10 +57,6 @@ class MarketSessionDecision:
     allow_cancel_only: bool
     timezone: str
     reason: str | None = None
-
-
-def _default_weekday_calendar(day: date) -> bool:
-    return day.weekday() < 5
 
 
 def _evaluate_us_equity_23x5(
@@ -144,7 +141,7 @@ def _evaluate_hk_equity(
 
     if local_time < time(9, 0):
         return make_decision(MarketPhase.CLOSED, is_open=False, trade_date=None, reason="outside_hours")
-    if local_time < time(9, 30):
+    if local_time < time(9, 20):
         return make_decision(
             MarketPhase.PRE_OPEN_AUCTION,
             is_open=True,
@@ -152,13 +149,23 @@ def _evaluate_hk_equity(
             allow_market=False,
             require_limit=True,
         )
+    if local_time < time(9, 30):
+        return make_decision(
+            MarketPhase.PRE_OPEN_BLOCKING,
+            is_open=False,
+            trade_date=local_date,
+            allow_market=False,
+            require_limit=False,
+            allow_cancel_only=False,
+            reason="hkex_pre_open_blocking",
+        )
     if local_time < time(12, 0):
         return make_decision(
             MarketPhase.MORNING_CONTINUOUS,
             is_open=True,
             trade_date=local_date,
-            allow_market=True,
-            require_limit=False,
+            allow_market=False,
+            require_limit=True,
         )
 
     early_close = early_close_by_date(local_date) if early_close_by_date is not None else None
@@ -191,8 +198,8 @@ def _evaluate_hk_equity(
             MarketPhase.AFTERNOON_CONTINUOUS,
             is_open=True,
             trade_date=local_date,
-            allow_market=True,
-            require_limit=False,
+            allow_market=False,
+            require_limit=True,
         )
     if local_time < time(16, 10):
         return make_decision(
@@ -208,6 +215,7 @@ def _evaluate_hk_equity(
 def _evaluate_cme_futures_23x5(
     now: datetime,
     is_trading_day: Callable[[date], bool],
+    early_close_by_date: Callable[[date], time | None] | None = None,
 ) -> MarketSessionDecision:
     local_dt = now.astimezone(ZoneInfo(CME_FUTURES_TIMEZONE))
     local_date = local_dt.date()
@@ -270,6 +278,18 @@ def _evaluate_cme_futures_23x5(
     if not is_trading_day(local_date):
         return make_decision(MarketPhase.CLOSED, is_open=False, trade_date=None, reason="holiday_closed")
 
+    early_close = early_close_by_date(local_date) if early_close_by_date is not None else None
+    if early_close is not None:
+        if early_close > time(17, 0):
+            raise ValueError("early_close cannot exceed 17:00 on CME 23x5")
+        if local_time >= early_close:
+            return make_decision(
+                MarketPhase.CLOSED,
+                is_open=False,
+                trade_date=None,
+                reason="early_close_ended",
+            )
+
     if time(9, 30) <= local_time < time(16, 15):
         return make_decision(
             MarketPhase.REGULAR,
@@ -298,13 +318,6 @@ def evaluate_market_session(
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("now must be a timezone-aware datetime")
 
-    day_check = is_trading_day or _default_weekday_calendar
-    if profile == MarketProfileId.US_EQUITY_23X5:
-        return _evaluate_us_equity_23x5(now, day_check, early_close_by_date)
-    if profile == MarketProfileId.HK_EQUITY:
-        return _evaluate_hk_equity(now, day_check, early_close_by_date)
-    if profile == MarketProfileId.CME_FUTURES_23X5:
-        return _evaluate_cme_futures_23x5(now, day_check)
     if profile == MarketProfileId.CRYPTO_24X7:
         return MarketSessionDecision(
             profile=MarketProfileId.CRYPTO_24X7,
@@ -317,4 +330,12 @@ def evaluate_market_session(
             timezone="UTC",
             reason=None,
         )
+    if is_trading_day is None:
+        raise ValueError(f"is_trading_day calendar is required for {profile.value}")
+    if profile == MarketProfileId.US_EQUITY_23X5:
+        return _evaluate_us_equity_23x5(now, is_trading_day, early_close_by_date)
+    if profile == MarketProfileId.HK_EQUITY:
+        return _evaluate_hk_equity(now, is_trading_day, early_close_by_date)
+    if profile == MarketProfileId.CME_FUTURES_23X5:
+        return _evaluate_cme_futures_23x5(now, is_trading_day, early_close_by_date)
     raise ValueError(f"Unsupported market profile: {profile!r}")

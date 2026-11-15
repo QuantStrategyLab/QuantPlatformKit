@@ -7,6 +7,10 @@ from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+from quant_platform_kit.common.exchange_full_day_closures_2026 import (
+    XHKG_FULL_DAY_CLOSURES_2026,
+    XNYS_FULL_DAY_CLOSURES_2026,
+)
 from quant_platform_kit.common.us_equity_sessions import (
     Session,
     resolve_us_equity_23x5_session,
@@ -214,7 +218,20 @@ class HKEquityAndFuturesTests(unittest.TestCase):
             is_trading_day=cal,
         )
         self.assertEqual(morning.phase, MarketPhase.MORNING_CONTINUOUS)
-        self.assertTrue(morning.allow_market_orders)
+        self.assertFalse(morning.allow_market_orders)
+        self.assertTrue(morning.require_limit_orders)
+
+        pre_open_blocking = evaluate_market_session(
+            MarketProfileId.HK_EQUITY,
+            datetime(2026, 12, 7, 9, 25, tzinfo=HKT),
+            is_trading_day=cal,
+        )
+        self.assertEqual(pre_open_blocking.phase, MarketPhase.PRE_OPEN_BLOCKING)
+        self.assertFalse(pre_open_blocking.is_open)
+        self.assertFalse(pre_open_blocking.allow_market_orders)
+        self.assertFalse(pre_open_blocking.require_limit_orders)
+        self.assertFalse(pre_open_blocking.allow_cancel_only)
+        self.assertEqual(pre_open_blocking.reason, "hkex_pre_open_blocking")
 
         lunch_early = evaluate_market_session(
             MarketProfileId.HK_EQUITY,
@@ -241,6 +258,8 @@ class HKEquityAndFuturesTests(unittest.TestCase):
         )
         self.assertEqual(afternoon.phase, MarketPhase.AFTERNOON_CONTINUOUS)
         self.assertTrue(afternoon.is_open)
+        self.assertFalse(afternoon.allow_market_orders)
+        self.assertTrue(afternoon.require_limit_orders)
 
         cas = evaluate_market_session(
             MarketProfileId.HK_EQUITY,
@@ -295,6 +314,59 @@ class HKEquityAndFuturesTests(unittest.TestCase):
         )
         self.assertEqual(fri_close.phase, MarketPhase.CLOSED)
         self.assertFalse(fri_close.is_open)
+
+        cme_half_days = {date(2026, 11, 27): time(13, 0)}
+        cme_before_cutoff = evaluate_market_session(
+            MarketProfileId.CME_FUTURES_23X5,
+            datetime(2026, 11, 27, 12, 0, tzinfo=ET),
+            is_trading_day=cal,
+            early_close_by_date=cme_half_days.get,
+        )
+        self.assertEqual(cme_before_cutoff.phase, MarketPhase.REGULAR)
+        self.assertTrue(cme_before_cutoff.is_open)
+
+        for cutoff_hour in (13, 14):
+            with self.subTest(cutoff_hour=cutoff_hour):
+                cme_after_cutoff = evaluate_market_session(
+                    MarketProfileId.CME_FUTURES_23X5,
+                    datetime(2026, 11, 27, cutoff_hour, 0, tzinfo=ET),
+                    is_trading_day=cal,
+                    early_close_by_date=cme_half_days.get,
+                )
+                self.assertEqual(cme_after_cutoff.phase, MarketPhase.CLOSED)
+                self.assertFalse(cme_after_cutoff.is_open)
+                self.assertEqual(cme_after_cutoff.reason, "early_close_ended")
+
+    def test_exchange_profiles_require_explicit_calendar_and_block_holidays(self) -> None:
+        sample_now = datetime(2026, 12, 25, 10, 0, tzinfo=ET)
+        for profile in (
+            MarketProfileId.US_EQUITY_23X5,
+            MarketProfileId.HK_EQUITY,
+            MarketProfileId.CME_FUTURES_23X5,
+        ):
+            with self.subTest(profile=profile), self.assertRaisesRegex(
+                ValueError, "is_trading_day calendar is required"
+            ):
+                evaluate_market_session(profile, sample_now)
+
+        crypto = evaluate_market_session(MarketProfileId.CRYPTO_24X7, sample_now)
+        self.assertTrue(crypto.is_open)
+
+        us_closed = evaluate_market_session(
+            MarketProfileId.US_EQUITY_23X5,
+            datetime(2026, 12, 25, 10, 0, tzinfo=ET),
+            is_trading_day=lambda d: d.weekday() < 5 and d.isoformat() not in XNYS_FULL_DAY_CLOSURES_2026,
+        )
+        self.assertEqual(us_closed.phase, MarketPhase.CLOSED)
+        self.assertFalse(us_closed.is_open)
+
+        hk_closed = evaluate_market_session(
+            MarketProfileId.HK_EQUITY,
+            datetime(2026, 12, 25, 10, 0, tzinfo=HKT),
+            is_trading_day=lambda d: d.weekday() < 5 and d.isoformat() not in XHKG_FULL_DAY_CLOSURES_2026,
+        )
+        self.assertEqual(hk_closed.phase, MarketPhase.CLOSED)
+        self.assertFalse(hk_closed.is_open)
 
     def test_instrument_spec_hk_board_lots_and_futures_multiplier(self) -> None:
         hk_stock = InstrumentSpec(
