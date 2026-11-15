@@ -261,6 +261,18 @@ class HKEquityAndFuturesTests(unittest.TestCase):
         self.assertFalse(afternoon.allow_market_orders)
         self.assertTrue(afternoon.require_limit_orders)
 
+        cas_fixing = evaluate_market_session(
+            MarketProfileId.HK_EQUITY,
+            datetime(2026, 12, 7, 16, 0, 30, tzinfo=HKT),
+            is_trading_day=cal,
+        )
+        self.assertEqual(cas_fixing.phase, MarketPhase.CLOSING_AUCTION)
+        self.assertFalse(cas_fixing.is_open)
+        self.assertFalse(cas_fixing.allow_market_orders)
+        self.assertFalse(cas_fixing.require_limit_orders)
+        self.assertFalse(cas_fixing.allow_cancel_only)
+        self.assertEqual(cas_fixing.reason, "hkex_closing_reference_price_fixing")
+
         cas = evaluate_market_session(
             MarketProfileId.HK_EQUITY,
             datetime(2026, 12, 7, 16, 5, tzinfo=HKT),
@@ -271,6 +283,19 @@ class HKEquityAndFuturesTests(unittest.TestCase):
         self.assertTrue(cas.require_limit_orders)
 
         # Half-day Christmas Eve
+        xmas_cas_fixing = evaluate_market_session(
+            MarketProfileId.HK_EQUITY,
+            datetime(2026, 12, 24, 12, 0, 30, tzinfo=HKT),
+            is_trading_day=cal,
+            early_close_by_date=half_days.get,
+        )
+        self.assertEqual(xmas_cas_fixing.phase, MarketPhase.CLOSING_AUCTION)
+        self.assertFalse(xmas_cas_fixing.is_open)
+        self.assertFalse(xmas_cas_fixing.allow_market_orders)
+        self.assertFalse(xmas_cas_fixing.require_limit_orders)
+        self.assertFalse(xmas_cas_fixing.allow_cancel_only)
+        self.assertEqual(xmas_cas_fixing.reason, "hkex_closing_reference_price_fixing")
+
         xmas_cas = evaluate_market_session(
             MarketProfileId.HK_EQUITY,
             datetime(2026, 12, 24, 12, 5, tzinfo=HKT),
@@ -278,6 +303,8 @@ class HKEquityAndFuturesTests(unittest.TestCase):
             early_close_by_date=half_days.get,
         )
         self.assertEqual(xmas_cas.phase, MarketPhase.CLOSING_AUCTION)
+        self.assertTrue(xmas_cas.is_open)
+        self.assertTrue(xmas_cas.require_limit_orders)
         xmas_closed = evaluate_market_session(
             MarketProfileId.HK_EQUITY,
             datetime(2026, 12, 24, 13, 30, tzinfo=HKT),

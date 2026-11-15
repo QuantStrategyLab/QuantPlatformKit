@@ -168,16 +168,29 @@ def _evaluate_hk_equity(
             require_limit=True,
         )
 
+    def closing_auction_decision(fixing_end: time) -> MarketSessionDecision:
+        if local_time < fixing_end:
+            return make_decision(
+                MarketPhase.CLOSING_AUCTION,
+                is_open=False,
+                trade_date=local_date,
+                allow_market=False,
+                require_limit=False,
+                allow_cancel_only=False,
+                reason="hkex_closing_reference_price_fixing",
+            )
+        return make_decision(
+            MarketPhase.CLOSING_AUCTION,
+            is_open=True,
+            trade_date=local_date,
+            allow_market=False,
+            require_limit=True,
+        )
+
     early_close = early_close_by_date(local_date) if early_close_by_date is not None else None
     if early_close == time(12, 0):
         if local_time < time(12, 10):
-            return make_decision(
-                MarketPhase.CLOSING_AUCTION,
-                is_open=True,
-                trade_date=local_date,
-                allow_market=False,
-                require_limit=True,
-            )
+            return closing_auction_decision(time(12, 1))
         return make_decision(
             MarketPhase.CLOSED,
             is_open=False,
@@ -202,13 +215,7 @@ def _evaluate_hk_equity(
             require_limit=True,
         )
     if local_time < time(16, 10):
-        return make_decision(
-            MarketPhase.CLOSING_AUCTION,
-            is_open=True,
-            trade_date=local_date,
-            allow_market=False,
-            require_limit=True,
-        )
+        return closing_auction_decision(time(16, 1))
     return make_decision(MarketPhase.CLOSED, is_open=False, trade_date=None, reason="outside_hours")
 
 
