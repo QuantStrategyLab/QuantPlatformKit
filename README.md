@@ -152,10 +152,6 @@ and project it using the same snapshot time, without an additional broker read.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). AI assistants and maintainers follow [AGENTS.md](AGENTS.md).
 
-## License
-
-See [LICENSE](LICENSE).
-
 ## v1 migration
 
 `quant_platform_kit.strategy_contracts` was removed in v1. Import strategy contracts from `quant_platform_kit.common.strategy_contracts`, execution translation from `quant_platform_kit.common.execution_translation`, and runtime inputs from `quant_platform_kit.common.runtime_inputs`. No compatibility facade is provided.
@@ -165,3 +161,7 @@ See [LICENSE](LICENSE).
 The local 2.0 migration uses the generic task interface for lifecycle AI calls and distinguishes API tasks from persistent assistants. See the [Chinese migration note](docs/ai-service/task-service-v2.zh-CN.md) for route configuration, approved client artifacts, original-task recovery and research authority boundaries. That note describes an unpublished, undeployed local migration baseline; it is not a current deployment readback.
 
 Display/notification naming configuration: [display names](docs/display-names.md).
+
+## License
+
+See [LICENSE](LICENSE).
