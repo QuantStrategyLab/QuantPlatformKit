@@ -1,3 +1,5 @@
+[English](forward-observation-runtime-contract.md) | 简体中文
+
 # 前瞻观察自动化契约
 
 `quant_platform_kit.strategy_lifecycle.forward_observation` 是策略、插件和平台共用的纯决策层。它不连接券商、不写运行时目标、不部署服务，也不产生订单。

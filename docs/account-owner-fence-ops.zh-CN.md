@@ -1,3 +1,5 @@
+[English](account-owner-fence-ops.md) | 简体中文
+
 # 账户 Owner Fence 运维说明
 
 `claim_account_owner` 在真正提交券商订单前，为**物理账户**建立独占 fence。它与按信号日 / `strategy_profile` 的执行 claim 分开：后者防同信号重复下单，前者防同一资金账户被多个 writer 同时管。

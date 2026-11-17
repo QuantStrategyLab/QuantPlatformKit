@@ -1,3 +1,5 @@
+[English](runtime-selectable-allowlist-v1.md) | 简体中文
+
 # Runtime-selectable allowlist v1
 
 `runtime-selectable allowlist` 描述某个平台在当前部署中可以选择的策略 profile；它不等于策略生命周期状态，也不授予 live 权限。

@@ -1,3 +1,5 @@
+[English](runtime-execution-environment.md) | 简体中文
+
 # 运行执行环境契约
 
 `dry_run_only` 过去同时表达本地预览和 PAPER 的含义，容易把无副作用模拟与真实券商 PAPER 账户混淆。运行目标现用 `execution_environment` 明确表达能力边界：

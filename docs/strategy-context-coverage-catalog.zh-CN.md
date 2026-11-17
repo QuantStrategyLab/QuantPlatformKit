@@ -1,3 +1,5 @@
+[English](strategy-context-coverage-catalog.md) | 简体中文
+
 # 策略—M0 研究覆盖目录
 
 `qsl.strategy-context-coverage-catalog.v1` 是一份版本化、只读的研究覆盖目录。

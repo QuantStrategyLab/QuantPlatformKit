@@ -1,3 +1,5 @@
+[English](paired-shadow-evidence.md) | 简体中文
+
 # P2 真实并行 Shadow 证据契约
 
 `quant_platform_kit.strategy_lifecycle.paired_shadow_evidence` 定义

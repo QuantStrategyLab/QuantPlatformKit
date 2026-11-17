@@ -1,3 +1,5 @@
+[English](strategy-promotion-risk-standard.md) | 简体中文
+
 # 策略晋级与风险标准
 
 本文定义策略晋级、插件自动化、AI 自动优化和 Kelly readiness 的统一门槛。

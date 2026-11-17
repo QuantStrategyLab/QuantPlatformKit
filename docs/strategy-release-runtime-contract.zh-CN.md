@@ -1,3 +1,5 @@
+[English](strategy-release-runtime-contract.md) | 简体中文
+
 # 策略发布与运行时回执契约（v1）
 
 `StrategyReleaseManifest` 是策略、配置、风险规则、证据和插件包的不可变发布记录。它不是一次回测结果，也不能单独授权交易。
