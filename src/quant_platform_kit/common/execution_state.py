@@ -831,6 +831,104 @@ class AccountSubmissionGrant:
     release_id: str
 
 
+_UNSET = object()
+
+
+def _default_utc_clock() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+@dataclass(frozen=True, slots=True)
+class AccountDomainObservation:
+    """Observed account-domain identity and timestamp evidence for an ``AccountSubmissionSession``."""
+
+    account_domain: Mapping[str, Any] | None = None
+    observed_account_id: str | None = None
+    broker_identity: Any = None
+    observed_at: str | None = None
+    decision_at: str | None = None
+    observed_environment: str | None = None
+    observed_server: str | None = None
+    observed_currency: str | None = None
+    observed_lifecycle_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RiskReservationSpec:
+    """Account-currency risk reservation parameters for ``AccountSubmissionSession.reserve_account_risk``."""
+
+    floor: float
+    cost_buffer: float
+    amount: float
+    risk_fraction: float
+    loss_per_unit: float
+    estimated_fee: float
+    quantity_step: float
+    product_leverage_factor: float
+    unit_price: float
+    existing_3x_exposure: float
+    pending_3x_exposure: float
+    leverage_hitl_approved: bool
+    account_budget_policy: Mapping[str, Any]
+
+
+def _resolve_observation(
+    observation: AccountDomainObservation | None,
+    legacy_values: dict[str, Any],
+) -> AccountDomainObservation:
+    if observation is not None:
+        if not isinstance(observation, AccountDomainObservation):
+            raise TypeError("observation must be an AccountDomainObservation")
+        provided = [name for name, value in legacy_values.items() if value is not _UNSET]
+        if provided:
+            raise TypeError(
+                "cannot specify both 'observation' and individual observation keyword arguments: "
+                + ", ".join(provided)
+            )
+        return observation
+    return AccountDomainObservation(
+        account_domain=None if legacy_values["account_domain"] is _UNSET else legacy_values["account_domain"],
+        observed_account_id=(
+            None if legacy_values["observed_account_id"] is _UNSET else legacy_values["observed_account_id"]
+        ),
+        broker_identity=None if legacy_values["broker_identity"] is _UNSET else legacy_values["broker_identity"],
+        observed_at=None if legacy_values["observed_at"] is _UNSET else legacy_values["observed_at"],
+        decision_at=None if legacy_values["decision_at"] is _UNSET else legacy_values["decision_at"],
+        observed_environment=(
+            None if legacy_values["observed_environment"] is _UNSET else legacy_values["observed_environment"]
+        ),
+        observed_server=None if legacy_values["observed_server"] is _UNSET else legacy_values["observed_server"],
+        observed_currency=(
+            None if legacy_values["observed_currency"] is _UNSET else legacy_values["observed_currency"]
+        ),
+        observed_lifecycle_id=(
+            None if legacy_values["observed_lifecycle_id"] is _UNSET else legacy_values["observed_lifecycle_id"]
+        ),
+    )
+
+
+def _resolve_risk_reservation_spec(
+    spec: RiskReservationSpec | None,
+    legacy_values: dict[str, Any],
+) -> RiskReservationSpec:
+    if spec is not None:
+        if not isinstance(spec, RiskReservationSpec):
+            raise TypeError("spec must be a RiskReservationSpec")
+        provided = [name for name, value in legacy_values.items() if value is not _UNSET]
+        if provided:
+            raise TypeError(
+                "cannot specify both 'spec' and individual reservation keyword arguments: "
+                + ", ".join(provided)
+            )
+        return spec
+    missing = [name for name, value in legacy_values.items() if value is _UNSET]
+    if missing:
+        raise TypeError(
+            "reserve_account_risk() missing required keyword-only arguments: " + ", ".join(missing)
+        )
+    return RiskReservationSpec(**legacy_values)
+
+
 @dataclass(frozen=True, init=False, eq=False)
 class AccountSubmissionSession:
     """Stage B: immutable account arbitration, with no UNKNOWN resolution API.
@@ -844,28 +942,70 @@ class AccountSubmissionSession:
 
     contract_version = ACCOUNT_SUBMISSION_CONTRACT
 
-    def __init__(self, store: ExecutionMarkerStore, *, broker: str, account_id: str,
-                 owner_id: str, profile: str, intent_id: str, release_id: str,
-                 account_domain=None, observed_account_id=None, broker_identity=None, observed_at=None, decision_at=None,
-                 observed_environment=None, observed_server=None, observed_currency=None, observed_lifecycle_id=None, clock=None):
+    def __init__(
+        self,
+        store: ExecutionMarkerStore,
+        *,
+        broker: str,
+        account_id: str,
+        owner_id: str,
+        profile: str,
+        intent_id: str,
+        release_id: str,
+        observation: AccountDomainObservation | None = None,
+        account_domain: Any = _UNSET,
+        observed_account_id: Any = _UNSET,
+        broker_identity: Any = _UNSET,
+        observed_at: Any = _UNSET,
+        decision_at: Any = _UNSET,
+        observed_environment: Any = _UNSET,
+        observed_server: Any = _UNSET,
+        observed_currency: Any = _UNSET,
+        observed_lifecycle_id: Any = _UNSET,
+        clock: Callable[[], Any] | None = None,
+    ):
         if not isinstance(store, ExecutionMarkerStore) or not (store.cloud_prefix_uri or store.local_dir):
             raise AccountSubmissionError("existing durable execution store required")
         broker, account = _submission_account(broker, account_id)
-        values = {
-            "store": store, "broker": broker, "account_id": account,
-            "owner_id": _submission_text(owner_id), "profile": _submission_text(profile),
-            "intent_id": _submission_digest(intent_id), "release_id": _submission_digest(release_id),
-            "account_root": "v1/" + submission_binding_digest({"broker": broker, "account_id": account}),
-            "_issued": {}, "_used": set(), "_mutex": threading.RLock(), "_failed": False,
-            "_writer_identity": None,
-            "account_domain": account_domain, "observed_account_id": observed_account_id,
-            "broker_identity": broker_identity, "observed_at": observed_at, "decision_at": decision_at,
-            "observed_environment": observed_environment, "observed_server": observed_server,
-            "observed_currency": observed_currency, "observed_lifecycle_id": observed_lifecycle_id,
-            "clock": clock if clock is not None else lambda: datetime.now(timezone.utc),
-        }
-        for name, value in values.items():
-            object.__setattr__(self, name, value)
+        resolved_observation = _resolve_observation(
+            observation,
+            {
+                "account_domain": account_domain,
+                "observed_account_id": observed_account_id,
+                "broker_identity": broker_identity,
+                "observed_at": observed_at,
+                "decision_at": decision_at,
+                "observed_environment": observed_environment,
+                "observed_server": observed_server,
+                "observed_currency": observed_currency,
+                "observed_lifecycle_id": observed_lifecycle_id,
+            },
+        )
+        account_root = "v1/" + submission_binding_digest({"broker": broker, "account_id": account})
+        object.__setattr__(self, "store", store)
+        object.__setattr__(self, "broker", broker)
+        object.__setattr__(self, "account_id", account)
+        object.__setattr__(self, "owner_id", _submission_text(owner_id))
+        object.__setattr__(self, "profile", _submission_text(profile))
+        object.__setattr__(self, "intent_id", _submission_digest(intent_id))
+        object.__setattr__(self, "release_id", _submission_digest(release_id))
+        object.__setattr__(self, "account_root", account_root)
+        object.__setattr__(self, "_issued", {})
+        object.__setattr__(self, "_used", set())
+        object.__setattr__(self, "_mutex", threading.RLock())
+        object.__setattr__(self, "_failed", False)
+        object.__setattr__(self, "_writer_identity", None)
+        object.__setattr__(self, "observation", resolved_observation)
+        object.__setattr__(self, "account_domain", resolved_observation.account_domain)
+        object.__setattr__(self, "observed_account_id", resolved_observation.observed_account_id)
+        object.__setattr__(self, "broker_identity", resolved_observation.broker_identity)
+        object.__setattr__(self, "observed_at", resolved_observation.observed_at)
+        object.__setattr__(self, "decision_at", resolved_observation.decision_at)
+        object.__setattr__(self, "observed_environment", resolved_observation.observed_environment)
+        object.__setattr__(self, "observed_server", resolved_observation.observed_server)
+        object.__setattr__(self, "observed_currency", resolved_observation.observed_currency)
+        object.__setattr__(self, "observed_lifecycle_id", resolved_observation.observed_lifecycle_id)
+        object.__setattr__(self, "clock", clock if clock is not None else _default_utc_clock)
         location = self._location()
         lock_key = str(location) if store.cloud_prefix_uri else str(location.resolve())
         with _ACCOUNT_SUBMISSION_LOCKS_MUTEX:
@@ -1374,11 +1514,45 @@ class AccountSubmissionSession:
                 "open_orders_complete": True, "positions": positions, "open_orders_empty": open_orders_empty,
             })
 
-    def reserve_account_risk(self, order, *, snapshot, floor, cost_buffer, amount, risk_fraction,
-                             loss_per_unit, estimated_fee, quantity_step, product_leverage_factor,
-                             unit_price, existing_3x_exposure, pending_3x_exposure, leverage_hitl_approved,
-                             account_budget_policy):
+    def reserve_account_risk(
+        self,
+        order,
+        *,
+        snapshot,
+        spec: RiskReservationSpec | None = None,
+        floor: Any = _UNSET,
+        cost_buffer: Any = _UNSET,
+        amount: Any = _UNSET,
+        risk_fraction: Any = _UNSET,
+        loss_per_unit: Any = _UNSET,
+        estimated_fee: Any = _UNSET,
+        quantity_step: Any = _UNSET,
+        product_leverage_factor: Any = _UNSET,
+        unit_price: Any = _UNSET,
+        existing_3x_exposure: Any = _UNSET,
+        pending_3x_exposure: Any = _UNSET,
+        leverage_hitl_approved: Any = _UNSET,
+        account_budget_policy: Any = _UNSET,
+    ):
         """Atomically reserve account-currency risk; reservations are never auto-released."""
+        resolved_spec = _resolve_risk_reservation_spec(
+            spec,
+            {
+                "floor": floor,
+                "cost_buffer": cost_buffer,
+                "amount": amount,
+                "risk_fraction": risk_fraction,
+                "loss_per_unit": loss_per_unit,
+                "estimated_fee": estimated_fee,
+                "quantity_step": quantity_step,
+                "product_leverage_factor": product_leverage_factor,
+                "unit_price": unit_price,
+                "existing_3x_exposure": existing_3x_exposure,
+                "pending_3x_exposure": pending_3x_exposure,
+                "leverage_hitl_approved": leverage_hitl_approved,
+                "account_budget_policy": account_budget_policy,
+            },
+        )
         from quant_platform_kit.common.account_risk_budget import (
             available_new_risk_budget, maximum_risk_quantity,
         )
@@ -1416,69 +1590,80 @@ class AccountSubmissionSession:
             if not protected_envelope.new_risk_allowed:
                 raise AccountSubmissionError("protected drawdown brake prohibits new risk")
             order_digest, quantity = self._order(order)
-            if type(leverage_hitl_approved) is not bool:
+            if type(resolved_spec.leverage_hitl_approved) is not bool:
                 raise AccountSubmissionError("invalid leverage approval fact")
             from quant_platform_kit.common.account_domain import _time
             if not _time(observed["valuation_at"]) <= _time(self.observed_at) <= _time(self.decision_at) < _time(observed["valid_until"]):
                 raise AccountSubmissionError("account valuation is stale")
-            if snapshot.get("account_id") != self.account_id or pending_3x_exposure != observed["pending_3x_exposure"]:
+            if snapshot.get("account_id") != self.account_id or resolved_spec.pending_3x_exposure != observed["pending_3x_exposure"]:
                 raise AccountSubmissionError("snapshot account or pending exposure mismatch")
-            factor = _submission_number(product_leverage_factor)
-            price = _submission_number(unit_price)
-            existing_3x = _submission_number(existing_3x_exposure)
-            pending_3x = _submission_number(pending_3x_exposure)
+            factor = _submission_number(resolved_spec.product_leverage_factor)
+            price = _submission_number(resolved_spec.unit_price)
+            existing_3x = _submission_number(resolved_spec.existing_3x_exposure)
+            pending_3x = _submission_number(resolved_spec.pending_3x_exposure)
             if factor not in (1.0, 3.0) or price <= 0 or existing_3x < 0 or pending_3x < 0 or existing_3x != observed["position_3x_exposure"]:
                 raise AccountSubmissionError("known product exposure and pending exposure required")
             if factor == 3.0:
-                if protected_envelope.leverage_product_cap.new_leverage_requires_hitl and leverage_hitl_approved is not True:
+                if protected_envelope.leverage_product_cap.new_leverage_requires_hitl and resolved_spec.leverage_hitl_approved is not True:
                     raise AccountSubmissionError("leverage approval required")
                 cap = protected_envelope.leverage_product_cap.max_3x_etf_weight * observed["equity"]
                 reserved_3x = sum(item["remaining_3x_exposure"] for item in state["risk_reservations"].values())
                 if existing_3x + pending_3x + reserved_3x + quantity * price > cap:
                     raise AccountSubmissionError("product leverage cap exceeded")
-            amount = _submission_number(amount)
-            max_quantity = maximum_risk_quantity(budget=amount, loss_per_unit=loss_per_unit,
-                                                 estimated_fee=estimated_fee, quantity_step=quantity_step)
-            quantity_steps = Fraction(str(quantity)) / Fraction(str(quantity_step))
+            reserved_amount = _submission_number(resolved_spec.amount)
+            max_quantity = maximum_risk_quantity(
+                budget=reserved_amount,
+                loss_per_unit=resolved_spec.loss_per_unit,
+                estimated_fee=resolved_spec.estimated_fee,
+                quantity_step=resolved_spec.quantity_step,
+            )
+            quantity_steps = Fraction(str(quantity)) / Fraction(str(resolved_spec.quantity_step))
             if quantity > max_quantity or abs(quantity_steps - round(quantity_steps)) > Fraction(1, 10**9):
                 raise AccountSubmissionError("quantity exceeds reserved risk or step")
-            if amount <= 0 or order_digest in state["risk_reservations"]:
+            if reserved_amount <= 0 or order_digest in state["risk_reservations"]:
                 raise AccountSubmissionError("invalid or duplicate account risk reservation")
             expected_fields = {"preference", "version", "source", "per_trade_fraction", "total_future_risk_limit", "floor", "cost_buffer", "contract_floor"}
-            if not isinstance(account_budget_policy, Mapping) or set(account_budget_policy) != expected_fields:
+            policy = resolved_spec.account_budget_policy
+            if not isinstance(policy, Mapping) or set(policy) != expected_fields:
                 raise AccountSubmissionError("explicit account budget policy required")
-            if any(account_budget_policy[key] != domain["policy"][key] for key in ("preference", "version", "source")):
+            if any(policy[key] != domain["policy"][key] for key in ("preference", "version", "source")):
                 raise AccountSubmissionError("account budget policy binding mismatch")
-            policy_fraction = _submission_number(account_budget_policy["per_trade_fraction"])
-            total_limit = _submission_number(account_budget_policy["total_future_risk_limit"])
-            if (policy_fraction != _submission_number(risk_fraction) or total_limit < 0
-                    or _submission_number(account_budget_policy["floor"]) != _submission_number(floor)
-                    or _submission_number(account_budget_policy["cost_buffer"]) != _submission_number(cost_buffer)):
+            policy_fraction = _submission_number(policy["per_trade_fraction"])
+            total_limit = _submission_number(policy["total_future_risk_limit"])
+            if (policy_fraction != _submission_number(resolved_spec.risk_fraction) or total_limit < 0
+                    or _submission_number(policy["floor"]) != _submission_number(resolved_spec.floor)
+                    or _submission_number(policy["cost_buffer"]) != _submission_number(resolved_spec.cost_buffer)):
                 raise AccountSubmissionError("account budget policy values mismatch")
             if domain["policy"]["capital_kind"] == "FTMO_SIMULATED":
-                contract_floor = _submission_number(account_budget_policy["contract_floor"])
-                if contract_floor <= 0 or _submission_number(floor) < contract_floor:
+                contract_floor = _submission_number(policy["contract_floor"])
+                if contract_floor <= 0 or _submission_number(resolved_spec.floor) < contract_floor:
                     raise AccountSubmissionError("FTMO confirmed contract floor required")
-                if _submission_number(risk_fraction) > 0.005:
+                if _submission_number(resolved_spec.risk_fraction) > 0.005:
                     raise AccountSubmissionError("FTMO risk fraction exceeds offline cap")
-            elif account_budget_policy["contract_floor"] is not None:
+            elif policy["contract_floor"] is not None:
                 raise AccountSubmissionError("unexpected contract floor for own account")
             existing = state["snapshot_position_risk"] + sum(item["remaining_amount"] for item in state["risk_reservations"].values())
-            budget = available_new_risk_budget(snapshot, currency=binding["currency"], floor=floor,
-                                               reserved=existing, cost_buffer=cost_buffer, risk_fraction=risk_fraction)
-            if amount > budget or existing + amount > total_limit:
+            budget = available_new_risk_budget(
+                snapshot,
+                currency=binding["currency"],
+                floor=resolved_spec.floor,
+                reserved=existing,
+                cost_buffer=resolved_spec.cost_buffer,
+                risk_fraction=resolved_spec.risk_fraction,
+            )
+            if reserved_amount > budget or existing + reserved_amount > total_limit:
                 raise AccountSubmissionError("account risk budget exceeded")
             return self._append(state, "RISK_RESERVED", {
-                "order_sha256": order_digest, "amount": amount, "currency": binding["currency"],
+                "order_sha256": order_digest, "amount": reserved_amount, "currency": binding["currency"],
                 "valuation_at": snapshot["valuation_at"], "source_digest": snapshot["source_digest"],
                 "reserved_3x_exposure": quantity * price if factor == 3.0 else 0.0,
-                "quantity": quantity, "estimated_fee": float(estimated_fee),
-                "loss_per_unit": float(loss_per_unit), "quantity_step": float(quantity_step),
-                "risk_fraction": float(risk_fraction), "product_leverage_factor": factor,
+                "quantity": quantity, "estimated_fee": float(resolved_spec.estimated_fee),
+                "loss_per_unit": float(resolved_spec.loss_per_unit), "quantity_step": float(resolved_spec.quantity_step),
+                "risk_fraction": float(resolved_spec.risk_fraction), "product_leverage_factor": factor,
                 "unit_price": price, "existing_3x_exposure": existing_3x,
-                "pending_3x_exposure": pending_3x, "floor": float(floor),
-                "cost_buffer": float(cost_buffer), "leverage_hitl_approved": leverage_hitl_approved,
-                "account_budget_policy": dict(account_budget_policy),
+                "pending_3x_exposure": pending_3x, "floor": float(resolved_spec.floor),
+                "cost_buffer": float(resolved_spec.cost_buffer), "leverage_hitl_approved": resolved_spec.leverage_hitl_approved,
+                "account_budget_policy": dict(policy),
             })
 
     def reconcile_account_risk(self, *, attempt_id, filled_quantity, actual_fee, snapshot_position_risk, source_digest):

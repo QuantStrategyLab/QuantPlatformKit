@@ -1464,3 +1464,185 @@ def test_risk_reservation_cannot_be_shared_by_two_intents(tmp_path):
         restarted._append(state, "PREPARED", duplicate)
     with pytest.raises(AccountSubmissionError, match="reservation already used or missing"):
         restarted.read_state()
+
+
+def test_account_domain_observation_and_risk_reservation_spec_value_objects(tmp_path):
+    from dataclasses import FrozenInstanceError
+    import pytest
+    from quant_platform_kit.common.account_domain import account_domain_key
+    from quant_platform_kit.common.account_identity import BrokerAccountIdentity
+    from quant_platform_kit.common.execution_state import (
+        AccountDomainObservation,
+        AccountSubmissionError,
+        AccountSubmissionSession,
+        RiskReservationSpec,
+    )
+    from quant_platform_kit.common.models import OrderIntent
+
+    domain = {
+        "identity": {
+            "environment": "LIVE",
+            "platform_id": "ibkr",
+            "server": "synthetic",
+            "account_id_fingerprint": "sha256:" + "1" * 64,
+            "lifecycle_id": "one",
+        },
+        "policy": {
+            "capital_kind": "OWN_REAL",
+            "product": "BROKERAGE",
+            "phase": "LIVE",
+            "account_type": "CASH",
+            "style": "INTRADAY",
+            "preference": "CAPITAL_PRESERVATION",
+            "currency": "USD",
+            "source": "synthetic",
+            "effective_at": "2026-10-01T00:00:00Z",
+            "valid_until": "2026-11-01T00:00:00Z",
+            "version": "one",
+        },
+    }
+    observed = BrokerAccountIdentity(
+        platform_id="ibkr",
+        account_types=("CASH",),
+        account_modes=("LIVE",),
+        account_id_fingerprint="sha256:" + "1" * 64,
+    )
+    observation = AccountDomainObservation(
+        account_domain=domain,
+        observed_account_id="U00000001",
+        broker_identity=observed,
+        observed_at="2026-10-30T02:00:00Z",
+        decision_at="2026-10-30T02:00:00Z",
+        observed_environment="LIVE",
+        observed_server="synthetic",
+        observed_currency="USD",
+        observed_lifecycle_id="one",
+    )
+    policy = {
+        "preference": "CAPITAL_PRESERVATION",
+        "version": "one",
+        "source": "synthetic",
+        "per_trade_fraction": 0.005,
+        "total_future_risk_limit": 1000,
+        "contract_floor": None,
+        "floor": 9000,
+        "cost_buffer": 10,
+    }
+    spec = RiskReservationSpec(
+        floor=9000,
+        cost_buffer=10,
+        amount=40,
+        risk_fraction=0.005,
+        loss_per_unit=3,
+        estimated_fee=2,
+        quantity_step=1,
+        product_leverage_factor=1,
+        unit_price=100,
+        existing_3x_exposure=0,
+        pending_3x_exposure=0,
+        leverage_hitl_approved=False,
+        account_budget_policy=policy,
+    )
+
+    assert hasattr(AccountDomainObservation, "__slots__")
+    assert hasattr(RiskReservationSpec, "__slots__")
+    with pytest.raises(FrozenInstanceError):
+        observation.decision_at = "2026-10-30T03:00:00Z"  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        spec.amount = 100  # type: ignore[misc]
+
+    store = ExecutionMarkerStore(local_dir=tmp_path)
+    with pytest.raises(TypeError, match="AccountDomainObservation"):
+        AccountSubmissionSession(
+            store,
+            broker="ibkr",
+            account_id="U00000001",
+            owner_id="owner",
+            profile="profile",
+            intent_id="a" * 64,
+            release_id="b" * 64,
+            observation={"observed_at": "2026-10-30T02:00:00Z"},  # type: ignore[arg-type]
+        )
+    with pytest.raises(TypeError, match="cannot specify both 'observation'"):
+        AccountSubmissionSession(
+            store,
+            broker="ibkr",
+            account_id="U00000001",
+            owner_id="owner",
+            profile="profile",
+            intent_id="a" * 64,
+            release_id="b" * 64,
+            observation=observation,
+            observed_at="2026-10-30T02:00:00Z",
+        )
+
+    session = AccountSubmissionSession(
+        store,
+        broker="ibkr",
+        account_id="U00000001",
+        owner_id="owner",
+        profile="profile",
+        intent_id="a" * 64,
+        release_id="b" * 64,
+        observation=observation,
+        clock=lambda: "2026-10-30T02:00:00Z",
+    )
+    assert session.observation == observation
+    assert session.observed_account_id == "U00000001"
+    assert session.decision_at == "2026-10-30T02:00:00Z"
+
+    order = OrderIntent(symbol="VOO", side="buy", quantity=1, account_id="U00000001")
+    with pytest.raises(AccountSubmissionError, match="risk reservation required"):
+        session.reserve(order)
+
+    snapshot = {
+        "balance": 60000,
+        "equity": 60000,
+        "cash": 10000,
+        "currency": "USD",
+        "valuation_at": "2026-10-30T00:00:00Z",
+        "source_digest": "sha256:" + "2" * 64,
+        "complete": True,
+        "position_risk": 0,
+        "position_3x_exposure": 0,
+        "account_domain_key": account_domain_key(domain),
+        "account_id": "U00000001",
+        "valid_until": "2026-10-30T04:00:00Z",
+        "pending_3x_exposure": 0,
+        "open_orders_complete": True,
+        "positions": {"VOO": 2},
+        "open_orders_empty": True,
+    }
+    session.record_account_equity(snapshot=snapshot, cash_flow=0, baseline_confirmed=True)
+
+    with pytest.raises(TypeError, match="RiskReservationSpec"):
+        session.reserve_account_risk(order, snapshot=snapshot, spec={"amount": 40})  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="cannot specify both 'spec'"):
+        session.reserve_account_risk(order, snapshot=snapshot, spec=spec, amount=40)
+    with pytest.raises(TypeError, match="missing required keyword-only arguments"):
+        session.reserve_account_risk(order, snapshot=snapshot, floor=9000)
+
+    # 3x leverage >=50k still requires HITL approval when passed via RiskReservationSpec.
+    lev_spec = RiskReservationSpec(
+        floor=9000,
+        cost_buffer=10,
+        amount=40,
+        risk_fraction=0.005,
+        loss_per_unit=3,
+        estimated_fee=2,
+        quantity_step=1,
+        product_leverage_factor=3,
+        unit_price=100,
+        existing_3x_exposure=0,
+        pending_3x_exposure=0,
+        leverage_hitl_approved=False,
+        account_budget_policy=policy,
+    )
+    with pytest.raises(AccountSubmissionError, match="leverage approval required"):
+        session.reserve_account_risk(order, snapshot=snapshot, spec=lev_spec)
+
+    session.reserve_account_risk(order, snapshot=snapshot, spec=spec)
+    grant = session.reserve(order)
+    report = session.dispatch(grant, order, lambda: _account_report("Submitted"))
+    assert report.status == "Submitted"
+    assert sum(item["amount"] for item in session.read_state()["risk_reservations"].values()) == 40
