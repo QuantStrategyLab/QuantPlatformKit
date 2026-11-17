@@ -1,3 +1,5 @@
+[English](strategy-lifecycle-terminology.md) | 简体中文
+
 # 新量化系统生命周期术语
 
 新系统不再把 `research-only` 理解为“停止开发”。它表示策略仍可由自动化研究系统持续处理，但尚未获得交易权限。

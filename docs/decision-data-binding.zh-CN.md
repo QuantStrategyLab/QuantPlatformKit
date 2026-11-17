@@ -1,3 +1,5 @@
+[English](decision-data-binding.md) | 简体中文
+
 # 决策数据绑定（v1）
 
 `DecisionDataBinding` 用来说明某次策略决策依赖的历史市场数据证据，和券商账户、实时执行报价、订单执行是三条不同的通道。

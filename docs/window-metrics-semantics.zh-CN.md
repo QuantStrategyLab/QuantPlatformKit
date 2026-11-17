@@ -1,3 +1,5 @@
+[English](window-metrics-semantics.md) | 简体中文
+
 # 窗口指标口径（`compute_window_metrics`，qpk.window_metrics.v2）
 
 适用：`quant_platform_kit.strategy_lifecycle.performance_metrics.compute_window_metrics` / `compute_windows` 产出的 `WindowPerformance`。背景见 [#659](https://github.com/QuantStrategyLab/QuantPlatformKit/issues/659)。

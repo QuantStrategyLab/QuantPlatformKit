@@ -1,3 +1,5 @@
+[English](kelly-contract-v2.md) | 简体中文
+
 # Kelly 契约 v2（研究-only）
 
 更新：2026-10-03。对应 2026-10-02 长期复利/Kelly 审计 F04 与次级 API 修复。本文只定义 QPK helper 单位与兼容边界，不授予 paper/live 权限，也不修改交易消费者。

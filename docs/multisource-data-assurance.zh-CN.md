@@ -1,3 +1,5 @@
+[English](multisource-data-assurance.md) | 简体中文
+
 # 多源日线数据一致性关卡
 
 `quant_platform_kit.data.multisource_assurance` 是所有市场、策略、平台与插件共用的纯校验层。它不联网、不存储行情、不访问券商，也不会替某个来源自动补数或改写数据。

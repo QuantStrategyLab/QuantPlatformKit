@@ -1,3 +1,5 @@
+[English](broker-reconciliation-continuity.md) | 简体中文
+
 # 旧实盘基线的券商对账恢复契约
 
 `RECONCILE_ONLY` 是旧实盘基线在迁移、配置漂移或运行异常后使用的

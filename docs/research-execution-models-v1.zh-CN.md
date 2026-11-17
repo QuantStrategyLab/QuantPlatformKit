@@ -1,3 +1,5 @@
+[English](research-execution-models-v1.md) | 简体中文
+
 # 研究成交与成本口径 v1（A2）
 
 `quant_platform_kit.research_stats.execution_models` 提供标准库纯函数接口，

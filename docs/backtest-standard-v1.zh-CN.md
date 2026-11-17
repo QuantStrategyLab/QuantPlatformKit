@@ -1,3 +1,5 @@
+[English](backtest-standard-v1.md) | 简体中文
+
 # QSL 回测标准 v1（研究侧）
 
 版本：v1（2026-10-10）。状态：研究标准，**仅文档**。
