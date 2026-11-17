@@ -1,3 +1,5 @@
+[English](adaptive-allocation-control-plane.md) | 简体中文
+
 # 自适应配置控制面（Shadow-only 观察切片）
 
 本模块提供统一、只读的 Shadow 决策记录，不提供交易授权。它解决的是“为什么建议某个

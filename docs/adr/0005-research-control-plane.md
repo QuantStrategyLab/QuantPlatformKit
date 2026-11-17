@@ -159,7 +159,7 @@ documentation update or imply that it has been published.
 | Design area | Existing implementation | Evidence boundary |
 | --- | --- | --- |
 | Candidate identity and research roles | [`candidate_control.py`](../../src/quant_platform_kit/strategy_lifecycle/candidate_control.py) and [`research_factory`](../../src/quant_platform_kit/research_factory/) | Implemented contracts; capability declarations do not prove deployed process/identity isolation |
-| Frozen experiments and recovery | [Research promotion recovery](../research-promotion-resume.zh-CN.md) | Implemented local persistence and synthetic regression coverage; cross-host admission belongs to the actual scheduler |
+| Frozen experiments and recovery | [`research_promotion`](../../src/quant_platform_kit/strategy_lifecycle/research_promotion/) and [`research_promotion_cycle.py`](../../src/quant_platform_kit/strategy_lifecycle/research_promotion_cycle.py) | Implemented local persistence and synthetic regression coverage; cross-host admission belongs to the actual scheduler |
 | Paired forward evidence | [Paired shadow evidence](../paired-shadow-evidence.zh-CN.md) | Implemented validation contract; production monitoring alone is not candidate/baseline forward evidence |
 | Network-assisted design and bounded repair | [AAB implementation entry points](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/README.md) and [bounded research evidence](https://github.com/QuantStrategyLab/QuantAIService/blob/16f5d6d037b38c7e417f1aeb88b4b60b9d9dcd1c/docs/bounded_research_diagnosis.md) | Specific SOXL, Global ETF, CN and engineering lanes; no general unattended rewrite or open-network factory completion claim |
 

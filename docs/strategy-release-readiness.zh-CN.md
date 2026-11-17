@@ -1,3 +1,5 @@
+[English](strategy-release-readiness.md) | 简体中文
+
 # 策略发布就绪门禁
 
 `assess_strategy_release_readiness` 是策略、平台和插件共用的发布前纯函数。它不连接经纪商、不修改参数，也不会部署或下单。

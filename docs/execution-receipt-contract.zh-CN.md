@@ -1,3 +1,5 @@
+[English](execution-receipt-contract.md) | 简体中文
+
 # 执行回执契约 v1
 
 `qsl_execution_receipt.v1` 是一条**只读、最小化**的执行结果事实。它用于让控制台区分

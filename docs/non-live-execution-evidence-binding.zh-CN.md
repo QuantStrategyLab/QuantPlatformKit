@@ -1,3 +1,5 @@
+[English](non-live-execution-evidence-binding.md) | 简体中文
+
 # 非 Live 运行证据绑定
 
 `quant_platform_kit.strategy_lifecycle.non_live_execution_evidence` 定义

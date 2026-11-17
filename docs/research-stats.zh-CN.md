@@ -1,3 +1,5 @@
+[English](research-stats.md) | 简体中文
+
 # research_stats（RS-01，研究-only）
 
 `quant_platform_kit.research_stats` 是回测证据的研究统计原语。它**不**读取账户、不调用券商、不下单、不写风险政策，也不授予 paper/shadow/live 权限。运行时、执行内核和通知模块不得 import 它（`tests/test_research_stats_import_boundary.py` 强制）。

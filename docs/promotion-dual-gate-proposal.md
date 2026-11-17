@@ -14,7 +14,7 @@ permits owner review. It changes no runtime policy, allocation or trial ledger.
 继续遵守[策略晋级与风险标准](strategy-promotion-risk-standard.zh-CN.md)：
 `live_ready` 与 `kelly_ready` 分开，Kelly 只能收紧既有上限；样本不足、
 身份不一致、证据缺失不能以零值代替，也不能变为交易资格。
-[B3 统一净收益报告](unified-net-report.zh-CN.md) 固定
+[B3 统一净收益报告](unified-net-report.md) 固定
 `live_ready=False`、`no_order=True`，报告指标不是授权。
 
 本提案将 **252 个合格运营 shadow 日**作为拟议运营门槛，须由 owner

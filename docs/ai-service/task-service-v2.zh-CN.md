@@ -1,3 +1,5 @@
+[English](task-service-v2.md) | 简体中文
+
 # 生命周期 AI 任务接口迁移
 
 本地升级基线：QuantPlatformKit `350dd38ece0952beef096893a7dcf8ae3871609a`。尚未提交、发布或部署；调用方的现有远端依赖固定版本不会自动包含这些改动。

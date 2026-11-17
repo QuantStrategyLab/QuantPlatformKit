@@ -1,3 +1,5 @@
+[English](qpk-repo-sync-auth.md) | 简体中文
+
 # QPK 下游 Pin 自动化 Token 配置
 
 `open-downstream-qpk-pin-prs` workflow 默认使用 GitHub App installation token 跨仓 push 分支并开 PR；

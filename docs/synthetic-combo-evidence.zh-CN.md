@@ -1,3 +1,5 @@
+[English](synthetic-combo-evidence.md) | 简体中文
+
 ## Synthetic Combo Evidence
 
 - 该模块仅用于 `learning_only` 的 synthetic 组合研究证据。

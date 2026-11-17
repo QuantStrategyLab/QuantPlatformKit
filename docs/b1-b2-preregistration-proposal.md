@@ -138,7 +138,7 @@ A2 adapter 目前仅单证券、零收益现金、合成或一致的复权 OHLC�
 ## 终点、统计与多重检验
 
 主终点拟为同一会话净对数增长相对固定 50% 的 paired difference。
-按[B3 报告](unified-net-report.zh-CN.md)输出八项：净 g、同频未年化 Sharpe
+按[B3 报告](unified-net-report.md)输出八项：净 g、同频未年化 Sharpe
 `ddof=1`、PSR、累计试验 DSR、MinTRL、fractional-tail CVaR95、含初始
 NAV 的最大回撤及同路径 gross/net 成本拖累。不同仓位路径间的增长差
 不能当作成本 drag。CVaR 和回撤为负损失口径；不可计算保留原因/None。

@@ -1,3 +1,5 @@
+[English](execution-outcomes.md) | 简体中文
+
 # 不可变执行 outcome
 
 `ExecutionMarkerStore` 将执行去重 claim 与执行 outcome 分离存放：

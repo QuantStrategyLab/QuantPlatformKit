@@ -1,3 +1,5 @@
+[English](operational-attention-v1.md) | 简体中文
+
 # 可行动注意力门槛 V1（AttentionLevel）
 
 > 范围：通知分级 / 人工恢复路由；不授权 live、不抬 RRL、不做 Kelly。

@@ -1,3 +1,5 @@
+[English](capital-envelope-target-scale-v1.md) | 简体中文
+
 # 资金信封目标缩仓与 Attention 预算
 
 ## API
