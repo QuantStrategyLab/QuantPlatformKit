@@ -4,6 +4,10 @@ updates:
   directory: "/"
   schedule:
     interval: "weekly"
+  groups:
+    actions-minor-and-patch:
+      patterns:
+        - "*"
   open-pull-requests-limit: 5
   ignore:
   - dependency-name: "*"
