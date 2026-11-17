@@ -39,7 +39,7 @@ Cross-repository sync tokens only open downstream PRs; they never deploy service
 
 ### Organization GitHub App
 
-1. Install the organization App `QSL QPK Pin Sync 20260920` (App ID `5004823`) on `QuantStrategyLab`.
+1. Install the organization GitHub App (`<github-app-name>`, App ID `<github-app-id>`) on `QuantStrategyLab`.
 2. Grant `Contents: Read and write` and `Pull requests: Read and write` (plus required metadata read access) solely to the 15 target repositories.
 3. Save the App ID in `QSL_GITHUB_APP_ID` and the primary private key PEM in `QSL_GITHUB_APP_PRIVATE_KEY`.
 4. Generate a second private key in App settings and store it in `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY` for rotation and failover.
