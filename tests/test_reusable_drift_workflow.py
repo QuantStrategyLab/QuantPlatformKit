@@ -47,7 +47,8 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'repository: ${{ inputs.snapshot_repository }}' in workflow
     assert 'ref: ${{ inputs.snapshot_repository_ref }}' in workflow
     assert 'path: ${{ inputs.snapshot_checkout_path }}' in workflow
-    assert 'token: ${{ secrets.snapshot_repository_token || github.token }}' in workflow
+    assert 'token: ${{ steps.drift_app_token.outputs.token || secrets.snapshot_repository_token || github.token }}' in workflow
+    assert 'token: ${{ steps.drift_app_token.outputs.token }}' in workflow
     assert 'ref: ${{ inputs.quant_platform_kit_ref }}' in workflow
     assert "Download lifecycle preflight artifact" in workflow
     assert "actions/download-artifact@v7" in workflow
@@ -79,6 +80,31 @@ def test_reusable_drift_runner_defaults_to_hosted_and_accepts_research_runner():
     assert "runs-on: ${{ fromJSON(inputs.runner_labels) }}" in workflow
     assert "default: '\"ubuntu-latest\"'" in workflow
     assert "runs-on: ubuntu-latest" not in workflow
+
+
+def test_reusable_drift_supports_readonly_app_token_and_fail_closed_mode() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[1]
+        / ".github"
+        / "workflows"
+        / "reusable-drift-check.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "disable_legacy_pat_fallback:" in workflow
+    assert "qsl_drift_app_id:" in workflow
+    assert "qsl_drift_app_private_key:" in workflow
+    assert 'echo "snapshot_repo_name=${snapshot_repo#*/}" >> "$GITHUB_OUTPUT"' in workflow
+    assert "actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2" in workflow
+    assert "if: ${{ steps.validate_caller.outputs.has_drift_app_credentials == 'true' }}" in workflow
+    assert "continue-on-error: ${{ !inputs.disable_legacy_pat_fallback }}" in workflow
+    assert "owner: QuantStrategyLab" in workflow
+    assert "repositories: ${{ steps.validate_caller.outputs.snapshot_repo_name }}" in workflow
+    assert "permission-contents: read" in workflow
+    assert "permission-actions: read" in workflow
+    assert "if: ${{ inputs.disable_legacy_pat_fallback && steps.drift_app_token.outputs.token == '' }}" in workflow
+    assert "disable_legacy_pat_fallback=true requires a minted qsl_drift_app token" in workflow
+    assert "if: ${{ !inputs.disable_legacy_pat_fallback }}" in workflow
+    assert "if: ${{ inputs.disable_legacy_pat_fallback }}" in workflow
 
 
 def test_drift_review_receives_measured_evidence_and_keeps_rejection(monkeypatch, capsys):

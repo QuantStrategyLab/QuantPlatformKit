@@ -91,8 +91,17 @@ on:
         required: false
         type: string
         default: ""
+      disable_legacy_pat_fallback:
+        description: Fail closed unless the dedicated read-only drift GitHub App token is minted
+        required: false
+        type: boolean
+        default: false
     secrets:
       snapshot_repository_token:
+        required: false
+      qsl_drift_app_id:
+        required: false
+      qsl_drift_app_private_key:
         required: false
 
 permissions:
@@ -118,11 +127,14 @@ jobs:
 
     steps:
       - name: Validate trusted caller
+        id: validate_caller
         env:
           CALLER_REPOSITORY: ${{ github.repository }}
           CALLER_EVENT_NAME: ${{ inputs.caller_event_name }}
           CALLER_PR_HEAD_REPOSITORY: ${{ inputs.caller_pr_head_repository }}
           SNAPSHOT_REPOSITORY: ${{ inputs.snapshot_repository }}
+          QSL_DRIFT_APP_ID: ${{ secrets.qsl_drift_app_id }}
+          QSL_DRIFT_APP_PRIVATE_KEY: ${{ secrets.qsl_drift_app_private_key }}
         shell: bash
         run: |
           set -euo pipefail
@@ -173,16 +185,52 @@ jobs:
             echo "::error::snapshot_repository mismatch for caller $caller_repo: $snapshot_repo"
             exit 1
           fi
+          echo "snapshot_repo_name=${snapshot_repo#*/}" >> "$GITHUB_OUTPUT"
+          if [ -n "${QSL_DRIFT_APP_ID:-}" ] && [ -n "${QSL_DRIFT_APP_PRIVATE_KEY:-}" ]; then
+            echo "has_drift_app_credentials=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_drift_app_credentials=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Mint read-only drift App token
+        id: drift_app_token
+        continue-on-error: ${{ !inputs.disable_legacy_pat_fallback }}
+        if: ${{ steps.validate_caller.outputs.has_drift_app_credentials == 'true' }}
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.qsl_drift_app_id }}
+          private-key: ${{ secrets.qsl_drift_app_private_key }}
+          owner: QuantStrategyLab
+          repositories: ${{ steps.validate_caller.outputs.snapshot_repo_name }}
+          permission-contents: read
+          permission-actions: read
+
+      - name: Enforce read-only drift App token
+        if: ${{ inputs.disable_legacy_pat_fallback && steps.drift_app_token.outputs.token == '' }}
+        shell: bash
+        run: |
+          echo "::error::disable_legacy_pat_fallback=true requires a minted qsl_drift_app token"
+          exit 1
+
       - name: Checkout snapshot pipeline repo
+        if: ${{ !inputs.disable_legacy_pat_fallback }}
         uses: actions/checkout@v6
         with:
           repository: ${{ inputs.snapshot_repository }}
           ref: ${{ inputs.snapshot_repository_ref }}
-          token: ${{ secrets.snapshot_repository_token || github.token }}
+          token: ${{ steps.drift_app_token.outputs.token || secrets.snapshot_repository_token || github.token }}
+          path: ${{ inputs.snapshot_checkout_path }}
+
+      - name: Checkout snapshot pipeline repo (App token only)
+        if: ${{ inputs.disable_legacy_pat_fallback }}
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.snapshot_repository }}
+          ref: ${{ inputs.snapshot_repository_ref }}
+          token: ${{ steps.drift_app_token.outputs.token }}
           path: ${{ inputs.snapshot_checkout_path }}
 
       - name: Checkout QuantPlatformKit
