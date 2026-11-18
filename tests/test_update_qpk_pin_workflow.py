@@ -251,7 +251,10 @@ def test_dependency_success_reaches_only_guarded_pr_step(tmp_path: Path) -> None
 def test_pin_update_requires_explicit_main_dispatch(event_name, ref, expected) -> None:
     workflow = _workflow()
     triggers = workflow.split("\non:\n", 1)[1].split("\npermissions:", 1)[0]
-    assert triggers.strip() == "workflow_dispatch:"
+    assert triggers.strip().startswith("workflow_dispatch:")
+    assert "\n  push:" not in f"\n{triggers}"
+    assert "\n  pull_request:" not in f"\n{triggers}"
+    assert "\n  schedule:" not in f"\n{triggers}"
     guard_line = next(line for line in workflow.splitlines() if line.startswith("    if: "))
     guard = re.fullmatch(
         r"    if: github\.event_name == '([^']+)' && github\.ref == '([^']+)'",
@@ -313,3 +316,65 @@ def test_staged_pin_auto_advance_is_limited_to_verified_machine_prs() -> None:
     assert "expected_head_sha" in workflow
     assert "--auto --rebase --delete-branch" in workflow
     assert "--match-head-commit" in workflow
+
+
+@pytest.mark.parametrize(
+    "workflow_path",
+    [WORKFLOW_PATH, STAGED_PIN_GUARD_WORKFLOW_PATH],
+)
+def test_qpk_pin_workflows_support_app_only_verification_and_fail_closed_fallback(
+    workflow_path: Path,
+    tmp_path: Path,
+) -> None:
+    workflow = workflow_path.read_text(encoding="utf-8")
+
+    for input_name in ("disable_legacy_pat_fallback", "verify_app_token_only"):
+        assert f"      {input_name}:" in workflow
+        input_section = workflow.split(f"      {input_name}:", 1)[1].split("\npermissions:", 1)[0]
+        assert "        type: boolean" in input_section
+        assert "        required: false" in input_section
+        assert "        default: false" in input_section
+
+    assert "inputs.disable_legacy_pat_fallback" in workflow
+    assert "inputs.verify_app_token_only" in workflow
+    assert "!(github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only)" in workflow
+
+    enforce_script = _step_run_block(workflow, "Enforce App token (fail closed)")
+    fail_result = _run_script(enforce_script, cwd=tmp_path, env={"APP_TOKEN": ""})
+    assert fail_result.returncode != 0
+    assert "app_token_mint_failed" in fail_result.stdout + fail_result.stderr
+
+    ok_result = _run_script(enforce_script, cwd=tmp_path, env={"APP_TOKEN": "app-tok"})
+    assert ok_result.returncode == 0, ok_result.stderr
+
+    verify_step = workflow.split("- name: Verify App token only (read-only)", 1)[1].split(
+        "\n      - name:", 1
+    )[0]
+    assert (
+        "GH_TOKEN: ${{ steps.app_token_primary.outputs.token || "
+        "steps.app_token_secondary.outputs.token }}"
+    ) in verify_step
+    assert "QSL_REPO_SYNC_TOKEN" not in verify_step
+    assert "github.token" not in verify_step
+    assert "gh api repos/QuantStrategyLab/QuantPlatformKit --jq .full_name" in verify_step
+    assert "gh pr list -R QuantStrategyLab/QuantPlatformKit --limit 1" in verify_step
+
+    verify_only_script = _step_run_block(workflow, "Verify App token only (read-only)")
+    missing_tok = _run_script(verify_only_script, cwd=tmp_path, env={"GH_TOKEN": ""})
+    assert missing_tok.returncode != 0
+    assert "app_token_missing" in missing_tok.stdout + missing_tok.stderr
+
+
+def test_staged_pin_workflow_allows_main_dispatch_for_app_only_verification() -> None:
+    workflow = STAGED_PIN_GUARD_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    assert "github.event_name == 'workflow_dispatch'" in workflow
+    assert "github.ref == 'refs/heads/main'" in workflow
+    assert (
+        "if: steps.guard.outputs.allowed == 'true' && "
+        "!(github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only)"
+    ) in workflow
+    assert (
+        "if: steps.pr.outputs.number != '' && "
+        "!(github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only)"
+    ) in workflow
