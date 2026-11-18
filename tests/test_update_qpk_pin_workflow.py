@@ -296,7 +296,10 @@ def test_staged_pin_auto_advance_is_limited_to_verified_machine_prs() -> None:
     assert 'workflows: ["CI"]' in workflow
     assert "github.event.workflow_run.conclusion == 'success'" in workflow
     assert "github.event.workflow_run.head_branch == 'auto/qpk-pin-update'" in workflow
-    assert '"author") or {}).get("login") == "Pigbibi"' in workflow
+    assert "allowed_authors = {\"Pigbibi\"}" in workflow
+    assert 'f"{app_slug}[bot]"' in workflow
+    assert 'f"app/{app_slug}"' in workflow
+    assert "author_login in allowed_authors" in workflow
     assert 'pr.get("baseRefName") == "main"' in workflow
     assert 'pr.get("headRefName") == "auto/qpk-pin-update"' in workflow
     assert 'pr.get("title") == "chore: advance staged QPK pin"' in workflow

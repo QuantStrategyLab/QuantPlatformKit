@@ -12,6 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    env:
+      QSL_GITHUB_APP_ID: ${{ secrets.QSL_GITHUB_APP_ID }}
+      QSL_GITHUB_APP_PRIVATE_KEY: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY }}
+      QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
@@ -62,13 +66,44 @@ jobs:
           fi
           echo "qpk_candidate_install_passed"
 
+      - name: Mint App token (primary)
+        id: app_token_primary
+        continue-on-error: true
+        if: >-
+          steps.update.outputs.changed == 'true' &&
+          steps.verify.outcome == 'success' &&
+          env.QSL_GITHUB_APP_ID != '' &&
+          env.QSL_GITHUB_APP_PRIVATE_KEY != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ env.QSL_GITHUB_APP_ID }}
+          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY }}
+          owner: QuantStrategyLab
+          repositories: QuantPlatformKit
+
+      - name: Mint App token (secondary)
+        id: app_token_secondary
+        continue-on-error: true
+        if: >-
+          steps.update.outputs.changed == 'true' &&
+          steps.verify.outcome == 'success' &&
+          env.QSL_GITHUB_APP_ID != '' &&
+          env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY != '' &&
+          steps.app_token_primary.outcome != 'success'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ env.QSL_GITHUB_APP_ID }}
+          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
+          owner: QuantStrategyLab
+          repositories: QuantPlatformKit
+
       - name: Create PR for pin update
         id: create_pin_pr
         if: steps.update.outputs.changed == 'true' && steps.verify.outcome == 'success'
         continue-on-error: true
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.8
         with:
-          token: ${{ secrets.QSL_REPO_SYNC_TOKEN || github.token }}
+          token: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token || secrets.QSL_REPO_SYNC_TOKEN || github.token }}
           commit-message: "chore: advance staged QPK pin"
           title: "chore: advance staged QPK pin"
           body: |
