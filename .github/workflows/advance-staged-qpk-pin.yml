@@ -16,6 +16,10 @@ jobs:
       github.event.workflow_run.head_branch == 'auto/qpk-pin-update'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      QSL_GITHUB_APP_ID: ${{ secrets.QSL_GITHUB_APP_ID }}
+      QSL_GITHUB_APP_PRIVATE_KEY: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY }}
+      QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY: ${{ secrets.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
     steps:
       - name: Resolve the completed staged pin PR
         id: pr
@@ -111,10 +115,39 @@ jobs:
         if: steps.pr.outputs.number != ''
         run: cat staged-pin-summary.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Mint App token (primary)
+        id: app_token_primary
+        continue-on-error: true
+        if: >-
+          steps.guard.outputs.allowed == 'true' &&
+          env.QSL_GITHUB_APP_ID != '' &&
+          env.QSL_GITHUB_APP_PRIVATE_KEY != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ env.QSL_GITHUB_APP_ID }}
+          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY }}
+          owner: QuantStrategyLab
+          repositories: QuantPlatformKit
+
+      - name: Mint App token (secondary)
+        id: app_token_secondary
+        continue-on-error: true
+        if: >-
+          steps.guard.outputs.allowed == 'true' &&
+          env.QSL_GITHUB_APP_ID != '' &&
+          env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY != '' &&
+          steps.app_token_primary.outcome != 'success'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ env.QSL_GITHUB_APP_ID }}
+          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
+          owner: QuantStrategyLab
+          repositories: QuantPlatformKit
+
       - name: Refresh or queue validated staged pin
         if: steps.guard.outputs.allowed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.QSL_REPO_SYNC_TOKEN || github.token }}
+          GH_TOKEN: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token || secrets.QSL_REPO_SYNC_TOKEN || github.token }}
         run: |
           set -euo pipefail
           merge_state=$(gh pr view "${{ steps.pr.outputs.number }}" \
