@@ -50,6 +50,35 @@ jobs:
           echo "number=$pr_number" >> "$GITHUB_OUTPUT"
           echo "head_sha=$pr_head_sha" >> "$GITHUB_OUTPUT"
 
+      - name: Mint App token (primary)
+        id: app_token_primary
+        continue-on-error: true
+        if: >-
+          steps.pr.outputs.number != '' &&
+          env.QSL_GITHUB_APP_ID != '' &&
+          env.QSL_GITHUB_APP_PRIVATE_KEY != ''
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ env.QSL_GITHUB_APP_ID }}
+          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY }}
+          owner: QuantStrategyLab
+          repositories: QuantPlatformKit
+
+      - name: Mint App token (secondary)
+        id: app_token_secondary
+        continue-on-error: true
+        if: >-
+          steps.pr.outputs.number != '' &&
+          env.QSL_GITHUB_APP_ID != '' &&
+          env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY != '' &&
+          steps.app_token_primary.outcome != 'success'
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ env.QSL_GITHUB_APP_ID }}
+          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
+          owner: QuantStrategyLab
+          repositories: QuantPlatformKit
+
       - name: Enforce the staged-pin trust boundary
         id: guard
         if: steps.pr.outputs.number != ''
@@ -57,6 +86,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           PR_HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          APP_SLUG: ${{ steps.app_token_primary.outputs.app-slug || steps.app_token_secondary.outputs.app-slug }}
         run: |
           set -euo pipefail
           gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" \
@@ -67,8 +97,14 @@ jobs:
           from pathlib import Path
 
           pr = json.loads(Path("pr.json").read_text(encoding="utf-8"))
+          author_login = (pr.get("author") or {}).get("login")
+          app_slug = os.environ.get("APP_SLUG", "").strip()
+          allowed_authors = {"Pigbibi"}
+          if app_slug:
+              allowed_authors.add(f"{app_slug}[bot]")
+              allowed_authors.add(f"app/{app_slug}")
           allowed = (
-              (pr.get("author") or {}).get("login") == "Pigbibi"
+              author_login in allowed_authors
               and pr.get("baseRefName") == "main"
               and pr.get("headRefName") == "auto/qpk-pin-update"
               and pr.get("title") == "chore: advance staged QPK pin"
@@ -114,35 +150,6 @@ jobs:
       - name: Append gate summary
         if: steps.pr.outputs.number != ''
         run: cat staged-pin-summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Mint App token (primary)
-        id: app_token_primary
-        continue-on-error: true
-        if: >-
-          steps.guard.outputs.allowed == 'true' &&
-          env.QSL_GITHUB_APP_ID != '' &&
-          env.QSL_GITHUB_APP_PRIVATE_KEY != ''
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        with:
-          app-id: ${{ env.QSL_GITHUB_APP_ID }}
-          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY }}
-          owner: QuantStrategyLab
-          repositories: QuantPlatformKit
-
-      - name: Mint App token (secondary)
-        id: app_token_secondary
-        continue-on-error: true
-        if: >-
-          steps.guard.outputs.allowed == 'true' &&
-          env.QSL_GITHUB_APP_ID != '' &&
-          env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY != '' &&
-          steps.app_token_primary.outcome != 'success'
-        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
-        with:
-          app-id: ${{ env.QSL_GITHUB_APP_ID }}
-          private-key: ${{ env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY }}
-          owner: QuantStrategyLab
-          repositories: QuantPlatformKit
 
       - name: Refresh or queue validated staged pin
         if: steps.guard.outputs.allowed == 'true'
