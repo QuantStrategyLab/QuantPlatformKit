@@ -8,7 +8,7 @@ from .notification_localization import translator_uses_zh
 import hashlib
 import json
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
@@ -293,11 +293,11 @@ class StrategyPluginSignal:
     effective_mode: str
     schema_version: str
     as_of: str
-    canonical_route: str | None
-    suggested_action: str | None
-    would_trade_if_enabled: bool
-    execution_controls: Mapping[str, Any]
-    payload: Mapping[str, Any]
+    canonical_route: str | None = None
+    suggested_action: str | None = None
+    would_trade_if_enabled: bool = False
+    execution_controls: Mapping[str, Any] = field(default_factory=dict)
+    payload: Mapping[str, Any] = field(default_factory=dict)
     source_uri: str | None = None
     local_path: str | None = None
     deprecated_plugin: bool = False
@@ -305,6 +305,58 @@ class StrategyPluginSignal:
     supported_schema_versions: tuple[str, ...] = ()
     target_type: str = "strategy"
     notification_target: str = ""
+    enabled: bool = True
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "strategy", _optional_string(self.strategy) or "")
+        object.__setattr__(self, "plugin", _optional_string(self.plugin) or "")
+        object.__setattr__(self, "mode", _optional_string(self.mode) or "")
+        object.__setattr__(self, "configured_mode", _optional_string(self.configured_mode) or "")
+        object.__setattr__(self, "effective_mode", _optional_string(self.effective_mode) or "")
+        object.__setattr__(self, "schema_version", _optional_string(self.schema_version) or "")
+        object.__setattr__(self, "as_of", _optional_string(self.as_of) or "")
+        object.__setattr__(self, "canonical_route", _optional_string(self.canonical_route))
+        object.__setattr__(self, "suggested_action", _optional_string(self.suggested_action))
+        object.__setattr__(
+            self,
+            "would_trade_if_enabled",
+            _as_bool(self.would_trade_if_enabled, default=False),
+        )
+        controls = dict(self.execution_controls) if isinstance(self.execution_controls, Mapping) else {}
+        payload = dict(self.payload) if isinstance(self.payload, Mapping) else {}
+        object.__setattr__(self, "execution_controls", controls)
+        object.__setattr__(self, "payload", payload)
+        object.__setattr__(self, "source_uri", _optional_string(self.source_uri))
+        object.__setattr__(self, "local_path", _optional_string(self.local_path))
+        object.__setattr__(self, "deprecated_plugin", bool(self.deprecated_plugin))
+        object.__setattr__(self, "successor_plugin", _optional_string(self.successor_plugin))
+        versions = self.supported_schema_versions
+        if isinstance(versions, (str, bytes, Mapping)) or not isinstance(versions, Iterable):
+            normalized_versions: tuple[str, ...] = ()
+        else:
+            normalized_versions = tuple(
+                item for item in (_optional_string(version) for version in versions) if item
+            )
+        object.__setattr__(self, "supported_schema_versions", normalized_versions)
+        object.__setattr__(self, "target_type", _optional_string(self.target_type) or "strategy")
+        object.__setattr__(self, "notification_target", _optional_string(self.notification_target) or "")
+        object.__setattr__(self, "enabled", _as_bool(self.enabled, default=True))
+
+    @property
+    def normalized_plugin(self) -> str:
+        return self.plugin.lower() or "unknown"
+
+    @property
+    def normalized_route(self) -> str:
+        return (self.canonical_route or "").lower() or "unknown"
+
+    @property
+    def normalized_action(self) -> str:
+        return (self.suggested_action or "").lower() or "unknown"
+
+    @property
+    def normalized_target_type(self) -> str:
+        return self.target_type.lower() or "strategy"
 
     def report_summary(self) -> dict[str, Any]:
         return {
@@ -339,7 +391,7 @@ def _strategy_plugin_runtime_consumption_summary(signal: StrategyPluginSignal) -
     position control to shadow-only metadata.
     """
 
-    controls = _strategy_plugin_execution_controls(signal)
+    controls = signal.execution_controls
     policy = _strategy_plugin_consumption_policy(signal)
     artifact_position_control_requested = _as_bool(
         controls.get("position_control_allowed"), default=False
@@ -828,31 +880,81 @@ def validate_strategy_plugin_signal_payload(
     )
 
 
-def build_strategy_plugin_report_payload(signals: Sequence[StrategyPluginSignal]) -> dict[str, Any]:
+def _coerce_strategy_plugin_signal(signal: Any) -> StrategyPluginSignal:
+    """Normalize a StrategyPluginSignal, Mapping, or duck-typed object at public boundaries."""
+    if isinstance(signal, StrategyPluginSignal):
+        return signal
+    if isinstance(signal, Mapping):
+        def _read(key: str, default: Any = None) -> Any:
+            return signal.get(key, default)
+    else:
+        def _read(key: str, default: Any = None) -> Any:
+            return getattr(signal, key, default)
+    effective_mode = _optional_string(_read("effective_mode")) or ""
+    mode = _optional_string(_read("mode")) or effective_mode
+    configured_mode = _optional_string(_read("configured_mode")) or mode
+    return StrategyPluginSignal(
+        strategy=_read("strategy") or "",
+        plugin=_read("plugin") or "",
+        mode=mode,
+        configured_mode=configured_mode,
+        effective_mode=effective_mode or mode,
+        schema_version=_read("schema_version") or "",
+        as_of=_read("as_of") or "",
+        canonical_route=_read("canonical_route"),
+        suggested_action=_read("suggested_action"),
+        would_trade_if_enabled=_as_bool(_read("would_trade_if_enabled", False), default=False),
+        execution_controls=_read("execution_controls") or {},
+        payload=_read("payload") or {},
+        source_uri=_read("source_uri"),
+        local_path=_read("local_path"),
+        deprecated_plugin=bool(_read("deprecated_plugin", False)),
+        successor_plugin=_read("successor_plugin"),
+        supported_schema_versions=_read("supported_schema_versions") or (),
+        target_type=_read("target_type") or "strategy",
+        notification_target=_read("notification_target") or "",
+        enabled=_as_bool(_read("enabled", True), default=True),
+    )
+
+
+def build_strategy_plugin_report_payload(
+    signals: Sequence[StrategyPluginSignal | Any],
+) -> dict[str, Any]:
+    summaries: list[dict[str, Any]] = []
+    for raw_signal in signals:
+        if isinstance(raw_signal, StrategyPluginSignal):
+            summaries.append(raw_signal.report_summary())
+        elif not isinstance(raw_signal, Mapping) and callable(getattr(raw_signal, "report_summary", None)):
+            summaries.append(raw_signal.report_summary())
+        else:
+            summaries.append(_coerce_strategy_plugin_signal(raw_signal).report_summary())
     return {
-        "strategy_plugins": [signal.report_summary() for signal in signals],
+        "strategy_plugins": summaries,
     }
 
 
-def build_strategy_plugin_metadata(signals: Sequence[StrategyPluginSignal]) -> dict[str, Any]:
+def build_strategy_plugin_metadata(
+    signals: Sequence[StrategyPluginSignal | Any],
+) -> dict[str, Any]:
     """Build portfolio-snapshot metadata consumed by deterministic strategies."""
     plugin_payloads: dict[str, Any] = {}
     summaries: dict[str, Any] = {}
-    for signal in signals:
-        execution_controls = getattr(signal, "execution_controls", {}) or {}
-        if not isinstance(execution_controls, Mapping) or not _as_bool(
-            execution_controls.get("strategy_runtime_metadata_allowed"),
+    for raw_signal in signals:
+        signal = _coerce_strategy_plugin_signal(raw_signal)
+        if not _as_bool(
+            signal.execution_controls.get("strategy_runtime_metadata_allowed"),
             default=False,
         ):
             continue
-        plugin = str(getattr(signal, "plugin", "") or "").strip()
-        if not plugin:
+        if not signal.plugin:
             continue
-        payload = _build_non_authoritative_runtime_plugin_payload(
-            getattr(signal, "payload", {}) or {}
+        plugin_payloads[signal.plugin] = _build_non_authoritative_runtime_plugin_payload(signal.payload)
+        custom_summary = (
+            getattr(raw_signal, "report_summary", None)
+            if not isinstance(raw_signal, (StrategyPluginSignal, Mapping))
+            else None
         )
-        plugin_payloads[plugin] = payload
-        summaries[plugin] = signal.report_summary()
+        summaries[signal.plugin] = custom_summary() if callable(custom_summary) else signal.report_summary()
     if not plugin_payloads:
         return {}
     metadata: dict[str, Any] = {
@@ -929,15 +1031,13 @@ def translate_strategy_plugin_value(
     return translated if translated != key else value
 
 
-def extract_strategy_plugin_localized_message(
+def _extract_strategy_plugin_localized_message(
     signal: StrategyPluginSignal,
     *,
     section: str,
     locale: str,
 ) -> str | None:
-    payload = getattr(signal, "payload", {}) or {}
-    if not isinstance(payload, Mapping):
-        return None
+    payload = signal.payload
     normalized_section = str(section or "").strip()
     normalized_locale = str(locale or "").strip()
     if not normalized_section or not normalized_locale:
@@ -967,9 +1067,22 @@ def extract_strategy_plugin_localized_message(
                 default_locale = _optional_string(notification.get("default_locale"))
                 if default_locale:
                     localized = _optional_string(notification_messages.get(default_locale))
-            if localized:
-                return localized
+                if localized:
+                    return localized
     return None
+
+
+def extract_strategy_plugin_localized_message(
+    signal: StrategyPluginSignal | Any,
+    *,
+    section: str,
+    locale: str,
+) -> str | None:
+    return _extract_strategy_plugin_localized_message(
+        _coerce_strategy_plugin_signal(signal),
+        section=section,
+        locale=locale,
+    )
 
 
 def _strategy_plugin_enabled_label(
@@ -977,24 +1090,15 @@ def _strategy_plugin_enabled_label(
     *,
     translator: Callable[..., str] | None = None,
 ) -> str:
-    enabled = _as_bool(getattr(signal, "enabled", True), default=True)
     return _translate(
         translator,
-        f"strategy_plugin_enabled_{str(enabled).lower()}",
-        fallback="yes" if enabled else "no",
+        f"strategy_plugin_enabled_{str(signal.enabled).lower()}",
+        fallback="yes" if signal.enabled else "no",
     )
 
 
-def _strategy_plugin_execution_controls(signal: StrategyPluginSignal) -> Mapping[str, Any]:
-    controls = getattr(signal, "execution_controls", {}) or {}
-    return controls if isinstance(controls, Mapping) else {}
-
-
 def _strategy_plugin_consumption_policy(signal: StrategyPluginSignal) -> Mapping[str, Any]:
-    payload = getattr(signal, "payload", {}) or {}
-    if not isinstance(payload, Mapping):
-        return {}
-    policy = payload.get("consumption_policy") or {}
+    policy = signal.payload.get("consumption_policy") or {}
     return policy if isinstance(policy, Mapping) else {}
 
 
@@ -1034,7 +1138,7 @@ def _strategy_plugin_find_field_value(value: Any, field_names: frozenset[str]) -
 def _strategy_plugin_has_auditable_position_control(signal: StrategyPluginSignal) -> bool:
     if not STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED:
         return False
-    controls = _strategy_plugin_execution_controls(signal)
+    controls = signal.execution_controls
     policy = _strategy_plugin_consumption_policy(signal)
     if not (
         _as_bool(controls.get("position_control_allowed"), default=False)
@@ -1043,10 +1147,7 @@ def _strategy_plugin_has_auditable_position_control(signal: StrategyPluginSignal
         return False
     if _strategy_plugin_consumption_status(signal) != "automation_approved":
         return False
-    payload = getattr(signal, "payload", {}) or {}
-    if not isinstance(payload, Mapping):
-        return False
-    evidence_sources: tuple[Any, ...] = (controls, payload)
+    evidence_sources: tuple[Any, ...] = (controls, signal.payload)
     return all(
         _strategy_plugin_find_field_value(evidence_sources, field_names) is not None
         for field_names in (
@@ -1067,8 +1168,7 @@ def _strategy_plugin_has_auditable_position_control(signal: StrategyPluginSignal
 
 
 def _strategy_plugin_consumption_status(signal: StrategyPluginSignal) -> str:
-    controls = _strategy_plugin_execution_controls(signal)
-    status = _optional_string(controls.get("consumption_evidence_status"))
+    status = _optional_string(signal.execution_controls.get("consumption_evidence_status"))
     if status is None:
         status = _optional_string(_strategy_plugin_consumption_policy(signal).get("evidence_status"))
     return _normalize_strategy_plugin_field(status)
@@ -1077,7 +1177,7 @@ def _strategy_plugin_consumption_status(signal: StrategyPluginSignal) -> str:
 def _strategy_plugin_policy_allows_position_control(signal: StrategyPluginSignal) -> bool:
     if not STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED:
         return False
-    controls = _strategy_plugin_execution_controls(signal)
+    controls = signal.execution_controls
     if "position_control_allowed" in controls:
         return _as_bool(controls.get("position_control_allowed"), default=False)
     return _as_bool(
@@ -1087,7 +1187,7 @@ def _strategy_plugin_policy_allows_position_control(signal: StrategyPluginSignal
 
 
 def _strategy_plugin_is_notification_only(signal: StrategyPluginSignal) -> bool:
-    controls = _strategy_plugin_execution_controls(signal)
+    controls = signal.execution_controls
     policy = _strategy_plugin_consumption_policy(signal)
     if _strategy_plugin_consumption_status(signal) == "notification_only":
         return True
@@ -1101,8 +1201,7 @@ def _strategy_plugin_is_notification_only(signal: StrategyPluginSignal) -> bool:
 def _strategy_plugin_auto_consumption_allowed(signal: StrategyPluginSignal, *, action: str) -> bool:
     if _is_strategy_position_control_notice(signal, action=action):
         return True
-    controls = _strategy_plugin_execution_controls(signal)
-    if controls:
+    if signal.execution_controls:
         return False
     return bool(
         action in STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS
@@ -1117,8 +1216,8 @@ def _strategy_plugin_consumption_notification_line(
     *,
     translator: Callable[..., str] | None = None,
 ) -> str | None:
-    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
-    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
+    route = signal.normalized_route
+    action = signal.normalized_action
     if _strategy_plugin_auto_consumption_allowed(signal, action=action):
         if action == "defend" or route == "risk_off":
             key = "strategy_plugin_consumption_auto_defend"
@@ -1152,15 +1251,16 @@ def _strategy_plugin_consumption_notification_line(
 
 
 def build_strategy_plugin_notification_lines(
-    signals: Sequence[StrategyPluginSignal],
+    signals: Sequence[StrategyPluginSignal | Any],
     *,
     translator: Callable[..., str] | None = None,
     locale: str | None = None,
 ) -> tuple[str, ...]:
     lines: list[str] = []
-    for signal in signals:
+    for raw_signal in signals:
+        signal = _coerce_strategy_plugin_signal(raw_signal)
         localized_line = (
-            extract_strategy_plugin_localized_message(signal, section="notification", locale=locale)
+            _extract_strategy_plugin_localized_message(signal, section="notification", locale=locale)
             if locale is not None
             else None
         )
@@ -1171,16 +1271,16 @@ def build_strategy_plugin_notification_lines(
                 if consumption_line:
                     lines.append(consumption_line)
             continue
-        route = getattr(signal, "canonical_route", None) or "unknown_route"
-        action = getattr(signal, "suggested_action", None) or "unknown_action"
+        route = signal.canonical_route or "unknown_route"
+        action = signal.suggested_action or "unknown_action"
         lines.append(
             _translate(
                 translator,
                 "strategy_plugin_line",
                 fallback="Plugin: {plugin} | enabled: {enabled} | status: {route} | notice: {action}",
-                plugin=translate_strategy_plugin_value("name", getattr(signal, "plugin", None), translator=translator),
+                plugin=translate_strategy_plugin_value("name", signal.plugin, translator=translator),
                 enabled=_strategy_plugin_enabled_label(signal, translator=translator),
-                mode=translate_strategy_plugin_value("mode", getattr(signal, "effective_mode", None), translator=translator),
+                mode=translate_strategy_plugin_value("mode", signal.effective_mode, translator=translator),
                 route=translate_strategy_plugin_value("route", route, translator=translator),
                 action=translate_strategy_plugin_value("action", action, translator=translator),
             )
@@ -1255,35 +1355,33 @@ def build_strategy_plugin_error_notification_lines(
     )
 
 
-def should_alert_strategy_plugin_signal(signal: StrategyPluginSignal) -> bool:
-    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
-    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
+def _should_alert_strategy_plugin_signal(signal: StrategyPluginSignal) -> bool:
+    route = signal.normalized_route
+    action = signal.normalized_action
     if _is_strategy_position_control_notice(signal, action=action):
         return False
     if _is_strategy_manual_review_notification_delegated(signal):
         return False
     return (
-        bool(getattr(signal, "would_trade_if_enabled", False))
+        signal.would_trade_if_enabled
         or route not in STRATEGY_PLUGIN_NON_ALERT_ROUTES
         or action in STRATEGY_PLUGIN_ALERT_ACTIONS
     )
 
 
+def should_alert_strategy_plugin_signal(signal: StrategyPluginSignal | Any) -> bool:
+    return _should_alert_strategy_plugin_signal(_coerce_strategy_plugin_signal(signal))
+
+
 def _is_strategy_position_control_notice(signal: StrategyPluginSignal, *, action: str | None = None) -> bool:
     """Return true when strategy runtime should carry the alert instead of the plugin bot."""
 
-    target_type = _normalize_strategy_plugin_field(getattr(signal, "target_type", None)) or "strategy"
-    if target_type != "strategy":
+    if signal.normalized_target_type != "strategy":
         return False
-    normalized_action = action if action is not None else _normalize_strategy_plugin_field(
-        getattr(signal, "suggested_action", None)
-    )
+    normalized_action = action if action is not None else signal.normalized_action
     if normalized_action not in STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS:
         return False
-    controls = getattr(signal, "execution_controls", {}) or {}
-    if not isinstance(controls, Mapping):
-        return False
-    if not _as_bool(controls.get("strategy_runtime_metadata_allowed"), default=False):
+    if not _as_bool(signal.execution_controls.get("strategy_runtime_metadata_allowed"), default=False):
         return False
     return _strategy_plugin_has_auditable_position_control(signal)
 
@@ -1291,26 +1389,22 @@ def _is_strategy_position_control_notice(signal: StrategyPluginSignal, *, action
 def _is_strategy_manual_review_notification_delegated(signal: StrategyPluginSignal) -> bool:
     """Return true when a strategy artifact delegates human-review alerts to a notification target."""
 
-    target_type = _normalize_strategy_plugin_field(getattr(signal, "target_type", None)) or "strategy"
-    if target_type != "strategy":
+    if signal.normalized_target_type != "strategy":
         return False
-    controls = getattr(signal, "execution_controls", {}) or {}
-    if not isinstance(controls, Mapping):
-        return False
+    controls = signal.execution_controls
     if not _as_bool(controls.get("manual_review_notification_delegated"), default=False):
         return False
-    notification_target = _optional_string(controls.get("manual_review_notification_target"))
-    return notification_target is not None
+    return _optional_string(controls.get("manual_review_notification_target")) is not None
 
 
-def build_strategy_plugin_alert_guidance(
+def _build_strategy_plugin_alert_guidance(
     signal: StrategyPluginSignal,
     *,
     translator: Callable[..., str] | None = None,
 ) -> str | None:
-    plugin = _normalize_strategy_plugin_field(getattr(signal, "plugin", None))
-    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
-    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
+    plugin = signal.normalized_plugin
+    route = signal.normalized_route
+    action = signal.normalized_action
     translated = _translate_first(
         translator,
         (
@@ -1327,14 +1421,23 @@ def build_strategy_plugin_alert_guidance(
     return _DEFAULT_STRATEGY_PLUGIN_ALERT_GUIDANCE.get((plugin, route, action))
 
 
-def build_strategy_plugin_alert_scope_note(
+def build_strategy_plugin_alert_guidance(
+    signal: StrategyPluginSignal | Any,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str | None:
+    return _build_strategy_plugin_alert_guidance(
+        _coerce_strategy_plugin_signal(signal),
+        translator=translator,
+    )
+
+
+def _build_strategy_plugin_alert_scope_note(
     signal: StrategyPluginSignal,
     *,
     translator: Callable[..., str] | None = None,
 ) -> str | None:
-    controls = getattr(signal, "execution_controls", {}) or {}
-    if not isinstance(controls, Mapping):
-        controls = {}
+    controls = signal.execution_controls
     notification_profile = str(controls.get("notification_profile") or "").strip().lower()
     if notification_profile != "shadow_only" and any(
         _as_bool(controls.get(field), default=False)
@@ -1353,11 +1456,22 @@ def build_strategy_plugin_alert_scope_note(
         _translate_first(
             translator,
             (
-                f"strategy_plugin_alert_scope_{_normalize_strategy_plugin_field(getattr(signal, 'plugin', None))}",
+                f"strategy_plugin_alert_scope_{signal.normalized_plugin}",
                 "strategy_plugin_alert_scope",
             ),
         )
         or _DEFAULT_STRATEGY_PLUGIN_ALERT_SCOPE_NOTE
+    )
+
+
+def build_strategy_plugin_alert_scope_note(
+    signal: StrategyPluginSignal | Any,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str | None:
+    return _build_strategy_plugin_alert_scope_note(
+        _coerce_strategy_plugin_signal(signal),
+        translator=translator,
     )
 
 
@@ -1372,10 +1486,7 @@ def _localized_strategy_plugin_label_values(
     *,
     locale: str,
 ) -> tuple[str, ...]:
-    payload = getattr(signal, "payload", {}) or {}
-    if not isinstance(payload, Mapping):
-        return ()
-    localized_messages = payload.get("localized_messages")
+    localized_messages = signal.payload.get("localized_messages")
     if not isinstance(localized_messages, Mapping):
         return ()
     labels = localized_messages.get("labels")
@@ -1409,18 +1520,11 @@ def _strategy_plugin_reason_values(signal: StrategyPluginSignal, *, locale: str)
     if localized_reasons:
         return localized_reasons
 
-    payload = getattr(signal, "payload", {}) or {}
-    if isinstance(payload, Mapping):
-        log_record = payload.get("log_record")
-        if isinstance(log_record, Mapping):
-            reason_codes = log_record.get("reason_codes")
-            if isinstance(reason_codes, Sequence) and not isinstance(reason_codes, (str, bytes)):
-                values = tuple(str(item).strip() for item in reason_codes if str(item).strip())
-                if values:
-                    return values
-        position_control = payload.get("position_control")
-        if isinstance(position_control, Mapping):
-            reason_codes = position_control.get("reason_codes")
+    payload = signal.payload
+    for section_key in ("log_record", "position_control"):
+        section = payload.get(section_key)
+        if isinstance(section, Mapping):
+            reason_codes = section.get("reason_codes")
             if isinstance(reason_codes, Sequence) and not isinstance(reason_codes, (str, bytes)):
                 values = tuple(str(item).strip() for item in reason_codes if str(item).strip())
                 if values:
@@ -1428,7 +1532,7 @@ def _strategy_plugin_reason_values(signal: StrategyPluginSignal, *, locale: str)
     return ()
 
 
-def build_strategy_plugin_alert_reason_summary(
+def _build_strategy_plugin_alert_reason_summary(
     signal: StrategyPluginSignal,
     *,
     translator: Callable[..., str] | None = None,
@@ -1443,6 +1547,17 @@ def build_strategy_plugin_alert_reason_summary(
         )
     joiner = _translate(translator, "strategy_plugin_alert_reason_joiner", fallback=", ")
     return str(joiner).join(reasons)
+
+
+def build_strategy_plugin_alert_reason_summary(
+    signal: StrategyPluginSignal | Any,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str:
+    return _build_strategy_plugin_alert_reason_summary(
+        _coerce_strategy_plugin_signal(signal),
+        translator=translator,
+    )
 
 
 def _translate_first_formatted(
@@ -1464,58 +1579,78 @@ def _translate_first_formatted(
     return None
 
 
-def build_strategy_plugin_alert_situation(
+def _alert_narrative_keys(kind: str, signal: StrategyPluginSignal) -> tuple[str, ...]:
+    plugin = signal.normalized_plugin
+    route = signal.normalized_route
+    action = signal.normalized_action
+    return (
+        f"strategy_plugin_{kind}_{plugin}_{route}_{action}",
+        f"strategy_plugin_{kind}_{plugin}_{route}",
+        f"strategy_plugin_{kind}_{plugin}_{action}",
+        f"strategy_plugin_{kind}_{route}_{action}",
+        f"strategy_plugin_{kind}_{route}",
+        f"strategy_plugin_{kind}_{action}",
+        f"strategy_plugin_{kind}_default",
+    )
+
+
+def _build_strategy_plugin_alert_situation(
     signal: StrategyPluginSignal,
     *,
     translator: Callable[..., str] | None = None,
+    reasons: str | None = None,
 ) -> str:
-    plugin = _normalize_strategy_plugin_field(getattr(signal, "plugin", None))
-    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
-    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
-    reasons = build_strategy_plugin_alert_reason_summary(signal, translator=translator)
+    resolved_reasons = (
+        reasons
+        if reasons is not None
+        else _build_strategy_plugin_alert_reason_summary(signal, translator=translator)
+    )
     translated = _translate_first_formatted(
         translator,
-        (
-            f"strategy_plugin_situation_{plugin}_{route}_{action}",
-            f"strategy_plugin_situation_{plugin}_{route}",
-            f"strategy_plugin_situation_{plugin}_{action}",
-            f"strategy_plugin_situation_{route}_{action}",
-            f"strategy_plugin_situation_{route}",
-            f"strategy_plugin_situation_{action}",
-            "strategy_plugin_situation_default",
-        ),
-        reasons=reasons,
+        _alert_narrative_keys("situation", signal),
+        reasons=resolved_reasons,
     )
     if translated:
         return translated
-    return f"The plugin found a market state that needs attention. Trigger: {reasons}."
+    return f"The plugin found a market state that needs attention. Trigger: {resolved_reasons}."
 
 
-def build_strategy_plugin_alert_recommendation(
+def build_strategy_plugin_alert_situation(
+    signal: StrategyPluginSignal | Any,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str:
+    return _build_strategy_plugin_alert_situation(
+        _coerce_strategy_plugin_signal(signal),
+        translator=translator,
+    )
+
+
+def _build_strategy_plugin_alert_recommendation(
     signal: StrategyPluginSignal,
     *,
     translator: Callable[..., str] | None = None,
 ) -> str:
-    plugin = _normalize_strategy_plugin_field(getattr(signal, "plugin", None))
-    route = _normalize_strategy_plugin_field(getattr(signal, "canonical_route", None))
-    action = _normalize_strategy_plugin_field(getattr(signal, "suggested_action", None))
     translated = _translate_first_formatted(
         translator,
-        (
-            f"strategy_plugin_recommendation_{plugin}_{route}_{action}",
-            f"strategy_plugin_recommendation_{plugin}_{route}",
-            f"strategy_plugin_recommendation_{plugin}_{action}",
-            f"strategy_plugin_recommendation_{route}_{action}",
-            f"strategy_plugin_recommendation_{route}",
-            f"strategy_plugin_recommendation_{action}",
-            "strategy_plugin_recommendation_default",
-        ),
+        _alert_narrative_keys("recommendation", signal),
     )
     if translated:
         return translated
     return (
         "Review manually first, then decide whether the action belongs to strategy rules or a manual process; "
         "do not treat the plugin notice as a trade instruction."
+    )
+
+
+def build_strategy_plugin_alert_recommendation(
+    signal: StrategyPluginSignal | Any,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str:
+    return _build_strategy_plugin_alert_recommendation(
+        _coerce_strategy_plugin_signal(signal),
+        translator=translator,
     )
 
 
@@ -1530,7 +1665,7 @@ def _strategy_plugin_alert_display_context(
     if not context:
         return ""
     normalized = context.strip().lower()
-    notification_target = str(getattr(signal, "notification_target", None) or "").strip()
+    notification_target = signal.notification_target
     if normalized == f"strategy-plugin-publish / {notification_target}".lower() and notification_target:
         return _translate(
             translator,
@@ -1541,15 +1676,12 @@ def _strategy_plugin_alert_display_context(
     return context
 
 
-def build_strategy_plugin_ai_audit_note(
+def _build_strategy_plugin_ai_audit_note(
     signal: StrategyPluginSignal,
     *,
     translator: Callable[..., str] | None = None,
 ) -> str | None:
-    payload = getattr(signal, "payload", {}) or {}
-    if not isinstance(payload, Mapping):
-        return None
-    ai_audit = payload.get("ai_audit")
+    ai_audit = signal.payload.get("ai_audit")
     if not isinstance(ai_audit, Mapping) or not _as_bool(ai_audit.get("enabled"), default=False):
         return None
     status = _normalize_strategy_plugin_field(_optional_string(ai_audit.get("status")))
@@ -1576,7 +1708,18 @@ def build_strategy_plugin_ai_audit_note(
     )
 
 
-def build_strategy_plugin_alert_key(
+def build_strategy_plugin_ai_audit_note(
+    signal: StrategyPluginSignal | Any,
+    *,
+    translator: Callable[..., str] | None = None,
+) -> str | None:
+    return _build_strategy_plugin_ai_audit_note(
+        _coerce_strategy_plugin_signal(signal),
+        translator=translator,
+    )
+
+
+def _build_strategy_plugin_alert_key(
     signal: StrategyPluginSignal,
     *,
     strategy_label: str | None = None,
@@ -1584,22 +1727,22 @@ def build_strategy_plugin_alert_key(
     namespace: str = "strategy_plugin_alert",
 ) -> str:
     target_label = (
-        _optional_key_part(getattr(signal, "strategy", None))
-        or _optional_key_part(getattr(signal, "notification_target", None))
+        signal.strategy
+        or signal.notification_target
         or _optional_key_part(strategy_label)
         or "unknown"
     )
     payload = {
         "namespace": _optional_key_part(namespace) or "strategy_plugin_alert",
         "context": _optional_key_part(context_label) or "default",
-        "target_type": _optional_key_part(getattr(signal, "target_type", None)) or "strategy",
+        "target_type": signal.target_type or "strategy",
         "target": target_label,
-        "plugin": _optional_key_part(getattr(signal, "plugin", None)) or "unknown",
-        "mode": _optional_key_part(getattr(signal, "effective_mode", None)) or "unknown",
-        "as_of": _optional_key_part(getattr(signal, "as_of", None)) or "unknown",
-        "route": _optional_key_part(getattr(signal, "canonical_route", None)) or "unknown",
-        "action": _optional_key_part(getattr(signal, "suggested_action", None)) or "unknown",
-        "would_trade_if_enabled": bool(getattr(signal, "would_trade_if_enabled", False)),
+        "plugin": signal.plugin or "unknown",
+        "mode": signal.effective_mode or "unknown",
+        "as_of": signal.as_of or "unknown",
+        "route": signal.canonical_route or "unknown",
+        "action": signal.suggested_action or "unknown",
+        "would_trade_if_enabled": signal.would_trade_if_enabled,
     }
     digest = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
@@ -1618,8 +1761,23 @@ def build_strategy_plugin_alert_key(
     )
 
 
+def build_strategy_plugin_alert_key(
+    signal: StrategyPluginSignal | Any,
+    *,
+    strategy_label: str | None = None,
+    context_label: str | None = None,
+    namespace: str = "strategy_plugin_alert",
+) -> str:
+    return _build_strategy_plugin_alert_key(
+        _coerce_strategy_plugin_signal(signal),
+        strategy_label=strategy_label,
+        context_label=context_label,
+        namespace=namespace,
+    )
+
+
 def build_strategy_plugin_alert_messages(
-    signals: Sequence[StrategyPluginSignal],
+    signals: Sequence[StrategyPluginSignal | Any],
     *,
     translator: Callable[..., str] | None = None,
     strategy_label: str | None = None,
@@ -1628,22 +1786,23 @@ def build_strategy_plugin_alert_messages(
 ) -> tuple[StrategyPluginAlertMessage, ...]:
     messages: list[StrategyPluginAlertMessage] = []
     context = str(context_label or "").strip()
-    for signal in signals:
-        if not should_alert_strategy_plugin_signal(signal):
+    for raw_signal in signals:
+        signal = _coerce_strategy_plugin_signal(raw_signal)
+        if not _should_alert_strategy_plugin_signal(signal):
             continue
-        route = getattr(signal, "canonical_route", None) or "unknown_route"
-        action = getattr(signal, "suggested_action", None) or "unknown_action"
-        plugin = translate_strategy_plugin_value("name", getattr(signal, "plugin", None), translator=translator)
+        route = signal.canonical_route or "unknown_route"
+        action = signal.suggested_action or "unknown_action"
+        plugin = translate_strategy_plugin_value("name", signal.plugin, translator=translator)
         translated_mode = translate_strategy_plugin_value(
             "mode",
-            getattr(signal, "effective_mode", None),
+            signal.effective_mode,
             translator=translator,
         )
         translated_route = translate_strategy_plugin_value("route", route, translator=translator)
         translated_action = translate_strategy_plugin_value("action", action, translator=translator)
-        target_type = str(getattr(signal, "target_type", None) or "strategy").strip()
-        strategy = str(strategy_label or getattr(signal, "strategy", None) or "").strip()
-        notification_target = str(getattr(signal, "notification_target", None) or "").strip()
+        target_type = signal.target_type
+        strategy = str(strategy_label or signal.strategy or "").strip()
+        notification_target = signal.notification_target
         target_label = strategy or notification_target or "unknown"
         display_target_label = target_label
         if target_type == "notification_target" and notification_target:
@@ -1655,7 +1814,12 @@ def build_strategy_plugin_alert_messages(
         elif strategy:
             display_target_label = translate_strategy_plugin_value("strategy", strategy, translator=translator)
         # Presentation only: target_label still supplies alert keys and machine metadata.
-        display_target_label = display_name("strategies", getattr(signal, "strategy", None) or strategy, "zh" if translator and translator_uses_zh(translator) else "en", fallback=display_target_label)
+        display_target_label = display_name(
+            "strategies",
+            signal.strategy or strategy,
+            "zh" if translator and translator_uses_zh(translator) else "en",
+            fallback=display_target_label,
+        )
         display_context = _strategy_plugin_alert_display_context(
             context,
             signal,
@@ -1672,12 +1836,16 @@ def build_strategy_plugin_alert_messages(
             target_name_key,
             fallback="Notification target" if target_type == "notification_target" else "Strategy",
         )
-        guidance = build_strategy_plugin_alert_guidance(signal, translator=translator)
-        reason_summary = build_strategy_plugin_alert_reason_summary(signal, translator=translator)
-        situation = build_strategy_plugin_alert_situation(signal, translator=translator)
-        recommendation = build_strategy_plugin_alert_recommendation(signal, translator=translator)
-        scope_note = build_strategy_plugin_alert_scope_note(signal, translator=translator)
-        ai_audit_note = build_strategy_plugin_ai_audit_note(signal, translator=translator)
+        guidance = _build_strategy_plugin_alert_guidance(signal, translator=translator)
+        reason_summary = _build_strategy_plugin_alert_reason_summary(signal, translator=translator)
+        situation = _build_strategy_plugin_alert_situation(
+            signal,
+            translator=translator,
+            reasons=reason_summary,
+        )
+        recommendation = _build_strategy_plugin_alert_recommendation(signal, translator=translator)
+        scope_note = _build_strategy_plugin_alert_scope_note(signal, translator=translator)
+        ai_audit_note = _build_strategy_plugin_ai_audit_note(signal, translator=translator)
         subject = _translate(
             translator,
             "strategy_plugin_alert_subject",
@@ -1720,7 +1888,7 @@ def build_strategy_plugin_alert_messages(
                     translator,
                     "strategy_plugin_alert_as_of",
                     fallback="Signal as-of: {as_of}",
-                    as_of=getattr(signal, "as_of", None) or "unknown",
+                    as_of=signal.as_of or "unknown",
                 ),
                 _translate(
                     translator,
@@ -1783,15 +1951,15 @@ def build_strategy_plugin_alert_messages(
         metadata = {
             "target_type": target_type,
             "target": target_label,
-            "strategy": getattr(signal, "strategy", None),
+            "strategy": signal.strategy,
             "strategy_label": strategy or None,
             "notification_target": notification_target or None,
-            "plugin": getattr(signal, "plugin", None),
-            "mode": getattr(signal, "effective_mode", None),
-            "as_of": getattr(signal, "as_of", None),
-            "canonical_route": getattr(signal, "canonical_route", None),
-            "suggested_action": getattr(signal, "suggested_action", None),
-            "would_trade_if_enabled": bool(getattr(signal, "would_trade_if_enabled", False)),
+            "plugin": signal.plugin,
+            "mode": signal.effective_mode,
+            "as_of": signal.as_of,
+            "canonical_route": signal.canonical_route,
+            "suggested_action": signal.suggested_action,
+            "would_trade_if_enabled": signal.would_trade_if_enabled,
             "context_label": context or None,
             "display_context_label": display_context or None,
             "display_target": display_target_label,
@@ -1800,15 +1968,13 @@ def build_strategy_plugin_alert_messages(
             "reason_summary": reason_summary,
             "guidance": guidance,
             "scope_note": scope_note,
-            "ai_audit": getattr(signal, "payload", {}).get("ai_audit")
-            if isinstance(getattr(signal, "payload", {}), Mapping)
-            else None,
+            "ai_audit": signal.payload.get("ai_audit"),
         }
         messages.append(
             StrategyPluginAlertMessage(
                 subject=subject,
                 body="\n".join(body_lines),
-                alert_key=build_strategy_plugin_alert_key(
+                alert_key=_build_strategy_plugin_alert_key(
                     signal,
                     strategy_label=target_label,
                     context_label=context,

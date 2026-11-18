@@ -25,8 +25,16 @@ from quant_platform_kit.common.strategy_plugins import (
     MARKET_REGIME_CONTROL_SUPPORTED_STRATEGIES,
     TACO_REBOUND_SHADOW_SUPPORTED_STRATEGIES,
     StrategyPluginDefinition,
+    StrategyPluginSignal,
     attach_strategy_plugin_metadata,
+    build_strategy_plugin_alert_guidance,
+    build_strategy_plugin_alert_key,
     build_strategy_plugin_alert_messages,
+    build_strategy_plugin_alert_reason_summary,
+    build_strategy_plugin_alert_recommendation,
+    build_strategy_plugin_alert_scope_note,
+    build_strategy_plugin_alert_situation,
+    build_strategy_plugin_ai_audit_note,
     build_strategy_plugin_metadata,
     build_strategy_plugin_error_notification_lines,
     build_strategy_plugin_notification_lines,
@@ -1295,6 +1303,95 @@ class RequiredArtifactSchemaTests(unittest.TestCase):
             ])
             with self.assertRaisesRegex(ValueError, "schema_version.*required"):
                 load_configured_strategy_plugin_notification_target_signals(targets)
+
+
+class StrategyPluginSignalContractTests(unittest.TestCase):
+    def test_post_init_normalizes_fields_and_default_mappings(self):
+        signal = StrategyPluginSignal(
+            strategy=" tqqq_growth_income ",
+            plugin=" market_regime_control ",
+            mode=" shadow ",
+            configured_mode=" shadow ",
+            effective_mode=" shadow ",
+            schema_version=" market_regime_control.v1 ",
+            as_of=" 2026-06-19 ",
+            canonical_route="  ",
+            suggested_action=" notify_manual_review ",
+            would_trade_if_enabled="false",  # type: ignore[arg-type]
+            execution_controls=None,  # type: ignore[arg-type]
+            payload=None,  # type: ignore[arg-type]
+            source_uri="  ",
+            local_path=" /tmp/signal.json ",
+            successor_plugin=" ",
+            supported_schema_versions=[" market_regime_control.v1 ", " ", None],  # type: ignore[list-item]
+            target_type=" ",
+            notification_target=" ",
+            enabled="false",  # type: ignore[arg-type]
+        )
+
+        self.assertEqual(signal.strategy, "tqqq_growth_income")
+        self.assertEqual(signal.plugin, "market_regime_control")
+        self.assertEqual(signal.mode, "shadow")
+        self.assertEqual(signal.configured_mode, "shadow")
+        self.assertEqual(signal.effective_mode, "shadow")
+        self.assertEqual(signal.schema_version, "market_regime_control.v1")
+        self.assertEqual(signal.as_of, "2026-06-19")
+        self.assertIsNone(signal.canonical_route)
+        self.assertEqual(signal.suggested_action, "notify_manual_review")
+        self.assertFalse(signal.would_trade_if_enabled)
+        self.assertEqual(signal.execution_controls, {})
+        self.assertEqual(signal.payload, {})
+        self.assertIsNone(signal.source_uri)
+        self.assertEqual(signal.local_path, "/tmp/signal.json")
+        self.assertIsNone(signal.successor_plugin)
+        self.assertEqual(signal.supported_schema_versions, ("market_regime_control.v1",))
+        self.assertEqual(signal.target_type, "strategy")
+        self.assertEqual(signal.notification_target, "")
+        self.assertFalse(signal.enabled)
+        self.assertEqual(signal.normalized_route, "unknown")
+        self.assertEqual(signal.normalized_action, "notify_manual_review")
+
+    def test_public_entrypoints_coerce_duck_typed_and_mapping_signals_without_mutation(self):
+        from types import SimpleNamespace
+
+        ns = SimpleNamespace(
+            strategy="tqqq_growth_income",
+            plugin="market_regime_control",
+            effective_mode="shadow",
+            as_of="2026-06-19",
+            canonical_route="opportunity_watch",
+            suggested_action="notify_manual_review",
+            would_trade_if_enabled=False,
+            execution_controls={"notification_profile": "shadow_only"},
+            payload={
+                "localized_messages": {"notification": {"en-US": "Manual check"}},
+                "log_record": {"reason_codes": ["bounce_detected"]},
+                "ai_audit": {"enabled": True, "status": "ok", "verdict": "agree", "route_assessment": "ok", "summary": "coherent"},
+            },
+        )
+        mapping_signal = dict(vars(ns))
+        before = dict(vars(ns))
+
+        for candidate in (ns, mapping_signal):
+            self.assertTrue(should_alert_strategy_plugin_signal(candidate))
+            self.assertEqual(
+                extract_strategy_plugin_localized_message(candidate, section="notification", locale="en-US"),
+                "Manual check",
+            )
+            self.assertIn("Manual review only", build_strategy_plugin_alert_guidance(candidate) or "")
+            self.assertIn("Manual review notice only", build_strategy_plugin_alert_scope_note(candidate) or "")
+            self.assertEqual(build_strategy_plugin_alert_reason_summary(candidate), "bounce_detected")
+            self.assertIn("bounce_detected", build_strategy_plugin_alert_situation(candidate))
+            self.assertIn("Review manually first", build_strategy_plugin_alert_recommendation(candidate))
+            self.assertIn("AI audit: ok", build_strategy_plugin_ai_audit_note(candidate) or "")
+            self.assertTrue(build_strategy_plugin_alert_key(candidate).startswith("strategy_plugin_alert/"))
+            self.assertEqual(build_strategy_plugin_notification_lines([candidate], locale="en-US"), ("Manual check",))
+            alerts = build_strategy_plugin_alert_messages([candidate])
+            self.assertEqual(len(alerts), 1)
+            self.assertEqual(build_strategy_plugin_metadata([candidate]), {})
+            self.assertEqual(len(build_strategy_plugin_report_payload([candidate])["strategy_plugins"]), 1)
+
+        self.assertEqual(dict(vars(ns)), before)
 
 
 if __name__ == "__main__":
