@@ -4,6 +4,18 @@ name: Advance Staged QPK Pin
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      disable_legacy_pat_fallback:
+        description: "Fail closed if App token minting fails instead of falling back to PAT/GITHUB_TOKEN"
+        type: boolean
+        required: false
+        default: false
+      verify_app_token_only:
+        description: "Verify minted App token with read-only API calls and skip PR/merge-queue writes"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -12,8 +24,11 @@ permissions:
 jobs:
   advance:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'auto/qpk-pin-update'
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'auto/qpk-pin-update') ||
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -23,6 +38,7 @@ jobs:
     steps:
       - name: Resolve the completed staged pin PR
         id: pr
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only) }}
         env:
           GH_TOKEN: ${{ github.token }}
           COMPLETED_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -54,7 +70,8 @@ jobs:
         id: app_token_primary
         continue-on-error: true
         if: >-
-          steps.pr.outputs.number != '' &&
+          ((github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only) ||
+           steps.pr.outputs.number != '') &&
           env.QSL_GITHUB_APP_ID != '' &&
           env.QSL_GITHUB_APP_PRIVATE_KEY != ''
         uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
@@ -68,7 +85,8 @@ jobs:
         id: app_token_secondary
         continue-on-error: true
         if: >-
-          steps.pr.outputs.number != '' &&
+          ((github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only) ||
+           steps.pr.outputs.number != '') &&
           env.QSL_GITHUB_APP_ID != '' &&
           env.QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY != '' &&
           steps.app_token_primary.outcome != 'success'
@@ -79,9 +97,37 @@ jobs:
           owner: QuantStrategyLab
           repositories: QuantPlatformKit
 
+      - name: Enforce App token (fail closed)
+        if: >-
+          github.event_name == 'workflow_dispatch' &&
+          inputs.disable_legacy_pat_fallback &&
+          (inputs.verify_app_token_only || steps.pr.outputs.number != '')
+        env:
+          APP_TOKEN: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APP_TOKEN" ]; then
+            echo "::error title=App token required::app_token_mint_failed"
+            exit 1
+          fi
+          echo "app_token_minted=true"
+
+      - name: Verify App token only (read-only)
+        if: github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only
+        env:
+          GH_TOKEN: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error title=App token verification::app_token_missing"
+            exit 1
+          fi
+          gh api repos/QuantStrategyLab/QuantPlatformKit --jq .full_name
+          gh pr list -R QuantStrategyLab/QuantPlatformKit --limit 1
+
       - name: Enforce the staged-pin trust boundary
         id: guard
-        if: steps.pr.outputs.number != ''
+        if: steps.pr.outputs.number != '' && !(github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only)
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.number }}
@@ -148,11 +194,11 @@ jobs:
           fi
 
       - name: Append gate summary
-        if: steps.pr.outputs.number != ''
+        if: steps.pr.outputs.number != '' && !(github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only)
         run: cat staged-pin-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Refresh or queue validated staged pin
-        if: steps.guard.outputs.allowed == 'true'
+        if: steps.guard.outputs.allowed == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.verify_app_token_only)
         env:
           GH_TOKEN: ${{ steps.app_token_primary.outputs.token || steps.app_token_secondary.outputs.token || secrets.QSL_REPO_SYNC_TOKEN || github.token }}
         run: |
