@@ -2,7 +2,7 @@
 
 # QPK 下游 Pin 自动化 Token 配置
 
-`open-downstream-qpk-pin-prs.yml`、`update-qpk-pin.yml` 与 `advance-staged-qpk-pin.yml` 均使用 `QSL QPK Pin Sync`（`qsl-qpk-pin-sync`）的短期 GitHub App installation token（通过 `QSL_GITHUB_APP_ID`、`QSL_GITHUB_APP_PRIVATE_KEY` 与 `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY` 签发），其中 `update-qpk-pin.yml` 与 `advance-staged-qpk-pin.yml` 支持 `disable_legacy_pat_fallback` 以对 App token 路径做 fail-closed 验真。`QSL_REPO_SYNC_TOKEN` 已退役并从 `QuantPlatformKit` 仓库级 secret 与 `QuantStrategyLab` 组织级 secret 中移除（仅保留历史引用说明，不再作为现役回退配置）。
+`open-downstream-qpk-pin-prs.yml`、`update-qpk-pin.yml` 与 `advance-staged-qpk-pin.yml` 均使用组织级 GitHub App（`<github-app-name>`，`<github-app-slug>`）的短期 installation token（通过 `QSL_GITHUB_APP_ID`、`QSL_GITHUB_APP_PRIVATE_KEY` 与 `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY` 签发），其中 `update-qpk-pin.yml` 与 `advance-staged-qpk-pin.yml` 支持 `disable_legacy_pat_fallback` 以对 App token 路径做 fail-closed 验真。`QSL_REPO_SYNC_TOKEN` 已退役并从 `QuantPlatformKit` 仓库级 secret 与 `QuantStrategyLab` 组织级 secret 中移除（仅保留历史引用说明，不再作为现役回退配置）。
 
 只读自检由 `qpk-github-app-health` workflow（定时 + 手动）完成：优先用主私钥签发短期
 token，仅在主钥签发未成功时使用备用私钥，再校验目标仓库访问与 `QPK_PIN` 读回，失败则
@@ -26,7 +26,7 @@ authority 维护。
 
 | Secret | 状态 | 用途 |
 |---|---|---|
-| `QSL_GITHUB_APP_ID` | 现役 | `QSL QPK Pin Sync`（`qsl-qpk-pin-sync`）GitHub App ID |
+| `QSL_GITHUB_APP_ID` | 现役 | 组织级 GitHub App ID（`<github-app-id>`） |
 | `QSL_GITHUB_APP_PRIVATE_KEY` | 现役 | 主私钥（优先签发） |
 | `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY` | 现役 | 备用私钥（仅主钥签发失败/未配置时使用） |
 | `QSL_REPO_SYNC_TOKEN` | 已退役 / 已移除 | 历史 PAT 回退名；已从 `QuantPlatformKit` 仓库级与 `QuantStrategyLab` 组织级 Secret 移除 |
@@ -49,9 +49,9 @@ QPK 发布采用 release-set 两阶段流程：先生成候选 QPK 版本并验�
 
 ## 一次性配置（org admin）
 
-### 当前方案：组织级 GitHub App（`QSL QPK Pin Sync` / `qsl-qpk-pin-sync`）
+### 当前方案：组织级 GitHub App
 
-1. 已创建并安装组织级 App `QSL QPK Pin Sync`（`qsl-qpk-pin-sync`，App ID `5004823`）到 QuantStrategyLab。
+1. 已创建并安装组织级 App（`<github-app-name>`，App ID `<github-app-id>`）到 `QuantStrategyLab`。
 2. 只授予目标 15 个仓库的 `Contents: Read and write`、`Pull requests: Read and write`，保留必要的 metadata 读取权限。
 3. 将 App ID 写入 `QSL_GITHUB_APP_ID`，将主私钥写入 `QSL_GITHUB_APP_PRIVATE_KEY`。
 4. 在 App 设置中生成第二把私钥写入 `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY`，供轮换与故障切换。
@@ -92,7 +92,7 @@ gh workflow run advance-staged-qpk-pin.yml -R QuantStrategyLab/QuantPlatformKit 
 
 ## 权限要求
 
-`QSL QPK Pin Sync`（`qsl-qpk-pin-sync`）需对以下 15 个仓库具有 **Contents: Read and write** + **Pull requests: Read and write**
+组织级 GitHub App（`<github-app-name>`）需对以下 15 个仓库具有 **Contents: Read and write** + **Pull requests: Read and write**
 （health 校验只用只读 installation token）：
 
 - QuantPlatformKit, CnEquityStrategies, HkEquityStrategies, UsEquityStrategies, CryptoStrategies

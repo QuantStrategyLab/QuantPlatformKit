@@ -2,7 +2,7 @@
 
 [简体中文](qpk-repo-sync-auth.zh-CN.md)
 
-The `open-downstream-qpk-pin-prs.yml`, `update-qpk-pin.yml`, and `advance-staged-qpk-pin.yml` workflows run on short-lived GitHub App installation tokens minted for `QSL QPK Pin Sync` (`qsl-qpk-pin-sync`) via `QSL_GITHUB_APP_ID`, `QSL_GITHUB_APP_PRIVATE_KEY`, and `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY`. `update-qpk-pin.yml` and `advance-staged-qpk-pin.yml` also support `disable_legacy_pat_fallback` for fail-closed verification of the App token path. `QSL_REPO_SYNC_TOKEN` has been retired and removed from both `QuantPlatformKit` repository secrets and `QuantStrategyLab` organization secrets (historical reference only).
+The `open-downstream-qpk-pin-prs.yml`, `update-qpk-pin.yml`, and `advance-staged-qpk-pin.yml` workflows run on short-lived GitHub App installation tokens minted for the organization GitHub App (`<github-app-name>`, `<github-app-slug>`) via `QSL_GITHUB_APP_ID`, `QSL_GITHUB_APP_PRIVATE_KEY`, and `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY`. `update-qpk-pin.yml` and `advance-staged-qpk-pin.yml` also support `disable_legacy_pat_fallback` for fail-closed verification of the App token path. `QSL_REPO_SYNC_TOKEN` has been retired and removed from both `QuantPlatformKit` repository secrets and `QuantStrategyLab` organization secrets (historical reference only).
 
 Read-only self-checks run via the `qpk-github-app-health` workflow (scheduled and manual): it mints a short-lived token using the primary private key first, falls back to the secondary key only if primary minting fails, and verifies repository access and `QPK_PIN` readback, failing closed without exposing secret, token, or private key material in summaries.
 
@@ -18,7 +18,7 @@ Read-only self-checks run via the `qpk-github-app-health` workflow (scheduled an
 
 | Secret | Status | Purpose |
 |---|---|---|
-| `QSL_GITHUB_APP_ID` | Active | `QSL QPK Pin Sync` (`qsl-qpk-pin-sync`) GitHub App ID |
+| `QSL_GITHUB_APP_ID` | Active | Organization GitHub App ID (`<github-app-id>`) |
 | `QSL_GITHUB_APP_PRIVATE_KEY` | Active | Primary private key (preferred mint path) |
 | `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY` | Active | Secondary private key (used only when primary fails or is unset) |
 | `QSL_REPO_SYNC_TOKEN` | Retired / Removed | Historical PAT fallback; removed from `QuantPlatformKit` repo secrets and `QuantStrategyLab` org secrets |
@@ -37,9 +37,9 @@ Cross-repository sync tokens only open downstream PRs; they never deploy service
 
 ## One-time setup (org admin)
 
-### Organization GitHub App (`QSL QPK Pin Sync` / `qsl-qpk-pin-sync`)
+### Organization GitHub App
 
-1. Install the organization GitHub App `QSL QPK Pin Sync` (`qsl-qpk-pin-sync`) on `QuantStrategyLab`.
+1. Install the organization GitHub App (`<github-app-name>`, App ID `<github-app-id>`) on `QuantStrategyLab`.
 2. Grant `Contents: Read and write` and `Pull requests: Read and write` (plus required metadata read access) solely to the 15 target repositories.
 3. Save the App ID in `QSL_GITHUB_APP_ID` and the primary private key PEM in `QSL_GITHUB_APP_PRIVATE_KEY`.
 4. Generate a second private key in App settings and store it in `QSL_GITHUB_APP_PRIVATE_KEY_SECONDARY` for rotation and failover.
@@ -76,7 +76,7 @@ gh workflow run advance-staged-qpk-pin.yml -R QuantStrategyLab/QuantPlatformKit 
 
 ## Required repository permissions
 
-`QSL QPK Pin Sync` (`qsl-qpk-pin-sync`) requires **Contents: Read and write** + **Pull requests: Read and write** across these 15 repositories (health checks use read-only installation tokens):
+The organization GitHub App (`<github-app-name>`) requires **Contents: Read and write** + **Pull requests: Read and write** across these 15 repositories (health checks use read-only installation tokens):
 
 - `QuantPlatformKit`, `CnEquityStrategies`, `HkEquityStrategies`, `UsEquityStrategies`, `CryptoStrategies`
 - `InteractiveBrokersPlatform`, `LongBridgePlatform`, `CharlesSchwabPlatform`, `FirstradePlatform`, `BinancePlatform`, `QmtPlatform`
