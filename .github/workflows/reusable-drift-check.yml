@@ -193,7 +193,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Mint read-only drift App token
         id: drift_app_token
@@ -217,7 +217,7 @@ jobs:
 
       - name: Checkout snapshot pipeline repo
         if: ${{ !inputs.disable_legacy_pat_fallback }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: ${{ inputs.snapshot_repository }}
           ref: ${{ inputs.snapshot_repository_ref }}
@@ -226,7 +226,7 @@ jobs:
 
       - name: Checkout snapshot pipeline repo (App token only)
         if: ${{ inputs.disable_legacy_pat_fallback }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: ${{ inputs.snapshot_repository }}
           ref: ${{ inputs.snapshot_repository_ref }}
@@ -234,14 +234,14 @@ jobs:
           path: ${{ inputs.snapshot_checkout_path }}
 
       - name: Checkout QuantPlatformKit
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: QuantStrategyLab/QuantPlatformKit
           ref: ${{ inputs.quant_platform_kit_ref }}
           path: external/QuantPlatformKit
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ inputs.python_version }}
 
@@ -268,20 +268,20 @@ jobs:
 
       - name: Authenticate to Google Cloud
         if: ${{ inputs.gcp_workload_identity_provider != '' && inputs.gcp_service_account != '' }}
-        uses: google-github-actions/auth@v3
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ inputs.gcp_workload_identity_provider }}
           service_account: ${{ inputs.gcp_service_account }}
 
       - name: Set up gcloud
         if: ${{ inputs.gcp_workload_identity_provider != '' && inputs.gcp_service_account != '' && inputs.gcp_project_id != '' }}
-        uses: google-github-actions/setup-gcloud@v3
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
         with:
           project_id: ${{ inputs.gcp_project_id }}
 
       - name: Download lifecycle preflight artifact
         if: inputs.lifecycle_preflight_artifact != ''
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: ${{ inputs.lifecycle_preflight_artifact }}
           path: ${{ runner.temp }}/lifecycle-preflight
