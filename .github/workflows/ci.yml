@@ -28,7 +28,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          python -m pip install -e . numpy pandas pytest pytest-cov requests ruff "jsonschema>=4.18,<5" "rfc3339-validator>=0.1.4,<1"
+          python -m pip install -e . numpy pandas pytest pytest-cov requests ruff import-linter pyright "jsonschema>=4.18,<5" "rfc3339-validator>=0.1.4,<1"
 
       - name: Validate dependency constraint refs
         run: |
@@ -77,6 +77,16 @@ jobs:
         run: |
           set -euo pipefail
           ruff check .
+
+      - name: Run import-linter architecture contract
+        run: |
+          set -euo pipefail
+          PYTHONPATH=src lint-imports
+
+      - name: Run Pyright
+        run: |
+          set -euo pipefail
+          pyright
 
       - name: Run unit tests
         run: |
