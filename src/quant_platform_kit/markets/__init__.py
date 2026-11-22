@@ -8,6 +8,8 @@ from .sessions import (
     MarketProfileId,
     MarketSessionDecision,
     evaluate_market_session,
+    is_market_open_now,
+    is_market_open_today,
 )
 
 __all__ = [
@@ -20,4 +22,6 @@ __all__ = [
     "MarketProfileId",
     "MarketSessionDecision",
     "evaluate_market_session",
+    "is_market_open_now",
+    "is_market_open_today",
 ]

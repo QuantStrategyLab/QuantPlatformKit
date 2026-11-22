@@ -346,3 +346,59 @@ def evaluate_market_session(
     if profile == MarketProfileId.CME_FUTURES_23X5:
         return _evaluate_cme_futures_23x5(now, is_trading_day, early_close_by_date)
     raise ValueError(f"Unsupported market profile: {profile!r}")
+
+
+def _resolve_calendar_factory(calendar_factory: Callable[[str], object] | None):
+    if calendar_factory is not None:
+        return calendar_factory
+    import pandas_market_calendars as mcal
+
+    return mcal.get_calendar
+
+
+def is_market_open_now(
+    *,
+    calendar_name: str = "NYSE",
+    timezone_name: str = US_EQUITY_TIMEZONE,
+    calendar_factory: Callable[[str], object] | None = None,
+    now: datetime | None = None,
+) -> tuple[bool, Exception | None]:
+    """Return whether the target exchange regular session is open right now."""
+    try:
+        factory = _resolve_calendar_factory(calendar_factory)
+        calendar = factory(calendar_name)
+        market_tz = ZoneInfo(timezone_name)
+        now_market = now.astimezone(market_tz) if now is not None else datetime.now(market_tz)
+        schedule = calendar.schedule(
+            start_date=now_market.date(),
+            end_date=now_market.date(),
+        )
+        if schedule.empty:
+            return False, None
+        try:
+            return bool(calendar.open_at_time(schedule, now_market)), None
+        except ValueError as exc:
+            if "not covered by the schedule" not in str(exc):
+                raise
+            return False, None
+    except Exception as exc:
+        return False, exc
+
+
+def is_market_open_today(
+    *,
+    calendar_name: str = "NASDAQ",
+    timezone_name: str = US_EQUITY_TIMEZONE,
+    calendar_factory: Callable[[str], object] | None = None,
+    now: datetime | None = None,
+) -> bool:
+    """Return whether today is a trading session on the target exchange."""
+    factory = _resolve_calendar_factory(calendar_factory)
+    calendar = factory(calendar_name)
+    market_tz = ZoneInfo(timezone_name)
+    now_market = now.astimezone(market_tz) if now is not None else datetime.now(market_tz)
+    schedule = calendar.schedule(
+        start_date=now_market.date(),
+        end_date=now_market.date(),
+    )
+    return not schedule.empty
