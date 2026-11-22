@@ -51,7 +51,7 @@ def test_reusable_drift_workflow_enforces_lifecycle_preflight() -> None:
     assert 'token: ${{ steps.drift_app_token.outputs.token }}' in workflow
     assert 'ref: ${{ inputs.quant_platform_kit_ref }}' in workflow
     assert "Download lifecycle preflight artifact" in workflow
-    assert "actions/download-artifact@v7" in workflow
+    assert "actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131" in workflow
     assert "name: ${{ inputs.lifecycle_preflight_artifact }}" in workflow
     assert "path: ${{ runner.temp }}/lifecycle-preflight" in workflow
     assert "Restore lifecycle preflight inputs" in workflow
