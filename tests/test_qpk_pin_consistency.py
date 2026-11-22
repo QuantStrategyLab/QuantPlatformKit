@@ -62,7 +62,6 @@ class QpkPinConsistencyTests(unittest.TestCase):
                 "CharlesSchwabPlatform",
                 "FirstradePlatform",
                 "BinancePlatform",
-                "QmtPlatform",
             },
             {repo.name for repo in EXECUTION_CONSUMER_REPOS},
         )

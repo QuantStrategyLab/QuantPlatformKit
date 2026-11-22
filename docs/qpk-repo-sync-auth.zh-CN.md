@@ -92,9 +92,9 @@ gh workflow run advance-staged-qpk-pin.yml -R QuantStrategyLab/QuantPlatformKit 
 
 ## 权限要求
 
-组织级 GitHub App（`<github-app-name>`）需对以下 15 个仓库具有 **Contents: Read and write** + **Pull requests: Read and write**
+组织级 GitHub App（`<github-app-name>`）需对以下 14 个仓库具有 **Contents: Read and write** + **Pull requests: Read and write**
 （health 校验只用只读 installation token）：
 
 - QuantPlatformKit, CnEquityStrategies, HkEquityStrategies, UsEquityStrategies, CryptoStrategies
-- InteractiveBrokersPlatform, LongBridgePlatform, CharlesSchwabPlatform, FirstradePlatform, BinancePlatform, QmtPlatform
+- InteractiveBrokersPlatform, LongBridgePlatform, CharlesSchwabPlatform, FirstradePlatform, BinancePlatform
 - CnEquitySnapshotPipelines, HkEquitySnapshotPipelines, UsEquitySnapshotPipelines, CryptoLivePoolPipelines

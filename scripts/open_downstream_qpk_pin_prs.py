@@ -87,7 +87,6 @@ EXECUTION_CONSUMER_REPOS = (
     RepoSpec("CharlesSchwabPlatform"),
     RepoSpec("FirstradePlatform"),
     RepoSpec("BinancePlatform"),
-    RepoSpec("QmtPlatform"),
 )
 
 PIPELINE_CONSUMER_REPOS = (
