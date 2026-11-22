@@ -73,7 +73,6 @@ jobs:
             CharlesSchwabPlatform
             FirstradePlatform
             BinancePlatform
-            QmtPlatform
             CnEquitySnapshotPipelines
             HkEquitySnapshotPipelines
             UsEquitySnapshotPipelines
@@ -102,7 +101,6 @@ jobs:
             CharlesSchwabPlatform
             FirstradePlatform
             BinancePlatform
-            QmtPlatform
             CnEquitySnapshotPipelines
             HkEquitySnapshotPipelines
             UsEquitySnapshotPipelines

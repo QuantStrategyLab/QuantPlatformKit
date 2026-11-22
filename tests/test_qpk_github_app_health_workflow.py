@@ -20,7 +20,6 @@ EXPECTED_REPOS = (
     "CharlesSchwabPlatform",
     "FirstradePlatform",
     "BinancePlatform",
-    "QmtPlatform",
     "CnEquitySnapshotPipelines",
     "HkEquitySnapshotPipelines",
     "UsEquitySnapshotPipelines",

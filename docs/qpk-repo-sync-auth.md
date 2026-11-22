@@ -76,8 +76,8 @@ gh workflow run advance-staged-qpk-pin.yml -R QuantStrategyLab/QuantPlatformKit 
 
 ## Required repository permissions
 
-The organization GitHub App (`<github-app-name>`) requires **Contents: Read and write** + **Pull requests: Read and write** across these 15 repositories (health checks use read-only installation tokens):
+The organization GitHub App (`<github-app-name>`) requires **Contents: Read and write** + **Pull requests: Read and write** across these 14 repositories (health checks use read-only installation tokens):
 
 - `QuantPlatformKit`, `CnEquityStrategies`, `HkEquityStrategies`, `UsEquityStrategies`, `CryptoStrategies`
-- `InteractiveBrokersPlatform`, `LongBridgePlatform`, `CharlesSchwabPlatform`, `FirstradePlatform`, `BinancePlatform`, `QmtPlatform`
+- `InteractiveBrokersPlatform`, `LongBridgePlatform`, `CharlesSchwabPlatform`, `FirstradePlatform`, `BinancePlatform`
 - `CnEquitySnapshotPipelines`, `HkEquitySnapshotPipelines`, `UsEquitySnapshotPipelines`, `CryptoLivePoolPipelines`
