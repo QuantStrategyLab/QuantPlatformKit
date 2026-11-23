@@ -39,5 +39,6 @@ jobs:
           mutmut_rc=$?
           set -e
           mutmut results >> "$GITHUB_STEP_SUMMARY"
-          # mutmut 2.5 exits non-zero only on survived mutants after baseline tests pass
-          echo "mutmut_exit=$mutmut_rc" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$mutmut_rc" -ne 0 ] && [ "$mutmut_rc" -ne 2 ]; then
+            exit "$mutmut_rc"
+          fi

@@ -64,18 +64,11 @@ def _strategy_plugin_find_field_value(value: Any, field_names: frozenset[str]) -
 
 
 def _strategy_plugin_has_auditable_position_control(signal: StrategyPluginSignal) -> bool:
-    if not STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED:
-        return False
-    controls = signal.execution_controls
-    policy = _strategy_plugin_consumption_policy(signal)
-    if not (
-        _as_bool(controls.get("position_control_allowed"), default=False)
-        or _as_bool(policy.get("position_control_allowed"), default=False)
-    ):
+    if not _strategy_plugin_policy_allows_position_control(signal):
         return False
     if _strategy_plugin_consumption_status(signal) != "automation_approved":
         return False
-    evidence_sources: tuple[Any, ...] = (controls, signal.payload)
+    evidence_sources: tuple[Any, ...] = (signal.execution_controls, signal.payload)
     return all(
         _strategy_plugin_find_field_value(evidence_sources, field_names) is not None
         for field_names in (
