@@ -6,9 +6,6 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from quant_platform_kit.common.notification_localization import (
-    translator_uses_zh as _translator_uses_zh,  # noqa: F401
-)
 from quant_platform_kit.common.strategy_plugin_artifacts import (
     cache_path_for_remote_artifact,
     download_remote_object,
@@ -104,14 +101,36 @@ def _translate(
     return translated if translated != key else fallback.format(**kwargs)
 
 
+def _translator_uses_zh(translator: Callable[..., str] | None) -> bool:
+    if translator is None:
+        return False
+    for key in ("strategy_plugin_alert_locale", "no_trades"):
+        try:
+            sample = str(translator(key))
+        except Exception:
+            continue
+        if sample.strip().lower().startswith("zh"):
+            return True
+        if any("\u4e00" <= char <= "\u9fff" for char in sample):
+            return True
+    return False
+
+
 def _translate_first(
     translator: Callable[..., str] | None,
     keys: Sequence[str],
+    **kwargs: Any,
 ) -> str | None:
     if translator is None:
         return None
     for key in keys:
-        translated = translator(key)
+        if kwargs:
+            try:
+                translated = translator(key, **kwargs)
+            except TypeError:
+                translated = translator(key)
+        else:
+            translated = translator(key)
         if translated != key:
             text = str(translated).strip()
             if text:

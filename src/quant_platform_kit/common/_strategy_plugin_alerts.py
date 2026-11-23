@@ -14,7 +14,6 @@ from quant_platform_kit.common._strategy_plugin_consumption import (
     _strategy_plugin_is_notification_only,
 )
 from quant_platform_kit.common._strategy_plugin_loading import _coerce_strategy_plugin_signal
-from quant_platform_kit.common.notification_localization import translator_uses_zh
 from quant_platform_kit.common._strategy_plugin_helpers import (
     _as_bool,
     _compact_strategy_plugin_error,
@@ -498,25 +497,6 @@ def build_strategy_plugin_alert_reason_summary(
     )
 
 
-def _translate_first_formatted(
-    translator: Callable[..., str] | None,
-    keys: Sequence[str],
-    **kwargs: Any,
-) -> str | None:
-    if translator is None:
-        return None
-    for key in keys:
-        try:
-            translated = translator(key, **kwargs)
-        except TypeError:
-            translated = translator(key)
-        if translated != key:
-            text = str(translated).strip()
-            if text:
-                return text
-    return None
-
-
 def _alert_narrative_keys(kind: str, signal: StrategyPluginSignal) -> tuple[str, ...]:
     plugin = signal.normalized_plugin
     route = signal.normalized_route
@@ -543,7 +523,7 @@ def _build_strategy_plugin_alert_situation(
         if reasons is not None
         else _build_strategy_plugin_alert_reason_summary(signal, translator=translator)
     )
-    translated = _translate_first_formatted(
+    translated = _translate_first(
         translator,
         _alert_narrative_keys("situation", signal),
         reasons=resolved_reasons,
@@ -569,7 +549,7 @@ def _build_strategy_plugin_alert_recommendation(
     *,
     translator: Callable[..., str] | None = None,
 ) -> str:
-    translated = _translate_first_formatted(
+    translated = _translate_first(
         translator,
         _alert_narrative_keys("recommendation", signal),
     )
@@ -755,7 +735,7 @@ def build_strategy_plugin_alert_messages(
         display_target_label = display_name(
             "strategies",
             signal.strategy or strategy,
-            "zh" if translator and translator_uses_zh(translator) else "en",
+            "zh" if _translator_uses_zh(translator) else "en",
             fallback=display_target_label,
         )
         display_context = _strategy_plugin_alert_display_context(
