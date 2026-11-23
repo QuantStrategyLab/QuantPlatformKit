@@ -1393,6 +1393,47 @@ class StrategyPluginSignalContractTests(unittest.TestCase):
 
         self.assertEqual(dict(vars(ns)), before)
 
+    def test_error_notification_lines_handle_optional_translator_and_zh_locale_helper(self):
+        self.assertEqual(
+            build_strategy_plugin_error_notification_lines(RuntimeError("boom")),
+            (
+                "Plugin signal failed to load: boom; this run falls back to built-in strategy rules",
+                "Plugin impact this run: no usable plugin signal loaded",
+            ),
+        )
+
+        def flaky_zh_translator(key: str) -> str:
+            if key == "strategy_plugin_alert_locale":
+                return "zh-CN"
+            if key == "strategy_plugin_error_reason_default":
+                return "插件读取异常"
+            return key
+
+        self.assertEqual(
+            build_strategy_plugin_error_notification_lines(RuntimeError("boom"), translator=flaky_zh_translator),
+            (
+                "Plugin signal failed to load: 插件读取异常; this run falls back to built-in strategy rules",
+                "Plugin impact this run: no usable plugin signal loaded",
+            ),
+        )
+
+        def raising_translator(key: str) -> str:
+            if key == "strategy_plugin_alert_locale":
+                raise KeyError(key)
+            if key == "no_trades":
+                return "暂无交易"
+            if key == "strategy_plugin_error_reason_default":
+                return "回退默认原因"
+            return key
+
+        self.assertEqual(
+            build_strategy_plugin_error_notification_lines(RuntimeError("boom"), translator=raising_translator),
+            (
+                "Plugin signal failed to load: 回退默认原因; this run falls back to built-in strategy rules",
+                "Plugin impact this run: no usable plugin signal loaded",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
