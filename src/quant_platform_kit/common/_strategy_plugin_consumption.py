@@ -15,6 +15,7 @@ from quant_platform_kit.common._strategy_plugin_models import (
     STRATEGY_PLUGIN_AUTOMATED_POSITION_ACTIONS,
     STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED,
     StrategyPluginSignal,
+    _strategy_plugin_consumption_policy,
 )
 
 def _strategy_plugin_enabled_label(
@@ -27,11 +28,6 @@ def _strategy_plugin_enabled_label(
         f"strategy_plugin_enabled_{str(signal.enabled).lower()}",
         fallback="yes" if signal.enabled else "no",
     )
-
-
-def _strategy_plugin_consumption_policy(signal: StrategyPluginSignal) -> Mapping[str, Any]:
-    policy = signal.payload.get("consumption_policy") or {}
-    return policy if isinstance(policy, Mapping) else {}
 
 
 def _strategy_plugin_value_is_present(value: Any) -> bool:
@@ -141,35 +137,6 @@ def _strategy_plugin_auto_consumption_allowed(signal: StrategyPluginSignal, *, a
         and _strategy_plugin_consumption_status(signal) == "automation_approved"
         and _strategy_plugin_has_auditable_position_control(signal)
     )
-
-
-def _strategy_plugin_runtime_consumption_summary(signal: StrategyPluginSignal) -> dict[str, Any]:
-    """Describe the authority actually granted to a loaded sidecar.
-
-    Artifact controls remain in ``execution_controls`` as source evidence.  This
-    separate summary prevents a legacy artifact from making a runtime report
-    look authorized when the shared runtime deliberately clamps all direct
-    position control to shadow-only metadata.
-    """
-
-    controls = signal.execution_controls
-    policy = _strategy_plugin_consumption_policy(signal)
-    artifact_position_control_requested = _as_bool(
-        controls.get("position_control_allowed"), default=False
-    ) or _as_bool(policy.get("position_control_allowed"), default=False)
-    direct_position_control_allowed = bool(STRATEGY_PLUGIN_DIRECT_POSITION_CONTROL_ALLOWED)
-    return {
-        "authority": (
-            "direct_position_control" if direct_position_control_allowed else "shadow_only"
-        ),
-        "direct_position_control_allowed": direct_position_control_allowed,
-        "broker_order_allowed": False,
-        "live_allocation_mutation_allowed": False,
-        "runtime_metadata_non_authoritative": not direct_position_control_allowed,
-        "artifact_position_control_requested": artifact_position_control_requested,
-        "artifact_schema_is_legacy_v1": signal.schema_version.endswith(".v1"),
-    }
-
 
 
 def _is_strategy_position_control_notice(signal: StrategyPluginSignal, *, action: str | None = None) -> bool:

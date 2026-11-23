@@ -77,11 +77,6 @@ def _parse_cloud_uri(uri: str) -> tuple[str, str]:
     return parse_cloud_uri(uri)
 
 
-# Backward-compatible aliases (used internally by notification modules)
-_download_gcs_object = _download_remote_object
-_parse_gcs_uri = _parse_cloud_uri
-
-
 def _cache_path_for_remote_artifact(reference: str) -> Path:
     return cache_path_for_remote_artifact(reference, cache_dir=DEFAULT_PLUGIN_ARTIFACT_CACHE_DIR)
 
