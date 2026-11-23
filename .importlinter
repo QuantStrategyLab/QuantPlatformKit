@@ -1,0 +1,29 @@
+[importlinter]
+root_package = quant_platform_kit
+
+[importlinter:contract:core-contracts-independent-of-adapters]
+name = Core domain contracts do not import broker adapters, cloud, or notifications
+type = forbidden
+source_modules =
+    quant_platform_kit.risk
+    quant_platform_kit.position_sizing
+    quant_platform_kit.execution
+    quant_platform_kit.reconciliation
+forbidden_modules =
+    quant_platform_kit.ibkr
+    quant_platform_kit.binance
+    quant_platform_kit.schwab
+    quant_platform_kit.longbridge
+    quant_platform_kit.quantconnect
+    quant_platform_kit.cloud
+    quant_platform_kit.notifications
+ignore_imports =
+    # Legacy coupling frozen per ADR 0001; new imports across this boundary are blocked.
+    quant_platform_kit.common.execution_commands -> quant_platform_kit.cloud
+    quant_platform_kit.common.execution_state -> quant_platform_kit.cloud
+    quant_platform_kit.notifications.telegram -> quant_platform_kit.cloud
+    quant_platform_kit.strategy_lifecycle.performance_store -> quant_platform_kit.cloud
+    quant_platform_kit.risk.attention -> quant_platform_kit.notifications.presentation
+    quant_platform_kit.common.operational_notification_localization -> quant_platform_kit.notifications.presentation
+    quant_platform_kit.risk.attention_notify -> quant_platform_kit.notifications.telegram
+    quant_platform_kit.strategy_lifecycle.research_promotion.notifications -> quant_platform_kit.notifications.telegram

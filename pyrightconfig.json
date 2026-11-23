@@ -1,0 +1,16 @@
+{
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "include": [
+    "src/quant_platform_kit/execution",
+    "src/quant_platform_kit/reconciliation",
+    "src/quant_platform_kit/common/execution_capabilities.py",
+    "src/quant_platform_kit/common/execution_commands.py",
+    "src/quant_platform_kit/common/execution_outcomes.py",
+    "src/quant_platform_kit/common/execution_receipts.py",
+    "src/quant_platform_kit/common/execution_translation.py"
+  ],
+  "extraPaths": [
+    "src"
+  ]
+}
