@@ -31,7 +31,13 @@ jobs:
       - name: Run scoped mutation tests
         run: |
           set -euo pipefail
+          python -m pytest -q tests/test_position_sizing.py tests/test_promotion_sizing_chain.py
+          set +e
           mutmut run \
             --paths-to-mutate=src/quant_platform_kit/position_sizing.py,src/quant_platform_kit/risk/promotion_sizing.py \
-            --runner="python -m pytest -q tests/test_position_sizing.py tests/test_promotion_sizing_chain.py" || true
-          mutmut results >> "$GITHUB_STEP_SUMMARY" || true
+            --runner="python -m pytest -q tests/test_position_sizing.py tests/test_promotion_sizing_chain.py"
+          mutmut_rc=$?
+          set -e
+          mutmut results >> "$GITHUB_STEP_SUMMARY"
+          # mutmut 2.5 exits non-zero only on survived mutants after baseline tests pass
+          echo "mutmut_exit=$mutmut_rc" >> "$GITHUB_STEP_SUMMARY"
