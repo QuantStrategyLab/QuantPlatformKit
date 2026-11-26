@@ -370,6 +370,63 @@ def resolve_daily_loss_runtime_risk_limits(
     return runtime_risk_limits_for_daily_loss_axis(limit, carrier_symbol=carrier_symbol)
 
 
+def resolve_fuse_readback_inputs(
+    portfolio: Mapping[str, Any],
+    projection: Mapping[str, Any],
+    *,
+    default_mode: str = "enforce",
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Extract FUSE-2 readback payload and rollout controls without mutating existing callers."""
+    portfolio_map = mapping_or_empty(portfolio)
+    projection_map = mapping_or_empty(projection)
+    metadata = portfolio_metadata(portfolio_map)
+    env = os.environ if environ is None else environ
+
+    fuse_readback = None
+    for source in (projection_map, portfolio_map, metadata):
+        if "fuse_readback" in source and source["fuse_readback"] is not None:
+            fuse_readback = source["fuse_readback"]
+            break
+
+    fuse_trade_date = None
+    for source in (projection_map, portfolio_map, metadata):
+        raw_date = source.get("fuse_trade_date") or source.get("trade_date")
+        if isinstance(raw_date, str) and raw_date.strip():
+            fuse_trade_date = raw_date.strip()
+            break
+    if fuse_trade_date is None:
+        env_date = str(env.get("FUSE_TRADE_DATE") or "").strip()
+        if env_date:
+            fuse_trade_date = env_date
+
+    raw_mode = None
+    for source in (projection_map, portfolio_map, metadata):
+        candidate = source.get("fuse_mode")
+        if isinstance(candidate, str) and candidate.strip():
+            raw_mode = candidate.strip()
+            break
+    if raw_mode is None:
+        raw_mode = str(env.get("FUSE_READBACK_MODE") or "").strip() or default_mode
+
+    observe_until = None
+    for source in (projection_map, portfolio_map, metadata):
+        candidate = source.get("fuse_observe_until")
+        if isinstance(candidate, str) and candidate.strip():
+            observe_until = candidate.strip()
+            break
+    if observe_until is None:
+        env_until = str(env.get("FUSE_OBSERVE_UNTIL") or "").strip()
+        observe_until = env_until or None
+
+    return {
+        "fuse_readback": fuse_readback,
+        "fuse_trade_date": fuse_trade_date,
+        "fuse_mode": raw_mode,
+        "fuse_observe_until": observe_until,
+    }
+
+
 __all__ = [
     "DEFAULT_BROKER_DRAWDOWN_MAX_AGE_SECONDS",
     "DEFAULT_DAILY_LOSS_LIMIT_CARRIER_SYMBOL",
@@ -385,6 +442,7 @@ __all__ = [
     "resolve_durable_breaker_open",
     "resolve_equity_usd",
     "resolve_explicit_daily_loss_usd",
+    "resolve_fuse_readback_inputs",
     "resolve_max_daily_loss_usd",
     "resolve_production_drift_status",
     "resolve_unknown_pending",

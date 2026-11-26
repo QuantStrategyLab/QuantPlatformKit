@@ -54,6 +54,11 @@ from quant_platform_kit.risk.account_new_risk_gate import (
     evaluate_new_risk_from_reader,
     validate_injected_snapshot,
 )
+from quant_platform_kit.risk.fuse_readback import (
+    FuseReadbackDecision,
+    FuseReadbackRecord,
+    evaluate_fuse_readback,
+)
 from quant_platform_kit.risk.production_drift_new_risk import (
     normalize_production_drift_status,
     production_drift_new_risk_reasons,
@@ -143,6 +148,9 @@ __all__ = [
     "evaluate_new_risk_admission",
     "evaluate_new_risk_from_reader",
     "validate_injected_snapshot",
+    "FuseReadbackDecision",
+    "FuseReadbackRecord",
+    "evaluate_fuse_readback",
     "normalize_production_drift_status",
     "production_drift_new_risk_reasons",
     "production_drift_status_from_probe_summary",
