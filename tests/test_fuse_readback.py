@@ -207,14 +207,58 @@ class FuseReadbackTests(unittest.TestCase):
         self.assertEqual(res_stale.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
         self.assertIn("FUSE_READBACK_STALE_FAIL_CLOSED", res_stale.reason_codes)
 
-    def test_resolve_fuse_readback_inputs_preserves_explicit_invalid_mode_and_observe(self) -> None:
+    def test_explicit_null_readback_fails_closed_even_without_env(self) -> None:
+        null_inputs = resolve_fuse_readback_inputs({}, {"fuse_readback": None}, environ={})
+        self.assertTrue(null_inputs["fuse_enabled"])
+        snap = InjectedReconciliationSnapshot(
+            observation_status="COMPLETE",
+            reconciliation_status="VERIFIED",
+            circuit_breaker_state="CLOSED",
+            equity_usd=40_000.0,
+            **null_inputs,
+        )
+        res = evaluate_new_risk_admission(snap)
+        self.assertEqual(res.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+        self.assertEqual(res.reason_codes, ("FUSE_READBACK_MISSING_FAIL_CLOSED",))
+
+    def test_projection_cannot_override_trade_date_or_downgrade_enforce(self) -> None:
+        # Stale projection carrying fuse_expected_trade_date, fuse_mode='observe', and an
+        # active observe window must NOT override env FUSE_TRADE_DATE / FUSE_READBACK_MODE=enforce.
         inputs = resolve_fuse_readback_inputs(
-            {"metadata": {"fuse_observe_until": "2026-12-11"}},
-            {"fuse_readback": _valid_record(), "fuse_mode": False},
+            {"fuse_expected_trade_date": "2026-11-26", "metadata": {"fuse_observe_until": "2026-12-11"}},
+            {
+                "fuse_readback": _valid_record("2026-11-26"),
+                "fuse_expected_trade_date": "2026-11-26",
+                "fuse_mode": "observe",
+                "fuse_observe_until": "2026-12-11",
+            },
+            environ={"FUSE_READBACK_MODE": "enforce", "FUSE_TRADE_DATE": "2026-11-27"},
+        )
+        self.assertEqual(inputs["fuse_mode"], "enforce")
+        self.assertEqual(inputs["fuse_trade_date"], "2026-11-27")
+        self.assertIsNone(inputs["fuse_observe_until"])
+        snap = InjectedReconciliationSnapshot(
+            observation_status="COMPLETE",
+            reconciliation_status="VERIFIED",
+            circuit_breaker_state="CLOSED",
+            equity_usd=40_000.0,
+            **inputs,
+        )
+        res = evaluate_new_risk_admission(snap)
+        self.assertEqual(res.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+        self.assertIn("FUSE_READBACK_STALE_FAIL_CLOSED", res.reason_codes)
+
+    def test_resolve_fuse_readback_inputs_preserves_explicit_invalid_mode_and_separates_observe_reasons(self) -> None:
+        inputs = resolve_fuse_readback_inputs(
+            {},
+            {"fuse_readback": _valid_record()},
+            mode=False,
+            observe_until="2026-12-11",
             environ={"FUSE_READBACK_MODE": "observe", "FUSE_TRADE_DATE": "2026-11-27"},
         )
         self.assertIs(inputs["fuse_mode"], False)
         self.assertEqual(inputs["fuse_trade_date"], "2026-11-27")
+        self.assertEqual(inputs["fuse_observe_until"], "2026-12-11")
         snap = InjectedReconciliationSnapshot(
             observation_status="COMPLETE",
             reconciliation_status="VERIFIED",
@@ -225,3 +269,27 @@ class FuseReadbackTests(unittest.TestCase):
         res = evaluate_new_risk_admission(snap)
         self.assertEqual(res.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
         self.assertIn("FUSE_READBACK_MODE_INVALID_FAIL_CLOSED", res.reason_codes)
+
+        # In observe mode with legacy switch disabled, account-level reason_codes only carry
+        # LEGACY_NEW_RISK_SWITCH_DISABLED while fuse_decision preserves FUSE observation diagnostics.
+        obs_snap = InjectedReconciliationSnapshot(
+            observation_status="COMPLETE",
+            reconciliation_status="VERIFIED",
+            circuit_breaker_state="CLOSED",
+            equity_usd=40_000.0,
+            legacy_new_risk_switch_enabled=False,
+            **resolve_fuse_readback_inputs(
+                {},
+                {"fuse_readback": _valid_record("2026-11-26")},
+                environ={
+                    "FUSE_READBACK_MODE": "observe",
+                    "FUSE_OBSERVE_UNTIL": "2026-12-11",
+                    "FUSE_TRADE_DATE": "2026-11-27",
+                },
+            ),
+        )
+        obs_res = evaluate_new_risk_admission(obs_snap)
+        self.assertEqual(obs_res.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+        self.assertEqual(obs_res.reason_codes, ("LEGACY_NEW_RISK_SWITCH_DISABLED",))
+        assert obs_res.fuse_decision is not None
+        self.assertIn("FUSE_READBACK_STALE_FAIL_CLOSED", obs_res.fuse_decision.reason_codes)

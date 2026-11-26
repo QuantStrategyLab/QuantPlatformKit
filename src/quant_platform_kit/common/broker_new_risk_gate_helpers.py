@@ -370,18 +370,23 @@ def resolve_daily_loss_runtime_risk_limits(
     return runtime_risk_limits_for_daily_loss_axis(limit, carrier_symbol=carrier_symbol)
 
 
-def _first_configured_setting(
-    sources: tuple[Mapping[str, Any], ...],
-    key: str,
+_UNSET = object()
+
+
+def _resolve_control_value(
+    explicit: object,
     env: Mapping[str, str],
     env_key: str,
+    *,
+    treat_empty_explicit_as_unset: bool = False,
 ) -> tuple[bool, object]:
-    for source in sources:
-        if key in source and source[key] is not None:
-            candidate = source[key]
-            if isinstance(candidate, str) and not candidate.strip():
-                continue
-            return True, candidate.strip() if isinstance(candidate, str) else candidate
+    if explicit is not _UNSET and explicit is not None:
+        if isinstance(explicit, str):
+            stripped = explicit.strip()
+            if stripped or not treat_empty_explicit_as_unset:
+                return True, stripped
+        else:
+            return True, explicit
     env_val = env.get(env_key)
     if env_val is not None and (not isinstance(env_val, str) or env_val.strip()):
         return True, env_val.strip() if isinstance(env_val, str) else env_val
@@ -393,15 +398,18 @@ def resolve_fuse_readback_inputs(
     projection: Mapping[str, Any],
     *,
     current_trade_date: str | None = None,
+    mode: object = _UNSET,
+    observe_until: object = _UNSET,
     default_mode: str = "enforce",
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Extract FUSE-2 readback payload and independent decision controls.
 
-    Never reads ``trade_date`` from the candidate ``fuse_readback`` or ``projection`` as the
-    reference decision date, so a stale snapshot cannot validate against itself. Explicit
-    non-empty invalid values from higher-priority sources are preserved so downstream
-    fail-closed validation rejects them instead of silently falling back.
+    Never reads decision date, ``fuse_mode``, or ``fuse_observe_until`` from the
+    candidate ``projection`` or ``portfolio``, so a stale snapshot cannot validate
+    against itself or relax runtime ``enforce`` settings back to ``observe``.
+    Explicit ``{"fuse_readback": None}`` keeps ``fuse_enabled=True`` so callers
+    explicitly wired to FUSE fail closed rather than looking unconfigured.
     """
     portfolio_map = mapping_or_empty(portfolio)
     projection_map = mapping_or_empty(projection)
@@ -411,24 +419,19 @@ def resolve_fuse_readback_inputs(
     fuse_readback = None
     has_readback_key = False
     for source in sources:
-        if "fuse_readback" in source and source["fuse_readback"] is not None:
+        if "fuse_readback" in source:
             fuse_readback = source["fuse_readback"]
             has_readback_key = True
             break
 
-    fuse_trade_date: object = current_trade_date.strip() if isinstance(current_trade_date, str) else current_trade_date
-    has_trade_date = fuse_trade_date is not None and (not isinstance(fuse_trade_date, str) or bool(fuse_trade_date))
-    if not has_trade_date:
-        has_trade_date, fuse_trade_date = _first_configured_setting(
-            sources, "fuse_expected_trade_date", env, "FUSE_TRADE_DATE"
-        )
-
-    mode_configured, raw_mode = _first_configured_setting(sources, "fuse_mode", env, "FUSE_READBACK_MODE")
+    has_trade_date, fuse_trade_date = _resolve_control_value(
+        current_trade_date, env, "FUSE_TRADE_DATE", treat_empty_explicit_as_unset=True
+    )
+    mode_configured, raw_mode = _resolve_control_value(mode, env, "FUSE_READBACK_MODE")
     if not mode_configured:
         raw_mode = default_mode
-
-    observe_configured, observe_until = _first_configured_setting(
-        sources, "fuse_observe_until", env, "FUSE_OBSERVE_UNTIL"
+    observe_configured, resolved_observe_until = _resolve_control_value(
+        observe_until, env, "FUSE_OBSERVE_UNTIL"
     )
 
     return {
@@ -436,7 +439,7 @@ def resolve_fuse_readback_inputs(
         "fuse_readback": fuse_readback,
         "fuse_trade_date": fuse_trade_date,
         "fuse_mode": raw_mode,
-        "fuse_observe_until": observe_until,
+        "fuse_observe_until": resolved_observe_until,
     }
 
 

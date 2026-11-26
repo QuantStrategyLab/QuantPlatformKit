@@ -71,6 +71,12 @@ class InjectedReconciliationSnapshot:
     drift axis was not injected (do not invent a status). ``review`` /
     ``critical`` map to ``NEW_RISK_PROHIBITED`` only — never to optimize or
     live enablement.
+
+    Upgrading ``QuantPlatformKit`` keeps ``fuse_enabled=False`` for legacy
+    adapters until they pass ``resolve_fuse_readback_inputs(...)``; once opted
+    in (or configured via ``FUSE_READBACK_MODE`` / ``FUSE_TRADE_DATE`` /
+    ``FUSE_OBSERVE_UNTIL``), active ``enforce`` (or expired ``observe``) fails
+    closed whenever the readback is missing, stale, or blocking.
     """
 
     observation_status: str
@@ -295,7 +301,14 @@ def evaluate_new_risk_admission(
     reasons.extend(production_drift_new_risk_reasons(validated.production_drift_status))
     fuse_decision = _evaluate_fuse_axis(validated)
     if fuse_decision is not None and fuse_decision.blocks_new_risk:
-        reasons.extend(fuse_decision.reason_codes)
+        if fuse_decision.effective_mode == "observe":
+            # In observe mode only legacy switch failures actually block; keep
+            # non-blocking FUSE diagnostics on fuse_decision.reason_codes.
+            reasons.extend(
+                code for code in fuse_decision.reason_codes if code.startswith("LEGACY_")
+            )
+        else:
+            reasons.extend(fuse_decision.reason_codes)
     if reasons:
         return NewRiskAdmissionResult(
             disposition=NewRiskDisposition.NEW_RISK_PROHIBITED,
