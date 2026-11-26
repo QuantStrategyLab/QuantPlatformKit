@@ -30,12 +30,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import math
-from typing import Protocol
+from typing import Any, Mapping, Protocol
 
 from quant_platform_kit.risk.capital_risk_envelope import (
     INVALID_RISK_INPUT_REASONS, evaluate_capital_risk_envelope,
 )
 from quant_platform_kit.risk.contracts import RuntimeRiskLimits
+from quant_platform_kit.risk.fuse_readback import (
+    FuseReadbackDecision,
+    FuseReadbackRecord,
+    evaluate_fuse_readback,
+)
 from quant_platform_kit.risk.production_drift_new_risk import (
     production_drift_new_risk_reasons,
 )
@@ -66,6 +71,12 @@ class InjectedReconciliationSnapshot:
     drift axis was not injected (do not invent a status). ``review`` /
     ``critical`` map to ``NEW_RISK_PROHIBITED`` only — never to optimize or
     live enablement.
+
+    Upgrading ``QuantPlatformKit`` keeps ``fuse_enabled=False`` for legacy
+    adapters until they pass ``resolve_fuse_readback_inputs(...)``; once opted
+    in (or configured via ``FUSE_READBACK_MODE`` / ``FUSE_TRADE_DATE`` /
+    ``FUSE_OBSERVE_UNTIL``), active ``enforce`` (or expired ``observe``) fails
+    closed whenever the readback is missing, stale, or blocking.
     """
 
     observation_status: str
@@ -77,6 +88,12 @@ class InjectedReconciliationSnapshot:
     realized_vol: float | None = None
     production_drift_status: str | None = None
     daily_loss_usd: float | None = None
+    fuse_enabled: bool = False
+    fuse_readback: FuseReadbackRecord | Mapping[str, Any] | None = None
+    fuse_trade_date: str | None = None
+    fuse_mode: object = "enforce"
+    fuse_observe_until: object = None
+    legacy_new_risk_switch_enabled: object = True
 
 
 class ReconciliationSnapshotReader(Protocol):
@@ -116,6 +133,7 @@ class NewRiskAdmissionResult:
     account_enablement_changed: bool = False
     risk_input_invalid: bool = False
     hard_brake_triggered: bool = False
+    fuse_decision: FuseReadbackDecision | None = None
 
 
 def validate_injected_snapshot(
@@ -226,6 +244,36 @@ def _evaluate_daily_loss_axis(
     return []
 
 
+def _evaluate_fuse_axis(
+    snapshot: InjectedReconciliationSnapshot,
+) -> FuseReadbackDecision | None:
+    """Evaluate FUSE-2 readback when FUSE is enabled/injected or legacy switch is disabled/invalid."""
+    has_fuse_signal = (
+        bool(snapshot.fuse_enabled)
+        or snapshot.fuse_readback is not None
+        or snapshot.fuse_trade_date is not None
+        or snapshot.fuse_observe_until is not None
+        or snapshot.fuse_mode != "enforce"
+    )
+    if not has_fuse_signal and snapshot.legacy_new_risk_switch_enabled is True:
+        return None
+    if not has_fuse_signal and snapshot.legacy_new_risk_switch_enabled is not True:
+        return evaluate_fuse_readback(
+            None,
+            current_trade_date="",
+            mode=snapshot.fuse_mode,
+            legacy_switch_enabled=snapshot.legacy_new_risk_switch_enabled,
+            observe_until=snapshot.fuse_observe_until,
+        )
+    return evaluate_fuse_readback(
+        snapshot.fuse_readback,
+        current_trade_date=snapshot.fuse_trade_date or "",
+        mode=snapshot.fuse_mode,
+        legacy_switch_enabled=snapshot.legacy_new_risk_switch_enabled,
+        observe_until=snapshot.fuse_observe_until,
+    )
+
+
 def evaluate_new_risk_admission(
     snapshot: InjectedReconciliationSnapshot,
     runtime_risk_limits: RuntimeRiskLimits | None = None,
@@ -251,6 +299,16 @@ def evaluate_new_risk_admission(
     reasons.extend(capital_reasons)
     reasons.extend(_evaluate_daily_loss_axis(validated, runtime_risk_limits))
     reasons.extend(production_drift_new_risk_reasons(validated.production_drift_status))
+    fuse_decision = _evaluate_fuse_axis(validated)
+    if fuse_decision is not None and fuse_decision.blocks_new_risk:
+        if fuse_decision.effective_mode == "observe":
+            # In observe mode only legacy switch failures actually block; keep
+            # non-blocking FUSE diagnostics on fuse_decision.reason_codes.
+            reasons.extend(
+                code for code in fuse_decision.reason_codes if code.startswith("LEGACY_")
+            )
+        else:
+            reasons.extend(fuse_decision.reason_codes)
     if reasons:
         return NewRiskAdmissionResult(
             disposition=NewRiskDisposition.NEW_RISK_PROHIBITED,
@@ -258,11 +316,13 @@ def evaluate_new_risk_admission(
             combined_scale=combined_scale,
             risk_input_invalid=bool(INVALID_RISK_INPUT_REASONS.intersection(reasons)) or "EQUITY_UNKNOWN_FAIL_CLOSED" in reasons,
             hard_brake_triggered="DRAWDOWN_BRAKE_TRIPPED" in reasons,
+            fuse_decision=fuse_decision,
         )
     return NewRiskAdmissionResult(
         disposition=NewRiskDisposition.ALLOW_NEW_RISK,
         reason_codes=(),
         combined_scale=combined_scale,
+        fuse_decision=fuse_decision,
     )
 
 
