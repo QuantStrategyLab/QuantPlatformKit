@@ -370,6 +370,79 @@ def resolve_daily_loss_runtime_risk_limits(
     return runtime_risk_limits_for_daily_loss_axis(limit, carrier_symbol=carrier_symbol)
 
 
+_UNSET = object()
+
+
+def _resolve_control_value(
+    explicit: object,
+    env: Mapping[str, str],
+    env_key: str,
+    *,
+    treat_empty_explicit_as_unset: bool = False,
+) -> tuple[bool, object]:
+    if explicit is not _UNSET and explicit is not None:
+        if isinstance(explicit, str):
+            stripped = explicit.strip()
+            if stripped or not treat_empty_explicit_as_unset:
+                return True, stripped
+        else:
+            return True, explicit
+    env_val = env.get(env_key)
+    if env_val is not None and (not isinstance(env_val, str) or env_val.strip()):
+        return True, env_val.strip() if isinstance(env_val, str) else env_val
+    return False, None
+
+
+def resolve_fuse_readback_inputs(
+    portfolio: Mapping[str, Any],
+    projection: Mapping[str, Any],
+    *,
+    current_trade_date: str | None = None,
+    mode: object = _UNSET,
+    observe_until: object = _UNSET,
+    default_mode: str = "enforce",
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Extract FUSE-2 readback payload and independent decision controls.
+
+    Never reads decision date, ``fuse_mode``, or ``fuse_observe_until`` from the
+    candidate ``projection`` or ``portfolio``, so a stale snapshot cannot validate
+    against itself or relax runtime ``enforce`` settings back to ``observe``.
+    Explicit ``{"fuse_readback": None}`` keeps ``fuse_enabled=True`` so callers
+    explicitly wired to FUSE fail closed rather than looking unconfigured.
+    """
+    portfolio_map = mapping_or_empty(portfolio)
+    projection_map = mapping_or_empty(projection)
+    sources = (projection_map, portfolio_map, portfolio_metadata(portfolio_map))
+    env = os.environ if environ is None else environ
+
+    fuse_readback = None
+    has_readback_key = False
+    for source in sources:
+        if "fuse_readback" in source:
+            fuse_readback = source["fuse_readback"]
+            has_readback_key = True
+            break
+
+    has_trade_date, fuse_trade_date = _resolve_control_value(
+        current_trade_date, env, "FUSE_TRADE_DATE", treat_empty_explicit_as_unset=True
+    )
+    mode_configured, raw_mode = _resolve_control_value(mode, env, "FUSE_READBACK_MODE")
+    if not mode_configured:
+        raw_mode = default_mode
+    observe_configured, resolved_observe_until = _resolve_control_value(
+        observe_until, env, "FUSE_OBSERVE_UNTIL"
+    )
+
+    return {
+        "fuse_enabled": bool(has_readback_key or mode_configured or observe_configured or has_trade_date),
+        "fuse_readback": fuse_readback,
+        "fuse_trade_date": fuse_trade_date,
+        "fuse_mode": raw_mode,
+        "fuse_observe_until": resolved_observe_until,
+    }
+
+
 __all__ = [
     "DEFAULT_BROKER_DRAWDOWN_MAX_AGE_SECONDS",
     "DEFAULT_DAILY_LOSS_LIMIT_CARRIER_SYMBOL",
@@ -385,6 +458,7 @@ __all__ = [
     "resolve_durable_breaker_open",
     "resolve_equity_usd",
     "resolve_explicit_daily_loss_usd",
+    "resolve_fuse_readback_inputs",
     "resolve_max_daily_loss_usd",
     "resolve_production_drift_status",
     "resolve_unknown_pending",
