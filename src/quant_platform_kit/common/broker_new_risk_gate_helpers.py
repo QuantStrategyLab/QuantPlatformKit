@@ -370,56 +370,69 @@ def resolve_daily_loss_runtime_risk_limits(
     return runtime_risk_limits_for_daily_loss_axis(limit, carrier_symbol=carrier_symbol)
 
 
+def _first_configured_setting(
+    sources: tuple[Mapping[str, Any], ...],
+    key: str,
+    env: Mapping[str, str],
+    env_key: str,
+) -> tuple[bool, object]:
+    for source in sources:
+        if key in source and source[key] is not None:
+            candidate = source[key]
+            if isinstance(candidate, str) and not candidate.strip():
+                continue
+            return True, candidate.strip() if isinstance(candidate, str) else candidate
+    env_val = env.get(env_key)
+    if env_val is not None and (not isinstance(env_val, str) or env_val.strip()):
+        return True, env_val.strip() if isinstance(env_val, str) else env_val
+    return False, None
+
+
 def resolve_fuse_readback_inputs(
     portfolio: Mapping[str, Any],
     projection: Mapping[str, Any],
     *,
+    current_trade_date: str | None = None,
     default_mode: str = "enforce",
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Extract FUSE-2 readback payload and rollout controls without mutating existing callers."""
+    """Extract FUSE-2 readback payload and independent decision controls.
+
+    Never reads ``trade_date`` from the candidate ``fuse_readback`` or ``projection`` as the
+    reference decision date, so a stale snapshot cannot validate against itself. Explicit
+    non-empty invalid values from higher-priority sources are preserved so downstream
+    fail-closed validation rejects them instead of silently falling back.
+    """
     portfolio_map = mapping_or_empty(portfolio)
     projection_map = mapping_or_empty(projection)
-    metadata = portfolio_metadata(portfolio_map)
+    sources = (projection_map, portfolio_map, portfolio_metadata(portfolio_map))
     env = os.environ if environ is None else environ
 
     fuse_readback = None
-    for source in (projection_map, portfolio_map, metadata):
+    has_readback_key = False
+    for source in sources:
         if "fuse_readback" in source and source["fuse_readback"] is not None:
             fuse_readback = source["fuse_readback"]
+            has_readback_key = True
             break
 
-    fuse_trade_date = None
-    for source in (projection_map, portfolio_map, metadata):
-        raw_date = source.get("fuse_trade_date") or source.get("trade_date")
-        if isinstance(raw_date, str) and raw_date.strip():
-            fuse_trade_date = raw_date.strip()
-            break
-    if fuse_trade_date is None:
-        env_date = str(env.get("FUSE_TRADE_DATE") or "").strip()
-        if env_date:
-            fuse_trade_date = env_date
+    fuse_trade_date: object = current_trade_date.strip() if isinstance(current_trade_date, str) else current_trade_date
+    has_trade_date = fuse_trade_date is not None and (not isinstance(fuse_trade_date, str) or bool(fuse_trade_date))
+    if not has_trade_date:
+        has_trade_date, fuse_trade_date = _first_configured_setting(
+            sources, "fuse_expected_trade_date", env, "FUSE_TRADE_DATE"
+        )
 
-    raw_mode = None
-    for source in (projection_map, portfolio_map, metadata):
-        candidate = source.get("fuse_mode")
-        if isinstance(candidate, str) and candidate.strip():
-            raw_mode = candidate.strip()
-            break
-    if raw_mode is None:
-        raw_mode = str(env.get("FUSE_READBACK_MODE") or "").strip() or default_mode
+    mode_configured, raw_mode = _first_configured_setting(sources, "fuse_mode", env, "FUSE_READBACK_MODE")
+    if not mode_configured:
+        raw_mode = default_mode
 
-    observe_until = None
-    for source in (projection_map, portfolio_map, metadata):
-        candidate = source.get("fuse_observe_until")
-        if isinstance(candidate, str) and candidate.strip():
-            observe_until = candidate.strip()
-            break
-    if observe_until is None:
-        env_until = str(env.get("FUSE_OBSERVE_UNTIL") or "").strip()
-        observe_until = env_until or None
+    observe_configured, observe_until = _first_configured_setting(
+        sources, "fuse_observe_until", env, "FUSE_OBSERVE_UNTIL"
+    )
 
     return {
+        "fuse_enabled": bool(has_readback_key or mode_configured or observe_configured or has_trade_date),
         "fuse_readback": fuse_readback,
         "fuse_trade_date": fuse_trade_date,
         "fuse_mode": raw_mode,

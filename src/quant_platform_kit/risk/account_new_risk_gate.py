@@ -82,11 +82,12 @@ class InjectedReconciliationSnapshot:
     realized_vol: float | None = None
     production_drift_status: str | None = None
     daily_loss_usd: float | None = None
+    fuse_enabled: bool = False
     fuse_readback: FuseReadbackRecord | Mapping[str, Any] | None = None
     fuse_trade_date: str | None = None
-    fuse_mode: str = "enforce"
-    fuse_observe_until: str | None = None
-    legacy_new_risk_switch_enabled: bool = True
+    fuse_mode: object = "enforce"
+    fuse_observe_until: object = None
+    legacy_new_risk_switch_enabled: object = True
 
 
 class ReconciliationSnapshotReader(Protocol):
@@ -240,16 +241,17 @@ def _evaluate_daily_loss_axis(
 def _evaluate_fuse_axis(
     snapshot: InjectedReconciliationSnapshot,
 ) -> FuseReadbackDecision | None:
-    """Evaluate FUSE-2 readback when FUSE fields are injected or legacy switch is disabled."""
-    if (
-        snapshot.fuse_readback is None
-        and snapshot.fuse_trade_date is None
-        and snapshot.legacy_new_risk_switch_enabled is True
-    ):
+    """Evaluate FUSE-2 readback when FUSE is enabled/injected or legacy switch is disabled/invalid."""
+    has_fuse_signal = (
+        bool(snapshot.fuse_enabled)
+        or snapshot.fuse_readback is not None
+        or snapshot.fuse_trade_date is not None
+        or snapshot.fuse_observe_until is not None
+        or snapshot.fuse_mode != "enforce"
+    )
+    if not has_fuse_signal and snapshot.legacy_new_risk_switch_enabled is True:
         return None
-    if not isinstance(snapshot.legacy_new_risk_switch_enabled, bool) and (
-        snapshot.fuse_readback is None and snapshot.fuse_trade_date is None
-    ):
+    if not has_fuse_signal and snapshot.legacy_new_risk_switch_enabled is not True:
         return evaluate_fuse_readback(
             None,
             current_trade_date="",

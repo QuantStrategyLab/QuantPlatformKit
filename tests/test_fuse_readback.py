@@ -27,8 +27,8 @@ def _valid_record(trade_date: str = "2026-11-27", **overrides) -> FuseReadbackRe
         "fuse_level": "L0",
         "blocks_orders": False,
         "blocks_eligibility": False,
-        "calendar_version": "csa22-v3",
-        "spec_digest": "416f8eff74a1962b4432e90f10f50da043e7e54a18ce30c3d79f26a5ea268654",
+        "calendar_version": "test-cal-v1",
+        "spec_digest": "0" * 64,
     }
     payload.update(overrides)
     return FuseReadbackRecord(**payload)
@@ -42,6 +42,7 @@ class FuseReadbackTests(unittest.TestCase):
         self.assertEqual(decision.reason_codes, ())
         self.assertEqual(decision.effective_mode, "enforce")
         self.assertFalse(decision.stale_or_invalid)
+        self.assertFalse(decision.observe_window_expired)
 
     def test_non_same_day_record_fails_closed_even_if_healthy(self) -> None:
         for stale_date in ("2026-11-26", "2026-11-28"):
@@ -50,28 +51,79 @@ class FuseReadbackTests(unittest.TestCase):
             self.assertTrue(decision.stale_or_invalid)
             self.assertIn("FUSE_READBACK_STALE_FAIL_CLOSED", decision.reason_codes)
 
-    def test_missing_or_malformed_record_fails_closed(self) -> None:
+    def test_missing_or_malformed_record_fails_closed_for_both_input_forms(self) -> None:
         missing = evaluate_fuse_readback(None, current_trade_date="2026-11-27")
         self.assertTrue(missing.blocks_new_risk)
         self.assertIn("FUSE_READBACK_MISSING_FAIL_CLOSED", missing.reason_codes)
 
-        bad = evaluate_fuse_readback({"trade_date": "2026-11-27", "fuse_latched": "yes"}, current_trade_date="2026-11-27")
+        bad = evaluate_fuse_readback(
+            {"trade_date": "2026-11-27", "fuse_latched": "yes"},
+            current_trade_date="2026-11-27",
+        )
         self.assertTrue(bad.blocks_new_risk)
         self.assertIn("FUSE_READBACK_INVALID_FAIL_CLOSED", bad.reason_codes)
 
+        # Direct construction enforces the exact same type & state invariants as from_mapping.
+        with self.assertRaises(ValueError):
+            FuseReadbackRecord(
+                trade_date="2026-11-27",
+                session_allowed="false",  # type: ignore[arg-type]
+                session_state="regular",
+                fuse_latched=False,
+                fuse_level="L0",
+                blocks_orders=False,
+                blocks_eligibility=False,
+            )
+
+        with self.assertRaises(ValueError):
+            FuseReadbackRecord(
+                trade_date="2026-11-27",
+                session_allowed=True,
+                session_state="closed",
+                fuse_latched=False,
+                fuse_level="L0",
+                blocks_orders=False,
+                blocks_eligibility=False,
+            )
+
+        closed_bad = evaluate_fuse_readback(
+            {
+                "trade_date": "2026-11-27",
+                "session_allowed": True,
+                "session_state": "closed",
+                "fuse_latched": False,
+                "fuse_level": "L0",
+                "blocks_orders": False,
+                "blocks_eligibility": False,
+            },
+            current_trade_date="2026-11-27",
+        )
+        self.assertTrue(closed_bad.blocks_new_risk)
+        self.assertIn("FUSE_READBACK_INVALID_FAIL_CLOSED", closed_bad.reason_codes)
+
     def test_session_and_latch_blocks_trigger_prohibition(self) -> None:
         decision = evaluate_fuse_readback(
-            _valid_record(session_allowed=False, session_state="closed", fuse_latched=True, blocks_orders=True),
+            _valid_record(
+                session_allowed=False,
+                session_state="closed",
+                fuse_latched=True,
+                blocks_orders=True,
+                blocks_eligibility=True,
+            ),
             current_trade_date="2026-11-27",
         )
         self.assertTrue(decision.blocks_new_risk)
         self.assertEqual(
             decision.reason_codes,
-            ("FUSE_SESSION_BLOCKED", "FUSE_ORDERS_BLOCKED", "FUSE_LATCHED_BLOCKED"),
+            (
+                "FUSE_SESSION_BLOCKED",
+                "FUSE_ORDERS_BLOCKED",
+                "FUSE_ELIGIBILITY_BLOCKED",
+                "FUSE_LATCHED_BLOCKED",
+            ),
         )
 
     def test_legacy_switch_off_cannot_disable_fuse_and_tighter_wins(self) -> None:
-        # Legacy switch False + clean FUSE -> legacy tighter block still prohibits.
         clean_fuse_legacy_off = evaluate_fuse_readback(
             _valid_record(),
             current_trade_date="2026-11-27",
@@ -81,7 +133,6 @@ class FuseReadbackTests(unittest.TestCase):
         self.assertTrue(clean_fuse_legacy_off.legacy_tighter_block)
         self.assertIn("LEGACY_NEW_RISK_SWITCH_DISABLED", clean_fuse_legacy_off.reason_codes)
 
-        # Legacy switch False + latched FUSE -> FUSE reasons are still preserved & enforced.
         latched_fuse_legacy_off = evaluate_fuse_readback(
             _valid_record(fuse_latched=True),
             current_trade_date="2026-11-27",
@@ -91,7 +142,7 @@ class FuseReadbackTests(unittest.TestCase):
         self.assertIn("FUSE_LATCHED_BLOCKED", latched_fuse_legacy_off.reason_codes)
         self.assertIn("LEGACY_NEW_RISK_SWITCH_DISABLED", latched_fuse_legacy_off.reason_codes)
 
-    def test_observe_mode_active_logs_would_block_without_fuse_enforcement_and_expires_to_enforce(self) -> None:
+    def test_observe_mode_active_and_expired_healthy_vs_latched(self) -> None:
         observed = evaluate_fuse_readback(
             _valid_record(fuse_latched=True),
             current_trade_date="2026-12-01",
@@ -103,69 +154,74 @@ class FuseReadbackTests(unittest.TestCase):
         self.assertFalse(observed.blocks_new_risk)
         self.assertIn("FUSE_LATCHED_BLOCKED", observed.reason_codes)
 
-        # After 2-week observe window expires -> automatically enforces fail-closed.
-        expired = evaluate_fuse_readback(
+        # Normal expiry switches to enforce: healthy same-day record ALLOWS new risk.
+        expired_clean = evaluate_fuse_readback(
+            _valid_record(trade_date="2026-12-12"),
+            current_trade_date="2026-12-12",
+            mode="observe",
+            observe_until="2026-12-11",
+        )
+        self.assertEqual(expired_clean.effective_mode, "enforce")
+        self.assertTrue(expired_clean.observe_window_expired)
+        self.assertFalse(expired_clean.blocks_new_risk)
+        self.assertEqual(expired_clean.reason_codes, ())
+
+        # Normal expiry switches to enforce: latched record BLOCKS new risk.
+        expired_latched = evaluate_fuse_readback(
             _valid_record(fuse_latched=True, trade_date="2026-12-12"),
             current_trade_date="2026-12-12",
             mode="observe",
             observe_until="2026-12-11",
         )
-        self.assertEqual(expired.effective_mode, "enforce")
-        self.assertTrue(expired.blocks_new_risk)
-        self.assertIn("FUSE_OBSERVE_WINDOW_EXPIRED_ENFORCED", expired.reason_codes)
-        self.assertIn("FUSE_LATCHED_BLOCKED", expired.reason_codes)
+        self.assertEqual(expired_latched.effective_mode, "enforce")
+        self.assertTrue(expired_latched.observe_window_expired)
+        self.assertTrue(expired_latched.blocks_new_risk)
+        self.assertIn("FUSE_LATCHED_BLOCKED", expired_latched.reason_codes)
 
-    def test_account_new_risk_gate_integrates_fuse_readback(self) -> None:
-        snap_blocked = InjectedReconciliationSnapshot(
+    def test_account_new_risk_gate_integrates_fuse_enabled_even_when_data_missing(self) -> None:
+        # Configured FUSE caller with missing readback & missing trade date still fails closed.
+        missing_all = InjectedReconciliationSnapshot(
             observation_status="COMPLETE",
             reconciliation_status="VERIFIED",
             circuit_breaker_state="CLOSED",
             equity_usd=40_000.0,
-            fuse_readback=_valid_record(fuse_latched=True),
-            fuse_trade_date="2026-11-27",
-            fuse_mode="enforce",
+            **resolve_fuse_readback_inputs({}, {}, environ={"FUSE_READBACK_MODE": "enforce"}),
         )
-        res = evaluate_new_risk_admission(snap_blocked)
-        self.assertEqual(res.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
-        self.assertIn("FUSE_LATCHED_BLOCKED", res.reason_codes)
-        self.assertIsNotNone(res.fuse_decision)
-        self.assertTrue(res.fuse_decision.would_block)
+        res_missing = evaluate_new_risk_admission(missing_all)
+        self.assertEqual(res_missing.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+        self.assertIn("FUSE_READBACK_MISSING_FAIL_CLOSED", res_missing.reason_codes)
 
-        snap_observe = InjectedReconciliationSnapshot(
+        # Stale projection carrying its own trade_date must NOT self-validate against FUSE_TRADE_DATE.
+        stale_self_dated = InjectedReconciliationSnapshot(
             observation_status="COMPLETE",
             reconciliation_status="VERIFIED",
             circuit_breaker_state="CLOSED",
             equity_usd=40_000.0,
-            fuse_readback=_valid_record(fuse_latched=True),
-            fuse_trade_date="2026-11-27",
-            fuse_mode="observe",
-            fuse_observe_until="2026-12-11",
+            **resolve_fuse_readback_inputs(
+                {},
+                {"trade_date": "2026-11-26", "fuse_readback": _valid_record("2026-11-26")},
+                environ={"FUSE_READBACK_MODE": "enforce", "FUSE_TRADE_DATE": "2026-11-27"},
+            ),
         )
-        obs_res = evaluate_new_risk_admission(snap_observe)
-        self.assertEqual(obs_res.disposition, NewRiskDisposition.ALLOW_NEW_RISK)
-        self.assertIsNotNone(obs_res.fuse_decision)
-        self.assertTrue(obs_res.fuse_decision.would_block)
-        self.assertEqual(obs_res.fuse_decision.reason_codes, ("FUSE_LATCHED_BLOCKED",))
+        res_stale = evaluate_new_risk_admission(stale_self_dated)
+        self.assertEqual(res_stale.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+        self.assertIn("FUSE_READBACK_STALE_FAIL_CLOSED", res_stale.reason_codes)
 
-        legacy_off_only = InjectedReconciliationSnapshot(
-            observation_status="COMPLETE",
-            reconciliation_status="VERIFIED",
-            circuit_breaker_state="CLOSED",
-            equity_usd=40_000.0,
-            legacy_new_risk_switch_enabled=False,
-        )
-        legacy_off_res = evaluate_new_risk_admission(legacy_off_only)
-        self.assertEqual(legacy_off_res.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
-        self.assertIn("LEGACY_NEW_RISK_SWITCH_DISABLED", legacy_off_res.reason_codes)
-
-    def test_resolve_fuse_readback_inputs_precedence(self) -> None:
+    def test_resolve_fuse_readback_inputs_preserves_explicit_invalid_mode_and_observe(self) -> None:
         inputs = resolve_fuse_readback_inputs(
-            {"metadata": {"fuse_mode": "observe", "fuse_observe_until": "2026-12-11"}},
-            {"fuse_readback": _valid_record(), "trade_date": "2026-11-27"},
-            environ={"FUSE_READBACK_MODE": "enforce", "FUSE_TRADE_DATE": "2026-11-26"},
+            {"metadata": {"fuse_observe_until": "2026-12-11"}},
+            {"fuse_readback": _valid_record(), "fuse_mode": False},
+            environ={"FUSE_READBACK_MODE": "observe", "FUSE_TRADE_DATE": "2026-11-27"},
         )
+        self.assertIs(inputs["fuse_mode"], False)
         self.assertEqual(inputs["fuse_trade_date"], "2026-11-27")
-        self.assertEqual(inputs["fuse_mode"], "observe")
-        self.assertEqual(inputs["fuse_observe_until"], "2026-12-11")
-        self.assertIsNotNone(inputs["fuse_readback"])
-
+        snap = InjectedReconciliationSnapshot(
+            observation_status="COMPLETE",
+            reconciliation_status="VERIFIED",
+            circuit_breaker_state="CLOSED",
+            equity_usd=40_000.0,
+            **inputs,
+        )
+        res = evaluate_new_risk_admission(snap)
+        self.assertEqual(res.disposition, NewRiskDisposition.NEW_RISK_PROHIBITED)
+        self.assertIn("FUSE_READBACK_MODE_INVALID_FAIL_CLOSED", res.reason_codes)
