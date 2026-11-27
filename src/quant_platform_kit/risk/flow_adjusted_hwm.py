@@ -100,13 +100,16 @@ def validate_split_reconciliation(
     *,
     notional_tolerance_usd: float = 0.01,
     price_rel_tolerance: float = 0.02,
+    share_tolerance: float = 1e-6,
 ) -> tuple[str, ...]:
-    """Validate that a split or reverse split preserves position notional value."""
+    """Validate that a split or reverse split preserves share ratio and position notional."""
     if not (
         _is_finite(notional_tolerance_usd)
         and float(notional_tolerance_usd) >= 0.0
         and _is_finite(price_rel_tolerance)
         and float(price_rel_tolerance) >= 0.0
+        and _is_finite(share_tolerance)
+        and float(share_tolerance) >= 0.0
     ):
         return ("V2_SPLIT_RECONCILIATION_FAIL_CLOSED",)
     if not isinstance(split.symbol, str) or not split.symbol.strip():
@@ -131,6 +134,17 @@ def validate_split_reconciliation(
         return ("V2_SPLIT_RECONCILIATION_FAIL_CLOSED",)
     if pre_price > 0.0:
         if abs((post_price * ratio) - pre_price) / pre_price > price_rel_tolerance:
+            return ("V2_SPLIT_RECONCILIATION_FAIL_CLOSED",)
+    expected_shares = pre_shares * ratio
+    share_tol = float(share_tolerance)
+    if cash_in_lieu == 0.0:
+        if abs(post_shares - expected_shares) > share_tol:
+            return ("V2_SPLIT_RECONCILIATION_FAIL_CLOSED",)
+    else:
+        if post_price <= 0.0 or post_shares > expected_shares + share_tol:
+            return ("V2_SPLIT_RECONCILIATION_FAIL_CLOSED",)
+        effective_shares = post_shares + (cash_in_lieu / post_price)
+        if abs(effective_shares - expected_shares) > share_tol + (float(notional_tolerance_usd) / post_price):
             return ("V2_SPLIT_RECONCILIATION_FAIL_CLOSED",)
     pre_notional = pre_shares * pre_price
     post_notional = post_shares * post_price + cash_in_lieu
@@ -201,7 +215,7 @@ def _chain_session_flows(
             return 1.0, 1.0, [], ("O1_MISSING_PRE_FLOW_VALUATION_FAIL_CLOSED",)
         pre_eq = float(flow.pre_flow_equity_usd)
         post_eq = pre_eq + float(flow.amount_usd)
-        if pre_eq < 0.0 or post_eq <= 0.0 or prev_post_eq <= 0.0:
+        if pre_eq <= 0.0 or post_eq <= 0.0 or prev_post_eq <= 0.0:
             return 1.0, 1.0, [], ("INVALID_FLOW_EQUITY_FAIL_CLOSED",)
         eq_factor *= pre_eq / prev_post_eq
         bankroll_factor *= (pre_eq + h_reserve) / (prev_post_eq + h_reserve)
@@ -210,7 +224,7 @@ def _chain_session_flows(
 
     end_flow_total = sum(float(flow.amount_usd) for flow in flows if flow.is_end_of_session)
     end_pre_eq = float(ending_equity_usd) - end_flow_total
-    if end_pre_eq < 0.0 or prev_post_eq <= 0.0:
+    if end_pre_eq <= 0.0 or prev_post_eq <= 0.0:
         return 1.0, 1.0, [], ("INVALID_FLOW_EQUITY_FAIL_CLOSED",)
 
     eq_factor *= end_pre_eq / prev_post_eq

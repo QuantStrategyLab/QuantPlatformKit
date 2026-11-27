@@ -217,5 +217,44 @@ def test_forward_and_reverse_split_reconciliation_and_fail_closed() -> None:
     assert not u_zero_eq.ok
     assert "INVALID_INPUT_FAIL_CLOSED" in u_zero_eq.fail_closed_reasons
 
+    # Zero pre-flow valuation before recapitalization would poison twr_index to 0.0; reject it.
+    u_zero_intraday = advance_flow_adjusted_hwm(
+        _initial_state(100.0),
+        ending_equity_usd=100.0,
+        flows=(ExternalCashFlow(amount_usd=100.0, pre_flow_equity_usd=0.0),),
+    )
+    assert not u_zero_intraday.ok
+    assert "INVALID_FLOW_EQUITY_FAIL_CLOSED" in u_zero_intraday.fail_closed_reasons
+
+    u_zero_end_boundary = advance_flow_adjusted_hwm(
+        _initial_state(100.0),
+        ending_equity_usd=100.0,
+        flows=(ExternalCashFlow(amount_usd=100.0, is_end_of_session=True),),
+    )
+    assert not u_zero_end_boundary.ok
+    assert "INVALID_FLOW_EQUITY_FAIL_CLOSED" in u_zero_end_boundary.fail_closed_reasons
+
+    # Share quantity discrepancies offset by within-tolerance price changes must still fail closed.
+    bad_share_split = CorporateActionSplit(
+        symbol="TQQQ",
+        split_ratio=2.0,
+        pre_shares=100.0,
+        post_shares=198.0,
+        pre_price=10.0,
+        post_price=1000.0 / 198.0,
+    )
+    assert "V2_SPLIT_RECONCILIATION_FAIL_CLOSED" in validate_split_reconciliation(bad_share_split)
+
+    bad_cil_split = CorporateActionSplit(
+        symbol="SOXL",
+        split_ratio=0.2,
+        pre_shares=103.0,
+        post_shares=19.0,  # Expect 20.6 shares; cash-in-lieu of $30 covers only 0.6 share.
+        pre_price=10.0,
+        post_price=50.0,
+        cash_in_lieu_usd=30.0,
+    )
+    assert "V2_SPLIT_RECONCILIATION_FAIL_CLOSED" in validate_split_reconciliation(bad_cil_split)
+
     with pytest.raises(ValueError, match="INVALID_SPLIT_RATIO"):
         adjust_position_for_split(10.0, 50.0, 0.0)
