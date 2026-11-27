@@ -102,6 +102,13 @@ def validate_split_reconciliation(
     price_rel_tolerance: float = 0.02,
 ) -> tuple[str, ...]:
     """Validate that a split or reverse split preserves position notional value."""
+    if not (
+        _is_finite(notional_tolerance_usd)
+        and float(notional_tolerance_usd) >= 0.0
+        and _is_finite(price_rel_tolerance)
+        and float(price_rel_tolerance) >= 0.0
+    ):
+        return ("V2_SPLIT_RECONCILIATION_FAIL_CLOSED",)
     if not isinstance(split.symbol, str) or not split.symbol.strip():
         return ("V2_SPLIT_RECONCILIATION_FAIL_CLOSED",)
     nums = (
@@ -156,7 +163,9 @@ def _validate_state_and_inputs(
         and _is_finite(prior_state.bankroll_twr_peak_index)
         and prior_state.bankroll_twr_peak_index >= prior_state.bankroll_twr_index
         and _is_finite(ending_equity_usd)
-        and float(ending_equity_usd) >= 0.0
+        and float(ending_equity_usd) > 0.0
+        and _is_finite(split_tolerance_usd)
+        and float(split_tolerance_usd) >= 0.0
         and _is_finite(tier_loss_budget_d)
         and 0.0 < float(tier_loss_budget_d) <= 1.0
     )
@@ -228,7 +237,7 @@ def _resolve_governed_hwm(
         return next_governed_hwm, mid_dd_deposit_audit, ()
     if not _is_finite(owner_hwm_reset_usd) or float(owner_hwm_reset_usd) < ending_equity_usd:
         return prior_hwm_usd, False, ("INVALID_OWNER_RESET_FAIL_CLOSED",)
-    if dd_bankroll >= tier_loss_budget_d / 3.0:
+    if dd_bankroll + 1e-12 >= tier_loss_budget_d / 3.0:
         return prior_hwm_usd, False, ("L1_AMBER_RESET_LOCKED",)
     if days_since_last_reset is None or days_since_last_reset < 30:
         return prior_hwm_usd, False, ("OWNER_RESET_COOLDOWN_ACTIVE",)

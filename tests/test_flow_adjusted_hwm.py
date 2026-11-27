@@ -12,6 +12,7 @@ from quant_platform_kit.risk.flow_adjusted_hwm import (
     FlowAdjustedHwmState,
     adjust_position_for_split,
     advance_flow_adjusted_hwm,
+    validate_split_reconciliation,
 )
 
 
@@ -119,6 +120,17 @@ def test_owner_downward_reset_respects_amber_lock_and_cooling_off() -> None:
     assert not blocked_amber.ok
     assert "L1_AMBER_RESET_LOCKED" in blocked_amber.fail_closed_reasons
 
+    # Exact Amber threshold (10% of 100 -> 90 when D=0.30) must also fail closed despite float rounding.
+    blocked_exact_amber = advance_flow_adjusted_hwm(
+        s0,
+        ending_equity_usd=90.0,
+        owner_hwm_reset_usd=90.0,
+        days_since_last_reset=30,
+        tier_loss_budget_d=0.30,
+    )
+    assert not blocked_exact_amber.ok
+    assert "L1_AMBER_RESET_LOCKED" in blocked_exact_amber.fail_closed_reasons
+
     blocked_cooldown = advance_flow_adjusted_hwm(
         u_amber.next_state,
         ending_equity_usd=95.0,
@@ -183,5 +195,27 @@ def test_forward_and_reverse_split_reconciliation_and_fail_closed() -> None:
     u_bad = advance_flow_adjusted_hwm(s0, ending_equity_usd=50_000.0, splits=(bad_split,))
     assert not u_bad.ok
     assert "V2_SPLIT_RECONCILIATION_FAIL_CLOSED" in u_bad.fail_closed_reasons
+
+    # NaN split tolerance and zero-equity closes must fail closed rather than silently passing/stranding state.
+    u_nan_tol = advance_flow_adjusted_hwm(
+        s0,
+        ending_equity_usd=50_000.0,
+        splits=(bad_split,),
+        split_tolerance_usd=float("nan"),
+    )
+    assert not u_nan_tol.ok
+    assert "INVALID_INPUT_FAIL_CLOSED" in u_nan_tol.fail_closed_reasons
+    assert "V2_SPLIT_RECONCILIATION_FAIL_CLOSED" in validate_split_reconciliation(
+        bad_split, notional_tolerance_usd=float("nan")
+    )
+
+    u_zero_eq = advance_flow_adjusted_hwm(
+        _initial_state(100.0),
+        ending_equity_usd=0.0,
+        flows=(ExternalCashFlow(amount_usd=-100.0, is_end_of_session=True),),
+    )
+    assert not u_zero_eq.ok
+    assert "INVALID_INPUT_FAIL_CLOSED" in u_zero_eq.fail_closed_reasons
+
     with pytest.raises(ValueError, match="INVALID_SPLIT_RATIO"):
         adjust_position_for_split(10.0, 50.0, 0.0)
