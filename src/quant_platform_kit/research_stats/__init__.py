@@ -65,6 +65,10 @@ from quant_platform_kit.research_stats.sharpe_inference import (
     expected_max_sharpe,
     probabilistic_sharpe_ratio,
 )
+from quant_platform_kit.research_stats.tail_correlation import (
+    TailCorrelationResult,
+    lower_tail_correlation_gate,
+)
 
 __all__ = [
     "CASH_ROLES",
@@ -93,6 +97,7 @@ __all__ = [
     "STATUS_COMPUTED",
     "STATUS_UNCOMPUTABLE",
     "StatResult",
+    "TailCorrelationResult",
     "TimingSpec",
     "TrialSummary",
     "UncertaintySpec",
@@ -103,6 +108,7 @@ __all__ = [
     "deflated_sharpe_ratio",
     "expected_max_sharpe",
     "load_backtest_report_schema",
+    "lower_tail_correlation_gate",
     "probabilistic_sharpe_ratio",
     "probability_of_backtest_overfitting",
     "stationary_bootstrap_ci",
