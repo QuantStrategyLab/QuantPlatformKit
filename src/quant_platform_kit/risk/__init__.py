@@ -61,9 +61,12 @@ from quant_platform_kit.risk.fuse_readback import (
 )
 from quant_platform_kit.risk.fuse_readback_store import (
     DEFAULT_MAX_FUSE_STATE_BYTES,
+    FuseReadbackGcsReader,
     FuseReadbackStoreResult,
+    get_fuse_readback_gcs_reader,
     load_fuse_readback_from_env,
     parse_fuse_readback_json,
+    register_fuse_readback_gcs_reader,
 )
 from quant_platform_kit.risk.production_drift_new_risk import (
     normalize_production_drift_status,
@@ -155,12 +158,15 @@ __all__ = [
     "evaluate_new_risk_from_reader",
     "validate_injected_snapshot",
     "FuseReadbackDecision",
+    "FuseReadbackGcsReader",
     "FuseReadbackRecord",
     "FuseReadbackStoreResult",
     "DEFAULT_MAX_FUSE_STATE_BYTES",
     "evaluate_fuse_readback",
+    "get_fuse_readback_gcs_reader",
     "load_fuse_readback_from_env",
     "parse_fuse_readback_json",
+    "register_fuse_readback_gcs_reader",
     "normalize_production_drift_status",
     "production_drift_new_risk_reasons",
     "production_drift_status_from_probe_summary",

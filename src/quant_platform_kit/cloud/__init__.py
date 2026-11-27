@@ -202,6 +202,13 @@ from .ports import (
     ComputeDiscovery,
     DeploymentContext,
 )
+from .fuse_readback_adapter import (
+    gcs_fuse_readback_reader,
+    load_cloud_fuse_readback_from_env,
+    register_default_fuse_readback_gcs_reader,
+)
+
+register_default_fuse_readback_gcs_reader()
 
 __all__ = [
     "SecretStore",
@@ -211,6 +218,9 @@ __all__ = [
     "DocumentStoreAtomicOwnership",
     "ComputeDiscovery",
     "DeploymentContext",
+    "gcs_fuse_readback_reader",
+    "load_cloud_fuse_readback_from_env",
+    "register_default_fuse_readback_gcs_reader",
     "get_secret_store",
     "get_secret_store_rw",
     "get_object_store",

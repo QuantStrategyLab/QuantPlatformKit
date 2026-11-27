@@ -1,4 +1,4 @@
-"""Shared FUSE-3 external state-store readback loader (file & GCS, fail-closed)."""
+"""Shared FUSE-3 external state-store readback contract and pure port (fail-closed)."""
 
 from __future__ import annotations
 
@@ -13,9 +13,24 @@ from typing import Any
 from quant_platform_kit.risk.fuse_readback import FuseReadbackRecord
 
 DEFAULT_MAX_FUSE_STATE_BYTES = 262_144
-DEFAULT_GCS_TIMEOUT_SECONDS = 10.0
 
 _GCS_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+
+FuseReadbackGcsReader = Callable[[str, str], bytes]
+_REGISTERED_GCS_READER: FuseReadbackGcsReader | None = None
+
+
+def register_fuse_readback_gcs_reader(reader: FuseReadbackGcsReader | None) -> None:
+    """Register or clear the process-level edge adapter used for ``gs://`` URIs."""
+    global _REGISTERED_GCS_READER
+    if reader is not None and not callable(reader):
+        raise TypeError("gcs_reader must be callable or None")
+    _REGISTERED_GCS_READER = reader
+
+
+def get_fuse_readback_gcs_reader() -> FuseReadbackGcsReader | None:
+    """Return the currently registered edge adapter for ``gs://`` URIs, if any."""
+    return _REGISTERED_GCS_READER
 
 
 @dataclass(frozen=True)
@@ -121,33 +136,10 @@ def _read_local_file_bounded(path_str: str, max_bytes: int) -> bytes:
     return raw
 
 
-def _default_gcs_reader(
-    bucket_name: str,
-    object_name: str,
-    *,
-    max_bytes: int = DEFAULT_MAX_FUSE_STATE_BYTES,
-) -> bytes:
-    try:
-        from google.cloud import storage  # type: ignore[import-not-found]
-    except ImportError as exc:
-        raise ValueError("FUSE_STATE_GCS_CLIENT_MISSING") from exc
-    try:
-        client = storage.Client()
-        blob = client.bucket(bucket_name).blob(object_name)
-        blob.reload(timeout=DEFAULT_GCS_TIMEOUT_SECONDS)
-        if blob.size is not None and int(blob.size) > max_bytes:
-            raise ValueError("FUSE_STATE_TOO_LARGE")
-        return bytes(blob.download_as_bytes(timeout=DEFAULT_GCS_TIMEOUT_SECONDS))
-    except ValueError:
-        raise
-    except Exception as exc:
-        raise ValueError("FUSE_STATE_GCS_READ_FAILED") from exc
-
-
 def load_fuse_readback_from_env(
     *,
     environ: Mapping[str, str] | None = None,
-    gcs_reader: Callable[[str, str], bytes] | None = None,
+    gcs_reader: FuseReadbackGcsReader | None = None,
     max_bytes: int = DEFAULT_MAX_FUSE_STATE_BYTES,
 ) -> FuseReadbackStoreResult:
     """Load and validate external FUSE state snapshot configured in ``environ``.
@@ -158,9 +150,11 @@ def load_fuse_readback_from_env(
     - ``FUSE_READBACK_EXPECTED_SPEC_DIGEST``: optional pinned ``spec_digest``
     - ``FUSE_READBACK_EXPECTED_CALENDAR_VERSION``: optional pinned ``calendar_version``
 
-    Setting both path and URI, or any unreadable/malformed/oversized/mismatched
-    payload, returns ``configured=True, record=None`` with a fixed ``error_code``
-    so callers fail closed.
+    Cloud ``gs://`` reads delegate strictly to the injected ``gcs_reader`` or
+    the process-registered edge adapter port (never importing cloud SDKs here).
+    Setting both path and URI, omitting a GCS port for ``gs://``, or any
+    unreadable/malformed/oversized/mismatched payload returns
+    ``configured=True, record=None`` with a fixed ``error_code`` (fail closed).
     """
     env = os.environ if environ is None else environ
     state_path = _clean_optional_str(env.get("FUSE_READBACK_STATE_PATH"))
@@ -185,11 +179,10 @@ def load_fuse_readback_from_env(
         else:
             assert state_uri is not None
             bucket, obj = _parse_gcs_uri(state_uri)
-            raw = (
-                _default_gcs_reader(bucket, obj, max_bytes=max_bytes)
-                if gcs_reader is None
-                else gcs_reader(bucket, obj)
-            )
+            active_reader = _REGISTERED_GCS_READER if gcs_reader is None else gcs_reader
+            if active_reader is None:
+                raise ValueError("FUSE_STATE_GCS_READER_UNCONFIGURED")
+            raw = active_reader(bucket, obj)
             if not isinstance(raw, (bytes, bytearray)):
                 raise ValueError("FUSE_STATE_INVALID_PAYLOAD_TYPE")
             raw = bytes(raw)
@@ -224,9 +217,11 @@ def load_fuse_readback_from_env(
 
 
 __all__ = [
-    "DEFAULT_GCS_TIMEOUT_SECONDS",
     "DEFAULT_MAX_FUSE_STATE_BYTES",
+    "FuseReadbackGcsReader",
     "FuseReadbackStoreResult",
+    "get_fuse_readback_gcs_reader",
     "load_fuse_readback_from_env",
     "parse_fuse_readback_json",
+    "register_fuse_readback_gcs_reader",
 ]

@@ -16,8 +16,10 @@ from quant_platform_kit.risk.account_new_risk_gate import (
 from quant_platform_kit.risk.fuse_readback import FuseReadbackRecord
 from quant_platform_kit.risk.fuse_readback_store import (
     DEFAULT_MAX_FUSE_STATE_BYTES,
+    get_fuse_readback_gcs_reader,
     load_fuse_readback_from_env,
     parse_fuse_readback_json,
+    register_fuse_readback_gcs_reader,
 )
 
 
@@ -194,6 +196,33 @@ class FuseReadbackStoreTests(unittest.TestCase):
         self.assertTrue(res_err.configured)
         self.assertIsNone(res_err.record)
         self.assertEqual(res_err.error_code, "FUSE_STATE_READ_FAILED")
+
+    def test_unregistered_and_registered_gcs_port_behavior(self) -> None:
+        previous = get_fuse_readback_gcs_reader()
+        self.addCleanup(lambda: register_fuse_readback_gcs_reader(previous))
+
+        register_fuse_readback_gcs_reader(None)
+        unconfigured = load_fuse_readback_from_env(
+            environ={"FUSE_READBACK_STATE_URI": "gs://example-fuse-state/latest.json"}
+        )
+        self.assertTrue(unconfigured.configured)
+        self.assertIsNone(unconfigured.record)
+        self.assertEqual(unconfigured.error_code, "FUSE_STATE_GCS_READER_UNCONFIGURED")
+
+        register_fuse_readback_gcs_reader(
+            lambda b, o: json.dumps(_valid_payload(fuse_latched=True, fuse_level="L2")).encode("utf-8")
+        )
+        inputs = resolve_fuse_readback_inputs(
+            {},
+            {},
+            environ={
+                "FUSE_READBACK_STATE_URI": "gs://example-fuse-state/latest.json",
+                "FUSE_TRADE_DATE": "2026-11-27",
+                "FUSE_READBACK_MODE": "enforce",
+            },
+        )
+        self.assertTrue(inputs["fuse_enabled"])
+        self.assertIsInstance(inputs["fuse_readback"], FuseReadbackRecord)
 
     def test_expected_spec_digest_and_calendar_version_mismatch_fail_closed(self) -> None:
         raw = json.dumps(_valid_payload()).encode("utf-8")
