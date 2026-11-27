@@ -68,6 +68,15 @@ from quant_platform_kit.risk.fuse_readback_store import (
     parse_fuse_readback_json,
     register_fuse_readback_gcs_reader,
 )
+from quant_platform_kit.risk.flow_adjusted_hwm import (
+    CorporateActionSplit,
+    ExternalCashFlow,
+    FlowAdjustedHwmState,
+    FlowAdjustedHwmUpdate,
+    adjust_position_for_split,
+    advance_flow_adjusted_hwm,
+    validate_split_reconciliation,
+)
 from quant_platform_kit.risk.production_drift_new_risk import (
     normalize_production_drift_status,
     production_drift_new_risk_reasons,
@@ -167,6 +176,13 @@ __all__ = [
     "load_fuse_readback_from_env",
     "parse_fuse_readback_json",
     "register_fuse_readback_gcs_reader",
+    "CorporateActionSplit",
+    "ExternalCashFlow",
+    "FlowAdjustedHwmState",
+    "FlowAdjustedHwmUpdate",
+    "adjust_position_for_split",
+    "advance_flow_adjusted_hwm",
+    "validate_split_reconciliation",
     "normalize_production_drift_status",
     "production_drift_new_risk_reasons",
     "production_drift_status_from_probe_summary",
