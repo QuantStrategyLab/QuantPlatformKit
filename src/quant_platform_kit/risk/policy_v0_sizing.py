@@ -275,9 +275,9 @@ def _apply_settled_cash_cap(
         )
 
     initial_cash = _total_buy_cash(final_target)
-    if initial_cash <= settled_cash_usd + 1e-12:
+    if initial_cash <= settled_cash_usd:
         trimmed = {sym: False for sym in PILOT_SYMBOLS}
-        return final_target, trimmed, settled_cash_usd - initial_cash
+        return final_target, trimmed, max(0.0, settled_cash_usd - initial_cash)
 
     buy_deltas = {s: max(0, gated_target[s] - parsed_holdings[s]) for s in PILOT_SYMBOLS}
     lo, hi = 0.0, 1.0
@@ -289,7 +289,7 @@ def _apply_settled_cash_cap(
             else gated_target[s]
             for s in PILOT_SYMBOLS
         }
-        if _total_buy_cash(cand) <= settled_cash_usd + 1e-12:
+        if _total_buy_cash(cand) <= settled_cash_usd:
             lo = mid
         else:
             hi = mid
@@ -308,7 +308,7 @@ def _apply_settled_cash_cap(
             for s in PILOT_SYMBOLS
             if final_target[s] < gated_target[s]
             and target_weights[s] > 0.0
-            and _total_buy_cash({**final_target, s: final_target[s] + 1}) <= settled_cash_usd + 1e-12
+            and _total_buy_cash({**final_target, s: final_target[s] + 1}) <= settled_cash_usd
         ]
         if not candidates:
             break
@@ -322,7 +322,8 @@ def _apply_settled_cash_cap(
         final_target[top_up_sym] += 1
 
     trimmed = {sym: final_target[sym] < gated_target[sym] for sym in PILOT_SYMBOLS}
-    return final_target, trimmed, settled_cash_usd - _total_buy_cash(final_target)
+    remaining = max(0.0, settled_cash_usd - _total_buy_cash(final_target))
+    return final_target, trimmed, remaining
 
 
 def compute_policy_v0_rebalance(
@@ -343,7 +344,9 @@ def compute_policy_v0_rebalance(
     When ``target_weight > 0``, the no-trade band suppresses small drifts on both
     buys and sells; when ``target_weight == 0`` (e.g. ``cushion == 0``), the
     no-trade band is bypassed for full liquidation. FUSE gating only blocks buys
-    and never blocks sells outside the no-trade band.
+    and never blocks sells outside the no-trade band. Both ``suppressed_by_no_trade_band``
+    and ``suppressed_by_fuse`` record pre-cash-trim gating decisions, and
+    ``_apply_settled_cash_cap`` never increases any sleeve above ``gated_target``.
     """
     reasons, parsed_split, parsed_prices, parsed_holdings = _validate_rebalance_inputs(
         tier=tier,

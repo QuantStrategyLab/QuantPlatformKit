@@ -165,6 +165,43 @@ def test_fuse_gate_blocks_buys_but_permits_sells() -> None:
     assert res.proposals["SOXL"].suppressed_by_fuse is False
     assert res.proposals["SOXL"].delta_shares == 18 - 30
 
+    # Tight settled cash must never let top-up re-enable a FUSE-blocked buy.
+    tight_fuse = compute_policy_v0_rebalance(
+        tier="BALANCED_COMPOUNDING",
+        equity_usd=10_000.0,
+        settled_cash_usd=200.0,
+        cushion=0.30,
+        prices_usd={"TQQQ": 50.0, "SOXL": 50.0},
+        current_shares={"TQQQ": 0, "SOXL": 30},
+        fuse_new_risk_allowed=False,
+    )
+    assert tight_fuse.ok
+    assert tight_fuse.proposals["TQQQ"].suppressed_by_fuse is True
+    assert tight_fuse.proposals["TQQQ"].delta_shares == 0
+    assert tight_fuse.proposals["TQQQ"].trimmed_for_settled_cash is False
+    assert tight_fuse.proposals["SOXL"].suppressed_by_fuse is False
+    assert tight_fuse.proposals["SOXL"].delta_shares == 18 - 30
+    assert tight_fuse.projected_settled_cash_usd == pytest.approx(200.0)
+
+
+def test_insufficient_settled_cash_yields_zero_buys() -> None:
+    for cash_usd in (0.0, 10.0):
+        res = compute_policy_v0_rebalance(
+            tier="BALANCED_COMPOUNDING",
+            equity_usd=10_000.0,
+            settled_cash_usd=cash_usd,
+            cushion=0.30,
+            prices_usd={"TQQQ": 40.0, "SOXL": 50.0},
+            current_shares={"TQQQ": 0, "SOXL": 0},
+        )
+        assert res.ok
+        assert res.proposals["TQQQ"].delta_shares == 0
+        assert res.proposals["SOXL"].delta_shares == 0
+        assert res.proposals["TQQQ"].trimmed_for_settled_cash is True
+        assert res.proposals["SOXL"].trimmed_for_settled_cash is True
+        assert res.projected_settled_cash_usd == pytest.approx(cash_usd)
+        assert res.projected_settled_cash_usd >= 0.0
+
 
 def test_settled_cash_cap_never_spends_unsettled_sell_proceeds() -> None:
     # Selling SOXL yields unsettled cash, while TQQQ buy is strictly capped by settled_cash_usd=100.
@@ -224,6 +261,19 @@ def test_fail_closed_validation_and_hwm_composition() -> None:
     assert "INVALID_PRICE_TQQQ" in bad.fail_closed_reasons
     assert "INVALID_HOLDINGS_TQQQ" in bad.fail_closed_reasons
     assert "INVALID_HOLDINGS_SOXL" in bad.fail_closed_reasons
+
+    for bad_split in ((-0.1, 1.1), (0.4, 0.4)):
+        bad_beta = compute_policy_v0_rebalance(
+            tier="BALANCED_COMPOUNDING",
+            equity_usd=10_000.0,
+            settled_cash_usd=10_000.0,
+            cushion=0.30,
+            prices_usd={"TQQQ": 50.0, "SOXL": 50.0},
+            current_shares={"TQQQ": 0, "SOXL": 0},
+            sleeve_beta_shares=bad_split,
+        )
+        assert not bad_beta.ok
+        assert "INVALID_SLEEVE_BETA_SHARES" in bad_beta.fail_closed_reasons
 
     # Compose directly with flow_adjusted_hwm (#816).
     hwm0 = FlowAdjustedHwmState(equity_usd=10_000.0, governed_hwm_usd=10_000.0)
