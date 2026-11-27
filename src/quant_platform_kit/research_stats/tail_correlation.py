@@ -159,16 +159,9 @@ def lower_tail_correlation_gate(
         return _failed("invalid_input")
 
     n = len(cand)
-    np = _numpy()
-    cand_arr = np.asarray(cand, dtype=np.float64)
-    bench_arr = np.asarray(bench, dtype=np.float64)
-
-    threshold = float(np.quantile(bench_arr, tail_q))
-    tail_mask = bench_arr <= threshold
-    tail_count = int(tail_mask.sum())
     common = {
         "observations": n,
-        "tail_observations": tail_count,
+        "tail_observations": 0,
         "tail_quantile": tail_q,
         "confidence": level,
         "max_tail_correlation": max_corr,
@@ -176,6 +169,19 @@ def lower_tail_correlation_gate(
         "n_resamples": resamples,
         "seed": seed,
     }
+    if n < min_tail_obs:
+        return _failed("insufficient_tail_observations", **common)
+    if block > n:
+        return _failed("block_longer_than_sample", **common)
+
+    np = _numpy()
+    cand_arr = np.asarray(cand, dtype=np.float64)
+    bench_arr = np.asarray(bench, dtype=np.float64)
+
+    threshold = float(np.quantile(bench_arr, tail_q))
+    tail_mask = bench_arr <= threshold
+    tail_count = int(tail_mask.sum())
+    common["tail_observations"] = tail_count
     if tail_count < min_tail_obs:
         return _failed("insufficient_tail_observations", **common)
 

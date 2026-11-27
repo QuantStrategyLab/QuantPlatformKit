@@ -135,8 +135,20 @@ def test_tail_correlation_gate_fails_closed_on_invalid_inputs(
     assert res.passes_gate is False
 
 
-def test_tail_correlation_gate_rejects_insufficient_tail_and_zero_variance() -> None:
+def test_tail_correlation_gate_rejects_empty_long_block_insufficient_tail_and_zero_variance() -> None:
+    empty = lower_tail_correlation_gate([], [], seed=1, n_resamples=100)
+    assert empty.status == STATUS_UNCOMPUTABLE
+    assert empty.observations == 0
+    assert empty.reason_code == "insufficient_tail_observations"
+    assert empty.passes_gate is False
+
     cand, bench = _make_series("crisis_alpha", n=40)
+    long_block = lower_tail_correlation_gate(cand, bench, seed=1, mean_block_length=41.0, n_resamples=100)
+    assert long_block.status == STATUS_UNCOMPUTABLE
+    assert long_block.observations == 40
+    assert long_block.reason_code == "block_longer_than_sample"
+    assert long_block.passes_gate is False
+
     small = lower_tail_correlation_gate(cand, bench, seed=1, n_resamples=100, min_tail_observations=10)
     assert small.status == STATUS_UNCOMPUTABLE
     assert small.reason_code == "insufficient_tail_observations"
