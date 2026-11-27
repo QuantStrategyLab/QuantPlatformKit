@@ -424,6 +424,14 @@ def resolve_fuse_readback_inputs(
             has_readback_key = True
             break
 
+    if not has_readback_key:
+        from quant_platform_kit.risk.fuse_readback_store import load_fuse_readback_from_env
+
+        store_result = load_fuse_readback_from_env(environ=env)
+        if store_result.configured:
+            fuse_readback = store_result.record
+            has_readback_key = True
+
     has_trade_date, fuse_trade_date = _resolve_control_value(
         current_trade_date, env, "FUSE_TRADE_DATE", treat_empty_explicit_as_unset=True
     )
