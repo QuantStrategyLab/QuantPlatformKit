@@ -33,6 +33,12 @@ from quant_platform_kit.research_stats.bootstrap import (
     BootstrapResult,
     stationary_bootstrap_ci,
 )
+from quant_platform_kit.research_stats.breadth_screening import (
+    BREADTH_ASSET_CLASSES,
+    BreadthDatasetManifest,
+    BreadthScreeningResult,
+    evaluate_breadth_candidate,
+)
 from quant_platform_kit.research_stats.cost_stress import (
     CostStressResult,
     CostStressScenario,
@@ -71,6 +77,9 @@ from quant_platform_kit.research_stats.tail_correlation import (
 )
 
 __all__ = [
+    "BREADTH_ASSET_CLASSES",
+    "BreadthDatasetManifest",
+    "BreadthScreeningResult",
     "CASH_ROLES",
     "SECURITY_NETTING_VERSION",
     "SecurityNettingResult",
@@ -106,6 +115,7 @@ __all__ = [
     "WalkForwardSpec",
     "cost_stress_recompute",
     "deflated_sharpe_ratio",
+    "evaluate_breadth_candidate",
     "expected_max_sharpe",
     "load_backtest_report_schema",
     "lower_tail_correlation_gate",
