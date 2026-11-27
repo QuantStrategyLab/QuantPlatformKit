@@ -21,6 +21,7 @@ import math
 from typing import Mapping
 
 BETA_SOXL = 1.50
+# Option A baseline sets diversification credit to 0.0 (used as an exported schema invariant).
 DIVERSIFICATION_CREDIT = 0.0
 DEFAULT_SLEEVE_BETA_SHARES = (0.5, 0.5)
 PILOT_SYMBOLS = ("TQQQ", "SOXL")
@@ -133,7 +134,11 @@ def estimate_ibkr_commission_usd(
     *,
     pricing_plan: str = "PRO_TIERED",
 ) -> float:
-    """Estimate IBKR Pro base US ETF commission in USD for whole-share orders."""
+    """Estimate IBKR Pro base US ETF commission in USD for whole-share orders.
+
+    Applies the IBKR 1% trade-value cap after the per-order minimum, so tiny
+    notional trades can be capped below ``min_order``.
+    """
     if isinstance(shares, bool) or not isinstance(shares, int) or shares < 0:
         raise ValueError("INVALID_ORDER_SHARES")
     if not _is_finite_number(price_usd) or float(price_usd) <= 0.0:
@@ -260,31 +265,64 @@ def _apply_settled_cash_cap(
     settled_cash_usd: float,
     pricing_plan: str,
 ) -> tuple[dict[str, int], dict[str, bool], float]:
+    """Scale down positive buy deltas in O(log N) fixed steps to fit settled cash."""
     final_target = dict(gated_target)
-    trimmed = {sym: False for sym in PILOT_SYMBOLS}
 
-    def _total_buy_cash() -> float:
+    def _total_buy_cash(targets: dict[str, int]) -> float:
         return sum(
-            _buy_cash_required(parsed_holdings[s], final_target[s], parsed_prices[s], pricing_plan)
+            _buy_cash_required(parsed_holdings[s], targets[s], parsed_prices[s], pricing_plan)
             for s in PILOT_SYMBOLS
         )
 
-    while _total_buy_cash() > settled_cash_usd + 1e-12:
-        buying = [s for s in PILOT_SYMBOLS if final_target[s] > parsed_holdings[s]]
-        if not buying:
+    initial_cash = _total_buy_cash(final_target)
+    if initial_cash <= settled_cash_usd + 1e-12:
+        trimmed = {sym: False for sym in PILOT_SYMBOLS}
+        return final_target, trimmed, settled_cash_usd - initial_cash
+
+    buy_deltas = {s: max(0, gated_target[s] - parsed_holdings[s]) for s in PILOT_SYMBOLS}
+    lo, hi = 0.0, 1.0
+    for _ in range(48):
+        mid = 0.5 * (lo + hi)
+        cand = {
+            s: parsed_holdings[s] + math.floor(mid * buy_deltas[s])
+            if buy_deltas[s] > 0
+            else gated_target[s]
+            for s in PILOT_SYMBOLS
+        }
+        if _total_buy_cash(cand) <= settled_cash_usd + 1e-12:
+            lo = mid
+        else:
+            hi = mid
+
+    final_target = {
+        s: parsed_holdings[s] + math.floor(lo * buy_deltas[s])
+        if buy_deltas[s] > 0
+        else gated_target[s]
+        for s in PILOT_SYMBOLS
+    }
+
+    # Add up to one residual rounded share per buying sleeve when cash allows.
+    for _ in range(len(PILOT_SYMBOLS)):
+        candidates = [
+            s
+            for s in PILOT_SYMBOLS
+            if final_target[s] < gated_target[s]
+            and target_weights[s] > 0.0
+            and _total_buy_cash({**final_target, s: final_target[s] + 1}) <= settled_cash_usd + 1e-12
+        ]
+        if not candidates:
             break
-        trim_sym = max(
-            buying,
+        top_up_sym = min(
+            candidates,
             key=lambda s: (
-                ((final_target[s] * parsed_prices[s]) / equity_usd) / max(target_weights[s], 1e-12),
-                final_target[s] - parsed_holdings[s],
+                ((final_target[s] * parsed_prices[s]) / equity_usd) / target_weights[s],
                 s,
             ),
         )
-        final_target[trim_sym] -= 1
-        trimmed[trim_sym] = True
+        final_target[top_up_sym] += 1
 
-    return final_target, trimmed, settled_cash_usd - _total_buy_cash()
+    trimmed = {sym: final_target[sym] < gated_target[sym] for sym in PILOT_SYMBOLS}
+    return final_target, trimmed, settled_cash_usd - _total_buy_cash(final_target)
 
 
 def compute_policy_v0_rebalance(
@@ -300,7 +338,13 @@ def compute_policy_v0_rebalance(
     pricing_plan: str = "PRO_TIERED",
     whole_shares_only: bool = True,
 ) -> PolicyV0SizingResult:
-    """Compute fail-closed Option A ``policy v0`` whole-share rebalance orders."""
+    """Compute fail-closed Option A ``policy v0`` whole-share rebalance orders.
+
+    When ``target_weight > 0``, the no-trade band suppresses small drifts on both
+    buys and sells; when ``target_weight == 0`` (e.g. ``cushion == 0``), the
+    no-trade band is bypassed for full liquidation. FUSE gating only blocks buys
+    and never blocks sells outside the no-trade band.
+    """
     reasons, parsed_split, parsed_prices, parsed_holdings = _validate_rebalance_inputs(
         tier=tier,
         equity_usd=equity_usd,

@@ -81,7 +81,9 @@ def test_proportional_cushion_scaling_and_zero_cushion_liquidation() -> None:
 
 def test_no_trade_band_suppresses_small_drift() -> None:
     # Balanced target weight: TQQQ=0.135, SOXL=0.090, P-C=10%.
-    # At equity=10_000, price=100, current=13 shares -> weight=0.130 (3.7% relative drift <= 10%).
+    # At equity=10_000, price=100: TQQQ=13 shares -> weight=0.130 (-3.7% drift <= 10%),
+    # SOXL=9 shares -> weight=0.090 (0%), plus overweight TQQQ=14 (+3.7% drift <= 10%)
+    # which is also intentionally suppressed even when FUSE is blocked.
     res = compute_policy_v0_rebalance(
         tier="BALANCED_COMPOUNDING",
         equity_usd=10_000.0,
@@ -95,6 +97,56 @@ def test_no_trade_band_suppresses_small_drift() -> None:
     assert res.proposals["TQQQ"].delta_shares == 0
     assert res.proposals["SOXL"].suppressed_by_no_trade_band is True
     assert res.proposals["SOXL"].delta_shares == 0
+
+    overweight_in_band = compute_policy_v0_rebalance(
+        tier="BALANCED_COMPOUNDING",
+        equity_usd=10_000.0,
+        settled_cash_usd=5_000.0,
+        cushion=0.30,
+        prices_usd={"TQQQ": 100.0, "SOXL": 100.0},
+        current_shares={"TQQQ": 14, "SOXL": 9},
+        fuse_new_risk_allowed=False,
+    )
+    assert overweight_in_band.ok
+    assert overweight_in_band.proposals["TQQQ"].suppressed_by_no_trade_band is True
+    assert overweight_in_band.proposals["TQQQ"].delta_shares == 0
+    assert overweight_in_band.proposals["TQQQ"].suppressed_by_fuse is False
+
+
+def test_large_order_proportional_cash_trim_and_zero_weight_sleeve() -> None:
+    # Both sleeves want ~67.5k + ~45k on $500k equity (~50k total shares at $2 prices),
+    # capped proportionally by settled_cash_usd=20_000 in fixed O(log N) bisection steps.
+    large = compute_policy_v0_rebalance(
+        tier="BALANCED_COMPOUNDING",
+        equity_usd=500_000.0,
+        settled_cash_usd=20_000.0,
+        cushion=0.30,
+        prices_usd={"TQQQ": 2.0, "SOXL": 2.0},
+        current_shares={"TQQQ": 0, "SOXL": 0},
+    )
+    assert large.ok
+    assert large.proposals["TQQQ"].trimmed_for_settled_cash is True
+    assert large.proposals["SOXL"].trimmed_for_settled_cash is True
+    assert large.proposals["TQQQ"].delta_shares > 0
+    assert large.proposals["SOXL"].delta_shares > 0
+    assert 0.0 <= large.projected_settled_cash_usd <= 20.0
+
+    # Zero target weight sleeve sells while non-zero buying sleeve is trimmed for settled cash.
+    zero_soxl = compute_policy_v0_rebalance(
+        tier="BALANCED_COMPOUNDING",
+        equity_usd=10_000.0,
+        settled_cash_usd=100.0,
+        cushion=0.30,
+        prices_usd={"TQQQ": 40.0, "SOXL": 50.0},
+        current_shares={"TQQQ": 0, "SOXL": 5},
+        sleeve_beta_shares=(1.0, 0.0),
+    )
+    assert zero_soxl.ok
+    assert zero_soxl.proposals["SOXL"].target_weight == pytest.approx(0.0)
+    assert zero_soxl.proposals["SOXL"].delta_shares == -5
+    assert zero_soxl.proposals["SOXL"].trimmed_for_settled_cash is False
+    assert zero_soxl.proposals["TQQQ"].final_target_shares == 2
+    assert zero_soxl.proposals["TQQQ"].trimmed_for_settled_cash is True
 
 
 def test_fuse_gate_blocks_buys_but_permits_sells() -> None:
