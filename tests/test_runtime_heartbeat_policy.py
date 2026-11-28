@@ -436,3 +436,74 @@ def test_runtime_target_configuration_presence_is_preserved_when_all_disabled() 
     assert runtime_target_configuration_present(environ) is True
     assert load_runtime_targets(environ) == []
     assert load_runtime_targets(environ, include_disabled=True)[0]["enabled"] is False
+
+
+def test_us_early_close_skips_post_close_schedule_on_black_friday() -> None:
+    targets = load_runtime_targets(
+        {
+            "CLOUD_RUN_SERVICE_TARGETS_JSON": json.dumps(
+                {
+                    "targets": [
+                        _target(
+                            service="svc-us",
+                            strategy="ibit_smart_dca",
+                            scope="US",
+                            timezone="America/New_York",
+                            calendar="NYSE",
+                        ),
+                    ]
+                }
+            )
+        }
+    )
+
+    due, evaluated = filter_due_targets(
+        targets,
+        since=dt.datetime(2026, 11, 26, 15, 54, tzinfo=dt.timezone.utc),
+        now=dt.datetime(2026, 11, 28, 3, 54, tzinfo=dt.timezone.utc),
+        session_dates_loader=lambda _calendar, **_kwargs: {dt.date(2026, 11, 27)},
+        early_closes_loader=lambda _calendar, **_kwargs: {
+            dt.date(2026, 11, 27): dt.datetime(2026, 11, 27, 18, 0, tzinfo=dt.timezone.utc),
+        },
+    )
+
+    assert evaluated is True
+    assert due == []
+
+
+def test_real_exchange_calendars_skip_post_close_schedule_on_black_friday() -> None:
+    pytest.importorskip("pandas_market_calendars")
+    targets = load_runtime_targets(
+        {
+            "CLOUD_RUN_SERVICE_TARGETS_JSON": json.dumps(
+                {
+                    "targets": [
+                        _target(
+                            service="svc-us",
+                            strategy="ibit_smart_dca",
+                            scope="US",
+                            timezone="America/New_York",
+                            calendar="NYSE",
+                        ),
+                    ]
+                }
+            )
+        }
+    )
+
+    due, evaluated = filter_due_targets(
+        targets,
+        since=dt.datetime(2026, 11, 25, 15, 0, tzinfo=dt.timezone.utc),
+        now=dt.datetime(2026, 11, 28, 3, 54, tzinfo=dt.timezone.utc),
+    )
+
+    assert evaluated is True
+    assert len(due) == 1
+    assert target_latest_due_at(due[0]) == dt.datetime(
+        2026,
+        11,
+        25,
+        20,
+        45,
+        tzinfo=dt.timezone.utc,
+    )

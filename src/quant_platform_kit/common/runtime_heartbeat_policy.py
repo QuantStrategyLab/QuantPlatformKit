@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 
 SessionDatesLoader = Callable[..., set[dt.date]]
+EarlyClosesLoader = Callable[..., dict[dt.date, dt.datetime]]
 WarningLogger = Callable[[str], None]
 ProfileResolver = Callable[[str], str]
 
@@ -548,6 +549,36 @@ def _market_session_dates(
     return {value.date() for value in schedule.index}
 
 
+def _market_early_close_cutoffs(
+    calendar: str,
+    *,
+    start_date: dt.date,
+    end_date: dt.date,
+) -> dict[dt.date, dt.datetime]:
+    import pandas_market_calendars as mcal
+
+    cal = mcal.get_calendar(calendar)
+    schedule = cal.schedule(
+        start_date=start_date,
+        end_date=end_date,
+    )
+    early_closes = cal.early_closes(schedule)
+    cutoffs: dict[dt.date, dt.datetime] = {}
+    for session_idx, row in early_closes.iterrows():
+        close_value = row["market_close"]
+        close_dt = (
+            close_value.to_pydatetime()
+            if hasattr(close_value, "to_pydatetime")
+            else close_value
+        )
+        if close_dt.tzinfo is None:
+            close_dt = close_dt.replace(tzinfo=dt.timezone.utc)
+        else:
+            close_dt = close_dt.astimezone(dt.timezone.utc)
+        cutoffs[session_idx.date()] = close_dt
+    return cutoffs
+
+
 def _target_due_status(
     target: Mapping[str, Any],
     *,
@@ -555,6 +586,7 @@ def _target_due_status(
     now: dt.datetime,
     market_aware: bool,
     session_dates_loader: SessionDatesLoader,
+    early_closes_loader: EarlyClosesLoader | None,
     warning_logger: WarningLogger,
     publication_grace: dt.timedelta,
 ) -> tuple[bool | None, dt.datetime | None]:
@@ -598,6 +630,7 @@ def _target_due_status(
     latest_cron_due_at = cron_due_at[-1] if cron_due_at else None
 
     session_dates: set[dt.date] | None = None
+    early_close_cutoffs: dict[dt.date, dt.datetime] = {}
     market_calendar = str(target.get("market_calendar") or "").strip()
     market_timezone_name = (
         str(target.get("market_timezone") or "").strip() or timezone_name
@@ -605,11 +638,28 @@ def _target_due_status(
     if market_aware and market_calendar:
         try:
             market_timezone = ZoneInfo(market_timezone_name)
+            start_day = since_utc.astimezone(market_timezone).date()
+            end_day = now_utc.astimezone(market_timezone).date()
             session_dates = session_dates_loader(
                 market_calendar,
-                start_date=since_utc.astimezone(market_timezone).date(),
-                end_date=now_utc.astimezone(market_timezone).date(),
+                start_date=start_day,
+                end_date=end_day,
             )
+            resolved_early_loader = (
+                early_closes_loader
+                if early_closes_loader is not None
+                else (
+                    _market_early_close_cutoffs
+                    if session_dates_loader is _market_session_dates
+                    else None
+                )
+            )
+            if resolved_early_loader is not None:
+                early_close_cutoffs = resolved_early_loader(
+                    market_calendar,
+                    start_date=start_day,
+                    end_date=end_day,
+                )
         except Exception as exc:  # noqa: BLE001
             warning_logger(
                 f"Unable to evaluate heartbeat market calendar {market_calendar}: "
@@ -624,7 +674,11 @@ def _target_due_status(
             (
                 due_at
                 for due_at in reversed(cron_due_at)
-                if due_at.astimezone(market_timezone).date() in session_dates
+                if (session_day := due_at.astimezone(market_timezone).date()) in session_dates
+                and (
+                    session_day not in early_close_cutoffs
+                    or due_at <= early_close_cutoffs[session_day]
+                )
             ),
             None,
         )
@@ -639,6 +693,7 @@ def filter_due_targets(
     market_aware: bool = True,
     publication_grace: dt.timedelta = dt.timedelta(minutes=30),
     session_dates_loader: SessionDatesLoader = _market_session_dates,
+    early_closes_loader: EarlyClosesLoader | None = None,
     warning_logger: WarningLogger = lambda message: print(message, file=sys.stderr),
 ) -> tuple[list[dict[str, Any]], bool]:
     due: list[dict[str, Any]] = []
@@ -650,6 +705,7 @@ def filter_due_targets(
             now=now,
             market_aware=market_aware,
             session_dates_loader=session_dates_loader,
+            early_closes_loader=early_closes_loader,
             warning_logger=warning_logger,
             publication_grace=publication_grace,
         )
