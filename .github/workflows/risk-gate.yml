@@ -51,7 +51,7 @@ jobs:
       statuses: write
     steps:
       - name: Record label head
-        uses: Pigbibi/PrGovernance/pr-governance@3d44e3d057681d5ae2730ad76af2f53b72d26767
+        uses: Pigbibi/PrGovernance/pr-governance@907bf6199947871d42e0d7220a9b413dfc1b0490
         env:
           GOVERNANCE_OWNER_ID: ${{ vars.RISK_GATE_OWNER_ID }}
           GOVERNANCE_OWNER_LOGIN: ${{ vars.RISK_GATE_OWNER }}
@@ -85,7 +85,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Evaluate
-        uses: Pigbibi/PrGovernance/pr-governance@3d44e3d057681d5ae2730ad76af2f53b72d26767
+        uses: Pigbibi/PrGovernance/pr-governance@907bf6199947871d42e0d7220a9b413dfc1b0490
         env:
           GOVERNANCE_OWNER_ID: ${{ vars.RISK_GATE_OWNER_ID }}
           GOVERNANCE_OWNER_LOGIN: ${{ vars.RISK_GATE_OWNER }}
