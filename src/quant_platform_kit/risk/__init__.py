@@ -77,6 +77,21 @@ from quant_platform_kit.risk.flow_adjusted_hwm import (
     advance_flow_adjusted_hwm,
     validate_split_reconciliation,
 )
+from quant_platform_kit.risk.execution_cost_drift import (
+    ExecutionCostDriftConfig,
+    ExecutionCostDriftReport,
+    FillCostObservation,
+    compute_adverse_slippage_bps,
+    evaluate_execution_cost_drift,
+)
+from quant_platform_kit.risk.twr_capital_ladder import (
+    DEFAULT_CAPITAL_LADDER_TIERS,
+    CapitalLadderTier,
+    NavCashFlowObservation,
+    TwrCapitalLadderReport,
+    evaluate_twr_and_capital_ladder,
+    resolve_capital_ladder_tier,
+)
 from quant_platform_kit.risk.policy_v0_sizing import (
     BETA_SOXL,
     DEFAULT_SLEEVE_BETA_SHARES,
@@ -253,4 +268,15 @@ __all__ = [
     "resolve_mandate_dd_budget",
     "should_notify_attention_transition",
     "publish_attention_telegram_transition",
+    "ExecutionCostDriftConfig",
+    "ExecutionCostDriftReport",
+    "FillCostObservation",
+    "compute_adverse_slippage_bps",
+    "evaluate_execution_cost_drift",
+    "CapitalLadderTier",
+    "DEFAULT_CAPITAL_LADDER_TIERS",
+    "NavCashFlowObservation",
+    "TwrCapitalLadderReport",
+    "evaluate_twr_and_capital_ladder",
+    "resolve_capital_ladder_tier",
 ]
